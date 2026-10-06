@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+.env
+*.log
+uploads/
+exports/
+storage/
+ingestion/data/
+llm_config.json
+.cvlynk-orchestrator.json

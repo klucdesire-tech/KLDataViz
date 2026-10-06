@@ -1,0 +1,523 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>KLDataViz</title>
+<link rel="icon" href="/logo.png">
+<style>
+:root{--blue:#1d7a4c;--blue-d:#15633d;--green:#1d7a4c;--green-d:#15633d;
+--bg:#f6f8f7;--card:#ffffff;--card2:#eef3f0;--line:#e3e9e6;--fg:#1f2937;--muted:#667085;}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{background:linear-gradient(180deg,#eaf4ee 0%,var(--bg) 300px);color:var(--fg);font-family:'Segoe UI',system-ui,sans-serif;padding:30px;min-height:100vh;}
+.wrap{max-width:1120px;margin:0 auto;}
+header{display:flex;align-items:center;gap:18px;padding-bottom:22px;border-bottom:1px solid var(--line);margin-bottom:22px;}
+header img{width:58px;height:72px;object-fit:contain;filter:drop-shadow(0 2px 8px rgba(29,122,76,.25));}
+header .t{flex:1;}
+h1{font-size:25px;font-weight:700;letter-spacing:-.4px;}
+h1 .grad{background:linear-gradient(90deg,#1d7a4c,#3bb273);-webkit-background-clip:text;background-clip:text;color:transparent;}
+.badge{display:inline-flex;align-items:center;gap:8px;padding:6px 15px;border-radius:20px;font-size:12.5px;font-weight:600;border:1px solid var(--line);}
+.badge.online{background:rgba(29,122,76,.12);color:var(--green);border-color:rgba(29,122,76,.3);}
+.badge.offline{background:rgba(248,81,73,.12);color:#f85149;border-color:rgba(248,81,73,.35);}
+.badge.pending{background:rgba(210,153,34,.12);color:#d29922;}
+.dot{width:8px;height:8px;border-radius:50%;background:currentColor;box-shadow:0 0 8px currentColor;}
+.grid{display:grid;grid-template-columns:1.25fr 1fr;gap:16px;align-items:start;}
+.panel{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:20px;}
+.panel.full{grid-column:1/-1;}
+.panel h2{font-size:12px;text-transform:uppercase;letter-spacing:1px;color:var(--muted);margin-bottom:14px;font-weight:600;}
+.kv{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--line);font-size:13.5px;}
+.kv:last-child{border-bottom:none;}
+.kv .k{color:var(--muted);}
+.kv .v{font-weight:600;word-break:break-all;}
+.caps{display:flex;flex-wrap:wrap;gap:7px;margin-top:12px;}
+.cap{background:var(--card2);border:1px solid var(--blue-d);border-radius:7px;padding:5px 11px;font-size:12px;color:#1d7a4c;}
+input{background:var(--card2);color:var(--fg);border:1px solid var(--line);border-radius:10px;padding:12px 15px;font-size:14px;width:100%;font-family:inherit;}
+input:focus{border-color:var(--blue);outline:none;box-shadow:0 0 0 3px rgba(29,122,76,.2);}
+.btn{background:linear-gradient(135deg,var(--blue),var(--blue-d));color:#fff;border:none;border-radius:10px;padding:12px 22px;font-size:14px;font-weight:600;cursor:pointer;transition:filter .15s,transform .1s;}
+.btn:hover{filter:brightness(1.1);}
+.btn:active{transform:translateY(1px);}
+.btn.ghost{background:transparent;border:1px solid var(--line);color:var(--fg);font-weight:500;}
+.btn.green{background:linear-gradient(135deg,#2f9e63,var(--green-d));}
+.row{display:flex;gap:10px;margin-top:14px;}
+.hint{font-size:12px;color:var(--muted);margin-top:10px;}
+.statgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin-top:14px;}
+.chip{background:var(--card2);border:1px solid var(--line);border-radius:10px;padding:13px;text-align:center;}
+.chip .n{font-size:21px;font-weight:700;color:#1d7a4c;}
+.chip .l{font-size:11px;color:var(--muted);margin-top:3px;}
+.taskgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(225px,1fr));gap:12px;margin-top:12px;}
+.taskcard{background:var(--card2);border:1px solid var(--line);border-radius:10px;padding:14px;transition:border-color .15s,transform .1s;}
+.taskcard:hover{border-color:var(--blue);transform:translateY(-1px);}
+.taskcard .tt{font-size:14px;font-weight:600;color:#1d7a4c;margin-bottom:4px;}
+.taskcard .td{font-size:12.5px;color:var(--muted);line-height:1.5;}
+.chatbox{display:flex;flex-direction:column;gap:12px;max-height:460px;overflow-y:auto;margin-bottom:8px;padding:6px 4px;}
+.msg{max-width:84%;padding:11px 15px;border-radius:14px;font-size:13.5px;line-height:1.55;word-break:break-word;}
+.msg .mt{white-space:pre-wrap;}
+.msg.user{align-self:flex-end;background:linear-gradient(135deg,var(--blue),var(--blue-d));color:#fff;border-bottom-right-radius:5px;box-shadow:0 2px 10px rgba(29,122,76,.3);}
+.msg.agent{align-self:flex-start;background:var(--card2);border:1px solid var(--line);border-bottom-left-radius:5px;}
+.msg table{margin-top:10px;font-size:12px;overflow:hidden;border-radius:8px;}
+.msg th{background:rgba(29,122,76,.12);color:#1d7a4c;font-weight:600;text-transform:none;letter-spacing:0;font-size:12px;}
+.msg th,.msg td{padding:6px 9px;}
+.msg td{border-bottom:1px solid var(--line);}
+.msg tr:last-child td{border-bottom:none;}
+.msg tr:nth-child(even) td{background:rgba(0,0,0,.03);}
+table{width:100%;border-collapse:collapse;font-size:12.5px;margin-top:8px;}
+th,td{padding:7px 9px;text-align:left;border-bottom:1px solid var(--line);}
+th{color:var(--muted);font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.4px;}
+.r{text-align:right;}
+.muted{color:var(--muted);}
+.anom{border-left:3px solid #d29922;background:var(--card2);padding:9px 12px;margin:7px 0;border-radius:5px;font-size:12.5px;}
+.empty{color:var(--muted);font-size:13px;padding:14px 0;}
+.spin{display:inline-block;width:14px;height:14px;border:2px solid var(--muted);border-top-color:transparent;border-radius:50%;animation:sp .7s linear infinite;vertical-align:middle;margin-right:7px;}
+@keyframes sp{to{transform:rotate(360deg)}}
+ul{list-style:none;font-size:13.5px;line-height:2.15;}
+ul li::before{content:"—";color:var(--blue);margin-right:9px;font-weight:700;}
+footer{margin-top:24px;color:var(--muted);font-size:11.5px;border-top:1px solid var(--line);padding-top:14px;}
+@media(max-width:860px){.grid{grid-template-columns:1fr;}}
+</style>
+<script src="/chart.umd.min.js"></script>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <img src="/logo.png" alt="KLDataViz">
+    <div class="t"><h1><span class="grad">KLDataViz</span></h1></div>
+    <span id="statusBadge" class="badge pending"><span class="dot"></span>Connexion…</span>
+  </header>
+
+  <div class="grid">
+    <div class="panel full">
+      <h2>Analyser un fichier de données</h2>
+      <input id="filePath" placeholder="Chemin du fichier — CSV, Excel ou JSON" value="">
+      <div class="row">
+        <button class="btn ghost" onclick="fetchSource()">Récupérer la source</button>
+        <button class="btn green" id="analyzeBtn" onclick="runAnalyze()">Lancer l'analyse</button>
+        <button class="btn ghost" onclick="setPath('C:/Users/Luc Déisré KOUAKOU/OneDrive/Desktop/cours/AGENT IA/Projets/TA-MOH_analyse/data/fact_district.csv')">Exemple</button>
+      </div>
+      <div class="row" id="sourceRow" style="display:none;">
+        <input id="sourceUrl" placeholder="Collez ici l'URL ou le chemin de la source à analyser…">
+        <button class="btn green" onclick="confirmSource()">Valider</button>
+        <label class="btn ghost" for="sourceFile" style="cursor:pointer;margin:0;">📂 Choisir un fichier</label>
+        <input type="file" id="sourceFile" onchange="uploadSource()" style="display:none;">
+      </div>
+      <div class="row" id="exportRow">
+        <button class="btn" onclick="exportResult('pdf')">Exporter en PDF</button>
+        <button class="btn" onclick="exportResult('excel')">Exporter en Excel</button>
+        <button class="btn" onclick="exportResult('html')">Exporter en HTML</button>
+      </div>
+      <div class="hint">Le fichier est lu localement — il n'est jamais envoyé à l'extérieur.</div>
+      <div id="msg"></div>
+      <div id="result"></div>
+    </div>
+
+    <div class="panel full">
+      <h2>Ingestion — data ingestion agent (la source n'est jamais modifiée)</h2>
+      <input id="ingestPath" placeholder="Chemin du fichier, URL ou DSN PostgreSQL" value="">
+      <div class="row">
+        <input id="ingestSheet" placeholder="Feuille Excel (optionnel)" style="max-width:200px">
+        <input id="ingestTable" placeholder="Table source (optionnel)" style="max-width:220px">
+        <input id="ingestName" placeholder="Nom logique (optionnel)" style="max-width:200px">
+        <button class="btn green" id="ingestBtn" onclick="runIngest()">Ingérer</button>
+        <button class="btn ghost" onclick="loadRegistry()">Registre PostgreSQL</button>
+      </div>
+      <div class="hint">Détection format / encodage / séparateur / feuilles / types / identifiants, copie RAW avec SHA-256 vérifié, version de travail (Parquet) et métadonnées dans PostgreSQL.</div>
+      <div id="ingestResult"></div>
+      <div id="registry"></div>
+    </div>
+
+    <div class="panel full">
+      <h2>Ce que l'agent peut accomplir</h2>
+      <div class="taskgrid">
+        <div class="taskcard"><div class="tt">Analyser</div><div class="td">Profilage, statistiques descriptives, corrélations, distributions.</div></div>
+        <div class="taskcard"><div class="tt">Nettoyer &amp; contrôler</div><div class="td">Qualité des données (DQA), valeurs manquantes, doublons, cohérence.</div></div>
+        <div class="taskcard"><div class="tt">Modéliser</div><div class="td">Schéma en étoile, tables de faits &amp; dimensions, base SQLite.</div></div>
+        <div class="taskcard"><div class="tt">Détecter des anomalies</div><div class="td">IQR, z-score, ruptures de tendance, comparaisons entre groupes.</div></div>
+        <div class="taskcard"><div class="tt">Visualiser</div><div class="td">Dashboards HTML interactifs, graphiques, cartes KPI.</div></div>
+        <div class="taskcard"><div class="tt">Rapporter</div><div class="td">Rapports PDF, Excel, HTML, synthèse exécutive.</div></div>
+        <div class="taskcard"><div class="tt">Préparer pour BI</div><div class="td">Power BI, Excel / Power Query, connexions aux données.</div></div>
+        <div class="taskcard"><div class="tt">Calculer des KPI</div><div class="td">Indicateurs, data marts, agrégations temporelles.</div></div>
+      </div>
+    </div>
+
+    <div class="panel full">
+      <h2>Tâches assignées</h2>
+      <div id="tasks" class="empty">Chargement…</div>
+    </div>
+
+    <div class="panel full">
+      <h2>Interroger les données (chat)</h2>
+      <div id="chatBox" class="chatbox"></div>
+      <div class="row">
+        <input id="chatInput" placeholder="Ex. « somme de value par district » · « combien de lignes dans fact_district ? »" onkeydown="if(event.key==='Enter')sendQuestion()">
+        <button class="btn green" onclick="sendQuestion()">Envoyer</button>
+      </div>
+      <div class="hint" id="chatHints">Posez n'importe quelle question : « corrélation entre les colonnes de fact_district » · « évolution de value par quarter » · « top 5 districts par value » · « fais un graphique de value par région »</div>
+    </div>
+  </div>
+
+  <footer id="meta">Console locale · connectée à api.cvlynk.com</footer>
+</div>
+
+<script>
+const $=id=>document.getElementById(id);
+function fmt(t){return t?new Date(t).toLocaleString('fr-FR'):'—';}
+async function loadStatus(){
+  try{
+    const r=await fetch('/api/status');const d=await r.json();
+    const st=(d.status||'?').toUpperCase();
+    const b=$('statusBadge');
+    b.className='badge '+(st==='ONLINE'?'online':st==='OFFLINE'?'offline':'pending');
+    b.innerHTML=`<span class="dot"></span>${st==='ONLINE'?'Agent en ligne':st==='OFFLINE'?'Hors ligne':st}`;
+    $('meta').textContent=`Console locale · connectée à api.cvlynk.com · ${(d.capabilities||[]).length} capacités · heartbeat auto 45 s`;
+  }catch(e){
+    $('statusBadge').className='badge offline';$('statusBadge').innerHTML='<span class="dot"></span>Hors ligne';
+  }
+}
+async function loadTasks(){
+  try{
+    const r=await fetch('/api/tasks');const d=await r.json();
+    if(!Array.isArray(d)||d.length===0){$('tasks').innerHTML='<div class="empty">Aucune tâche pour le moment.</div>';return;}
+    $('tasks').innerHTML='<table><tr><th>ID</th><th>Statut</th><th>Type</th></tr>'+d.map(t=>
+      `<tr><td>${t.id||t.task_id||'—'}</td><td>${t.status||'—'}</td><td>${t.type||'—'}</td></tr>`).join('')+'</table>';
+  }catch(e){$('tasks').innerHTML='<div class="empty">Impossible de charger les tâches.</div>';}
+}
+function setPath(p){$('filePath').value=p;}
+function notify(msg, isErr){
+  const m=$('msg');
+  m.innerHTML=`<div class="${isErr?'anom':'empty'}" style="padding:10px 0;">${msg}</div>`;
+  if(msg) setTimeout(()=>{if(m.innerHTML.includes(msg))m.innerHTML='';},6000);
+}
+async function fetchSource(){
+  try{
+    const r=await fetch('/api/fetch-source');const d=await r.json();
+    if(d.source){$('filePath').value=d.source;notify('Source récupérée : '+d.source);}
+    else{
+      $('sourceRow').style.display='flex';
+      $('sourceUrl').focus();
+      notify('Aucune tâche côté orchestrateur. Collez une URL ou un chemin de fichier, puis « Valider la source ».', true);
+    }
+  }catch(e){notify('Erreur : '+e, true);}
+}
+function confirmSource(){
+  const u=$('sourceUrl').value.trim();
+  if(u){$('filePath').value=u;$('sourceRow').style.display='none';notify('Source définie : '+u);}
+  else notify('Collez une URL ou un chemin de fichier.', true);
+}
+async function uploadSource(){
+  const f=$('sourceFile').files[0];
+  if(!f) return;
+  notify('Envoi de '+f.name+'…');
+  try{
+    const reader=new FileReader();
+    reader.onload=async ()=>{
+      const data=String(reader.result).split(',')[1]||'';
+      const r=await fetch('/api/upload-source',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:f.name,data})});
+      const d=await r.json();
+      if(d.path){$('filePath').value=d.path;$('sourceRow').style.display='none';notify('Fichier chargé : '+d.path);}
+      else notify('Échec : '+(d.error||'inconnu'), true);
+    };
+    reader.readAsDataURL(f);
+  }catch(e){notify('Erreur : '+e, true);}
+  $('sourceFile').value='';
+}
+async function exportResult(kind){
+  try{
+    const r=await fetch('/api/export/'+kind,{method:'POST'});
+    const d=await r.json();
+    if(d.url){
+      const a=document.createElement('a');a.href=d.url;a.download=d.file||'';document.body.appendChild(a);a.click();a.remove();
+      notify('Export '+kind.toUpperCase()+' téléchargé : '+d.file);
+    } else {
+      notify(d.error||'Erreur export.', true);
+    }
+  }catch(e){notify('Erreur : '+e, true);}
+}
+async function runAnalyze(){
+  const p=$('filePath').value.trim();
+  if(!p){$('result').innerHTML='<div class="anom">⚠ Indiquez un chemin de fichier.</div>';return;}
+  const btn=$('analyzeBtn');btn.disabled=true;btn.innerHTML='<span class="spin"></span>Analyse en cours…';
+  $('result').innerHTML='<div class="empty"><span class="spin"></span>Analyse en cours…</div>';
+  try{
+    const r=await fetch('/api/analyze',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({file_path:p})});
+    const d=await r.json();
+    if(d.error){$('result').innerHTML=`<div class="anom">⚠ ${d.error}</div>`;btn.disabled=false;btn.textContent="Lancer l'analyse";return;}
+    renderResult(d);
+  }catch(e){$('result').innerHTML='<div class="anom">⚠ Erreur : '+e+'</div>';}
+  btn.disabled=false;btn.textContent="Lancer l'analyse";
+}
+function renderResult(d){
+  let html=`
+    <div class="statgrid">
+      <div class="chip"><div class="n">${d.rows.toLocaleString('fr-FR')}</div><div class="l">lignes</div></div>
+      <div class="chip"><div class="n">${d.columns}</div><div class="l">colonnes</div></div>
+      <div class="chip"><div class="n">${d.completeness_pct}%</div><div class="l">complétude</div></div>
+      <div class="chip"><div class="n">${d.missing_total}</div><div class="l">manquantes</div></div>
+      <div class="chip"><div class="n">${(d.anomalies||[]).length}</div><div class="l">anomalies</div></div>
+    </div>
+    <h2 style="margin-top:20px;">Colonnes</h2>
+    <table><tr><th>Variable</th><th>Type</th><th class="r">Uniques</th><th class="r">Manquantes</th><th class="r">%</th></tr>
+    ${d.columns_detail.map(c=>`<tr><td>${c.name}</td><td>${c.dtype}</td><td class="r">${c.unique}</td><td class="r">${c.missing}</td><td class="r">${c.missing_pct}%</td></tr>`).join('')}
+    </table>`;
+  const ns=Object.entries(d.numeric_stats||{});
+  if(ns.length){
+    html+=`<h2 style="margin-top:20px;">Statistiques numériques</h2>
+    <table><tr><th>Variable</th><th class="r">Moyenne</th><th class="r">Écart-type</th><th class="r">Min</th><th class="r">Médiane</th><th class="r">Max</th><th class="r">Hors-normes</th></tr>
+    ${ns.map(([k,v])=>`<tr><td>${k}</td><td class="r">${v.mean}</td><td class="r">${v.std}</td><td class="r">${v.min}</td><td class="r">${v.median}</td><td class="r">${v.max}</td><td class="r">${v.outliers}</td></tr>`).join('')}
+    </table>`;
+  }
+  if((d.correlations||[]).length){
+    html+=`<h2 style="margin-top:20px;">Corrélations</h2>
+    <table><tr><th>Variable A</th><th>Variable B</th><th class="r">r</th></tr>
+    ${d.correlations.map(c=>`<tr><td>${c.a}</td><td>${c.b}</td><td class="r">${c.r}</td></tr>`).join('')}</table>`;
+  }
+  if((d.anomalies||[]).length){
+    html+=`<h2 style="margin-top:20px;">Anomalies</h2>`;
+    html+=d.anomalies.map(a=>`<div class="anom"><b>${a.column}</b> — ${a.type} (${a.count}) : ${a.detail}</div>`).join('');
+  }
+  $('result').innerHTML=html;
+}
+async function runIngest(){
+  const p=$('ingestPath').value.trim();
+  const box=$('ingestResult');
+  if(!p){box.innerHTML='<div class="anom">⚠ Indiquez un chemin, une URL ou un DSN.</div>';return;}
+  const btn=$('ingestBtn');btn.disabled=true;btn.innerHTML='<span class="spin"></span>Ingestion…';
+  box.innerHTML='<div class="empty"><span class="spin"></span>Ingestion en cours (détection, copie RAW, version de travail, métadonnées)…</div>';
+  try{
+    const body={file_path:p,sheet:$('ingestSheet').value.trim(),table:$('ingestTable').value.trim(),name:$('ingestName').value.trim()};
+    const r=await fetch('/api/ingest',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    const d=await r.json();
+    if(d.error){box.innerHTML=`<div class="anom">⚠ ${d.error}</div>`;}
+    else renderIngest(d);
+  }catch(e){box.innerHTML='<div class="anom">⚠ Erreur : '+e+'</div>';}
+  btn.disabled=false;btn.textContent='Ingérer';
+}
+function renderIngest(d){
+  const sm=d.source_metadata||{}, v=d.version||{}, st=d.storage||{}, ms=d.metadata_store||{};
+  const intg=sm.integrity||{};
+  const badge=(d.status==='OK')?'online':(d.status==='ERREUR'?'offline':'pending');
+  let html=`<div class="statgrid">
+    <div class="chip"><div class="n">${(d.row_count||0).toLocaleString('fr-FR')}</div><div class="l">lignes</div></div>
+    <div class="chip"><div class="n">${d.column_count||0}</div><div class="l">colonnes</div></div>
+    <div class="chip"><div class="n">v${String(v.version_no||0).padStart(3,'0')}</div><div class="l">version</div></div>
+    <div class="chip"><div class="n">${(d.variables||[]).filter(c=>c.id_candidate).length}</div><div class="l">identifiants</div></div>
+    <div class="chip"><div class="n">${(d.warnings||[]).length}</div><div class="l">avertissements</div></div>
+    <div class="chip"><div class="n">${d.duration_ms||0}</div><div class="l">ms</div></div>
+  </div>
+  <div class="kv"><span class="k">statut</span><span class="v"><span class="badge ${badge}"><span class="dot"></span>${d.status}</span></span></div>
+  <div class="kv"><span class="k">dataset_id</span><span class="v">${d.dataset_id||'—'}</span></div>
+  <div class="kv"><span class="k">dataset_version_id</span><span class="v">${d.dataset_version_id||'—'}</span></div>
+  <div class="kv"><span class="k">format / encodage</span><span class="v">${sm.format||'—'} / ${sm.encoding||'—'}${sm.separator?' — séparateur « '+sm.separator+' »':''}</span></div>
+  <div class="kv"><span class="k">source intacte</span><span class="v">${intg.source_unchanged===true?'OUI':'—'} <span class="muted">${intg.mode||''}</span></span></div>
+  <div class="kv"><span class="k">version de travail</span><span class="v">${st.work_path||'—'}</span></div>
+  <div class="kv"><span class="k">métadonnées</span><span class="v">${ms.backend||'—'} — ${JSON.stringify(ms.written||{})}</span></div>`;
+  const vars=d.variables||[];
+  if(vars.length){
+    html+=`<h2 style="margin-top:18px;">Variables (${vars.length})</h2>
+    <table><tr><th>#</th><th>Variable</th><th>Type</th><th>Rôle</th><th class="r">Vides</th><th class="r">Uniques</th><th>ID</th></tr>
+    ${vars.map(c=>`<tr><td>${c.ordinal}</td><td>${c.name}</td><td>${c.normalized_type}</td><td>${c.semantic_role}</td>
+      <td class="r">${c.null_pct}%</td><td class="r">${c.distinct_count}</td><td>${c.id_candidate?'✔':''}</td></tr>`).join('')}</table>`;
+  }
+  const w=d.warnings||[];
+  html+=`<h2 style="margin-top:18px;">Avertissements (${w.length})</h2>`;
+  html+= w.length? w.slice(0,12).map(x=>`<div class="anom">${x}</div>`).join('')+(w.length>12?`<div class="empty">… ${w.length-12} autre(s)</div>`:'') : '<div class="empty">Aucun avertissement.</div>';
+  const e=d.errors||[];
+  if(e.length){html+=`<h2 style="margin-top:18px;">Erreurs</h2>`+e.map(x=>`<div class="anom" style="border-color:#f85149;">${x}</div>`).join('');}
+  html+=`<div class="hint">Contrat complet : /api/ingest · ${d.run_id||''} · ${(d.audit||[]).length} étapes journalisées</div>`;
+  $('ingestResult').innerHTML=html;
+}
+async function loadRegistry(){
+  const box=$('registry');
+  box.innerHTML='<div class="empty"><span class="spin"></span>Lecture du registre…</div>';
+  try{
+    const r=await fetch('/api/ingest/list');const d=await r.json();
+    if(d.error){box.innerHTML=`<div class="anom">⚠ ${d.error}</div>`;return;}
+    const s=(d.summary||{}).counts||{};
+    let html=`<h2 style="margin-top:18px;">Registre de métadonnées — ${d.backend}</h2>
+      <div class="hint">${s.datasets??0} dataset(s) · ${s.versions??0} version(s) · ${s.colonnes??0} colonne(s) · ${s.executions??0} exécution(s)</div>`;
+    const ds=d.datasets||[];
+    if(ds.length){
+      html+=`<table><tr><th>dataset_id</th><th>v</th><th>Nom</th><th>Format</th><th class="r">Lignes</th><th class="r">Col.</th><th>Ingéré le</th></tr>
+      ${ds.map(x=>`<tr><td>${x.dataset_id}</td><td>v${String(x.version_no).padStart(3,'0')}</td><td>${x.dataset_name}</td><td>${x.source_format||'—'}</td>
+        <td class="r">${x.row_count}</td><td class="r">${x.column_count}</td><td class="muted">${fmt(x.ingested_at)}</td></tr>`).join('')}</table>`;
+    } else html+='<div class="empty">Registre vide.</div>';
+    box.innerHTML=html;
+  }catch(e){box.innerHTML='<div class="anom">⚠ Erreur : '+e+'</div>';}
+}
+loadStatus();loadTasks();
+setInterval(loadStatus,60000);
+
+function esc(s){return String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+function md(s){return esc(s).replace(/\*\*(.+?)\*\*/g,'<b>$1</b>').replace(/`([^`]+)`/g,'<code>$1</code>');}
+function addMsg(role, text, table, charts){
+  const box=$('chatBox');
+  const div=document.createElement('div');
+  div.className='msg '+role;
+  // normaliser en liste de graphiques
+  const list = Array.isArray(charts) ? charts.filter(c=>c && c.labels && c.values)
+             : (charts && charts.labels && charts.values ? [charts] : []);
+  let inner=`<div class="mt">${md(text)}</div>`;
+  if(list.length===1){
+    // graphique unique : limiter les barres au top 12
+    let c=list[0], truncated=0;
+    if(c.type==='bar' && c.labels.length>12){
+      const v0=c.values[0]||[];
+      const idx=c.labels.map((_,i)=>i).sort((a,b)=>(Number(v0[b])||0)-(Number(v0[a])||0)).slice(0,12);
+      truncated=c.labels.length-idx.length;
+      c={type:c.type,title:c.title,labels:idx.map(i=>c.labels[i]),values:c.values.map(v=>idx.map(i=>v[i])),seriesNames:c.seriesNames};
+    }
+    const chartH=Math.min(540,Math.max(260,c.labels.length*22+60));
+    inner+=`<div style="font-size:12px;color:#1d7a4c;font-weight:600;margin-top:10px;">${esc(c.title||'')}</div>`;
+    inner+=`<div style="position:relative;height:${chartH}px;margin-top:6px;"><canvas></canvas></div>`;
+    if(truncated>0) inner+=`<div class="hint">Top ${c.labels.length} sur ${c.labels.length+truncated} indicateurs</div>`;
+    list[0]=c;
+  } else if(list.length>1){
+    inner+=`<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px;margin-top:10px;">`+
+      list.map((c,i)=>`<div style="border:1px solid var(--line);border-radius:10px;padding:10px;"><div style="font-size:12px;color:#1d7a4c;font-weight:600;margin-bottom:6px;">${esc(c.title||('Graphique '+(i+1)))}</div><div style="position:relative;height:200px;"><canvas></canvas></div></div>`).join('')+
+      `</div>`;
+  }
+  if(table){
+    const th=table.columns.map(c=>`<th>${esc(c)}</th>`).join('');
+    const trs=table.rows.slice(0,12).map(r=>`<tr>${r.map(c=>`<td>${esc(c)}</td>`).join('')}</tr>`).join('');
+    if(list.length>0){
+      inner+=`<details style="margin-top:10px;"><summary style="cursor:pointer;color:#1d7a4c;font-size:12px;font-weight:600;">📋 Voir le tableau (${table.rows.length} lignes)</summary><table>${th}${trs}</table></details>`;
+    } else {
+      inner+=`<table>${th}${trs}</table>`;
+    }
+    if(table.rows.length>12) inner+=`<div class="hint">… ${table.rows.length-12} ligne(s) supplémentaire(s)</div>`;
+  }
+  div.innerHTML=inner;
+  box.appendChild(div);
+  if(list.length){
+    const canvases=div.querySelectorAll('canvas');
+    list.forEach((c,i)=>{ if(canvases[i]) try{ drawChart(canvases[i],c); }catch(e){ console.warn('chart',e); } });
+  }
+  box.scrollTop=box.scrollHeight;
+}
+function drawChart(canvas, ch){
+  if(!window.Chart) return;
+  const blue='#1d7a4c', green='#3bb273';
+  const t=(ch.type||'bar').toLowerCase();
+  if(t==='box'){ drawBoxplot(canvas, ch); return; }
+  const isPie=(t==='pie'||t==='doughnut');
+  const isLine=(t==='line'||t==='area');
+  const isScatter=(t==='scatter');
+  const isHist=(t==='histogram');
+  const type = isPie ? (t==='doughnut'?'doughnut':'pie') : (isLine?'line':(isScatter?'scatter':'bar'));
+  const labels=(ch.labels||[]).map(l=>{const s=String(l); return s.length>40? s.slice(0,39)+'…' : s;});
+  const horizontal=(type==='bar' && !isHist && labels.length>8);
+  const palette=[blue, green, '#2f9e63', '#52c489', '#74d1a0', '#f4c95d', '#e76f51', '#8fd18f'];
+  const single=(ch.values||[]).length<=1;
+  let datasets;
+  if(isScatter){
+    datasets=(ch.values||[]).map((vals,i)=>({
+      label:(ch.seriesNames&&ch.seriesNames[i])||'',
+      data:(ch.labels||[]).map((x,j)=>({x:Number(x),y:Number(vals[j])})),
+      backgroundColor:palette[i%palette.length],
+      borderColor:palette[i%palette.length],
+      pointRadius:4, pointHoverRadius:6
+    }));
+  } else {
+    datasets=(ch.values||[]).map((vals,i)=>({
+      label:(ch.seriesNames&&ch.seriesNames[i])||(single?'':('Série '+(i+1))),
+      data:vals,
+      backgroundColor:isPie? palette : (single? blue : palette[i%palette.length]),
+      borderColor:'#0a1824',
+      borderWidth:1,
+      borderRadius: horizontal? 3 : 0,
+      fill: t==='area',
+      tension: isLine? 0.3 : 0,
+      barPercentage: isHist? 1.0 : 0.9,
+      categoryPercentage: isHist? 1.0 : 0.8
+    }));
+  }
+  new Chart(canvas, {
+    type: type,
+    data: { labels: isScatter? undefined : labels, datasets: datasets },
+    options: {
+      responsive:true, maintainAspectRatio:false,
+      indexAxis: horizontal? 'y' : 'x',
+      plugins:{ legend:{ display: !single || isPie, labels:{color:'#667085',font:{size:11}} } },
+      scales: isPie? {} : (isScatter? {
+        x:{ type:'linear', ticks:{color:'#667085',font:{size:10}}, grid:{color:'#e5e7eb'} },
+        y:{ ticks:{color:'#667085',font:{size:10}}, grid:{color:'#e5e7eb'} }
+      } : (horizontal? {
+        x:{ ticks:{color:'#667085',font:{size:10}}, grid:{color:'#e5e7eb'} },
+        y:{ ticks:{color:'#374151',font:{size:10}}, grid:{display:false} }
+      } : {
+        x:{ ticks:{color:'#374151',font:{size:10}, maxRotation:40, minRotation:0}, grid:{display:false} },
+        y:{ ticks:{color:'#667085',font:{size:10}}, grid:{color:'#e5e7eb'} }
+      }))
+    }
+  });
+}
+function drawBoxplot(canvas, ch){
+  const ctx=canvas.getContext('2d');
+  const parent=canvas.parentElement;
+  const w=parent.clientWidth||400, h=parent.clientHeight||200;
+  const dpr=window.devicePixelRatio||1;
+  canvas.width=w*dpr; canvas.height=h*dpr; canvas.style.width=w+'px'; canvas.style.height=h+'px';
+  ctx.scale(dpr,dpr);
+  const blue='#1d7a4c';
+  const cats=ch.labels||[];
+  const boxes=ch.values||[];
+  const n=Math.min(cats.length, boxes.length);
+  if(n===0) return;
+  let all=[];
+  boxes.forEach(b=>{ if(Array.isArray(b)) all=all.concat(b.map(Number)); });
+  if(all.length===0) return;
+  let mn=Math.min(...all), mx=Math.max(...all);
+  if(!isFinite(mn)||!isFinite(mx)) return;
+  if(mn===mx){ mn-=1; mx+=1; }
+  const padL=Math.min(180, Math.max(80, w*0.35)), padR=16, padT=12, padB=24;
+  const plotW=w-padL-padR, plotH=h-padT-padB;
+  const x=v=>padL+(v-mn)/(mx-mn)*plotW;
+  const yStep=plotH/n;
+  const bw=Math.min(16, yStep*0.6);
+  ctx.clearRect(0,0,w,h);
+  ctx.strokeStyle='#e5e7eb'; ctx.fillStyle='#667085'; ctx.font='10px sans-serif'; ctx.lineWidth=1;
+  ctx.beginPath(); ctx.moveTo(padL,padT); ctx.lineTo(padL,h-padB); ctx.lineTo(w-padR,h-padB); ctx.stroke();
+  const ticks=5;
+  for(let k=0;k<=ticks;k++){
+    const v=mn+(mx-mn)*k/ticks, px=x(v);
+    ctx.fillText(String(Math.round(v*100)/100), px-8, h-padB+12);
+  }
+  for(let i=0;i<n;i++){
+    const b=boxes[i]; if(!Array.isArray(b)||b.length<5) continue;
+    const min=Number(b[0]), q1=Number(b[1]), med=Number(b[2]), q3=Number(b[3]), max=Number(b[4]);
+    const cy=padT+yStep*i+yStep/2;
+    const y0=cy-bw/2, y1=cy+bw/2;
+    ctx.strokeStyle='#667085'; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(x(min),cy); ctx.lineTo(x(max),cy); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(x(min),cy-4); ctx.lineTo(x(min),cy+4); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(x(max),cy-4); ctx.lineTo(x(max),cy+4); ctx.stroke();
+    ctx.fillStyle=blue;
+    ctx.fillRect(x(q1), y0, Math.max(1,x(q3)-x(q1)), bw);
+    ctx.strokeStyle='#0a1824'; ctx.lineWidth=2;
+    ctx.beginPath(); ctx.moveTo(x(med),y0); ctx.lineTo(x(med),y1); ctx.stroke();
+    ctx.fillStyle='#374151'; ctx.textAlign='right'; ctx.textBaseline='middle';
+    const lbl=String(cats[i]);
+    ctx.fillText(lbl.length>22? lbl.slice(0,21)+'…':lbl, padL-6, cy);
+  }
+}
+async function sendQuestion(){
+  const inp=$('chatInput');const q=inp.value.trim();
+  if(!q) return;
+  inp.value='';
+  addMsg('user', q);
+  const box=$('chatBox');
+  const spin=document.createElement('div');
+  spin.className='msg agent';spin.innerHTML='<span class="spin"></span> Analyse…';
+  box.appendChild(spin);box.scrollTop=box.scrollHeight;
+  try{
+    const r=await fetch('/api/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({question:q})});
+    const d=await r.json();
+    box.removeChild(spin);
+    addMsg('agent', d.answer||'(pas de réponse)', d.table, d.charts);
+  }catch(e){
+    box.removeChild(spin);
+    addMsg('agent', 'Erreur : '+e);
+  }
+}
+$('ingestPath').value='C:\\Users\\Luc Déisré KOUAKOU\\OneDrive\\Desktop\\cours\\AGENT IA\\Projets\\TA-MOH_analyse\\data\\quality_issues.csv';
+</script>
+</body>
+</html>

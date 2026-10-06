@@ -1,0 +1,63 @@
+# =====================================================================
+# Secrets — ne JAMAIS committer
+# =====================================================================
+KLDataViz_console/agent_token.txt
+KLDataViz_console/llm_config.json
+.env
+*.env
+.env.*
+*.pem
+*.key
+.cvlynk-orchestrator.json
+
+# =====================================================================
+# Données réelles (santé / VIH) — ne JAMAIS publier
+# =====================================================================
+# Analyse TA-MOH : jeu de données de santé réel, exclu en totalité
+TA-MOH_analyse/
+tamoh_rapport.xlsx
+
+# Copies de travail et échantillons générés par l'agent d'ingestion
+KLDataViz_console/storage/
+KLDataViz_console/exports/
+HERMES_DA/storage/
+
+# Fichiers de données bruts / dérivés (quelles que soient leur extension)
+*.db
+*.sqlite
+*.sqlite3
+*.parquet
+*.csv
+*.tsv
+*.xlsx
+*.xls
+*.feather
+*.crdownload
+
+# =====================================================================
+# Environnements virtuels et caches
+# =====================================================================
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ipynb_checkpoints/
+
+# =====================================================================
+# Outillage
+# =====================================================================
+node_modules/
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# =====================================================================
+# Médias d'enregistrement (cours / réunions) — hors périmètre code
+# =====================================================================
+*.m4a
+*.mp4
+*.vtt
