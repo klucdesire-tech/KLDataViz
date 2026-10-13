@@ -1234,6 +1234,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self._send(403, {"error": str(e)})
         except T.QuotaExceeded as e:
             self._send(402, {"error": str(e), "quota": True})
+        except T.Unavailable as e:
+            self._send(503, {"error": str(e), "unavailable": True})
         except PermissionError:
             self._send(403, {"error": "Accès refusé."})
         except (ValueError, KeyError, FileNotFoundError, netguard.BlockedURL) as e:

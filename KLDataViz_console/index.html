@@ -564,6 +564,15 @@ tr.versions td{background:var(--surface-2);font-size:13px}
     <button class="btn ghost" type="button" id="obLogout">Utiliser un autre compte</button>
   </form>
 </div>
+<div class="overlay" id="down" hidden>
+  <div class="card">
+    <h2 style="font-size:20px">Service momentanément indisponible</h2>
+    <p class="sub" id="downMsg"></p>
+    <p class="sub">Vos données ne sont pas perdues. Réessayez dans quelques minutes.</p>
+    <button class="btn primary" type="button" onclick="location.reload()">Réessayer</button>
+    <button class="btn ghost" type="button" id="downLogout">Se déconnecter</button>
+  </div>
+</div>
 <div class="toast" id="toast" hidden></div>
 
 <script>
@@ -590,8 +599,15 @@ async function authHeaders(){if(!CLOUD||!sb)return {};const {data}=await sb.auth
 async function api(url,body){
   try{
     const h=await authHeaders();
-    const r=await fetch(url,body===undefined?{headers:h}:{method:'POST',headers:{'Content-Type':'application/json',...h},body:JSON.stringify(body)});
-    if(CLOUD&&r.status===401){location.replace('/login');return {error:'Session expirée. Reconnexion…'}}
+    let r=await fetch(url,body===undefined?{headers:h}:{method:'POST',headers:{'Content-Type':'application/json',...h},body:JSON.stringify(body)});
+    if(CLOUD&&r.status===401){
+      // Jeton peut-être expiré : on le renouvelle une fois avant de renvoyer vers la connexion.
+      const {data}=await sb.auth.refreshSession();
+      if(data?.session){const h2={Authorization:'Bearer '+data.session.access_token};
+        r=await fetch(url,body===undefined?{headers:h2}:{method:'POST',headers:{'Content-Type':'application/json',...h2},body:JSON.stringify(body)})}
+      if(r.status===401){await sb.auth.signOut();location.replace('/login?expired=1');return {error:'Session expirée. Reconnexion…'}}
+    }
+    if(CLOUD&&r.status===503){const d=await jparse(r);showDown(d.error);return d}
     const d=await jparse(r);
     if(CLOUD&&r.status===409&&d&&d.onboarding)showOnboarding();
     if(CLOUD&&(r.status===402||url==='/api/analyze'||url==='/api/chat'||url==='/api/insights'))refreshMe();
@@ -1267,11 +1283,14 @@ function renderMe(me){
   $('#teamCard').hidden=me.role!=='owner';$('#adminCard').hidden=!me.is_admin;$('#adminLink').hidden=!me.is_admin;
 }
 async function refreshMe(){if(!CLOUD||!state.me)return;const me=await fetch('/api/me',{headers:await authHeaders()}).then(r=>r.json()).catch(()=>null);if(me&&me.plan)renderMe(me)}
+function showDown(msg){
+  const o=$('#down');if(!o)return;$('#downMsg').textContent=msg||'Le service est momentanément indisponible.';o.hidden=false;
+}
 function showOnboarding(email){$('#onboard').hidden=false;if(email)$('#onboardSub').textContent=`Connecté en tant que ${email}. Votre espace regroupe vos données, vos rapports et votre équipe. Essai gratuit de 14 jours.`;$('#obOrg').focus()}
 $('#onboardForm').addEventListener('submit',async e=>{e.preventDefault();const b=e.submitter||$('#onboardForm .primary');b.disabled=true;
   const d=await api('/api/onboarding',{org:$('#obOrg').value.trim()});b.disabled=false;if(d.error){toast(d.error);return}location.reload()});
 async function logout(){if(sb)await sb.auth.signOut();location.replace('/login')}
-$('#logoutBtn').onclick=logout;$('#obLogout').onclick=logout;
+$('#logoutBtn').onclick=logout;$('#obLogout').onclick=logout;$('#downLogout').onclick=logout;
 async function loadTeam(){
   if(state.me?.role!=='owner')return;
   const t=await api('/api/team');if(t.error){$('#teamList').innerHTML=`<div class="alert">${esc(t.error)}</div>`;return}

@@ -18,7 +18,7 @@ import time
 import urllib.error
 import urllib.request
 
-from tenancy import AuthError, Ctx, Forbidden, QuotaExceeded  # noqa: F401 (réexportées)
+from tenancy import AuthError, Ctx, Forbidden, QuotaExceeded, Unavailable  # noqa: F401 (réexportées)
 
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "").rstrip("/")
 # Clé « anon » du projet Supabase kldataviz : publique par conception (envoyée à chaque navigateur),
@@ -95,8 +95,13 @@ def is_platform_admin(email: str) -> bool:
 def db():
     import psycopg
     if not DATABASE_URL:
-        raise RuntimeError("DATABASE_URL manquant")
-    return psycopg.connect(DATABASE_URL, autocommit=True, prepare_threshold=None, connect_timeout=10)
+        raise Unavailable("Base de données non configurée.")
+    try:
+        return psycopg.connect(DATABASE_URL, autocommit=True, prepare_threshold=None, connect_timeout=10)
+    except psycopg.OperationalError as exc:
+        import sys
+        sys.stderr.write("[base] connexion impossible : " + str(exc).splitlines()[0][:200] + "\n")
+        raise Unavailable("La base de données est momentanément injoignable. Réessayez dans quelques minutes.")
 
 
 def q(sql, params=(), one=False):
@@ -129,10 +134,12 @@ def verify_token(token: str) -> dict:
     try:
         with urllib.request.urlopen(req, timeout=10) as r:
             u = json.loads(r.read().decode())
-    except urllib.error.HTTPError:
-        raise AuthError("Session expirée. Reconnectez-vous.")
+    except urllib.error.HTTPError as exc:
+        if exc.code in (401, 403):
+            raise AuthError("Session expirée. Reconnectez-vous.")
+        raise Unavailable("Le service de connexion répond mal. Réessayez dans un instant.")
     except Exception:
-        raise AuthError("Service de connexion injoignable. Réessayez.")
+        raise Unavailable("Service de connexion injoignable. Réessayez dans un instant.")
     user = {"id": u["id"], "email": (u.get("email") or "").lower(),
             "name": (u.get("user_metadata") or {}).get("full_name") or ""}
     with _cache_lock:

@@ -30,6 +30,10 @@ class QuotaExceeded(Exception):
     """Quota du plan atteint (HTTP 402)."""
 
 
+class Unavailable(Exception):
+    """Service tiers injoignable : connexion Supabase ou base de données (HTTP 503)."""
+
+
 _local = threading.local()
 _states = {}
 _states_lock = threading.Lock()

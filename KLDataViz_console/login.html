@@ -150,6 +150,7 @@ sb.auth.onAuthStateChange(ev=>{if(ev==='PASSWORD_RECOVERY')show('fNew')});
 if(qs.get('reset'))show('fNew');
 else if(qs.get('invite')){show('fUp');$('#upEmail').value=qs.get('email')||'';$('#upSub').textContent='Vous avez été invité à rejoindre un espace. Créez votre compte avec l\'adresse qui a reçu l\'invitation.'}
 else if(qs.get('signup'))show('fUp');
+else if(qs.get('expired'))msg('Votre session a expiré. Reconnectez-vous.',true);
 else sb.auth.getSession().then(({data})=>{if(data.session)location.replace(HOME)});
 </script>
 </body>

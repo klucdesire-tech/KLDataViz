@@ -176,7 +176,8 @@ async function api(url,body){
   const {data}=await sb.auth.getSession();const t=data.session?.access_token;
   const r=await fetch(url,{method:body===undefined?'GET':'POST',headers:{'Content-Type':'application/json',...(t?{Authorization:'Bearer '+t}:{})},body:body===undefined?undefined:JSON.stringify(body)});
   let d;try{d=await r.json()}catch(e){d={error:'Réponse invalide du serveur.'}}
-  if(r.status===401){location.replace('/login');throw new Error('auth')}
+  if(r.status===401){await sb.auth.signOut();location.replace('/login?expired=1');throw new Error('auth')}
+  if(r.status===503&&$('#gate').hidden===false){$('#gateMsg').textContent=d.error}
   if(!r.ok&&!d.error)d.error='Erreur '+r.status;
   return d;
 }
