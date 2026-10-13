@@ -76,8 +76,14 @@ def _coerce_series(s: pd.Series):
     return s, None
 
 
-def clean_dataframe(df: pd.DataFrame):
-    """Pipeline de nettoyage complet. Retourne (df_nettoyé, rapport)."""
+def clean_dataframe(df: pd.DataFrame, skip=None):
+    """Pipeline de nettoyage complet. Retourne (df_nettoyé, rapport).
+
+    `skip` : corrections à ne pas appliquer, identifiées par « vides »,
+    « doublons », « noms », « type:<colonne> » ou « imput:<colonne> »
+    (nom d'origine ou nom normalisé).
+    """
+    skip = set(skip or [])
     df = df.copy()
     rapport = {
         "lignes_avant": int(len(df)),
@@ -94,14 +100,15 @@ def clean_dataframe(df: pd.DataFrame):
 
     # 1. Colonnes entièrement vides
     vide = [c for c in df.columns if df[c].notna().sum() == 0]
-    if vide:
+    if vide and "vides" not in skip:
         df = df.drop(columns=vide)
         rapport["colonnes_vides"] = [str(c) for c in vide]
 
     # 2. Doublons (lignes identiques)
-    n0 = len(df)
-    df = df.drop_duplicates().reset_index(drop=True)
-    rapport["doublons_supprimes"] = n0 - len(df)
+    if "doublons" not in skip:
+        n0 = len(df)
+        df = df.drop_duplicates().reset_index(drop=True)
+        rapport["doublons_supprimes"] = n0 - len(df)
 
     # 3. Normalisation des noms de colonnes
     ren = {}
@@ -109,9 +116,13 @@ def clean_dataframe(df: pd.DataFrame):
         ns = _slugify(c)
         if ns and ns != str(c):
             ren[str(c)] = ns
-    if ren:
+    if ren and "noms" not in skip:
         df = df.rename(columns=ren)
         rapport["colonnes_renommees"] = ren
+    origine = {v: k for k, v in rapport["colonnes_renommees"].items()}
+
+    def _skipped(kind, c):
+        return f"{kind}:{c}" in skip or f"{kind}:{origine.get(str(c), c)}" in skip
 
     # 3.5. Chaînes vides → NaN (pour les colonnes texte)
     for c in df.columns:
@@ -124,7 +135,7 @@ def clean_dataframe(df: pd.DataFrame):
         s = df[c]
         avant = str(s.dtype)
         out, t = _coerce_series(s)
-        if t:
+        if t and not _skipped("type", c):
             df[c] = out
             rapport["types_corriges"][str(c)] = {"avant": avant, "apres": t}
 
@@ -135,6 +146,8 @@ def clean_dataframe(df: pd.DataFrame):
             continue
         # On ne fabrique pas d'identifiant : les ID manquants restent manquants.
         if re.search(r"(^|_)(id|key|code|ref|numero|num_ordre)$", str(c).lower()):
+            continue
+        if _skipped("imput", c) or na == len(df):  # colonne vide conservée : on ne l'invente pas
             continue
         if pd.api.types.is_bool_dtype(df[c]):
             mode = df[c].mode()

@@ -32,6 +32,8 @@ except Exception as _ingest_exc:  # la console reste utilisable même si l'agent
     INGESTION_ERROR = str(_ingest_exc)
 
 BASE = os.path.dirname(os.path.abspath(__file__))
+import studio
+from urllib.parse import urlparse, parse_qs
 PORT = int(os.environ.get("KLDAVIZ_PORT", "8642"))
 ORCHESTRATOR = os.environ.get("CVLYNK_ORCHESTRATOR", "https://api.cvlynk.com")
 
@@ -62,6 +64,7 @@ EXPORTS = os.path.join(BASE, "exports")
 os.makedirs(EXPORTS, exist_ok=True)
 
 LAST_RESULT = None   # dernière analyse (pour les exports)
+CURRENT_PATH = None  # fichier de la dernière analyse (contexte du chat)
 LAST_INGEST = None   # dernier contrat d'ingestion
 
 def orchestrator(path, method="GET", body=None):
@@ -187,6 +190,8 @@ def _read_df(file_path):
             df = pd.read_excel(file_path)
         elif ext == ".json":
             df = pd.read_json(file_path)
+        elif ext == ".parquet":
+            df = pd.read_parquet(file_path)
         else:
             return None, f"Format non supporté : {ext}"
     except Exception as e:
@@ -293,12 +298,13 @@ def _cell_safe(v):
     return v
 
 
-def clean(file_path):
-    """Agent 2 — modélisation : nettoie, met en forme et sauvegarde un fichier."""
+def clean(file_path, skip=None):
+    """Agent 2 — modélisation : nettoie, met en forme et sauvegarde un fichier.
+    `skip` : corrections refusées par l'utilisateur (voir modeling.clean_dataframe)."""
     df, err = _read_df(file_path)
     if err:
         return {"error": err}
-    df_clean, rapport = clean_dataframe(df)
+    df_clean, rapport = clean_dataframe(df, skip=skip) if skip else clean_dataframe(df)
 
     # Sauvegarde de la version nettoyée (c'est elle, et elle seule, qui sera ingérée)
     cleaned_dir = os.path.join(BASE, "storage", "cleaned")
@@ -686,8 +692,19 @@ def llm_chat(question):
     reg.ensure()
     datasets = reg.latest_versions()
     context = _llm_context()
+    current_df, current_name = None, None
+    if CURRENT_PATH:
+        current_df, _err = _read_df(CURRENT_PATH)
+        if current_df is not None:
+            current_name = os.path.splitext(os.path.basename(CURRENT_PATH))[0]
+            context.insert(0, {"name": current_name, "fichier_en_cours_d_analyse": True, "lignes": int(len(current_df)),
+                               "colonnes": [{"name": str(c), "dtype": str(current_df[c].dtype),
+                                             "exemples": [str(v) for v in current_df[c].dropna().head(3).tolist()]}
+                                            for c in current_df.columns]})
     system = (
         "Tu es KLDataViz, assistant d'analyse de données. Réponds en français, de façon concise et fiable.\n"
+        + studio.chat_preamble() +
+        "Sauf mention contraire, la question porte sur le fichier en cours d'analyse (premier dataset de la liste).\n"
         "Datasets disponibles (nom, nombre de lignes, colonnes avec type et exemples) :\n"
         + json.dumps(context, ensure_ascii=False, default=str) + "\n\n"
         "Réponds en renvoyant UNIQUEMENT un objet JSON valide (aucun texte avant/après), avec ces champs :\n"
@@ -755,6 +772,9 @@ def llm_chat(question):
                     _key = re.sub(r"[^0-9A-Za-z_]", "_", str(_nm)).strip("_").lower()
                     if _key and _key.isidentifier():
                         ns.setdefault(_key, _df)
+                if current_df is not None:
+                    _data[current_name] = current_df
+                    ns.setdefault(re.sub(r"[^0-9A-Za-z_]", "_", current_name).strip("_").lower() or "df", current_df)
                 ns["data"] = _data
                 exec(code, ns)
                 chart = ns.get("chart") or chart
@@ -815,7 +835,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
             with open(os.path.join(BASE, "chart.umd.min.js"), "rb") as f:
                 self._send(200, f.read(), "application/javascript")
         elif self.path.startswith("/download/"):
-            fn = os.path.basename(self.path)
+            u = urlparse(self.path)
+            fn = os.path.basename(urllib.request.url2pathname(u.path))
+            inline = parse_qs(u.query).get("inline") == ["1"]
             fp = os.path.join(EXPORTS, fn)
             if os.path.exists(fp):
                 ctype = "application/octet-stream"
@@ -825,7 +847,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 with open(fp, "rb") as f:
                     self.send_response(200)
                     self.send_header("Content-Type", ctype)
-                    self.send_header("Content-Disposition", f'attachment; filename="{fn}"')
+                    self.send_header("Content-Disposition", f'{"inline" if inline else "attachment"}; filename="{fn}"')
                     self.send_header("Content-Length", str(os.path.getsize(fp)))
                     self.end_headers()
                     self.wfile.write(f.read())
@@ -847,6 +869,18 @@ class Handler(http.server.BaseHTTPRequestHandler):
                                   "modified": time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(st.st_mtime))})
             files.sort(key=lambda x: x["modified"], reverse=True)
             self._send(200, files)
+        elif self.path == "/api/settings":
+            self._send(200, studio.public_settings())
+        elif self.path == "/api/schedules":
+            self._send(200, studio.list_schedules())
+        elif self.path.startswith("/api/ingest/versions"):
+            ds_id = (parse_qs(urlparse(self.path).query).get("id") or [""])[0]
+            try:
+                reg = IngestionRegistry()
+                reg.ensure()
+                self._send(200, reg.list_versions(ds_id))
+            except Exception as exc:
+                self._send(500, {"error": str(exc)})
         elif self.path == "/api/fetch-source":
             self._send(200, fetch_source())
         elif self.path == "/api/ingest/list":
@@ -874,8 +908,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 file_path = ""
             result = analyze(file_path)
             if "error" not in result:
-                global LAST_RESULT
+                global LAST_RESULT, CURRENT_PATH
                 LAST_RESULT = result
+                CURRENT_PATH = file_path
             self._send(200, result)
         elif self.path == "/api/clean":
             ln = int(self.headers.get("Content-Length", 0))
@@ -883,9 +918,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
             try:
                 payload = json.loads(raw.decode("utf-8"))
                 file_path = payload.get("file_path", "")
+                skip = payload.get("skip") or None
             except Exception:
-                file_path = ""
-            self._send(200, clean(file_path))
+                file_path, skip = "", None
+            self._send(200, clean(file_path, skip))
         elif self.path == "/api/ingest":
             if not INGESTION_OK:
                 self._send(500, {"error": f"Agent d'ingestion indisponible : {INGESTION_ERROR}"})
@@ -962,6 +998,39 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if resp is None:
                 resp = chat_query(question)  # repli règle-based si l'IA est indisponible
             self._send(200, resp)
+        elif self.path.startswith(("/api/settings", "/api/schedules", "/api/insights", "/api/exports/delete")):
+            ln = int(self.headers.get("Content-Length", 0))
+            try:
+                payload = json.loads((self.rfile.read(ln) if ln else b"{}").decode("utf-8") or "{}")
+            except Exception:
+                payload = {}
+            exporters = {"pdf": export_pdf, "excel": export_excel, "html": export_html}
+            try:
+                if self.path == "/api/settings":
+                    self._send(200, studio.save_settings(payload))
+                elif self.path == "/api/schedules":
+                    self._send(200, studio.create_schedule(payload))
+                elif self.path == "/api/schedules/update":
+                    self._send(200, studio.update_schedule(payload.get("id"), on=payload.get("on")))
+                elif self.path == "/api/schedules/delete":
+                    studio.delete_schedule(payload.get("id"))
+                    self._send(200, {"ok": True})
+                elif self.path == "/api/schedules/run":
+                    self._send(200, studio.run_schedule(payload.get("id"), analyze, exporters, EXPORTS))
+                elif self.path == "/api/insights":
+                    self._send(200, {"insights": studio.insights(LAST_RESULT, _llm_call)})
+                elif self.path == "/api/exports/delete":
+                    fp = os.path.join(EXPORTS, os.path.basename(str(payload.get("file") or "")))
+                    if not os.path.isfile(fp):
+                        raise FileNotFoundError("Fichier introuvable.")
+                    os.remove(fp)
+                    self._send(200, {"ok": True})
+                else:
+                    self._send(404, {"error": "not found"})
+            except (ValueError, KeyError, FileNotFoundError, RuntimeError) as exc:
+                self._send(400, {"error": str(exc).strip("'")})
+            except Exception as exc:
+                self._send(500, {"error": f"{type(exc).__name__} : {exc}"})
         elif self.path == "/api/heartbeat":
             code, r = orchestrator("/api/v1/agents/heartbeat", method="POST", body={})
             self._send(code if code else 502, r)
@@ -981,6 +1050,7 @@ def heartbeat_loop():
 
 if __name__ == "__main__":
     threading.Thread(target=heartbeat_loop, daemon=True).start()
+    studio.start_scheduler(analyze, {"pdf": export_pdf, "excel": export_excel, "html": export_html}, EXPORTS)
     with socketserver.ThreadingTCPServer(("127.0.0.1", PORT), Handler) as httpd:
         print(f"KLDataViz Console démarrée : http://localhost:{PORT}")
         httpd.serve_forever()

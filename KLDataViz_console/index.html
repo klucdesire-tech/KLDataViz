@@ -184,6 +184,33 @@ details.more>div{padding-bottom:14px}
 .empty{color:var(--muted);font-size:14px;padding:18px 0;text-align:center}
 .toolbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
 
+/* studio additions */
+.ws{display:grid;gap:1px;padding:9px 10px;border:1px solid var(--line);border-radius:10px;background:var(--surface-2);font-size:13px;font-weight:600}
+.ws span{color:var(--muted);font-size:11.5px;font-weight:400}
+.sources{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+.src{border:1px solid var(--line);background:var(--surface);border-radius:var(--r);padding:14px;display:grid;gap:6px;text-align:left;transition:border-color .15s,box-shadow .15s;align-content:start}
+.src:hover,.src[aria-pressed="true"]{border-color:var(--brand);box-shadow:var(--shadow)}
+.src .ic{width:34px;height:34px;border-radius:9px;background:var(--surface-2);display:grid;place-items:center;color:var(--brand-strong)}
+.src b{font-size:14px}.src span{font-size:12.5px;color:var(--muted)}
+.form{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;align-items:end}
+.field{display:grid;gap:6px;font-size:13px;font-weight:600;min-width:0}
+.field small{font-weight:400;color:var(--muted)}
+.switch{position:relative;width:44px;height:26px;border-radius:99px;border:0;background:var(--line);flex:none;transition:background .15s}
+.switch::after{content:"";position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:var(--surface);box-shadow:0 1px 3px rgba(0,0,0,.25);transition:transform .15s}
+.switch[aria-checked="true"]{background:var(--brand)}
+.switch[aria-checked="true"]::after{transform:translateX(18px)}
+.issue.toggle{grid-template-columns:4px minmax(0,1fr) auto;align-items:center}
+.issue.off b,.issue.off span{opacity:.55}
+.scoreline{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;margin-top:6px}
+.scoreline .num{font-size:15px;font-weight:600}
+.chipf{border:1px solid var(--line);background:var(--surface);border-radius:99px;padding:6px 13px;font-size:13px;min-height:36px}
+.chipf[aria-pressed="true"]{background:var(--brand);border-color:var(--brand);color:var(--on-brand);font-weight:600}
+.rowbtns{display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap;align-items:center}
+tr.versions td{background:var(--surface-2);font-size:13px}
+.aibadge{font-size:11.5px;font-weight:600;color:var(--brand-strong);display:inline-flex;gap:5px;align-items:center}
+.btn.danger{color:var(--red);border-color:var(--red)}
+@media (max-width:980px){.sources{grid-template-columns:repeat(2,minmax(0,1fr))}}
+
 /* chat */
 .chat{background:var(--surface);border-left:1px solid var(--line);display:flex;flex-direction:column;min-height:0}
 .chat header{display:flex;align-items:center;gap:10px;padding:16px 18px;border-bottom:1px solid var(--line)}
@@ -219,7 +246,7 @@ details.more>div{padding-bottom:14px}
 @media (max-width:760px){
   .app{grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr) auto}
   .rail{order:2;flex-direction:row;padding:6px 8px calc(6px + env(safe-area-inset-bottom,0px));border-right:0;border-top:1px solid var(--line);gap:0}
-  .rail .brand,.rail .railfoot{display:none}
+  .rail .brand,.rail .railfoot,.rail .ws{display:none}
   nav.menu{flex-direction:row;flex:1;justify-content:space-around}
   nav.menu button{flex-direction:column;gap:2px;font-size:11px;padding:6px 4px;min-width:56px}
   nav.menu .count{display:none}
@@ -238,10 +265,12 @@ details.more>div{padding-bottom:14px}
 <div class="app">
   <aside class="rail" aria-label="Navigation">
     <div class="brand"><img src="/logo.png" alt=""><div><b>KLDataViz</b><small>Studio · agent Hermes</small></div></div>
+    <div class="ws"><span id="orgName">Équipe Data</span><span>Espace de travail local</span></div>
     <nav class="menu">
       <button aria-current="page" data-nav="home"><svg class="i" viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5V21h-6v-6H9v6H3z"/></svg>Analyse</button>
       <button data-nav="datasets"><svg class="i" viewBox="0 0 24 24"><path d="M4 6c0-1.7 3.6-3 8-3s8 1.3 8 3-3.6 3-8 3-8-1.3-8-3zm0 0v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></svg>Données<span class="count" id="cntDs"></span></button>
       <button data-nav="reports"><svg class="i" viewBox="0 0 24 24"><path d="M14 3H6a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8zM14 3v5h5M9 13h6M9 17h6"/></svg>Rapports<span class="count" id="cntRp"></span></button>
+      <button data-nav="schedule"><svg class="i" viewBox="0 0 24 24"><path d="M5 5h14v15H5zM5 10h14M9 3v4M15 3v4"/></svg>Planifié<span class="count" id="cntSc"></span></button>
       <button data-nav="tasks"><svg class="i" viewBox="0 0 24 24"><path d="M9 6h11M9 12h11M9 18h11M4 6l1 1 2-2M4 12l1 1 2-2M4 18l1 1 2-2"/></svg>Tâches<span class="count" id="cntTk"></span></button>
       <button data-nav="settings"><svg class="i" viewBox="0 0 24 24"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M14 4v4M8 10v4M16 16v4"/></svg>Réglages</button>
     </nav>
@@ -269,24 +298,44 @@ details.more>div{padding-bottom:14px}
         <div class="drop" id="drop">
           <div class="big"><svg class="i" viewBox="0 0 24 24"><path d="M12 16V4M7 9l5-5 5 5M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/></svg></div>
           <h2>Glissez votre fichier ici</h2>
-          <p>Excel, CSV ou JSON</p>
+          <p>Excel, CSV, JSON ou Parquet</p>
           <div class="acts">
             <label class="btn primary" for="file" tabindex="0" id="fileLabel">Choisir un fichier</label>
-            <input type="file" id="file" accept=".csv,.xlsx,.xls,.xlsm,.json" hidden>
+            <input type="file" id="file" accept=".csv,.xlsx,.xls,.xlsm,.json,.parquet" hidden>
             <button class="btn ghost" id="taskSrcBtn">Source de la tâche assignée</button>
           </div>
         </div>
-        <div class="card">
-          <h2>Ou indiquez un chemin ou une URL</h2>
-          <p class="sub">Un fichier sur cet ordinateur (C:\…\donnees.csv) ou un lien direct vers un CSV, Excel ou JSON.</p>
+        <div>
+          <div class="label" style="margin-bottom:10px">Ou connectez une source</div>
+          <div class="sources">
+            <button class="src" data-src="path"><div class="ic"><svg class="i" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg></div><b>Chemin du fichier</b><span>Un fichier déjà sur cet ordinateur</span></button>
+            <button class="src" data-src="url"><div class="ic"><svg class="i" viewBox="0 0 24 24"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></svg></div><b>Lien web ou API</b><span>URL directe vers un CSV, Excel ou JSON</span></button>
+            <button class="src" data-src="db"><div class="ic"><svg class="i" viewBox="0 0 24 24"><path d="M4 6c0-1.7 3.6-3 8-3s8 1.3 8 3-3.6 3-8 3-8-1.3-8-3zm0 0v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></svg></div><b>Base PostgreSQL</b><span>Une table, copiée sans la modifier</span></button>
+            <button class="src" data-src="reg"><div class="ic"><svg class="i" viewBox="0 0 24 24"><path d="M12 7v5l3 2M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z"/></svg></div><b>Jeu déjà enregistré</b><span>Réanalyser une version du registre</span></button>
+          </div>
+        </div>
+        <div class="card" id="pathCard">
+          <h2 id="pathTitle">Chemin ou URL</h2>
+          <p class="sub" id="pathHint">Un fichier sur cet ordinateur (C:\…\donnees.csv) ou un lien direct vers un CSV, Excel ou JSON.</p>
           <form class="pathrow" id="pathForm">
             <label for="pathInput" hidden>Chemin ou URL</label>
             <input type="text" id="pathInput" placeholder="C:\Users\…\donnees.csv ou https://…" autocomplete="off">
             <button class="btn primary" type="submit">Analyser</button>
           </form>
-          <div id="importMsg" style="margin-top:12px" hidden></div>
         </div>
-        <div class="card">
+        <div class="card" id="dbCard" hidden>
+          <h2>Base PostgreSQL</h2>
+          <p class="sub">Hermes copie la table dans une version de travail. La base n'est jamais modifiée.</p>
+          <form class="form" id="dbForm" style="margin-top:12px">
+            <label class="field" for="dbDsn" style="grid-column:1/-1">Connexion<input type="text" id="dbDsn" placeholder="postgresql://utilisateur:motdepasse@localhost:5432/base" autocomplete="off"></label>
+            <label class="field" for="dbSchema">Schéma<input type="text" id="dbSchema" placeholder="public"></label>
+            <label class="field" for="dbTable">Table<input type="text" id="dbTable" placeholder="ventes"></label>
+            <label class="field" for="dbLimit">Lignes max<input type="text" id="dbLimit" placeholder="toutes" inputmode="numeric"></label>
+            <button class="btn primary" type="submit">Importer et analyser</button>
+          </form>
+        </div>
+        <div id="importMsg" hidden></div>
+        <div class="card" id="recentCard">
           <div class="toolbar"><h2>Jeux de données récents</h2><span class="spacer"></span><button class="btn ghost sm" data-goto="datasets">Tout voir</button></div>
           <div id="recent" class="empty">Chargement du registre…</div>
         </div>
@@ -297,7 +346,7 @@ details.more>div{padding-bottom:14px}
         <div class="head"><h1>Hermes prépare vos données</h1><p id="runFile"></p></div>
         <div class="run">
           <div class="card"><div id="feed"></div><div id="runErr" class="actions" style="margin-top:12px" hidden>
-            <button class="btn ghost" id="runBack">Changer de fichier</button><button class="btn primary" id="runRetry">Réessayer</button></div></div>
+            <button class="btn ghost" id="runBack">Changer de source</button><button class="btn primary" id="runRetry">Réessayer</button></div></div>
           <div class="card" style="display:grid;gap:10px">
             <div class="label">Progression</div>
             <div class="num" style="font-size:30px;font-weight:600" id="pct">0 %</div>
@@ -312,22 +361,26 @@ details.more>div{padding-bottom:14px}
         <div class="head"><h1>Vérifiez la qualité avant d'analyser</h1><p id="verifyLead"></p></div>
         <div class="grid2">
           <div class="card score">
-            <div class="ring" id="ring"><div><b id="ringV" class="num">–</b><small>complétude</small></div></div>
-            <div style="min-width:0"><h2>Qualité des données</h2><p class="sub" id="ringTxt"></p><div class="chips" id="dsChips"></div></div>
+            <div class="ring" id="ring"><div><b id="ringV" class="num">–</b><small>sur 100</small></div></div>
+            <div style="min-width:0"><h2>Score de qualité</h2>
+              <div class="scoreline"><span class="sub" style="margin:0">Avec les corrections choisies :</span><span class="num" id="scoreAfter">–</span></div>
+              <p class="sub" id="ringTxt"></p><div class="chips" id="dsChips"></div></div>
           </div>
           <div class="card"><h2>Ce que Hermes a compris</h2><p class="sub" style="font-size:14px;color:var(--fg);margin-top:8px" id="understood"></p></div>
         </div>
         <div class="card">
-          <h2>Corrections proposées</h2>
-          <p class="sub">Elles s'appliquent à une copie de travail. Le fichier source reste intact.</p>
+          <div class="toolbar"><h2>Corrections proposées</h2><span class="spacer"></span><button class="btn ghost sm" id="toggleAll"></button></div>
+          <p class="sub">Choisissez celles à appliquer. Elles s'appliquent à une copie de travail, le fichier source reste intact.</p>
           <div id="issues" style="margin-top:6px"></div>
+          <details style="margin-top:10px"><summary class="sub" style="cursor:pointer">Comment le score est calculé</summary>
+            <div id="scoreHow" class="sub" style="margin-top:8px"></div></details>
         </div>
         <div class="card"><h2>Colonnes</h2>
           <div class="tablewrap"><table><thead><tr><th>Colonne</th><th>Type</th><th>Remplissage</th><th class="r">Valeurs distinctes</th></tr></thead><tbody id="cols"></tbody></table></div>
         </div>
         <div class="actions">
           <button class="btn ghost" id="skipClean">Analyser sans corriger</button>
-          <button class="btn primary" id="applyClean">Appliquer les corrections et analyser<svg class="i" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button>
+          <button class="btn primary" id="applyClean"></button>
         </div>
       </section>
 
@@ -335,7 +388,7 @@ details.more>div{padding-bottom:14px}
       <section class="view" data-view="analyze" hidden>
         <div class="head"><h1>Ce que disent vos données</h1><p id="anLead"></p></div>
         <div class="kpis" id="kpis"></div>
-        <div><div class="label" style="margin-bottom:10px">Points clés trouvés par Hermes</div><div class="insights" id="insights"></div></div>
+        <div><div class="toolbar" style="margin-bottom:10px"><div class="label">Points clés trouvés par Hermes</div><span class="spacer"></span><span class="aibadge" id="aiBadge"></span></div><div class="insights" id="insights"></div></div>
         <div><div class="toolbar" style="margin-bottom:10px"><div class="label">Graphiques</div><span class="spacer"></span><button class="btn ghost sm" id="moreCharts" hidden></button></div>
           <div class="charts" id="charts"></div></div>
         <div id="details" style="display:grid;gap:12px"></div>
@@ -352,18 +405,49 @@ details.more>div{padding-bottom:14px}
           <button class="exp" id="ingestCard"><span class="fmt">DB</span><b>Enregistrer dans le registre</b><span>Nouvelle version, source intacte, métadonnées dans PostgreSQL</span></button>
         </div>
         <div class="card" id="ingestOut" hidden></div>
+        <div class="card">
+          <h2>Recevoir ce rapport automatiquement</h2>
+          <p class="sub">Hermes relit la source, refait l'analyse et produit le rapport à jour. Avec des destinataires, il l'envoie aussi par e-mail.</p>
+          <form class="form" id="shareSched" style="margin-top:12px">
+            <label class="field" for="ssFreq">Fréquence<select id="ssFreq"><option value="monthly">Le 1er du mois</option><option value="weekly">Chaque lundi</option><option value="daily">Chaque jour</option></select></label>
+            <label class="field" for="ssHour">Heure<select id="ssHour"></select></label>
+            <label class="field" for="ssFmt">Format<select id="ssFmt"><option value="pdf">PDF</option><option value="excel">Excel</option><option value="html">HTML</option></select></label>
+            <label class="field" for="ssTo">Destinataires <small>(facultatif)</small><input type="email" id="ssTo" multiple placeholder="direction@exemple.ci"></label>
+            <button class="btn primary" type="submit">Planifier</button>
+          </form>
+          <p class="sub" id="ssNote" style="margin-top:8px"></p>
+        </div>
       </section>
 
       <!-- DONNÉES -->
       <section class="view" data-view="datasets" hidden>
-        <div class="head"><h1>Données</h1><p>Les jeux de données enregistrés dans le registre, avec leur dernière version.</p></div>
+        <div class="head"><h1>Données</h1><p>Les jeux de données enregistrés dans le registre, avec l'historique de leurs versions.</p></div>
+        <div class="toolbar"><input type="text" id="dsSearch" placeholder="Rechercher un jeu de données" aria-label="Rechercher un jeu de données" style="max-width:320px"><span class="spacer"></span><button class="btn primary" data-goto="home">Importer</button></div>
         <div class="card"><div id="dsBody" class="empty">Chargement…</div></div>
       </section>
 
       <!-- RAPPORTS -->
       <section class="view" data-view="reports" hidden>
-        <div class="head"><h1>Rapports</h1><p>Tous les exports générés sur cet ordinateur.</p></div>
+        <div class="head"><h1>Rapports</h1><p>Tous les exports générés sur cet ordinateur, y compris ceux des envois planifiés.</p></div>
+        <div class="toolbar"><input type="text" id="rpSearch" placeholder="Rechercher un rapport" aria-label="Rechercher un rapport" style="max-width:320px"><div class="chips" id="rpChips" style="margin:0"></div></div>
         <div class="card"><div class="list" id="rpList"><div class="empty">Chargement…</div></div></div>
+      </section>
+
+      <!-- PLANIFIÉ -->
+      <section class="view" data-view="schedule" hidden>
+        <div class="head"><h1>Rapports planifiés</h1><p>Hermes relit la source, refait l'analyse et produit le rapport à l'heure prévue, tant que la console est ouverte.</p></div>
+        <div class="card">
+          <h2>Nouvelle planification</h2>
+          <form class="form" id="schedForm" style="margin-top:12px">
+            <label class="field" for="scSrc" style="grid-column:1/-1">Source<select id="scSrc"></select></label>
+            <label class="field" for="scFreq">Fréquence<select id="scFreq"><option value="monthly">Le 1er du mois</option><option value="weekly">Chaque lundi</option><option value="daily">Chaque jour</option></select></label>
+            <label class="field" for="scHour">Heure<select id="scHour"></select></label>
+            <label class="field" for="scFmt">Format<select id="scFmt"><option value="pdf">PDF</option><option value="excel">Excel</option><option value="html">HTML</option></select></label>
+            <label class="field" for="scTo">Destinataires <small>(facultatif)</small><input type="email" id="scTo" multiple placeholder="direction@exemple.ci"></label>
+            <button class="btn primary" type="submit">Planifier</button>
+          </form>
+        </div>
+        <div class="card"><h2>Planifications</h2><div class="list" id="jobList"><div class="empty">Chargement…</div></div></div>
       </section>
 
       <!-- TÂCHES -->
@@ -374,7 +458,31 @@ details.more>div{padding-bottom:14px}
 
       <!-- RÉGLAGES -->
       <section class="view" data-view="settings" hidden>
-        <div class="head"><h1>Réglages</h1><p>Apparence et état des services utilisés par Hermes.</p></div>
+        <div class="head"><h1>Réglages</h1><p>Votre profil, le comportement de Hermes, l'envoi des rapports par e-mail et l'état des services.</p></div>
+        <form id="settingsForm" style="display:grid;gap:16px">
+          <div class="grid2">
+            <div class="card"><h2>Profil</h2>
+              <div class="form" style="margin-top:12px">
+                <label class="field" for="stName">Nom<input type="text" id="stName" autocomplete="name"></label>
+                <label class="field" for="stOrg">Organisation<input type="text" id="stOrg"></label>
+              </div></div>
+            <div class="card"><h2>Comportement de Hermes</h2>
+              <div class="form" style="margin-top:12px">
+                <label class="field" for="stLang">Langue des réponses<select id="stLang"><option>Français</option><option>English</option></select></label>
+                <label class="field" for="stDetail">Niveau de détail<select id="stDetail"><option value="simple">Simple, pour la direction</option><option value="detaille">Détaillé, pour les analystes</option></select></label>
+              </div></div>
+          </div>
+          <div class="card"><h2>E-mail d'envoi des rapports <span class="tag" id="smtpTag"></span></h2>
+            <p class="sub">Le serveur d'envoi de votre messagerie (SMTP). Pour Gmail : smtp.gmail.com, port 587, avec un mot de passe d'application.</p>
+            <div class="form" style="margin-top:12px">
+              <label class="field" for="smHost">Serveur<input type="text" id="smHost" placeholder="smtp.gmail.com" autocomplete="off"></label>
+              <label class="field" for="smPort">Port<input type="text" id="smPort" inputmode="numeric" placeholder="587"></label>
+              <label class="field" for="smUser">Identifiant<input type="text" id="smUser" autocomplete="off"></label>
+              <label class="field" for="smPass">Mot de passe<input type="password" id="smPass" autocomplete="new-password"></label>
+              <label class="field" for="smFrom">Adresse d'expédition<input type="email" id="smFrom" placeholder="rapports@exemple.ci"></label>
+            </div></div>
+          <div class="actions"><button class="btn primary" type="submit">Enregistrer</button></div>
+        </form>
         <div class="card"><h2>Apparence</h2>
           <div class="setrow"><div><b>Thème</b><span>Suivre le système, ou forcer clair ou sombre</span></div>
             <select id="themeSel" style="width:auto"><option value="">Système</option><option value="light">Clair</option><option value="dark">Sombre</option></select></div>
@@ -410,13 +518,16 @@ const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 const esc=s=>String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 const md=s=>esc(s).replace(/\*\*(.+?)\*\*/g,'<b>$1</b>').replace(/`([^`]+)`/g,'<code>$1</code>');
 const nf=n=>Number(n).toLocaleString('fr-FR');
+const dec=n=>String(n).replace('.',',');
 const reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;
+const baseName=p=>String(p).split(/[\\/]/).pop().split('?')[0]||String(p);
 const IC={check:'<svg class="i" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7"/></svg>',
   alert:'<svg class="i" viewBox="0 0 24 24"><path d="M12 9v4M12 17h.01M10.3 3.9 2.4 18a2 2 0 0 0 1.7 3h15.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>',
   x:'<svg class="i" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg>',
-  clock:'<svg class="i" viewBox="0 0 24 24"><path d="M12 7v5l3 2M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z"/></svg>'};
+  clock:'<svg class="i" viewBox="0 0 24 24"><path d="M12 7v5l3 2M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z"/></svg>',
+  spark:'<svg class="i" viewBox="0 0 24 24"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"/></svg>'};
 
-function toast(t){const el=$('#toast');el.textContent=t;el.hidden=false;clearTimeout(el._t);el._t=setTimeout(()=>el.hidden=true,3200)}
+function toast(t){const el=$('#toast');el.textContent=t;el.hidden=false;clearTimeout(el._t);el._t=setTimeout(()=>el.hidden=true,3500)}
 async function jparse(r){
   try{const t=await r.text();try{return JSON.parse(t)}catch(e){return {error:'Réponse serveur invalide (délai dépassé ou erreur interne). Réessayez avec un fichier plus petit.'}}}
   catch(e){return {error:'Connexion interrompue : '+e}}
@@ -425,11 +536,13 @@ async function api(url,body){
   try{const r=await fetch(url,body===undefined?{}:{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});return await jparse(r)}
   catch(e){return {error:'Serveur injoignable. Vérifiez que la console tourne (lancer_console.bat).'}}
 }
+const hours=sel=>{sel.innerHTML=Array.from({length:24},(_,h)=>`<option value="${h}" ${h===7?'selected':''}>${String(h).padStart(2,'0')} h 00</option>`).join('')};
+hours($('#ssHour'));hours($('#scHour'));
 
 /* ================= state & navigation ================= */
-const state={step:0,path:'',name:'',original:null,analysis:null,clean:null,applied:false,charts:[],showAll:false};
+const state={step:0,path:'',name:'',original:null,analysis:null,clean:null,accept:new Set(),applied:false,charts:[],showAll:false,ai:null,settings:null,registry:[]};
 const STEPS=['Importer','Vérifier','Analyser','Partager'], VIEWS=['import','verify','analyze','share'];
-const SECTIONS={datasets:'Données',reports:'Rapports',tasks:'Tâches',settings:'Réglages'};
+const SECTIONS={datasets:'Données',reports:'Rapports',schedule:'Planifié',tasks:'Tâches',settings:'Réglages'};
 
 function reach(i){return i===0||(i===1&&!!state.original)||(i>=2&&!!state.analysis)}
 function renderStepper(){
@@ -444,18 +557,19 @@ function setNav(key){
 }
 function go(i){
   setNav('home');state.step=i;renderStepper();show(VIEWS[i]);
-  if(i===1)renderVerify();if(i===2)renderAnalyze();if(i===0)loadRecent();
+  if(i===0)loadRecent();if(i===1)renderVerify();if(i===2)renderAnalyze();if(i===3)renderShare();
   renderSugs();
 }
 function nav(key){
   if(key==='home'){go(state.step);return}
   setNav(key);show(key);
-  ({datasets:loadDatasets,reports:loadReports,tasks:loadTasks,settings:loadSettings})[key]();
+  ({datasets:loadDatasets,reports:loadReports,schedule:loadSchedules,tasks:loadTasks,settings:loadSettings})[key]();
 }
 $('#stepper').addEventListener('click',e=>{const b=e.target.closest('[data-go]');if(b&&!b.disabled)go(+b.dataset.go)});
 $$('nav.menu button').forEach(b=>b.onclick=()=>nav(b.dataset.nav));
-document.addEventListener('click',e=>{const b=e.target.closest('[data-goto]');if(b)nav(b.dataset.goto)});
-$('#newBtn').onclick=()=>{Object.assign(state,{path:'',name:'',original:null,analysis:null,clean:null,applied:false});$('#pathInput').value='';go(0)};
+document.addEventListener('click',e=>{const b=e.target.closest('[data-goto]');if(b){if(b.dataset.goto==='home')resetAnalysis();nav(b.dataset.goto)}});
+function resetAnalysis(){Object.assign(state,{step:0,path:'',name:'',original:null,analysis:null,clean:null,applied:false,ai:null});state.accept=new Set();$('#pathInput').value=''}
+$('#newBtn').onclick=()=>{resetAnalysis();go(0)};
 
 /* ================= import ================= */
 function importMsg(html,cls='alert'){const m=$('#importMsg');m.hidden=!html;m.innerHTML=html?`<div class="${cls}">${html}</div>`:''}
@@ -466,7 +580,7 @@ drop.addEventListener('drop',e=>{const f=e.dataTransfer.files[0];if(f)upload(f)}
 $('#file').addEventListener('change',e=>{const f=e.target.files[0];if(f)upload(f);e.target.value=''});
 $('#fileLabel').addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();$('#file').click()}});
 function upload(f){
-  if(!/\.(csv|xlsx|xls|xlsm|json)$/i.test(f.name)){importMsg('Format non pris en charge. Utilisez un fichier CSV, Excel (.xlsx, .xls) ou JSON.');return}
+  if(!/\.(csv|xlsx|xls|xlsm|json|parquet)$/i.test(f.name)){importMsg('Format non pris en charge. Utilisez un fichier CSV, Excel (.xlsx, .xls), JSON ou Parquet.');return}
   importMsg(`<span class="spin"></span> Envoi de ${esc(f.name)}…`,'alert info');
   const reader=new FileReader();
   reader.onload=async()=>{
@@ -478,22 +592,43 @@ function upload(f){
   reader.onerror=()=>importMsg('Lecture du fichier impossible.');
   reader.readAsDataURL(f);
 }
+$$('.src').forEach(b=>b.onclick=()=>{
+  const k=b.dataset.src;$$('.src').forEach(x=>x.setAttribute('aria-pressed',x===b));
+  $('#dbCard').hidden=k!=='db';$('#pathCard').hidden=k==='db'||k==='reg';
+  if(k==='path'){$('#pathTitle').textContent='Chemin du fichier';$('#pathHint').textContent='Copiez le chemin complet du fichier, par exemple C:\\Users\\…\\donnees.xlsx.';$('#pathInput').placeholder='C:\\Users\\…\\donnees.csv';$('#pathInput').focus()}
+  if(k==='url'){$('#pathTitle').textContent='Lien web ou API';$('#pathHint').textContent='Une URL qui renvoie directement un fichier CSV, Excel ou JSON (export Google Sheets en CSV, point d\'accès d\'API JSON…).';$('#pathInput').placeholder='https://…';$('#pathInput').focus()}
+  if(k==='db')$('#dbDsn').focus();
+  if(k==='reg')$('#recentCard').scrollIntoView({behavior:reduce?'auto':'smooth'});
+});
 $('#pathForm').addEventListener('submit',e=>{e.preventDefault();const p=$('#pathInput').value.trim().replace(/^"|"$/g,'');
   if(!p){importMsg('Indiquez un chemin de fichier ou une URL.');$('#pathInput').focus();return}
-  startRun(p,p.split(/[\\/]/).pop().split('?')[0]||p)});
+  startRun(p,baseName(p))});
 $('#taskSrcBtn').onclick=async()=>{
   const d=await api('/api/fetch-source');
-  if(d.source){$('#pathInput').value=d.source;startRun(d.source,String(d.source).split(/[\\/]/).pop())}
+  if(d.source){$('#pathInput').value=d.source;startRun(d.source,baseName(d.source))}
   else importMsg(esc(d.message||d.error||'Aucune tâche assignée pour le moment.'),'alert info');
 };
+$('#dbForm').addEventListener('submit',async e=>{
+  e.preventDefault();
+  const dsn=$('#dbDsn').value.trim(),table=$('#dbTable').value.trim();
+  if(!dsn||!table){importMsg('Indiquez la connexion et le nom de la table.');return}
+  const b=e.submitter||$('#dbForm button');b.disabled=true;b.innerHTML='<span class="spin"></span> Copie de la table…';
+  const body={source:dsn,kind:'postgres',table,schema:$('#dbSchema').value.trim()||undefined,name:table};
+  if(/^\d+$/.test($('#dbLimit').value.trim()))body.limit=+$('#dbLimit').value.trim();
+  const d=await api('/api/ingest',body);
+  b.disabled=false;b.textContent='Importer et analyser';
+  const wp=d.storage?.work_path;
+  if(d.error||!wp){importMsg('Import impossible : '+esc(d.error||(d.errors||[]).join(' · ')||'aucune version de travail produite'));return}
+  importMsg('');startRun(wp,table);
+});
 
 /* ================= pipeline ================= */
 async function startRun(path,name,size){
-  Object.assign(state,{path,name,original:null,analysis:null,clean:null,applied:false,showAll:false});
+  Object.assign(state,{path,name,original:null,analysis:null,clean:null,applied:false,showAll:false,ai:null});state.accept=new Set();
   setNav('home');state.step=0;renderStepper();show('run');
-  $('#runFile').textContent=name+(size?` · ${(size/1048576).toFixed(1).replace('.',',')} Mo`:'');
+  $('#runFile').textContent=name+(size?` · ${dec((size/1048576).toFixed(1))} Mo`:'');
   $('#runErr').hidden=true;
-  const steps=[['Lecture et profilage','Types, valeurs manquantes, statistiques'],['Contrôle qualité','Doublons, types, colonnes vides, imputations'],['Préparation de l\'analyse','Corrélations, anomalies, graphiques']];
+  const steps=[['Lecture et profilage','Types, valeurs manquantes, statistiques'],['Contrôle qualité','Doublons, types, colonnes vides, valeurs manquantes'],['Préparation de l\'analyse','Corrélations, anomalies, graphiques']];
   $('#feed').innerHTML=steps.map(t=>`<div class="task"><div class="dot">${IC.clock}</div><div><b>${t[0]}</b><span>${t[1]}</span></div><em></em></div>`).join('');
   const rows=[...$('#feed').children];
   const set=(i,cls,txt,t)=>{const r=rows[i];r.className='task '+cls;r.querySelector('.dot').innerHTML=cls==='doing'?'<span class="spin"></span>':cls==='err'?IC.x:cls==='warn'?IC.alert:IC.check;
@@ -503,88 +638,138 @@ async function startRun(path,name,size){
   let t0=performance.now();set(0,'doing');
   const a=await api('/api/analyze',{file_path:path});
   if(a.error){set(0,'err',a.error);$('#runErr').hidden=false;return}
-  set(0,'done',`${nf(a.rows)} lignes, ${a.columns} colonnes, ${a.size_kb} Ko`,secs(t0));prog(45);
+  set(0,'done',`${nf(a.rows)} lignes, ${a.columns} colonnes, ${dec(a.size_kb)} Ko`,secs(t0));prog(45);
   state.original=a;state.analysis=a;
   t0=performance.now();set(1,'doing');
   const c=await api('/api/clean',{file_path:path});
   if(c.error){set(1,'warn','Nettoyage indisponible : '+c.error,secs(t0));state.clean=null}
-  else{state.clean=c;const n=countFixes(c.rapport||{});set(1,n?'warn':'done',n?`${n} correction${n>1?'s':''} proposée${n>1?'s':''}`:'Aucune correction nécessaire',secs(t0))}
+  else{state.clean=c;const n=issuesOf().length;state.accept=new Set(issuesOf().map(x=>x.id));set(1,n?'warn':'done',n?`${n} correction${n>1?'s':''} proposée${n>1?'s':''}`:'Aucune correction nécessaire',secs(t0))}
   prog(85);
-  set(2,'done',`${(a.anomalies||[]).length} anomalie(s), ${(a.charts||[]).length} graphique(s)`,'');prog(100);
+  set(2,'done',`${(a.anomalies||[]).length} colonne(s) avec anomalies, ${(a.charts||[]).length} graphique(s)`,'');prog(100);
   await new Promise(r=>setTimeout(r,reduce?0:350));
   go(1);
-  say(`J'ai lu **${name}** : ${nf(a.rows)} lignes et ${a.columns} colonnes, complétude de ${String(a.completeness_pct).replace('.',',')} %. Vérifiez les corrections proposées, puis lancez l'analyse. Vous pouvez aussi me poser une question dès maintenant.`);
+  say(`J'ai lu **${name}** : ${nf(a.rows)} lignes et ${a.columns} colonnes. Le score de qualité est de **${quality(new Set()).score} / 100**. Choisissez les corrections à appliquer, puis lancez l'analyse. Vous pouvez aussi me poser une question dès maintenant.`);
 }
-const secs=t=>((performance.now()-t)/1000).toFixed(1).replace('.',',')+' s';
+const secs=t=>dec(((performance.now()-t)/1000).toFixed(1))+' s';
 $('#runRetry').onclick=()=>startRun(state.path,state.name);
 $('#runBack').onclick=()=>go(0);
 
 /* ================= verify ================= */
-function countFixes(r){return (r.doublons_supprimes?1:0)+(r.colonnes_vides||[]).length+Object.keys(r.colonnes_renommees||{}).length+Object.keys(r.types_corriges||{}).length+(r.imputations||[]).length}
-const TYPE={int64:'entier',Int64:'entier',int32:'entier',float64:'décimal',float32:'décimal',object:'texte',str:'texte',string:'texte',bool:'oui/non',boolean:'oui/non','booléen':'oui/non',category:'catégorie'};
+const TYPE={int64:'entier',Int64:'entier',int32:'entier',float64:'décimal',float32:'décimal',object:'texte',str:'texte',string:'texte',bool:'oui/non',boolean:'oui/non','booléen':'oui/non','numérique':'nombre',category:'catégorie'};
 const typeName=t=>TYPE[t]||(String(t).startsWith('datetime')?'date':t);
+function issuesOf(){
+  const r=state.clean?.rapport;if(!r)return [];
+  const out=[];
+  if(r.doublons_supprimes)out.push({id:'doublons',sev:'bad',t:`${nf(r.doublons_supprimes)} ligne(s) en double`,d:'Une seule occurrence est conservée.'});
+  if((r.colonnes_vides||[]).length)out.push({id:'vides',sev:'warn',t:`${r.colonnes_vides.length} colonne(s) entièrement vide(s)`,d:'Supprimées : '+r.colonnes_vides.join(', ')});
+  Object.entries(r.types_corriges||{}).forEach(([k,v])=>out.push({id:'type:'+k,sev:'warn',t:`Type de « ${k} » à corriger`,d:`${typeName(v.avant)} → ${typeName(v.apres)}`}));
+  (r.imputations||[]).forEach(im=>out.push({id:'imput:'+im.colonne,sev:'warn',n:im.n,t:`${nf(im.n)} valeur(s) manquante(s) dans « ${im.colonne} »`,d:`Complétées par la ${im.methode}${im.valeur!=null?' ('+im.valeur+')':''}. Laissez désactivé si un vide a un sens.`}));
+  const ren=Object.entries(r.colonnes_renommees||{});
+  if(ren.length)out.push({id:'noms',sev:'info',t:`${ren.length} nom(s) de colonne normalisé(s)`,d:ren.slice(0,6).map(([x,y])=>`${x} → ${y}`).join(' · ')+(ren.length>6?' …':'')});
+  return out;
+}
+// Score sur 100 : 100 moins des pénalités plafonnées, recalculées selon les corrections acceptées.
+function quality(acc){
+  const a=state.original,r=state.clean?.rapport||{};if(!a)return {score:0,parts:[]};
+  const cells=Math.max(1,a.rows*a.columns);
+  const imputed=(r.imputations||[]).filter(im=>acc.has('imput:'+im.colonne)).reduce((s,im)=>s+im.n,0);
+  const emptyCells=acc.has('vides')?(r.colonnes_vides||[]).length*a.rows:0;
+  const missing=Math.max(0,a.missing_total-imputed-emptyCells);
+  const dup=acc.has('doublons')?0:(r.doublons_supprimes||0);
+  const vides=acc.has('vides')?0:(r.colonnes_vides||[]).length;
+  const types=Object.keys(r.types_corriges||{}).filter(k=>!acc.has('type:'+k)).length;
+  const numCells=Math.max(1,a.rows*Object.keys(a.numeric_stats||{}).length);
+  const outl=(a.anomalies||[]).reduce((s,x)=>s+x.count,0);
+  const parts=[['Valeurs manquantes',Math.min(40,missing/cells*150)],['Doublons',Math.min(20,dup/Math.max(1,a.rows)*200)],
+    ['Colonnes vides',Math.min(15,vides*5)],['Types incorrects',Math.min(15,types*2)],['Valeurs aberrantes',Math.min(10,outl/numCells*200)]];
+  return {score:Math.max(0,Math.round(100-parts.reduce((s,p)=>s+p[1],0))),parts};
+}
 function renderVerify(){
   const a=state.original;if(!a)return;
-  const comp=a.completeness_pct, col=comp>=95?'var(--brand)':comp>=80?'var(--amber)':'var(--red)';
-  $('#ring').style.background=`conic-gradient(${col} ${comp}%, var(--surface-2) 0)`;
-  $('#ringV').textContent=Math.round(comp)+'%';
-  $('#ringTxt').textContent=`${nf(a.missing_total)} valeur(s) manquante(s) et ${(a.anomalies||[]).length} colonne(s) avec des valeurs aberrantes.`;
-  $('#dsChips').innerHTML=[`${nf(a.rows)} lignes`,`${a.columns} colonnes`,`${a.size_kb} Ko`].map(x=>`<span class="tag type">${x}</span>`).join('');
+  const before=quality(new Set()),after=quality(state.accept);
+  const col=before.score>=90?'var(--brand)':before.score>=70?'var(--amber)':'var(--red)';
+  $('#ring').style.background=`conic-gradient(${col} ${before.score}%, var(--surface-2) 0)`;
+  $('#ringV').textContent=before.score;
+  $('#scoreAfter').innerHTML=`${after.score} / 100 ${after.score>before.score?`<span class="tag ok">+${after.score-before.score}</span>`:''}`;
+  $('#ringTxt').textContent=`Complétude ${dec(a.completeness_pct)} % · ${nf(a.missing_total)} valeur(s) manquante(s) · ${(a.anomalies||[]).length} colonne(s) avec des valeurs aberrantes.`;
+  $('#dsChips').innerHTML=[`${nf(a.rows)} lignes`,`${a.columns} colonnes`,`${dec(a.size_kb)} Ko`].map(x=>`<span class="tag type">${x}</span>`).join('');
+  $('#scoreHow').innerHTML='Score = 100 moins des pénalités plafonnées. Détail avec les corrections choisies :<br>'+after.parts.map(p=>`${p[0]} : −${dec(p[1].toFixed(1))}`).join(' · ');
   const cd=a.columns_detail||[], nNum=Object.keys(a.numeric_stats||{}).length;
   const ids=cd.filter(c=>c.unique===a.rows&&c.missing===0).map(c=>c.name);
+  const cor=(a.bivariate?.correlations||[])[0];
   $('#understood').innerHTML=`Le fichier <b>${esc(a.file)}</b> contient <b>${nNum}</b> variable(s) numérique(s) et <b>${cd.length-nNum}</b> variable(s) texte ou date.`+
-    (ids.length?` Identifiant probable : <code>${esc(ids[0])}</code>.`:'')+
-    ((a.bivariate?.correlations||[])[0]?` Relation la plus forte : <code>${esc(a.bivariate.correlations[0].a)}</code> et <code>${esc(a.bivariate.correlations[0].b)}</code>.`:'');
-  const r=state.clean?.rapport||{}, items=[];
-  if(r.doublons_supprimes)items.push(['warn',`${nf(r.doublons_supprimes)} ligne(s) en double`,'Une seule occurrence est conservée.']);
-  if((r.colonnes_vides||[]).length)items.push(['warn',`${r.colonnes_vides.length} colonne(s) entièrement vide(s)`,r.colonnes_vides.join(', ')]);
-  Object.entries(r.types_corriges||{}).forEach(([k,v])=>items.push(['warn',`Type de « ${k} » à corriger`,`${typeName(v.avant)} → ${typeName(v.apres)}`]));
-  (r.imputations||[]).forEach(im=>items.push(['warn',`${nf(im.n)} valeur(s) manquante(s) dans « ${im.colonne} »`,`Complétées par ${im.methode}${im.valeur!=null?' ('+im.valeur+')':''}.`]));
-  const ren=Object.entries(r.colonnes_renommees||{});
-  if(ren.length)items.push(['info',`${ren.length} nom(s) de colonne normalisé(s)`,ren.slice(0,6).map(([x,y])=>`${x} → ${y}`).join(' · ')+(ren.length>6?' …':'')]);
+    (ids.length?` Identifiant probable : <code>${esc(ids[0])}</code>.`:'')+(cor?` Relation la plus forte : <code>${esc(cor.a)}</code> et <code>${esc(cor.b)}</code>.`:'');
+  const items=issuesOf();
   $('#issues').innerHTML=!state.clean?`<div class="alert info">Le module de nettoyage n'est pas disponible. Vous pouvez analyser le fichier tel quel.</div>`
-    :items.length?items.map(x=>`<div class="issue"><span class="sev ${x[0]}"></span><div><b>${esc(x[1])}</b><span>${esc(x[2])}</span></div></div>`).join('')
+    :items.length?items.map(x=>{const on=state.accept.has(x.id);return `<div class="issue toggle ${on?'':'off'}"><span class="sev ${x.sev==='bad'?'':x.sev}" style="${x.sev==='bad'?'background:var(--red)':''}"></span><div><b>${esc(x.t)}</b><span>${esc(x.d)}</span></div>
+      <button class="switch" role="switch" aria-checked="${on}" aria-label="Appliquer : ${esc(x.t)}" data-acc="${esc(x.id)}"></button></div>`}).join('')
     :`<div class="empty">${IC.check} Aucune correction nécessaire. Les données sont propres.</div>`;
+  const n=items.filter(x=>state.accept.has(x.id)).length;
   $('#verifyLead').textContent=!state.clean?'Hermes a profilé le fichier.':items.length?`Hermes propose ${items.length} correction(s). Rien n'est appliqué sans votre accord.`:'Le fichier est déjà propre.';
-  $('#applyClean').hidden=!state.clean||!items.length;
-  $('#skipClean').textContent=(!state.clean||!items.length)?'Lancer l\'analyse':'Analyser sans corriger';
-  $('#skipClean').className='btn '+((!state.clean||!items.length)?'primary':'ghost');
+  $('#toggleAll').hidden=items.length<2;$('#toggleAll').textContent=n===items.length?'Tout désactiver':'Tout activer';
+  $('#applyClean').hidden=!items.length;
+  $('#applyClean').disabled=!n;
+  $('#applyClean').innerHTML=`Appliquer ${n} correction${n>1?'s':''} et analyser<svg class="i" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg>`;
+  $('#skipClean').textContent=items.length?'Analyser sans corriger':'Lancer l\'analyse';
+  $('#skipClean').className='btn '+(items.length?'ghost':'primary');
   $('#cols').innerHTML=cd.map(c=>{const f=100-c.missing_pct;return `<tr><td class="num">${esc(c.name)}</td><td><span class="tag type">${esc(typeName(c.dtype))}</span></td>
-    <td><div class="fill"><div class="meter"><i class="${f<80?'bad':f<98?'warn':''}" style="width:${f}%"></i></div><span class="num" style="font-size:12.5px">${String(+f.toFixed(1)).replace('.',',')} %</span></div></td><td class="r num">${nf(c.unique)}</td></tr>`}).join('');
+    <td><div class="fill"><div class="meter"><i class="${f<80?'bad':f<98?'warn':''}" style="width:${f}%"></i></div><span class="num" style="font-size:12.5px">${dec(+f.toFixed(1))} %</span></div></td><td class="r num">${nf(c.unique)}</td></tr>`}).join('');
 }
-$('#skipClean').onclick=()=>{state.analysis=state.original;state.applied=false;go(2)};
+$('#issues').addEventListener('click',e=>{const b=e.target.closest('[data-acc]');if(!b)return;const id=b.dataset.acc;state.accept.has(id)?state.accept.delete(id):state.accept.add(id);renderVerify()});
+$('#toggleAll').onclick=()=>{const items=issuesOf();state.accept=items.every(x=>state.accept.has(x.id))?new Set():new Set(items.map(x=>x.id));renderVerify()};
+$('#skipClean').onclick=async()=>{
+  if(state.applied){const a=await api('/api/analyze',{file_path:state.path});if(!a.error)state.original=a}
+  state.analysis=state.original;state.applied=false;state.ai=null;go(2)};
 $('#applyClean').onclick=async()=>{
-  const b=$('#applyClean');b.disabled=true;b.innerHTML='<span class="spin"></span> Analyse des données corrigées…';
-  const a=await api('/api/analyze',{file_path:state.clean.cleaned_path});
-  b.disabled=false;b.innerHTML='Appliquer les corrections et analyser';
-  if(a.error){toast('Échec : '+a.error);return}
-  state.analysis=a;state.applied=true;go(2);
-  say(`Les corrections sont appliquées sur une copie (${nf(state.clean.rows)} lignes). Le fichier d'origine n'a pas changé.`);
+  const b=$('#applyClean'),skip=issuesOf().map(x=>x.id).filter(id=>!state.accept.has(id));
+  b.disabled=true;b.innerHTML='<span class="spin"></span> Application des corrections…';
+  const c=await api('/api/clean',{file_path:state.path,skip});
+  if(c.error){renderVerify();toast('Échec du nettoyage : '+c.error);return}
+  const a=await api('/api/analyze',{file_path:c.cleaned_path});
+  if(a.error){renderVerify();toast('Échec : '+a.error);return}
+  state.cleanedPath=c.cleaned_path;state.cleanedRows=c.rows;state.analysis=a;state.applied=true;state.ai=null;go(2);
+  say(`${state.accept.size} correction(s) appliquée(s) sur une copie (${nf(c.rows)} lignes). Le fichier d'origine n'a pas changé.`);
 };
 
 /* ================= analyze ================= */
 const css=v=>getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+function ruleInsights(a){
+  const ins=[],bv=a.bivariate||{};
+  const cor=(bv.correlations||a.correlations||[]).find(c=>Math.abs(c.r)>=0.4);
+  if(cor)ins.push({severity:'ok',tag:'Relation',text:`**${cor.a}** et **${cor.b}** ${cor.r>0?'évoluent ensemble':'évoluent en sens inverse'} (r = ${dec(cor.r)}).`,detail:`Corrélation ${cor.force||(Math.abs(cor.r)>=0.7?'forte':'modérée')}. Une corrélation n'est pas une cause.`,question:`corrélation entre ${cor.a} et ${cor.b}`});
+  const an=[...(a.anomalies||[])].sort((x,y)=>y.count-x.count)[0];
+  if(an)ins.push({severity:'bad',tag:'Anomalie',text:`**${nf(an.count)}** valeur(s) aberrante(s) dans **${an.column}**.`,detail:an.detail,question:`montre les valeurs aberrantes de ${an.column}`});
+  const g=(bv.groupes||[])[0];
+  if(g&&g.labels?.length>1){const m=g.moyennes.map(Number),hi=m.indexOf(Math.max(...m)),lo=m.indexOf(Math.min(...m));
+    ins.push({severity:'warn',tag:'Écart entre groupes',text:`La moyenne de **${g.num}** est la plus haute pour **${g.labels[hi]}** (${nf(+m[hi].toFixed(2))}) et la plus basse pour **${g.labels[lo]}** (${nf(+m[lo].toFixed(2))}).`,detail:`Comparaison par ${g.cat}.`,question:`moyenne de ${g.num} par ${g.cat}`})}
+  const worst=[...(a.columns_detail||[])].sort((x,y)=>y.missing_pct-x.missing_pct)[0];
+  if(ins.length<3&&worst&&worst.missing_pct>0)ins.push({severity:'warn',tag:'Qualité',text:`**${worst.name}** est vide à ${dec(worst.missing_pct)} %.`,detail:'C\'est la colonne la moins remplie.',question:`valeurs manquantes de ${worst.name}`});
+  return ins;
+}
+function renderInsights(list,ai){
+  $('#aiBadge').innerHTML=ai?`${IC.spark} Rédigé par l'IA à partir des chiffres de l'analyse`:'';
+  $('#insights').innerHTML=list.length?list.map(x=>`<div class="ins"><span class="tag ${x.severity}" style="justify-self:start">${esc(x.tag)}</span><p>${md(x.text)}</p><span class="why">${md(x.detail)}</span>${x.question?`<button data-ask="${esc(x.question)}">Demander à Hermes →</button>`:''}</div>`).join('')
+    :'<div class="ins"><p>Aucun point saillant détecté automatiquement. Posez une question à Hermes pour explorer.</p></div>';
+}
+async function loadAiInsights(){
+  const a=state.analysis,key=a;
+  $('#aiBadge').innerHTML='<span class="spin"></span> Hermes rédige les points clés…';
+  const d=await api('/api/insights',{});
+  if(state.analysis!==key)return;
+  if(Array.isArray(d.insights)&&d.insights.length){state.ai=d.insights;renderInsights(d.insights,true)}
+  else{state.ai=[];$('#aiBadge').innerHTML=''}
+}
 function renderAnalyze(){
   const a=state.analysis;if(!a)return;
   $('#anLead').textContent=`${a.file} · ${state.applied?'données corrigées':'données d\'origine'} · ${nf(a.rows)} lignes`;
   const nAn=(a.anomalies||[]).reduce((s,x)=>s+x.count,0);
   $('#kpis').innerHTML=[['Lignes',nf(a.rows),state.applied?`${nf(state.original.rows-a.rows)} retirée(s)`:'données d\'origine'],['Colonnes',a.columns,`${Object.keys(a.numeric_stats||{}).length} numérique(s)`],
-    ['Complétude',String(a.completeness_pct).replace('.',',')+' %',`${nf(a.missing_total)} manquante(s)`],['Valeurs aberrantes',nf(nAn),`dans ${(a.anomalies||[]).length} colonne(s)`]]
+    ['Complétude',dec(a.completeness_pct)+' %',`${nf(a.missing_total)} manquante(s)`],['Valeurs aberrantes',nf(nAn),`dans ${(a.anomalies||[]).length} colonne(s)`]]
     .map(k=>`<div class="kpi"><span class="label">${k[0]}</span><span class="v">${k[1]}</span><span class="d">${k[2]}</span></div>`).join('');
-  const ins=[], bv=a.bivariate||{};
-  const cor=(bv.correlations||a.correlations||[]).find(c=>Math.abs(c.r)>=0.4);
-  if(cor)ins.push(['ok','Relation',`<b>${esc(cor.a)}</b> et <b>${esc(cor.b)}</b> ${cor.r>0?'évoluent ensemble':'évoluent en sens inverse'} (r = ${String(cor.r).replace('.',',')}).`,`Corrélation ${cor.force||(Math.abs(cor.r)>=0.7?'forte':'modérée')}. Une corrélation n'est pas une cause.`,`corrélation entre ${cor.a} et ${cor.b}`]);
-  const an=[...(a.anomalies||[])].sort((x,y)=>y.count-x.count)[0];
-  if(an)ins.push(['bad','Anomalie',`<b>${nf(an.count)}</b> valeur(s) aberrante(s) dans <b>${esc(an.column)}</b>.`,esc(an.detail),`valeurs aberrantes de ${an.column}`]);
-  const g=(bv.groupes||[])[0];
-  if(g&&g.labels?.length>1){const m=g.moyennes.map(Number),hi=m.indexOf(Math.max(...m)),lo=m.indexOf(Math.min(...m));
-    ins.push(['warn','Écart entre groupes',`La moyenne de <b>${esc(g.num)}</b> est la plus haute pour <b>${esc(g.labels[hi])}</b> (${nf(+m[hi].toFixed(2))}) et la plus basse pour <b>${esc(g.labels[lo])}</b> (${nf(+m[lo].toFixed(2))}).`,`Comparaison par ${esc(g.cat)}.`,`moyenne de ${g.num} par ${g.cat}`])}
-  const worst=[...(a.columns_detail||[])].sort((x,y)=>y.missing_pct-x.missing_pct)[0];
-  if(ins.length<3&&worst&&worst.missing_pct>0)ins.push(['warn','Données manquantes',`<b>${esc(worst.name)}</b> est vide à ${String(worst.missing_pct).replace('.',',')} %.`,'C\'est la colonne la moins remplie.',`valeurs manquantes de ${worst.name}`]);
-  $('#insights').innerHTML=ins.length?ins.map(x=>`<div class="ins"><span class="tag ${x[0]}" style="justify-self:start">${x[1]}</span><p>${x[2]}</p><span class="why">${x[3]}</span><button data-ask="${esc(x[4])}">Demander à Hermes →</button></div>`).join('')
-    :'<div class="ins"><p>Aucun point saillant détecté automatiquement. Posez une question à Hermes pour explorer.</p></div>';
+  if(state.ai&&state.ai.length)renderInsights(state.ai,true);
+  else{renderInsights(ruleInsights(a),false);if(state.ai===null)loadAiInsights()}
   drawAnalyzeCharts();
-  const ns=Object.entries(a.numeric_stats||{}), f=v=>nf(+Number(v).toFixed(2));
+  const bv=a.bivariate||{},ns=Object.entries(a.numeric_stats||{}),f=v=>nf(+Number(v).toFixed(2));
   let h='';
   if(ns.length)h+=detailsBlock('Statistiques numériques',`<table><thead><tr><th>Variable</th><th class="r">Moyenne</th><th class="r">Écart-type</th><th class="r">Min</th><th class="r">Médiane</th><th class="r">Max</th><th class="r">Aberrantes</th></tr></thead><tbody>${ns.map(([k,v])=>`<tr><td>${esc(k)}</td><td class="r num">${f(v.mean)}</td><td class="r num">${f(v.std)}</td><td class="r num">${f(v.min)}</td><td class="r num">${f(v.median)}</td><td class="r num">${f(v.max)}</td><td class="r num">${v.outliers}</td></tr>`).join('')}</tbody></table>`);
   if((bv.correlations||[]).length)h+=detailsBlock('Corrélations',`<table><thead><tr><th>Variable A</th><th>Variable B</th><th class="r">r</th><th>Force</th></tr></thead><tbody>${bv.correlations.map(c=>`<tr><td>${esc(c.a)}</td><td>${esc(c.b)}</td><td class="r num">${c.r}</td><td>${esc(c.force||'')}</td></tr>`).join('')}</tbody></table>`);
@@ -645,6 +830,11 @@ function drawBoxplot(canvas,ch){
 }
 
 /* ================= share ================= */
+function renderShare(){
+  const ok=state.settings?.smtp_ready;
+  $('#ssNote').innerHTML=`Source relue à chaque envoi : <code>${esc(baseName(state.path))}</code>${state.applied?' (les corrections choisies ne sont pas rejouées : le rapport porte sur les données d\'origine)':''}. `+
+    (ok?'':'L\'envoi par e-mail n\'est pas encore configuré : sans configuration, le rapport arrive seulement dans Rapports. <button class="btn ghost sm" data-goto="settings">Configurer</button>');
+}
 $$('.exp[data-exp]').forEach(b=>b.onclick=async()=>{
   const kind=b.dataset.exp,s=b.querySelector('span:last-child'),old=s.textContent;
   s.innerHTML='<span class="spin"></span> Génération…';
@@ -654,7 +844,7 @@ $$('.exp[data-exp]').forEach(b=>b.onclick=async()=>{
 });
 $('#ingestCard').onclick=async()=>{
   const b=$('#ingestCard'),s=b.querySelector('span:last-child'),old=s.textContent;
-  const src=state.applied&&state.clean?state.clean.cleaned_path:state.path;
+  const src=state.applied&&state.cleanedPath?state.cleanedPath:state.path;
   if(!src){toast('Analysez d\'abord un fichier');return}
   s.innerHTML='<span class="spin"></span> Enregistrement…';
   const d=await api('/api/ingest',{file_path:src});
@@ -669,58 +859,148 @@ $('#ingestCard').onclick=async()=>{
     ${(d.warnings||[]).length?`<p class="sub" style="margin-top:8px">${d.warnings.length} avertissement(s) : ${esc(d.warnings.slice(0,3).join(' · '))}</p>`:''}`;
   toast('Jeu de données enregistré');loadCounts();
 };
+async function createSchedule(body,btn){
+  btn.disabled=true;const d=await api('/api/schedules',body);btn.disabled=false;
+  if(d.error){toast(d.error);return false}
+  toast(`Planifié : prochain rapport le ${fmtDate(d.next_run)}`);loadCounts();return true;
+}
+$('#shareSched').addEventListener('submit',async e=>{e.preventDefault();if(!state.path){toast('Analysez d\'abord un fichier');return}
+  if(await createSchedule({source:state.path,name:state.name,freq:$('#ssFreq').value,hour:$('#ssHour').value,format:$('#ssFmt').value,to:$('#ssTo').value},e.submitter||$('#shareSched button')))$('#ssTo').value=''});
 
-/* ================= sections ================= */
+/* ================= données ================= */
 const fmtDate=t=>t?new Date(t).toLocaleString('fr-FR',{day:'numeric',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'}):'—';
-function dsTable(ds,limit){
-  const rows=limit?ds.slice(0,limit):ds;
-  return `<div class="tablewrap"><table><thead><tr><th>Nom</th><th>Version</th><th>Format</th><th class="r">Lignes</th><th class="r">Colonnes</th><th>Enregistré le</th></tr></thead><tbody>
-    ${rows.map(x=>`<tr><td>${esc(x.dataset_name)}</td><td class="num">v${String(x.version_no).padStart(3,'0')}</td><td>${esc(x.source_format||'—')}</td><td class="r num">${nf(x.row_count||0)}</td><td class="r num">${x.column_count??''}</td><td>${fmtDate(x.ingested_at)}</td></tr>`).join('')}</tbody></table></div>`;
+let openDs=null;
+async function fetchRegistry(){const d=await api('/api/ingest/list');if(!d.error){state.registry=d.datasets||[];$('#cntDs').textContent=state.registry.length||''}return d}
+function dsRows(ds,actions){
+  return `<div class="tablewrap"><table><thead><tr><th>Nom</th><th>Version</th><th>Format</th><th class="r">Lignes</th><th class="r">Colonnes</th><th>Enregistré le</th>${actions?'<th class="r">Actions</th>':''}</tr></thead><tbody>
+    ${ds.map(x=>`<tr><td>${esc(x.dataset_name)}</td><td class="num">v${String(x.version_no).padStart(3,'0')}</td><td>${esc(x.source_format||'—')}</td><td class="r num">${nf(x.row_count||0)}</td><td class="r num">${x.column_count??''}</td><td>${fmtDate(x.ingested_at)}</td>
+      ${actions?`<td><div class="rowbtns">${(x.version_count||1)>1||actions==='full'?`<button class="btn ghost sm" data-ver="${esc(x.dataset_id)}" aria-expanded="${openDs===x.dataset_id}">Versions</button>`:''}${x.work_path?`<button class="btn primary sm" data-an="${esc(x.work_path)}" data-nm="${esc(x.dataset_name)}">Analyser</button>`:''}</div></td>`:''}</tr>
+      ${openDs===x.dataset_id?`<tr class="versions"><td colspan="7" id="ver-${esc(x.dataset_id)}"><span class="spin"></span> Chargement des versions…</td></tr>`:''}`).join('')}</tbody></table></div>`;
 }
 async function loadRecent(){
-  const d=await api('/api/ingest/list'),el=$('#recent');
+  const d=await fetchRegistry(),el=$('#recent');
   if(d.error){el.className='empty';el.textContent='Registre indisponible : '+d.error;return}
-  const ds=d.datasets||[];el.className='';el.innerHTML=ds.length?dsTable(ds,4):'<div class="empty">Aucun jeu de données enregistré pour le moment.</div>';
-  $('#cntDs').textContent=ds.length||'';
+  el.className='';el.innerHTML=state.registry.length?dsRows(state.registry.slice(0,4),'short'):'<div class="empty">Aucun jeu de données enregistré pour le moment.</div>';
 }
 async function loadDatasets(){
-  const d=await api('/api/ingest/list'),el=$('#dsBody');
+  const el=$('#dsBody');const d=await fetchRegistry();
   if(d.error){el.className='';el.innerHTML=`<div class="alert">Registre indisponible : ${esc(d.error)}</div>`;return}
-  const s=(d.summary||{}).counts||{},ds=d.datasets||[];
-  el.className='';el.innerHTML=`<p class="sub" style="margin-bottom:8px">${s.datasets??ds.length} jeu(x) de données · ${s.versions??'—'} version(s) · ${s.executions??'—'} exécution(s) · stockage ${esc(d.backend||'')}</p>`+
-    (ds.length?dsTable(ds):'<div class="empty">Le registre est vide. Analysez un fichier puis choisissez « Enregistrer dans le registre ».</div>');
-  $('#cntDs').textContent=ds.length||'';
+  renderDatasets(d);
 }
+function renderDatasets(d){
+  const el=$('#dsBody'),f=$('#dsSearch').value.trim().toLowerCase(),list=state.registry.filter(x=>String(x.dataset_name).toLowerCase().includes(f));
+  const s=(d?.summary||{}).counts||state.counts||{};if(d?.summary)state.counts=s;
+  el.className='';el.innerHTML=`<p class="sub" style="margin-bottom:8px">${s.datasets??state.registry.length} jeu(x) de données · ${s.versions??'—'} version(s) · ${s.executions??'—'} exécution(s)</p>`+
+    (list.length?dsRows(list,'full'):`<div class="empty">${state.registry.length?'Aucun jeu de données ne correspond.':'Le registre est vide. Analysez un fichier puis choisissez « Enregistrer dans le registre ».'}</div>`);
+  if(openDs)loadVersions(openDs);
+}
+async function loadVersions(id){
+  const cell=document.getElementById('ver-'+id);if(!cell)return;
+  const v=await api('/api/ingest/versions?id='+encodeURIComponent(id));
+  if(!Array.isArray(v)){cell.textContent='Versions indisponibles : '+(v.error||'');return}
+  cell.innerHTML=`<table><tbody>${v.slice().reverse().map(x=>`<tr><td class="num">v${String(x.version_no).padStart(3,'0')}</td><td>${fmtDate(x.ingested_at)}</td><td class="r num">${nf(x.row_count)} lignes</td><td><span class="tag ${x.status==='OK'?'ok':'warn'}">${esc(x.status)}</span></td><td class="r">${x.work_path?`<button class="btn ghost sm" data-an="${esc(x.work_path)}" data-nm="${esc(baseName(x.source_path||x.work_path))} v${String(x.version_no).padStart(3,'0')}">Analyser</button>`:''}</td></tr>`).join('')}</tbody></table>`;
+}
+$('#dsSearch').addEventListener('input',()=>renderDatasets());
+document.addEventListener('click',e=>{
+  const v=e.target.closest('[data-ver]'),a=e.target.closest('[data-an]');
+  if(v){openDs=openDs===v.dataset.ver?null:v.dataset.ver;if(!$('[data-view="datasets"]').hidden)renderDatasets();else{loadRecent().then(()=>openDs&&loadVersions(openDs))}}
+  if(a)startRun(a.dataset.an,a.dataset.nm||baseName(a.dataset.an));
+});
+
+/* ================= rapports ================= */
+let rpFilter='Tous',rpCache=[],rpConfirm=null;
+const FMT={pdf:'PDF',xlsx:'Excel',html:'HTML'};
 async function loadReports(){
-  const d=await api('/api/exports'),el=$('#rpList');
-  if(d.error||!Array.isArray(d)){el.innerHTML=`<div class="alert">${esc(d.error||'Liste indisponible')}</div>`;return}
-  el.innerHTML=d.length?d.map(f=>{const ext=f.file.split('.').pop().toUpperCase();return `<div class="li"><div><b>${esc(f.file)}</b><span><span class="tag type">${esc(ext)}</span> ${String(f.size_kb).replace('.',',')} Ko · ${fmtDate(f.modified)}</span></div>
-    <a class="btn ghost sm" href="${esc(f.url)}" download="${esc(f.file)}">Télécharger</a></div>`}).join('')
-    :'<div class="empty">Aucun rapport pour le moment. Analysez un fichier puis exportez-le.</div>';
-  $('#cntRp').textContent=d.length||'';
+  const d=await api('/api/exports');
+  if(d.error||!Array.isArray(d)){$('#rpList').innerHTML=`<div class="alert">${esc(d.error||'Liste indisponible')}</div>`;return}
+  rpCache=d;$('#cntRp').textContent=d.length||'';renderReports();
 }
+function renderReports(){
+  $('#rpChips').innerHTML=['Tous','PDF','Excel','HTML'].map(c=>`<button class="chipf" aria-pressed="${c===rpFilter}">${c}</button>`).join('');
+  const f=$('#rpSearch').value.trim().toLowerCase();
+  const list=rpCache.filter(r=>(rpFilter==='Tous'||FMT[r.file.split('.').pop().toLowerCase()]===rpFilter)&&r.file.toLowerCase().includes(f));
+  $('#rpList').innerHTML=list.length?list.map(r=>{const ext=r.file.split('.').pop().toLowerCase();return `<div class="li"><div><b>${esc(r.file)}</b><span><span class="tag type">${esc(FMT[ext]||ext)}</span> ${dec(r.size_kb)} Ko · ${fmtDate(r.modified)}</span></div>
+    <div class="rowbtns">${ext!=='xlsx'?`<a class="btn ghost sm" href="${esc(r.url)}?inline=1" target="_blank" rel="noopener">Ouvrir</a>`:''}<a class="btn ghost sm" href="${esc(r.url)}" download="${esc(r.file)}">Télécharger</a>
+    <button class="btn ${rpConfirm===r.file?'danger':'ghost'} sm" data-del="${esc(r.file)}">${rpConfirm===r.file?'Confirmer la suppression':'Supprimer'}</button></div></div>`}).join('')
+    :`<div class="empty">${rpCache.length?'Aucun rapport ne correspond.':'Aucun rapport pour le moment. Analysez un fichier puis exportez-le.'}</div>`;
+}
+$('#rpSearch').addEventListener('input',renderReports);
+$('#rpChips').addEventListener('click',e=>{const b=e.target.closest('.chipf');if(b){rpFilter=b.textContent;renderReports()}});
+$('#rpList').addEventListener('click',async e=>{const b=e.target.closest('[data-del]');if(!b)return;const fn=b.dataset.del;
+  if(rpConfirm!==fn){rpConfirm=fn;renderReports();return}
+  rpConfirm=null;const d=await api('/api/exports/delete',{file:fn});if(d.error){toast(d.error);return}toast('Rapport supprimé');loadReports()});
+
+/* ================= planifié ================= */
+const FREQ={daily:'Chaque jour',weekly:'Chaque lundi',monthly:'Le 1er du mois'};
+let jobConfirm=null;
+async function loadSchedules(){
+  const [jobs]=await Promise.all([api('/api/schedules'),fetchRegistry()]);
+  const opts=[];
+  if(state.path)opts.push([state.path,`Analyse en cours : ${state.name}`]);
+  state.registry.forEach(x=>x.work_path&&opts.push([x.work_path,`${x.dataset_name} (registre, v${String(x.version_no).padStart(3,'0')})`]));
+  $('#scSrc').innerHTML=opts.length?opts.map(o=>`<option value="${esc(o[0])}">${esc(o[1])}</option>`).join(''):'<option value="">Analysez ou enregistrez d\'abord un jeu de données</option>';
+  if(!Array.isArray(jobs)){$('#jobList').innerHTML=`<div class="alert">${esc(jobs.error||'Liste indisponible')}</div>`;return}
+  $('#cntSc').textContent=jobs.length||'';
+  $('#jobList').innerHTML=jobs.length?jobs.map(j=>`<div class="li"><div><b>${esc(j.name)}</b>
+    <span><span class="tag ${j.on?'ok':'type'}">${j.on?'Actif':'En pause'}</span> ${FREQ[j.freq]} à ${j.hour} h · ${j.format.toUpperCase()} · ${j.to.length?esc(j.to.join(', ')):'sans e-mail'}</span><br>
+    <span>Prochain : ${j.on?fmtDate(j.next_run):'en pause'} · Dernier : ${j.last_run?fmtDate(j.last_run)+' — '+esc(j.last_status||''):'jamais'}</span></div>
+    <div class="rowbtns"><button class="btn ghost sm" data-run="${j.id}">Exécuter maintenant</button><button class="btn ${jobConfirm===j.id?'danger':'ghost'} sm" data-deljob="${j.id}">${jobConfirm===j.id?'Confirmer':'Supprimer'}</button>
+    <button class="switch" role="switch" aria-checked="${j.on}" aria-label="Activer la planification ${esc(j.name)}" data-tog="${j.id}" data-on="${j.on}"></button></div></div>`).join('')
+    :'<div class="empty">Aucune planification. Créez-en une ci-dessus ou depuis l\'étape Partager.</div>';
+}
+$('#jobList').addEventListener('click',async e=>{
+  const t=e.target.closest('[data-tog]'),r=e.target.closest('[data-run]'),d=e.target.closest('[data-deljob]');
+  if(t){const res=await api('/api/schedules/update',{id:t.dataset.tog,on:t.dataset.on!=='true'});if(res.error)toast(res.error);loadSchedules()}
+  if(r){r.disabled=true;r.innerHTML='<span class="spin"></span> Exécution…';const res=await api('/api/schedules/run',{id:r.dataset.run});toast(res.error||res.last_status);loadSchedules();loadCounts()}
+  if(d){if(jobConfirm!==d.dataset.deljob){jobConfirm=d.dataset.deljob;loadSchedules();return}jobConfirm=null;await api('/api/schedules/delete',{id:d.dataset.deljob});toast('Planification supprimée');loadSchedules()}
+});
+$('#schedForm').addEventListener('submit',async e=>{e.preventDefault();const src=$('#scSrc').value;if(!src){toast('Choisissez une source');return}
+  const nm=$('#scSrc').selectedOptions[0].textContent.replace(/^Analyse en cours : /,'').replace(/ \(registre.*$/,'');
+  if(await createSchedule({source:src,name:nm,freq:$('#scFreq').value,hour:$('#scHour').value,format:$('#scFmt').value,to:$('#scTo').value},e.submitter||$('#schedForm button'))){$('#scTo').value='';loadSchedules()}});
+
+/* ================= tâches ================= */
 async function loadTasks(){
   const d=await api('/api/tasks'),el=$('#tkList');
   if(!Array.isArray(d)){el.innerHTML=`<div class="alert info">Orchestrateur injoignable${d.error?' : '+esc(d.error):''}. Les tâches s'afficheront dès que la connexion sera rétablie.</div>`;return}
   el.innerHTML=d.length?d.map(t=>{const p=t.payload||{},src=p.source||p.file||p.link||p.url||t.source||t.file||'';return `<div class="li"><div><b>${esc(t.type||'Tâche')} <span class="num" style="font-weight:400">#${esc(t.id||t.task_id||'')}</span></b>
     <span><span class="tag ${/done|complet/i.test(t.status||'')?'ok':'warn'}">${esc(t.status||'—')}</span> ${src?esc(src):'Aucune source jointe'}</span></div>
-    ${src?`<button class="btn primary sm" data-src="${esc(src)}">Analyser la source</button>`:''}</div>`}).join('')
+    ${src?`<button class="btn primary sm" data-an="${esc(src)}">Analyser la source</button>`:''}</div>`}).join('')
     :'<div class="empty">Aucune tâche assignée pour le moment.</div>';
   $('#cntTk').textContent=d.length||'';
 }
-$('#tkList').addEventListener('click',e=>{const b=e.target.closest('[data-src]');if(b){const s=b.dataset.src;startRun(s,s.split(/[\\/]/).pop())}});
+
+/* ================= réglages ================= */
+async function loadSettingsData(){const s=await api('/api/settings');if(!s.error){state.settings=s;$('#orgName').textContent=s.org||'Équipe Data'}return s}
 async function loadSettings(){
   $('#themeSel').value=document.documentElement.dataset.theme||'';
+  const s=await loadSettingsData();
+  if(!s.error){
+    $('#stName').value=s.name||'';$('#stOrg').value=s.org||'';$('#stLang').value=s.langue||'Français';$('#stDetail').value=s.detail||'simple';
+    const m=s.smtp||{};$('#smHost').value=m.host||'';$('#smPort').value=m.port||587;$('#smUser').value=m.user||'';$('#smFrom').value=m.sender||'';
+    $('#smPass').value='';$('#smPass').placeholder=m.has_password?'Inchangé (déjà enregistré)':'';
+    $('#smtpTag').className='tag '+(s.smtp_ready?'ok':'type');$('#smtpTag').textContent=s.smtp_ready?'Configuré':'Non configuré';
+  }
   const [st,reg]=await Promise.all([api('/api/status'),api('/api/ingest/list')]);
   const on=st&&!st.error&&String(st.status||'').toUpperCase()==='ONLINE';
   $('#services').innerHTML=`
     <div class="setrow"><div><b>Orchestrateur CVLynk</b><span>${on?`${(st.capabilities||[]).length} capacité(s) déclarée(s), signal envoyé toutes les 45 s`:esc(st.error||st.detail||'Statut : '+(st.status||'inconnu'))}</span></div><span class="tag ${on?'ok':'bad'}">${on?'En ligne':'Hors ligne'}</span></div>
-    <div class="setrow"><div><b>Registre des données</b><span>${reg.error?esc(reg.error):'Stockage : '+esc(reg.backend||'')}</span></div><span class="tag ${reg.error?'bad':'ok'}">${reg.error?'Indisponible':'Disponible'}</span></div>`;
+    <div class="setrow"><div><b>Registre des données</b><span>${reg.error?esc(reg.error):'Stockage : '+esc(reg.backend||'')}</span></div><span class="tag ${reg.error?'bad':'ok'}">${reg.error?'Indisponible':'Disponible'}</span></div>
+    <div class="setrow"><div><b>Envoi des e-mails</b><span>${s.smtp_ready?esc(s.smtp.host):'Renseignez le serveur SMTP ci-dessus'}</span></div><span class="tag ${s.smtp_ready?'ok':'type'}">${s.smtp_ready?'Prêt':'Non configuré'}</span></div>`;
 }
+$('#settingsForm').addEventListener('submit',async e=>{
+  e.preventDefault();
+  const body={name:$('#stName').value,org:$('#stOrg').value,langue:$('#stLang').value,detail:$('#stDetail').value,
+    smtp:{host:$('#smHost').value,port:$('#smPort').value||587,user:$('#smUser').value,sender:$('#smFrom').value,password:$('#smPass').value}};
+  const d=await api('/api/settings',body);
+  if(d.error){toast(d.error);return}
+  toast('Réglages enregistrés');loadSettings();
+});
+
 async function loadCounts(){
-  const [r,t]=await Promise.all([api('/api/exports'),api('/api/tasks')]);
+  const [r,t,s]=await Promise.all([api('/api/exports'),api('/api/tasks'),api('/api/schedules')]);
   if(Array.isArray(r))$('#cntRp').textContent=r.length||'';
   if(Array.isArray(t))$('#cntTk').textContent=t.length||'';
+  if(Array.isArray(s))$('#cntSc').textContent=s.length||'';
 }
 
 /* ================= status ================= */
@@ -732,10 +1012,11 @@ async function loadStatus(){
 }
 
 /* ================= chat ================= */
-function say(text){addMsg('agent',text)}
+function say(text){return addMsg('agent',text)}
 function addMsg(role,text,table,charts){
   const m=document.createElement('div');m.className='m '+role;
-  if(role==='user'){m.textContent=text}else{
+  if(role==='user')m.textContent=text;
+  else{
     const list=Array.isArray(charts)?charts.filter(c=>c&&c.labels&&c.values):(charts&&charts.labels&&charts.values?[charts]:[]);
     let h=`<div class="mt">${md(text)}</div>`;
     h+=list.map(c=>`<div class="ctitle">${esc(c.title||'')}</div><div class="mcbox"><canvas></canvas></div>`).join('');
@@ -745,32 +1026,40 @@ function addMsg(role,text,table,charts){
       if(table.rows.length>12)h+=`<div class="sub">… ${table.rows.length-12} ligne(s) de plus</div>`;
     }
     m.innerHTML=h;
-    $('#msgs').append(m);
-    m.querySelectorAll('canvas').forEach((cv,i)=>{try{drawChart(cv,list[i])}catch(e){console.warn(e)}});
+    m._charts=list;
   }
-  if(!m.isConnected)$('#msgs').append(m);
+  $('#msgs').append(m);
+  (m._charts||[]).forEach((c,i)=>{const cv=m.querySelectorAll('canvas')[i];try{drawChart(cv,c)}catch(e){console.warn(e)}});
   $('#msgs').scrollTop=$('#msgs').scrollHeight;
   return m;
+}
+async function typeOut(el,text){
+  if(reduce){el.innerHTML=md(text);return}
+  const words=String(text).split(/(\s+)/);let acc='';
+  for(let i=0;i<words.length;i++){acc+=words[i];if(i%6===0||i===words.length-1){el.innerHTML=md(acc);$('#msgs').scrollTop=$('#msgs').scrollHeight;await new Promise(r=>setTimeout(r,16))}}
 }
 async function ask(q){
   openChat();addMsg('user',q);
   const w=addMsg('agent','');w.innerHTML='<span class="spin"></span> Hermes analyse…';
   const d=await api('/api/chat',{question:q});
-  w.remove();addMsg('agent',d.answer||d.error||'(pas de réponse)',d.table,d.charts);
+  w.remove();
+  const text=d.answer||d.error||'(pas de réponse)';
+  const m=addMsg('agent','',d.table,d.charts);
+  await typeOut(m.querySelector('.mt'),text);
 }
 function renderSugs(){
   const a=state.analysis;let list;
   if(!a)list=['Que peux-tu faire ?'];
   else{
-    const nums=Object.keys(a.numeric_stats||{}),cats=(a.columns_detail||[]).filter(c=>!nums.includes(c.name)&&c.unique>1&&c.unique<=50).map(c=>c.name);
-    list=[`Combien de lignes dans ${a.file.replace(/\.[^.]+$/,'')} ?`];
+    const nums=Object.keys(a.numeric_stats||{}),cats=(a.columns_detail||[]).filter(c=>!nums.includes(c.name)&&c.unique>1&&c.unique<=50).sort((x,y)=>x.unique-y.unique).map(c=>c.name);
+    list=['Résume ce fichier en 3 points'];
     if(nums[0]&&cats[0])list.push(`Top 5 ${cats[0]} par ${nums[0]}`,`Fais un graphique de ${nums[0]} par ${cats[0]}`);
     if(nums.length>1)list.push(`Corrélation entre ${nums[0]} et ${nums[1]}`);
   }
   $('#sugs').innerHTML=list.slice(0,4).map(s=>`<button class="sug">${esc(s)}</button>`).join('');
 }
 $('#sugs').addEventListener('click',e=>{const b=e.target.closest('.sug');if(!b)return;
-  if(!state.analysis&&b.textContent==='Que peux-tu faire ?'){addMsg('user',b.textContent);say('Je lis vos fichiers CSV, Excel ou JSON, je repère les erreurs et propose des corrections, je calcule les statistiques, les corrélations et les anomalies, puis je prépare des exports PDF, Excel ou HTML. Une fois un fichier analysé, posez-moi vos questions en français : « top 5 districts par valeur », « évolution par mois », « fais un graphique… ».');return}
+  if(!state.analysis&&b.textContent==='Que peux-tu faire ?'){addMsg('user',b.textContent);say('Je lis vos fichiers CSV, Excel, JSON ou vos tables PostgreSQL, je repère les erreurs et propose des corrections, je calcule les statistiques, les corrélations et les anomalies, puis je prépare des rapports PDF, Excel ou HTML, envoyés automatiquement si vous le souhaitez. Une fois un fichier analysé, posez-moi vos questions en français.');return}
   ask(b.textContent)});
 document.addEventListener('click',e=>{const b=e.target.closest('[data-ask]');if(b)ask(b.dataset.ask)});
 $('#composer').addEventListener('submit',e=>{e.preventDefault();const q=$('#q').value.trim();if(!q)return;$('#q').value='';ask(q)});
@@ -788,8 +1077,8 @@ $('#themeSel').onchange=e=>applyTheme(e.target.value);
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change',()=>{if(!$('[data-view="analyze"]').hidden)drawAnalyzeCharts()});
 
 /* ================= boot ================= */
-say('Bonjour, je suis **Hermes**. Déposez un fichier Excel, CSV ou JSON : je vérifie sa qualité, je l\'analyse et je prépare vos exports. Ensuite, posez-moi vos questions en français.');
-go(0);loadStatus();loadCounts();setInterval(loadStatus,60000);
+say('Bonjour, je suis **Hermes**. Déposez un fichier Excel, CSV ou JSON, ou connectez une base : je vérifie sa qualité, je l\'analyse et je prépare vos rapports. Ensuite, posez-moi vos questions en français.');
+go(0);loadStatus();loadCounts();loadSettingsData();setInterval(loadStatus,60000);
 </script>
 </body>
 </html>
