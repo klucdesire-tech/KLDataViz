@@ -10,6 +10,18 @@ import numpy as np
 import openpyxl
 from openpyxl.styles import Font, PatternFill
 
+# --- Agent 2 MODÉLISATION (nettoyage, typage, imputation, doublons) ---
+try:
+    from modeling import clean_dataframe, bivariate_stats
+    MODELING_OK = True
+except Exception as _mod_exc:
+    MODELING_OK = False
+    MODELING_ERROR = str(_mod_exc)
+    def clean_dataframe(df):
+        raise RuntimeError(MODELING_ERROR)
+    def bivariate_stats(df):
+        return {}
+
 # --- Agent DATA INGESTION (ingestion sans altération de la source) ---
 try:
     from ingestion import ingest as ingest_agent, Registry as IngestionRegistry
@@ -71,7 +83,90 @@ def orchestrator(path, method="GET", body=None):
     except Exception as e:
         return 0, {"error": str(e)}
 
-def analyze(file_path):
+def _auto_charts(df):
+    """Génère un graphique adapté à chaque variable + nuages de points multi-variables."""
+    charts = []
+    numeric_cols = df.select_dtypes(include=[np.number]).columns
+
+    # Nuages de points pour les paires numériques les plus corrélées (multi-variable)
+    if len(numeric_cols) >= 2:
+        try:
+            cm = df[numeric_cols].corr()
+            pairs = []
+            for i in range(len(cm.columns)):
+                for j in range(i):
+                    pairs.append((str(cm.columns[i]), str(cm.columns[j]), float(cm.iloc[i, j])))
+            pairs = sorted(pairs, key=lambda x: -abs(x[2]))[:3]
+            for a, b, r in pairs:
+                if abs(r) >= 0.3:
+                    sub = df[[a, b]].dropna()
+                    if len(sub) > 500:
+                        sub = sub.sample(500, random_state=0)
+                    if len(sub) > 5:
+                        charts.append({
+                            "title": f"{a} vs {b} (r={r:.2f})", "type": "scatter",
+                            "labels": [str(x) for x in sub[a].tolist()],
+                            "values": [[float(y) for y in sub[b].tolist()]],
+                            "seriesNames": [b],
+                        })
+        except Exception:
+            pass
+
+    for col in df.columns:
+        name = str(col)
+        s = df[col]
+
+        # Détection de date
+        is_date = pd.api.types.is_datetime64_any_dtype(s)
+        if not is_date and not pd.api.types.is_numeric_dtype(s):
+            sample = s.dropna().head(30)
+            if len(sample) >= 3:
+                try:
+                    parsed = pd.to_datetime(sample, errors="coerce", format="mixed", dayfirst=True)
+                    if parsed.notna().mean() >= 0.9:
+                        is_date = True
+                except Exception:
+                    pass
+
+        if is_date:
+            try:
+                dt = pd.to_datetime(s, errors="coerce", format="mixed", dayfirst=True)
+                per = dt.dt.to_period("M").astype(str).value_counts().sort_index()
+                charts.append({"title": name, "type": "line",
+                               "labels": list(per.index), "values": [list(map(int, per.values))]})
+            except Exception:
+                pass
+            continue
+
+        if col in numeric_cols:
+            vals = s.dropna()
+            nunique = int(vals.nunique())
+            if nunique <= 15:
+                vc = vals.value_counts().sort_index()
+                charts.append({"title": name, "type": "bar",
+                               "labels": [str(k) for k in vc.index], "values": [list(map(int, vc.values))]})
+            else:
+                try:
+                    counts, edges = np.histogram(vals, bins=10)
+                    labels = [f"{edges[i]:.3g}-{edges[i+1]:.3g}" for i in range(len(counts))]
+                    charts.append({"title": name, "type": "histogram",
+                                   "labels": labels, "values": [list(map(int, counts))]})
+                except Exception:
+                    pass
+            continue
+
+        vc = s.value_counts(dropna=True)
+        if len(vc) == 0:
+            continue
+        top = vc.head(12)
+        charts.append({"title": name, "type": "bar",
+                       "labels": [str(k)[:40] for k in top.index], "values": [list(map(int, top.values))]})
+
+    return charts
+
+
+def _read_df(file_path):
+    """Lit un fichier local ou une URL en DataFrame (csv/xlsx/xls/xlsm/json)."""
     if file_path.startswith(("http://", "https://")):
         try:
             req = urllib.request.Request(file_path, headers={"User-Agent": "KLDataViz/1.0"})
@@ -81,22 +176,28 @@ def analyze(file_path):
             tmp.write(data); tmp.close()
             file_path = tmp.name
         except Exception as e:
-            return {"error": f"Téléchargement impossible : {e}"}
-
+            return None, f"Téléchargement impossible : {e}"
     if not os.path.exists(file_path):
-        return {"error": f"Fichier introuvable : {file_path}"}
+        return None, f"Fichier introuvable : {file_path}"
     ext = os.path.splitext(file_path)[1].lower()
     try:
         if ext == ".csv":
             df = pd.read_csv(file_path)
-        elif ext in (".xlsx", ".xls"):
+        elif ext in (".xlsx", ".xls", ".xlsm"):
             df = pd.read_excel(file_path)
         elif ext == ".json":
             df = pd.read_json(file_path)
         else:
-            return {"error": f"Format non supporté : {ext}"}
+            return None, f"Format non supporté : {ext}"
     except Exception as e:
-        return {"error": f"Lecture impossible : {e}"}
+        return None, f"Lecture impossible : {e}"
+    return df, None
+
+
+def analyze(file_path):
+    df, err = _read_df(file_path)
+    if err:
+        return {"error": err}
 
     size = os.path.getsize(file_path)
     rows, cols = df.shape
@@ -171,6 +272,54 @@ def analyze(file_path):
         "categorical_top": cat_top,
         "correlations": [{"a": a, "b": b, "r": round(r, 3)} for a, b, r in corr_pairs],
         "anomalies": anomalies,
+        "bivariate": bivariate_stats(df),
+        "charts": _auto_charts(df),
+    }
+
+
+def _cell_safe(v):
+    """Convertit une cellule DataFrame en valeur JSON-safe."""
+    if pd.isna(v):
+        return None
+    if isinstance(v, pd.Timestamp):
+        return v.strftime("%Y-%m-%d")
+    if isinstance(v, bool):
+        return bool(v)
+    try:
+        if hasattr(v, "item"):
+            return v.item()
+    except Exception:
+        pass
+    return v
+
+
+def clean(file_path):
+    """Agent 2 — modélisation : nettoie, met en forme et sauvegarde un fichier."""
+    df, err = _read_df(file_path)
+    if err:
+        return {"error": err}
+    df_clean, rapport = clean_dataframe(df)
+
+    # Sauvegarde de la version nettoyée (c'est elle, et elle seule, qui sera ingérée)
+    cleaned_dir = os.path.join(BASE, "storage", "cleaned")
+    os.makedirs(cleaned_dir, exist_ok=True)
+    stem = os.path.splitext(os.path.basename(file_path))[0]
+    cleaned_path = os.path.join(cleaned_dir, f"{stem}_nettoye.csv")
+    df_clean.to_csv(cleaned_path, index=False, encoding="utf-8-sig")
+
+    preview = df_clean.head(30)
+    apercu = [[_cell_safe(x) for x in row]
+              for row in preview.itertuples(index=False, name=None)]
+
+    return {
+        "file": os.path.basename(file_path),
+        "cleaned_path": cleaned_path,
+        "rows": int(len(df_clean)),
+        "cols": int(len(df_clean.columns)),
+        "colonnes": [str(c) for c in df_clean.columns],
+        "types": {str(c): str(df_clean[c].dtype) for c in df_clean.columns},
+        "apercu": apercu,
+        "rapport": rapport,
     }
 
 def fetch_source():
@@ -483,12 +632,12 @@ def _llm_loader(datasets):
     for d in datasets:
         nm = (d.get("dataset_name") or "").lower()
         idx[nm] = d
-        for ext in (".csv", ".xlsx", ".xls", ".json"):
+        for ext in (".csv", ".xlsx", ".xls", ".xlsm", ".json"):
             if nm.endswith(ext):
                 idx[nm[: -len(ext)]] = d
     def load(name):
         key = str(name).lower()
-        for ext in (".csv", ".xlsx", ".xls", ".json"):
+        for ext in (".csv", ".xlsx", ".xls", ".xlsm", ".json"):
             if key.endswith(ext):
                 key = key[: -len(ext)]
         d = idx.get(key)
@@ -715,6 +864,15 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 global LAST_RESULT
                 LAST_RESULT = result
             self._send(200, result)
+        elif self.path == "/api/clean":
+            ln = int(self.headers.get("Content-Length", 0))
+            raw = self.rfile.read(ln) if ln else b""
+            try:
+                payload = json.loads(raw.decode("utf-8"))
+                file_path = payload.get("file_path", "")
+            except Exception:
+                file_path = ""
+            self._send(200, clean(file_path))
         elif self.path == "/api/ingest":
             if not INGESTION_OK:
                 self._send(500, {"error": f"Agent d'ingestion indisponible : {INGESTION_ERROR}"})

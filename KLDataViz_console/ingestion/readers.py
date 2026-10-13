@@ -347,6 +347,7 @@ READERS = {
     "psv": lambda path, **kw: read_csv_file(path, separator="|", **kw),
     "xlsx": lambda path, **kw: read_excel_file(path, **kw),
     "xls": lambda path, **kw: read_excel_file(path, **kw),
+    "xlsm": lambda path, **kw: read_excel_file(path, **kw),
     "json": lambda path, **kw: read_json_file(path, **kw),
     "parquet": lambda path, **kw: read_parquet_file(path, **kw),
 }
