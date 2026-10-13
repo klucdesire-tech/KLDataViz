@@ -215,6 +215,10 @@ tr.versions td{background:var(--surface-2);font-size:13px}
 @media (max-width:980px){.sources{grid-template-columns:repeat(2,minmax(0,1fr))}}
 
 /* version en ligne */
+.annbar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:14px 28px 0;padding:10px 14px;border-radius:10px;background:var(--brand-soft);color:var(--brand-strong);font-size:14px}
+.annbar.warning{background:var(--amber-soft);color:var(--amber)}
+.annbar a{color:inherit;font-weight:600}.annbar .iconbtn{margin-left:auto;width:32px;height:32px;font-size:18px;border:0;background:transparent;color:inherit}
+@media (max-width:760px){.annbar{margin-inline:16px}}
 .userbox{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--muted);min-width:0}
 .userbox span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:200px}
 .railfoot .row{display:flex;justify-content:space-between;align-items:center;gap:8px}
@@ -304,12 +308,13 @@ tr.versions td{background:var(--surface-2);font-size:13px}
       <div class="crumb" id="crumb"><b>Nouvelle analyse</b></div>
       <span class="status hide-sm" id="status"><i></i>Connexion…</span>
       <span class="spacer"></span>
-      <div class="userbox" id="userbox" hidden><span id="userEmail"></span><button class="btn ghost sm" id="logoutBtn">Déconnexion</button></div>
+      <div class="userbox" id="userbox" hidden><a class="btn ghost sm" id="adminLink" href="/admin" hidden>Administration</a><span id="userEmail"></span><button class="btn ghost sm" id="logoutBtn">Déconnexion</button></div>
       <button class="iconbtn" id="themeBtn" aria-label="Changer de thème" title="Changer de thème"><svg class="i" viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 0 1 9.5 4 8 8 0 1 0 20 14.5z"/></svg></button>
       <button class="btn ghost fab" id="chatOpen"><svg class="i" viewBox="0 0 24 24"><path d="M4 5h16v11H8l-4 4z"/></svg>Hermes</button>
       <button class="btn primary" id="newBtn"><svg class="i" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg><span class="hide-sm">Nouvelle analyse</span></button>
     </div>
 
+    <div id="annBar" hidden></div>
     <div class="stepper" id="stepper"></div>
 
     <div class="scroll" id="scroll">
@@ -522,9 +527,7 @@ tr.versions td{background:var(--surface-2);font-size:13px}
           <p class="sub" id="inviteNote" style="margin-top:8px"></p>
         </div>
         <div class="card" id="adminCard" hidden>
-          <h2>Administration de la plateforme</h2>
-          <p class="sub">Visible uniquement par toi. Change le plan d'un espace ; l'essai repart pour 14 jours.</p>
-          <div class="tablewrap" id="adminList" style="margin-top:8px"></div>
+          <div class="setrow"><div><b>Administration de la plateforme</b><span>Clients, forfaits et prix, annonces, administrateurs, page d'accueil.</span></div><a class="btn primary sm" href="/admin">Ouvrir</a></div>
         </div>
         <div class="card"><h2>Services</h2><div id="services"><div class="empty">Vérification…</div></div></div>
         <div class="card" id="classicCard"><h2>Ancienne console</h2>
@@ -1241,6 +1244,13 @@ matchMedia('(prefers-color-scheme: dark)').addEventListener('change',()=>{if(!$(
 /* ================= boot ================= */
 say('Bonjour, je suis **Hermes**. Déposez un fichier Excel, CSV ou JSON, ou connectez une base : je vérifie sa qualité, je l\'analyse et je prépare vos rapports. Ensuite, posez-moi vos questions en français.');
 /* ================= version en ligne : compte, espace, équipe ================= */
+async function loadAnnouncements(){
+  const list=await api('/api/announcements');if(!Array.isArray(list)||!list.length)return;
+  const a=list[0],key='kldv-ann-'+a.id;try{if(localStorage.getItem(key))return}catch(e){}
+  const bar=$('#annBar');bar.hidden=false;
+  bar.innerHTML=`<div class="annbar ${esc(a.level)}"><b>${esc(a.title)}</b>${a.body?`<span>${esc(a.body)}</span>`:''}${a.link_url?`<a href="${esc(a.link_url)}">${esc(a.link_label||'En savoir plus')} →</a>`:''}<button class="iconbtn" aria-label="Masquer l'annonce" id="annClose">×</button></div>`;
+  $('#annClose').onclick=()=>{bar.hidden=true;try{localStorage.setItem(key,'1')}catch(e){}};
+}
 const ROLE={owner:'Propriétaire',analyst:'Analyste',viewer:'Lecteur'};
 function loadScript(src){return new Promise((ok,ko)=>{const s=document.createElement('script');s.src=src;s.onload=ok;s.onerror=ko;document.head.append(s)})}
 function applyCloudUI(){
@@ -1254,7 +1264,7 @@ function renderMe(me){
   state.me=me;$('#userEmail').textContent=me.email;$('#orgName').textContent=me.org||'';
   const p=me.plan,u=me.usage,trial=p.key==='essai'&&p.trial_end?`<span>Essai jusqu'au ${new Date(p.trial_end).toLocaleDateString('fr-FR',{day:'numeric',month:'long'})}</span>`:'';
   $('#railfoot').innerHTML=`<div class="row"><span class="pill">${esc(p.label)}</span><span>${esc(ROLE[me.role]||'')}</span></div>${meter('Analyses',u.analyses,p.analyses)}${meter('Questions IA',u.ai,p.ai)}${trial}`;
-  $('#teamCard').hidden=me.role!=='owner';$('#adminCard').hidden=!me.is_admin;
+  $('#teamCard').hidden=me.role!=='owner';$('#adminCard').hidden=!me.is_admin;$('#adminLink').hidden=!me.is_admin;
 }
 async function refreshMe(){if(!CLOUD||!state.me)return;const me=await fetch('/api/me',{headers:await authHeaders()}).then(r=>r.json()).catch(()=>null);if(me&&me.plan)renderMe(me)}
 function showOnboarding(email){$('#onboard').hidden=false;if(email)$('#onboardSub').textContent=`Connecté en tant que ${email}. Votre espace regroupe vos données, vos rapports et votre équipe. Essai gratuit de 14 jours.`;$('#obOrg').focus()}
@@ -1283,6 +1293,7 @@ $('#inviteForm').addEventListener('submit',async e=>{e.preventDefault();const d=
   $('#invEmail').value='';loadTeam()});
 const PLANS={essai:'Essai',pro:'Pro',equipe:'Équipe',suspendu:'Suspendu'};
 async function loadAdmin(){
+  return; // l'administration complète est sur /admin
   if(!state.me?.is_admin)return;
   const rows=await api('/api/admin/orgs');if(!Array.isArray(rows)){$('#adminList').innerHTML=`<div class="alert">${esc(rows.error||'')}</div>`;return}
   $('#adminList').innerHTML=`<table><thead><tr><th>Espace</th><th>Propriétaire</th><th>Plan</th><th class="r">Membres</th><th class="r">Analyses</th><th class="r">IA</th><th>Fin d'essai</th></tr></thead><tbody>${rows.map(o=>`<tr><td>${esc(o.name)}</td><td>${esc(o.owner_email||'')}</td>
@@ -1301,6 +1312,7 @@ async function boot(){
     if(me.onboarding){showOnboarding(me.email);return}
     if(me.error){toast(me.error);return}
     renderMe(me);
+    loadAnnouncements();
   }
   go(0);loadStatus();loadCounts();loadSettingsData();setInterval(loadStatus,60000);
 }

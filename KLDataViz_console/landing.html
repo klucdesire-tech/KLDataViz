@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>KLDataViz — l'analyste de données qui parle français</title>
+<meta name="description" content="Importez un fichier Excel ou une feuille Google. Hermes vérifie la qualité, trouve ce qui compte et prépare vos rapports, en français.">
+<link rel="icon" href="/logo.png">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@500;600&family=Fira+Sans:wght@400;500;600;700;800&display=swap">
+<style>
+/* Layout: annonce · barre de navigation · héros (texte + scène animée) · étapes · fonctions · tarifs · sécurité · FAQ · appel final */
+:root{
+  --bg:#F3F6F4; --surface:#FFFFFF; --surface-2:#EBF1ED; --line:#D9E3DD; --fg:#11241A; --muted:#55685D;
+  --brand:#1D7A4C; --brand-strong:#15633D; --brand-soft:#DCEFE4; --on-brand:#FFFFFF; --deep:#0F3D27;
+  --amber:#A8580A; --amber-soft:#FCEFD9; --red:#B4372A; --red-soft:#FBE3DF; --blue:#2F62C9;
+  --sans:'Fira Sans',system-ui,-apple-system,'Segoe UI',sans-serif; --mono:'Fira Code',ui-monospace,Consolas,monospace;
+  --shadow:0 1px 2px rgba(17,36,26,.05),0 18px 50px rgba(17,36,26,.12); color-scheme:light;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0D1411; --surface:#141D18; --surface-2:#1A2620; --line:#273730; --fg:#E4EEE8; --muted:#93A79B;
+  --brand:#3FBF7E; --brand-strong:#5FD196; --brand-soft:#173826; --on-brand:#06140C; --deep:#0A2417;
+  --amber:#F0A852; --amber-soft:#3A2A14; --red:#F2776A; --red-soft:#3C1D19; --blue:#7EA6F5;
+  --shadow:0 1px 2px rgba(0,0,0,.3),0 18px 50px rgba(0,0,0,.4); color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0D1411; --surface:#141D18; --surface-2:#1A2620; --line:#273730; --fg:#E4EEE8; --muted:#93A79B;
+  --brand:#3FBF7E; --brand-strong:#5FD196; --brand-soft:#173826; --on-brand:#06140C; --deep:#0A2417;
+  --amber:#F0A852; --amber-soft:#3A2A14; --red:#F2776A; --red-soft:#3C1D19; --blue:#7EA6F5;
+  --shadow:0 1px 2px rgba(0,0,0,.3),0 18px 50px rgba(0,0,0,.4); color-scheme:dark}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.6 var(--sans);-webkit-font-smoothing:antialiased}
+a{color:inherit}
+:focus-visible{outline:2px solid var(--brand);outline-offset:3px;border-radius:6px}
+h1,h2,h3{margin:0;text-wrap:balance;letter-spacing:-.02em}
+.wrap{max-width:1160px;margin:0 auto;padding-inline:20px}
+.num{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;border-radius:12px;padding:12px 20px;min-height:48px;font:600 15.5px var(--sans);text-decoration:none;border:1px solid transparent;cursor:pointer;transition:background .15s,transform .1s,border-color .15s}
+.btn:active{transform:translateY(1px)}
+.btn.primary{background:var(--brand);color:var(--on-brand)}.btn.primary:hover{background:var(--brand-strong)}
+.btn.ghost{background:var(--surface);border-color:var(--line)}.btn.ghost:hover{border-color:var(--brand)}
+.eyebrow{font:600 12.5px var(--sans);letter-spacing:.12em;text-transform:uppercase;color:var(--brand-strong)}
+section{padding-block:clamp(64px,9vw,112px)}
+.sec-head{max-width:640px;display:grid;gap:12px;margin-bottom:44px}
+.sec-head h2{font-size:clamp(28px,3.6vw,40px);line-height:1.15}
+.sec-head p{margin:0;color:var(--muted);font-size:17px}
+
+/* annonce */
+.ann{background:var(--deep);color:#DDF1E6;font-size:14px}
+.ann .wrap{display:flex;gap:12px;align-items:center;justify-content:center;padding-block:9px;flex-wrap:wrap;text-align:center}
+.ann b{color:#fff}.ann a{color:#9BE3BC;font-weight:600}
+.ann.warning{background:#5A3A0B}.ann.success{background:#0F3D27}
+
+/* navigation */
+header.nav{position:sticky;top:env(safe-area-inset-top,0px);z-index:20;background:color-mix(in srgb,var(--bg) 86%,transparent);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
+header.nav .wrap{display:flex;align-items:center;gap:20px;min-height:68px}
+.logo{display:flex;align-items:center;gap:10px;font-weight:800;font-size:18px;text-decoration:none}
+.logo img{width:30px;height:38px;object-fit:contain}
+.links{display:flex;gap:22px;margin-left:12px}
+.links a{text-decoration:none;color:var(--muted);font-weight:500;font-size:15px}.links a:hover{color:var(--fg)}
+.nav .spacer{flex:1}
+.nav .btn{min-height:42px;padding:9px 16px;font-size:14.5px}
+
+/* héros */
+.hero{padding-block:clamp(48px,7vw,88px) clamp(56px,8vw,96px)}
+.hero .wrap{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.08fr);gap:clamp(32px,5vw,64px);align-items:center}
+.hero h1{font-size:clamp(36px,5.2vw,60px);line-height:1.04;font-weight:800}
+.hero h1 em{font-style:normal;color:var(--brand)}
+.hero p.lead{font-size:clamp(17px,1.6vw,19.5px);color:var(--muted);margin:20px 0 0;max-width:52ch}
+.hero .ctas{display:flex;gap:12px;flex-wrap:wrap;margin-top:30px}
+.trust{display:flex;gap:18px;flex-wrap:wrap;margin-top:26px;color:var(--muted);font-size:14px}
+.trust span{display:inline-flex;align-items:center;gap:7px}
+.trust svg{width:16px;height:16px;color:var(--brand)}
+
+/* ===== scène animée (motion design) ===== */
+.stage{position:relative;background:var(--surface);border:1px solid var(--line);border-radius:20px;box-shadow:var(--shadow);overflow:hidden;aspect-ratio:1.18/1;max-width:100%}
+.stage .bar{display:flex;align-items:center;gap:7px;padding:12px 16px;border-bottom:1px solid var(--line);background:var(--surface-2)}
+.stage .bar i{width:10px;height:10px;border-radius:50%;background:var(--line)}
+.stage .bar span{margin-left:10px;font:500 12.5px var(--mono);color:var(--muted)}
+.stage .bar .tag{margin-left:auto;font:600 11px var(--sans);color:var(--muted);letter-spacing:.06em;text-transform:uppercase}
+.scene{position:absolute;inset:46px 0 54px 0;padding:18px 20px}
+.steps-ui{position:absolute;left:0;right:0;bottom:0;height:54px;border-top:1px solid var(--line);display:grid;grid-template-columns:repeat(4,1fr)}
+.steps-ui div{display:flex;align-items:center;justify-content:center;gap:7px;font-size:13px;color:var(--muted);position:relative}
+.steps-ui div b{width:20px;height:20px;border-radius:50%;display:grid;place-items:center;background:var(--surface-2);font:600 11px var(--mono)}
+.steps-ui div::after{content:"";position:absolute;left:0;bottom:0;height:3px;width:0;background:var(--brand)}
+.steps-ui div.on{color:var(--fg);font-weight:600}.steps-ui div.on b{background:var(--brand);color:var(--on-brand)}
+.steps-ui div.on::after{animation:prog var(--dur,3s) linear forwards}
+@keyframes prog{to{width:100%}}
+
+/* acte 1 : fichier + tableau */
+.file{position:absolute;left:50%;top:-60px;transform:translateX(-50%);display:flex;align-items:center;gap:10px;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:10px 14px;box-shadow:var(--shadow);font:500 13px var(--mono);opacity:0;z-index:3}
+.file .ic{width:28px;height:34px;border-radius:5px;background:#1E7145;color:#fff;display:grid;place-items:center;font:700 10px var(--sans)}
+.table{display:grid;gap:5px;opacity:0;transition:opacity .4s}
+.trow{display:grid;grid-template-columns:1.25fr .8fr .8fr .7fr;gap:5px;opacity:0;transform:translateY(8px);transition:opacity .35s,transform .35s}
+.trow span{height:24px;border-radius:6px;background:var(--surface-2);font:500 11.5px var(--mono);color:var(--muted);display:flex;align-items:center;padding-inline:8px;overflow:hidden;white-space:nowrap;transition:background .35s,color .35s}
+.trow.head span{background:transparent;color:var(--fg);font-weight:600;font-family:var(--sans);font-size:12px}
+.trow span.bad{background:var(--red-soft);color:var(--red)}
+.trow span.fixed{background:var(--brand-soft);color:var(--brand-strong)}
+.scan{position:absolute;left:14px;right:14px;height:2px;background:var(--brand);box-shadow:0 0 18px 4px color-mix(in srgb,var(--brand) 45%,transparent);top:20px;opacity:0}
+.score{position:absolute;right:18px;bottom:14px;display:flex;align-items:center;gap:10px;background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:8px 12px 8px 8px;box-shadow:var(--shadow);opacity:0;transform:scale(.9);transition:opacity .35s,transform .35s}
+.score .ring{width:46px;height:46px;border-radius:50%;display:grid;place-items:center;background:conic-gradient(var(--c,var(--amber)) calc(var(--p,62)*1%),var(--surface-2) 0)}
+.score .ring b{width:36px;height:36px;border-radius:50%;background:var(--surface);display:grid;place-items:center;font:600 13px var(--mono)}
+.score small{display:block;color:var(--muted);font-size:11px;line-height:1.2}.score strong{font-size:13px}
+
+/* acte 3 : graphique */
+.chart{position:absolute;inset:18px 20px;opacity:0;transition:opacity .4s}
+.chart h4{margin:0 0 2px;font-size:14px}.chart p{margin:0;color:var(--muted);font-size:12px}
+.bars{position:absolute;left:0;right:0;bottom:6px;top:52px;display:flex;align-items:flex-end;gap:7%;padding-inline:4%}
+.bars i{flex:1;height:var(--h);background:var(--brand);border-radius:7px 7px 3px 3px;transform-origin:bottom;transform:scaleY(0);transition:transform .7s cubic-bezier(.2,.8,.2,1)}
+.bars i.low{background:color-mix(in srgb,var(--brand) 42%,var(--surface))}
+.chart svg{position:absolute;left:0;right:0;top:52px;bottom:6px;width:100%;height:calc(100% - 58px);overflow:visible}
+.chart path.line{fill:none;stroke:var(--amber);stroke-width:3;stroke-linecap:round;stroke-dasharray:420;stroke-dashoffset:420;transition:stroke-dashoffset 1.3s ease-out}
+.chart line.avg{stroke:var(--muted);stroke-dasharray:5 5;stroke-width:1.2;opacity:0;transition:opacity .4s}
+
+/* acte 4 : point clé + bulle */
+.insight{position:absolute;left:18px;right:18px;bottom:14px;background:var(--surface);border:1px solid var(--line);border-left:4px solid var(--brand);border-radius:14px;padding:12px 14px;box-shadow:var(--shadow);opacity:0;transform:translateY(16px);transition:opacity .45s,transform .45s}
+.insight .t{font:600 11px var(--sans);letter-spacing:.06em;text-transform:uppercase;color:var(--brand-strong)}
+.insight p{margin:4px 0 0;font-size:14.5px;min-height:2.6em}
+.insight p b{color:var(--brand-strong)}
+.caret{display:inline-block;width:2px;height:1em;background:var(--fg);vertical-align:-2px;margin-left:1px;animation:blink 1s steps(1) infinite}
+@keyframes blink{50%{opacity:0}}
+
+/* états des actes (posés par le script) */
+.stage[data-act="1"] .file{animation:drop 1.1s cubic-bezier(.2,.9,.25,1.2) forwards}
+@keyframes drop{0%{opacity:0;top:-60px}60%{opacity:1;top:38%}100%{opacity:0;top:44%;transform:translateX(-50%) scale(.8)}}
+.stage[data-act="1"] .table,.stage[data-act="2"] .table{opacity:1}
+.stage .table.show .trow{opacity:1;transform:none}
+.stage[data-act="2"] .scan{animation:scan 1.8s ease-in-out forwards}
+@keyframes scan{0%{opacity:1;top:20px}90%{opacity:1;top:calc(100% - 20px)}100%{opacity:0;top:calc(100% - 20px)}}
+.stage[data-act="2"] .score{opacity:1;transform:none}
+.stage[data-act="3"] .chart,.stage[data-act="4"] .chart{opacity:1}
+.stage[data-act="3"] .bars i,.stage[data-act="4"] .bars i{transform:scaleY(1)}
+.stage[data-act="3"] path.line,.stage[data-act="4"] path.line{stroke-dashoffset:0}
+.stage[data-act="3"] line.avg,.stage[data-act="4"] line.avg{opacity:1}
+.stage[data-act="4"] .insight{opacity:1;transform:none}
+.stage[data-act="4"] .chart{opacity:.35}
+
+/* sections */
+.steps{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:18px;counter-reset:s}
+.step{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:22px;display:grid;gap:10px;align-content:start}
+.step .n{font:600 13px var(--mono);color:var(--brand-strong);background:var(--brand-soft);width:30px;height:30px;border-radius:50%;display:grid;place-items:center}
+.step h3{font-size:18px}.step p{margin:0;color:var(--muted);font-size:15px}
+.features{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px}
+.feat{border-top:2px solid var(--line);padding-top:18px;display:grid;gap:8px;align-content:start}
+.feat svg{width:26px;height:26px;color:var(--brand);fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.feat h3{font-size:18px}.feat p{margin:0;color:var(--muted);font-size:15px}
+.alt{background:var(--surface);border-block:1px solid var(--line)}
+.plans{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:18px;align-items:stretch}
+.plan{background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:26px;display:flex;flex-direction:column;gap:14px;position:relative}
+.plan.hl{border:2px solid var(--brand);box-shadow:var(--shadow)}
+.plan .badge{position:absolute;top:-12px;left:24px;background:var(--brand);color:var(--on-brand);font:600 12px var(--sans);padding:4px 10px;border-radius:99px}
+.plan h3{font-size:20px}.plan .desc{margin:0;color:var(--muted);font-size:14.5px;min-height:2.8em}
+.plan .price{font:700 34px var(--sans);letter-spacing:-.02em}.plan .price small{font:500 15px var(--sans);color:var(--muted)}
+.plan ul{list-style:none;margin:0;padding:0;display:grid;gap:8px;font-size:15px;flex:1}
+.plan li{display:flex;gap:9px}.plan li::before{content:"";flex:none;width:18px;height:18px;margin-top:3px;border-radius:50%;background:var(--brand-soft) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%231D7A4C' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12.5l4.5 4.5L19 7'/%3E%3C/svg%3E") center/12px no-repeat}
+.plans .empty{color:var(--muted)}
+.sec-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:40px;align-items:start}
+.checks{display:grid;gap:14px}
+.checks>div{display:grid;grid-template-columns:28px minmax(0,1fr);gap:12px}
+.checks svg{width:24px;height:24px;color:var(--brand);fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.checks b{display:block}.checks span{color:var(--muted);font-size:15px}
+details.faq{border-bottom:1px solid var(--line);padding-block:6px}
+details.faq summary{cursor:pointer;font-weight:600;font-size:17px;padding-block:14px;list-style:none;display:flex;justify-content:space-between;gap:16px}
+details.faq summary::after{content:"+";font:500 22px var(--mono);color:var(--brand)}
+details.faq[open] summary::after{content:"−"}
+details.faq p{margin:0 0 16px;color:var(--muted);max-width:70ch}
+.final{background:var(--deep);color:#E8F5EE;border-radius:24px;padding:clamp(32px,6vw,64px);display:grid;gap:18px;justify-items:start}
+.final h2{font-size:clamp(28px,3.8vw,42px);color:#fff;max-width:20ch}
+.final p{margin:0;color:#BFE3CF;max-width:56ch}
+.final .btn.ghost{background:transparent;color:#fff;border-color:rgba(255,255,255,.35)}
+footer{padding-block:36px;color:var(--muted);font-size:14px}
+footer .wrap{display:flex;gap:16px;flex-wrap:wrap;justify-content:space-between;align-items:center}
+footer a{color:var(--muted)}
+
+@media (max-width:960px){
+  .hero .wrap,.sec-grid{grid-template-columns:minmax(0,1fr)}
+  .steps{grid-template-columns:repeat(2,minmax(0,1fr))}.features{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .links{display:none}
+}
+@media (max-width:560px){
+  .steps,.features{grid-template-columns:minmax(0,1fr)}
+  .nav .login{display:none}
+  .steps-ui div span{display:none}
+  .stage{aspect-ratio:1/1.05}
+}
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation:none!important;transition:none!important}
+  html{scroll-behavior:auto}
+}
+</style>
+</head>
+<body>
+<div id="annBar"></div>
+
+<header class="nav">
+  <div class="wrap">
+    <a class="logo" href="/"><img src="/logo.png" alt="">KLDataViz</a>
+    <nav class="links" aria-label="Sections"><a href="#comment">Fonctionnement</a><a href="#fonctions">Fonctionnalités</a><a href="#tarifs">Tarifs</a><a href="#faq">Questions</a></nav>
+    <span class="spacer"></span>
+    <a class="btn ghost login" href="/login">Se connecter</a>
+    <a class="btn primary" href="/login?signup=1">Essai gratuit</a>
+  </div>
+</header>
+
+<main>
+  <section class="hero">
+    <div class="wrap">
+      <div>
+        <div class="eyebrow">Hermes · analyste de données IA</div>
+        <h1 id="heroTitle" style="margin-top:14px">Vos données expliquées en <em>minutes</em>, pas en semaines.</h1>
+        <p class="lead" id="heroSub">Importez un fichier Excel ou une feuille Google. Hermes vérifie la qualité, trouve ce qui compte et prépare vos rapports, en français.</p>
+        <div class="ctas">
+          <a class="btn primary" href="/login?signup=1">Essayer 14 jours gratuitement</a>
+          <a class="btn ghost" href="#comment">Voir comment ça marche</a>
+        </div>
+        <div class="trust">
+          <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l8 3v6c0 4.5-3.4 8.3-8 9-4.6-.7-8-4.5-8-9V6z"/></svg>Données privées à votre espace</span>
+          <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7"/></svg>Sans carte bancaire</span>
+          <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM3.6 9h16.8M3.6 15h16.8M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg>Hébergé en Europe</span>
+        </div>
+      </div>
+
+      <!-- Scène animée : importer → vérifier → analyser → comprendre (données d'exemple) -->
+      <div class="stage" id="stage" data-act="0" role="img" aria-label="Animation : un fichier est importé, Hermes corrige les erreurs, les données deviennent un graphique puis un point clé rédigé.">
+        <div class="bar"><i></i><i></i><i></i><span>kldataviz · analyse</span><span class="tag">Exemple</span></div>
+        <div class="scene">
+          <div class="file"><span class="ic">XLSX</span>consultations_2026.xlsx</div>
+          <div class="table" id="table">
+            <div class="trow head"><span>District</span><span>Mois</span><span>Consult.</span><span>Taux</span></div>
+            <div class="trow"><span>Bouaké-Nord</span><span>2026-03</span><span>4 812</span><span>84 %</span></div>
+            <div class="trow"><span>Daloa</span><span class="bad" data-fix="2026-03">03/2026</span><span>3 950</span><span>79 %</span></div>
+            <div class="trow"><span>Korhogo</span><span>2026-03</span><span class="bad" data-fix="3 120">—</span><span>68 %</span></div>
+            <div class="trow"><span>Man</span><span>2026-03</span><span>2 704</span><span class="bad" data-fix="61 %">6100 %</span></div>
+            <div class="trow"><span>Abobo-Est</span><span>2026-03</span><span>5 391</span><span>91 %</span></div>
+            <div class="trow"><span class="bad" data-fix="San-Pédro">san pedro</span><span>2026-03</span><span>3 288</span><span>72 %</span></div>
+          </div>
+          <div class="scan"></div>
+          <div class="score" id="score"><div class="ring" id="ring"><b class="num" id="scoreV">62</b></div><div><small>Qualité des données</small><strong id="scoreT">4 corrections</strong></div></div>
+          <div class="chart">
+            <h4>Consultations par district</h4><p>Somme · ligne : tendance mensuelle</p>
+            <div class="bars"><i style="--h:92%;transition-delay:.0s"></i><i style="--h:80%;transition-delay:.08s"></i><i style="--h:71%;transition-delay:.16s"></i><i class="low" style="--h:57%;transition-delay:.24s"></i><i class="low" style="--h:50%;transition-delay:.32s"></i><i class="low" style="--h:41%;transition-delay:.4s"></i></div>
+            <svg viewBox="0 0 400 200" preserveAspectRatio="none" aria-hidden="true"><line class="avg" x1="0" x2="400" y1="80" y2="80"/><path class="line" d="M10 150 C 70 140, 100 120, 150 112 S 240 70, 290 58 S 360 30, 392 24"/></svg>
+          </div>
+          <div class="insight"><div class="t">Point clé trouvé par Hermes</div><p id="typed"></p></div>
+        </div>
+        <div class="steps-ui" id="stepsUi"><div><b>1</b><span>Importer</span></div><div><b>2</b><span>Vérifier</span></div><div><b>3</b><span>Analyser</span></div><div><b>4</b><span>Comprendre</span></div></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="comment" class="alt">
+    <div class="wrap">
+      <div class="sec-head"><div class="eyebrow">Fonctionnement</div><h2>Du fichier brut au rapport, en quatre étapes guidées</h2><p>Pas de formule, pas de code. Hermes vous accompagne à chaque étape et vous gardez la main sur chaque décision.</p></div>
+      <div class="steps">
+        <div class="step"><span class="n">1</span><h3>Importer</h3><p>Excel, CSV, JSON ou un lien Google Sheets. Les tableaux au format rapport (titres, totaux) sont reconnus.</p></div>
+        <div class="step"><span class="n">2</span><h3>Vérifier</h3><p>Doublons, formats de date, valeurs manquantes : un score de qualité et des corrections à activer une par une.</p></div>
+        <div class="step"><span class="n">3</span><h3>Analyser</h3><p>Graphiques choisis automatiquement : tendances, classements, répartitions, anomalies.</p></div>
+        <div class="step"><span class="n">4</span><h3>Partager</h3><p>Rapports PDF, Excel ou web, et envoi automatique chaque semaine ou chaque mois.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="fonctions">
+    <div class="wrap">
+      <div class="sec-head"><div class="eyebrow">Fonctionnalités</div><h2>Tout ce qu'une équipe data fait à la main, en quelques clics</h2></div>
+      <div class="features">
+        <div class="feat"><svg viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 4.5-3.4 8.3-8 9-4.6-.7-8-4.5-8-9V6zM9 12l2 2 4-4"/></svg><h3>Qualité des données</h3><p>Hermes repère les erreurs et explique chaque correction. Votre fichier d'origine n'est jamais modifié.</p></div>
+        <div class="feat"><svg viewBox="0 0 24 24"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"/></svg><h3>Points clés rédigés</h3><p>Les constats importants en phrases simples, à partir des seuls chiffres de vos données.</p></div>
+        <div class="feat"><svg viewBox="0 0 24 24"><path d="M4 5h16v11H8l-4 4z"/></svg><h3>Questions en français</h3><p>« Quels districts sont sous l'objectif ? » Hermes calcule et répond avec un tableau ou un graphique.</p></div>
+        <div class="feat"><svg viewBox="0 0 24 24"><path d="M6 20V10M12 20V4M18 20v-7"/></svg><h3>Graphiques décisionnels</h3><p>Évolutions, classements avec moyenne, répartitions : les vues utiles, sans réglage.</p></div>
+        <div class="feat"><svg viewBox="0 0 24 24"><path d="M5 5h14v15H5zM5 10h14M9 3v4M15 3v4"/></svg><h3>Rapports planifiés</h3><p>Hermes relit la source, refait l'analyse et envoie le rapport à jour à vos destinataires.</p></div>
+        <div class="feat"><svg viewBox="0 0 24 24"><path d="M16 11a4 4 0 1 0-8 0M4 20a8 8 0 0 1 16 0"/></svg><h3>Travail en équipe</h3><p>Invitez vos collègues comme propriétaire, analyste ou lecteur. Chaque espace est séparé des autres.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="tarifs" class="alt">
+    <div class="wrap">
+      <div class="sec-head"><div class="eyebrow">Tarifs</div><h2>Commencez gratuitement, évoluez à votre rythme</h2><p>Chaque forfait comprend toutes les fonctionnalités. Seuls les volumes changent.</p></div>
+      <div class="plans" id="plans"><p class="empty">Chargement des forfaits…</p></div>
+    </div>
+  </section>
+
+  <section>
+    <div class="wrap sec-grid">
+      <div class="sec-head" style="margin:0"><div class="eyebrow">Sécurité</div><h2>Vos données restent les vôtres</h2><p>KLDataViz est conçu pour des données sensibles : santé, finances, ressources humaines.</p></div>
+      <div class="checks">
+        <div><svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7"/></svg><div><b>Espaces étanches</b><span>Chaque organisation a son propre stockage et son propre registre de données.</span></div></div>
+        <div><svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7"/></svg><div><b>Calculs isolés</b><span>Les calculs de l'IA s'exécutent à part, sans accès aux fichiers ni aux clés du service.</span></div></div>
+        <div><svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7"/></svg><div><b>Hébergement européen et connexion chiffrée</b><span>Serveurs à Francfort, HTTPS partout, liens de téléchargement à durée limitée.</span></div></div>
+        <div><svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7"/></svg><div><b>Source intacte</b><span>Les corrections s'appliquent à une copie de travail, jamais à votre fichier.</span></div></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="faq" class="alt">
+    <div class="wrap" style="max-width:860px">
+      <div class="sec-head"><div class="eyebrow">Questions</div><h2>Questions fréquentes</h2></div>
+      <details class="faq"><summary>Faut-il savoir programmer ?</summary><p>Non. Vous déposez un fichier, vous choisissez les corrections et vous posez vos questions en français.</p></details>
+      <details class="faq"><summary>Quels fichiers puis-je importer ?</summary><p>Excel (.xlsx, .xls), CSV, JSON, Parquet et les feuilles Google Sheets partagées par lien. Les tableaux avec lignes de titre ou de totaux sont reconnus.</p></details>
+      <details class="faq"><summary>Mes données servent-elles à entraîner une IA ?</summary><p>Non. Hermes envoie à l'IA un résumé statistique et votre question, pas votre fichier, et uniquement pour produire la réponse.</p></details>
+      <details class="faq"><summary>Que se passe-t-il à la fin de l'essai ?</summary><p>Votre espace est mis en pause, sans perte de données. Choisissez un forfait pour le réactiver.</p></details>
+      <details class="faq"><summary>Puis-je inviter mon équipe ?</summary><p>Oui : propriétaire, analyste ou lecteur. Le nombre de membres dépend du forfait.</p></details>
+    </div>
+  </section>
+
+  <section>
+    <div class="wrap">
+      <div class="final">
+        <h2>Prêt à comprendre vos données ?</h2>
+        <p>Créez votre espace en une minute et importez votre premier fichier. 14 jours gratuits, sans engagement.</p>
+        <div style="display:flex;gap:12px;flex-wrap:wrap"><a class="btn primary" href="/login?signup=1">Commencer l'essai gratuit</a><a class="btn ghost" id="contactBtn" href="#tarifs" hidden>Nous contacter</a></div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap"><span>© <span id="year"></span> KLDataViz · Hermes</span><span id="contactLine"></span><a href="/login">Se connecter</a></div>
+</footer>
+
+<script>
+const $=s=>document.querySelector(s);
+const esc=s=>String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+const reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;
+$('#year').textContent=new Date().getFullYear();
+const get=u=>fetch(u).then(r=>r.ok?r.json():null).catch(()=>null);
+let site={};
+
+/* ---- contenus paramétrés par l'administration ---- */
+get('/api/public/site').then(s=>{
+  site=s||{};
+  if(site.hero_title){const t=esc(site.hero_title);$('#heroTitle').innerHTML=t.replace(/\bminutes\b/,'<em>minutes</em>')}
+  if(site.hero_subtitle)$('#heroSub').textContent=site.hero_subtitle;
+  const c=[];if(site.contact_email)c.push(`<a href="mailto:${esc(site.contact_email)}">${esc(site.contact_email)}</a>`);
+  if(site.contact_whatsapp)c.push(`WhatsApp ${esc(site.contact_whatsapp)}`);
+  $('#contactLine').innerHTML=c.join(' · ');
+  const href=contactHref();if(href){$('#contactBtn').hidden=false;$('#contactBtn').href=href}
+  loadPlans();
+});
+function contactHref(){
+  if(site.contact_whatsapp)return 'https://wa.me/'+String(site.contact_whatsapp).replace(/\D/g,'');
+  if(site.contact_email)return 'mailto:'+site.contact_email;return null;
+}
+get('/api/public/announcements').then(list=>{
+  if(!list||!list.length)return;const a=list[0];
+  $('#annBar').innerHTML=`<div class="ann ${esc(a.level)}"><div class="wrap"><b>${esc(a.title)}</b>${a.body?`<span>${esc(a.body)}</span>`:''}${a.link_url?`<a href="${esc(a.link_url)}">${esc(a.link_label||'En savoir plus')} →</a>`:''}</div></div>`;
+});
+const fmtPrice=(p,c)=>Number(p).toLocaleString('fr-FR').replace(/ /g,' ')+' '+(c||'');
+async function loadPlans(){
+  const plans=await get('/api/public/plans');
+  if(!plans||!plans.length){$('#plans').innerHTML='<p class="empty">Contactez-nous pour connaître nos forfaits.</p>';return}
+  $('#plans').innerHTML=plans.map(p=>{
+    const trial=!!p.days, free=p.price===0||trial;
+    const price=p.price==null?'Sur devis':free?'Gratuit':`${fmtPrice(p.price,p.currency)}<small> / ${esc(p.period||'mois')}</small>`;
+    const href=p.price==null&&!trial?(contactHref()||'/login?signup=1'):'/login?signup=1';
+    const label=trial?`Essayer ${p.days} jours`:p.price==null?'Nous contacter':'Choisir ce forfait';
+    return `<div class="plan ${p.highlight?'hl':''}">${p.highlight?'<span class="badge">Le plus choisi</span>':''}<h3>${esc(p.label)}</h3><p class="desc">${esc(p.description||'')}</p>
+      <div class="price">${price}</div><ul>${(p.features||[]).map(f=>`<li>${esc(f)}</li>`).join('')}</ul>
+      <a class="btn ${p.highlight?'primary':'ghost'}" href="${esc(href)}">${label}</a></div>`}).join('');
+}
+
+/* ---- motion design : boucle de 4 actes ---- */
+const stage=$('#stage'),rows=[...document.querySelectorAll('#table .trow')],steps=[...document.querySelectorAll('#stepsUi div')];
+const INSIGHT='Les consultations ont augmenté de <b>24 %</b> depuis mars. <b>Bouaké-Nord</b> est en tête, <b>Man</b> reste sous la moyenne.';
+const ACTS=[3200,3400,3200,4600];
+let timers=[],running=false,gen=0;
+const CELLS=[...document.querySelectorAll('[data-fix]')].map(el=>({el,orig:el.textContent,fix:el.dataset.fix}));
+// Chaque lecture porte un numéro : un minuteur d'une lecture précédente ne peut plus agir.
+const later=(ms,fn)=>{const g=gen;timers.push(setTimeout(()=>{if(g===gen&&running)fn()},ms))};
+function clearAll(){timers.forEach(clearTimeout);timers=[]}
+function setStep(i){steps.forEach((s,k)=>{s.classList.toggle('on',k===i);s.style.setProperty('--dur',ACTS[i]+'ms')})}
+function resetScene(){
+  $('#table').classList.remove('show');rows.forEach(r=>r.style.transitionDelay='0s');
+  CELLS.forEach(c=>{c.el.textContent=c.orig;c.el.classList.remove('fixed');c.el.classList.add('bad')});
+  setScore(62);$('#scoreT').textContent='4 corrections';$('#typed').innerHTML='';
+}
+function setScore(v){$('#scoreV').textContent=v;$('#ring').style.setProperty('--p',v);$('#ring').style.setProperty('--c',v>=90?'var(--brand)':'var(--amber)')}
+function countTo(from,to,ms){const g=gen,t0=performance.now();const tick=t=>{if(g!==gen||!running)return;const k=Math.min(1,(t-t0)/ms);setScore(Math.round(from+(to-from)*(1-Math.pow(1-k,3))));if(k<1)requestAnimationFrame(tick)};requestAnimationFrame(tick)}
+function type(html,ms){const plain=html.replace(/<[^>]+>/g,'');let i=0;const step=ms/plain.length;
+  const render=n=>{let out='',count=0;for(const part of html.split(/(<[^>]+>)/)){if(part.startsWith('<')){out+=part;continue}const take=Math.max(0,Math.min(part.length,n-count));out+=part.slice(0,take);count+=part.length}return out};
+  const tick=()=>{i++;$('#typed').innerHTML=render(i)+(i<plain.length?'<span class="caret"></span>':'');if(i<plain.length)later(step,tick)};tick()}
+function play(){
+  gen++;clearAll();resetScene();stage.dataset.act='1';setStep(0);
+  later(700,()=>{$('#table').classList.add('show');rows.forEach((r,k)=>r.style.transitionDelay=(k*.08)+'s')});
+  later(ACTS[0],()=>{stage.dataset.act='2';setStep(1);
+    CELLS.forEach((c,k)=>later(400+k*320,()=>{c.el.classList.remove('bad');c.el.classList.add('fixed');c.el.textContent=c.fix}));
+    later(300,()=>countTo(62,96,1700));later(1900,()=>{$('#scoreT').textContent='Données prêtes'})});
+  const t3=ACTS[0]+ACTS[1];
+  later(t3,()=>{stage.dataset.act='3';setStep(2)});
+  const t4=t3+ACTS[2];
+  later(t4,()=>{stage.dataset.act='4';setStep(3);later(450,()=>type(INSIGHT,2200))});
+  later(t4+ACTS[3],play);
+}
+function start(){if(!running){running=true;play()}}
+function stop(){running=false;gen++;clearAll()}
+function staticFinal(){stage.dataset.act='4';setStep(3);CELLS.forEach(c=>{c.el.textContent=c.fix;c.el.classList.replace('bad','fixed')});$('#typed').innerHTML=INSIGHT}
+if(reduce){staticFinal()}
+else{
+  let visible=false;
+  new IntersectionObserver(es=>es.forEach(e=>{visible=e.isIntersecting;visible&&!document.hidden?start():stop()}),{threshold:.25}).observe(stage);
+  document.addEventListener('visibilitychange',()=>{document.hidden||!visible?stop():start()});
+}
+</script>
+</body>
+</html>

@@ -54,7 +54,7 @@ input:focus{border-color:var(--brand);outline:none;box-shadow:0 0 0 3px color-mi
 </head>
 <body>
 <section class="pitch">
-  <div class="brand"><img src="/logo.png" alt="">KLDataViz Studio</div>
+  <a class="brand" href="/" style="color:inherit;text-decoration:none"><img src="/logo.png" alt="">KLDataViz Studio</a>
   <h1>Vos données expliquées en minutes, pas en semaines.</h1>
   <ol>
     <li><span>1</span><div><b>Importez</b><small>Excel, CSV, JSON ou un lien Google Sheets.</small></div></li>
@@ -112,6 +112,7 @@ input:focus{border-color:var(--brand);outline:none;box-shadow:0 0 0 3px color-mi
 const $=s=>document.querySelector(s);
 const cfg=window.KLDV||{};
 if(!cfg.cloud)location.replace('/');
+const HOME='/app';
 const sb=window.supabase.createClient(cfg.supabaseUrl,cfg.supabaseAnonKey,{auth:{persistSession:true,detectSessionInUrl:true}});
 const forms=['fIn','fUp','fReset','fNew'];
 function show(id){forms.forEach(f=>$('#'+f).hidden=f!==id);$('#tabs').hidden=id==='fReset'||id==='fNew';
@@ -131,24 +132,25 @@ $$('[data-back]').forEach(b=>b.onclick=()=>show('fIn'));
 
 $('#fIn').onsubmit=e=>{e.preventDefault();busy(e.target,async()=>{
   const {error}=await sb.auth.signInWithPassword({email:$('#inEmail').value.trim(),password:$('#inPass').value});
-  if(error)throw error;location.replace('/')})};
+  if(error)throw error;location.replace(HOME)})};
 $('#fUp').onsubmit=e=>{e.preventDefault();busy(e.target,async()=>{
   const {data,error}=await sb.auth.signUp({email:$('#upEmail').value.trim(),password:$('#upPass').value,
-    options:{data:{full_name:$('#upName').value.trim()},emailRedirectTo:location.origin+'/'}});
+    options:{data:{full_name:$('#upName').value.trim()},emailRedirectTo:location.origin+HOME}});
   if(error)throw error;
-  if(data.session)location.replace('/');
+  if(data.session)location.replace(HOME);
   else{show('fIn');$('#inEmail').value=$('#upEmail').value;msg('Compte créé. Ouvrez l\'e-mail de confirmation que nous venons d\'envoyer, puis connectez-vous.',true)}})};
 $('#fReset').onsubmit=e=>{e.preventDefault();busy(e.target,async()=>{
   const {error}=await sb.auth.resetPasswordForEmail($('#rsEmail').value.trim(),{redirectTo:location.origin+'/login?reset=1'});
   if(error)throw error;msg('Si un compte existe pour cette adresse, un lien vient d\'être envoyé.',true)})};
 $('#fNew').onsubmit=e=>{e.preventDefault();busy(e.target,async()=>{
-  const {error}=await sb.auth.updateUser({password:$('#nwPass').value});if(error)throw error;location.replace('/')})};
+  const {error}=await sb.auth.updateUser({password:$('#nwPass').value});if(error)throw error;location.replace(HOME)})};
 
 const qs=new URLSearchParams(location.search);
 sb.auth.onAuthStateChange(ev=>{if(ev==='PASSWORD_RECOVERY')show('fNew')});
 if(qs.get('reset'))show('fNew');
 else if(qs.get('invite')){show('fUp');$('#upEmail').value=qs.get('email')||'';$('#upSub').textContent='Vous avez été invité à rejoindre un espace. Créez votre compte avec l\'adresse qui a reçu l\'invitation.'}
-else sb.auth.getSession().then(({data})=>{if(data.session)location.replace('/')});
+else if(qs.get('signup'))show('fUp');
+else sb.auth.getSession().then(({data})=>{if(data.session)location.replace(HOME)});
 </script>
 </body>
 </html>

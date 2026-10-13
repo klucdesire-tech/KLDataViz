@@ -126,3 +126,37 @@ def test_planification_source_etrangere(base):
     path_a = os.path.join(DATA, "tenants", ORG_A, "uploads", "ventes.csv")
     code, r = call(base, "/api/schedules", {"source": path_a, "freq": "daily"}, "tok-b")
     assert code == 400
+
+
+# ---- page d'accueil, administration, données publiques
+cloud.is_platform_admin = lambda email: email == "ua@test.ci"
+cloud.admin_stats = lambda ctx: {"orgs": 2} if ctx.is_admin else (_ for _ in ()).throw(T.Forbidden("non"))
+cloud.public_plans = lambda: [{"key": "essai", "label": "Essai", "price": 0}]
+cloud.announcements = lambda audience: [{"id": "1", "title": "Bienvenue", "audience": audience}]
+cloud.site_settings = lambda: {"hero_title": "Titre"}
+
+
+def test_pages_publiques_en_ligne(base):
+    assert b"motion" in call(base, "/", raw=True)[1].lower() or call(base, "/", raw=True)[0] == 200
+    assert call(base, "/app", raw=True)[0] == 200
+    assert call(base, "/admin", raw=True)[0] == 200
+    assert call(base, "/login", raw=True)[0] == 200
+
+
+def test_donnees_publiques_sans_connexion(base):
+    assert call(base, "/api/public/plans")[1][0]["key"] == "essai"
+    assert call(base, "/api/public/site")[1]["hero_title"] == "Titre"
+    assert call(base, "/api/public/announcements")[1][0]["audience"] == "public"
+
+
+def test_administration_reservee(base):
+    assert call(base, "/api/admin/stats")[0] == 401                     # sans connexion
+    assert call(base, "/api/admin/stats", token="tok-b")[0] == 403      # utilisateur normal
+    assert call(base, "/api/admin/plans/save", {"key": "x"}, "tok-b")[0] == 403
+    code, r = call(base, "/api/admin/stats", token="tok-a")             # administrateur
+    assert code == 200 and r["orgs"] == 2
+
+
+def test_annonces_application(base):
+    code, r = call(base, "/api/announcements", token="tok-a")
+    assert code == 200 and r[0]["audience"] == "app"

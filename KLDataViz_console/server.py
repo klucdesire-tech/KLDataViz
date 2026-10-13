@@ -1082,7 +1082,10 @@ EXPORTERS = {"pdf": export_pdf, "excel": export_excel, "html": export_html}
 STATIC = {"/": ("index.html", "text/html"), "/index.html": ("index.html", "text/html"),
           "/login": ("login.html", "text/html"), "/logo.png": ("logo.png", "image/png"),
           "/favicon.png": ("logo.png", "image/png"), "/chart.umd.min.js": ("chart.umd.min.js", "application/javascript")}
-if not T.CLOUD:
+if T.CLOUD:  # en ligne : page d'accueil publique, application sur /app, administration sur /admin
+    STATIC.update({"/": ("landing.html", "text/html"), "/app": ("index.html", "text/html"),
+                   "/admin": ("admin.html", "text/html")})
+else:
     STATIC.update({"/classic": ("index_classic.html", "text/html"), "/index_classic.html": ("index_classic.html", "text/html")})
 VIEWER_POST = {"/api/chat", "/api/insights"}  # seules actions permises au rôle « lecteur »
 CSP = ("default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
@@ -1156,6 +1159,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.send_header("Access-Control-Allow-Origin", "*")
         if ctype == "application/json":
             self.send_header("Cache-Control", "no-store")
+        elif ctype in ("text/html", "application/javascript"):  # toujours la dernière version après une mise à jour
+            self.send_header("Cache-Control", "no-cache")
         self._security_headers()
         self.send_header("Content-Length", str(len(data)))
         self.end_headers()
@@ -1199,12 +1204,18 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 return self._download()
             if not path.startswith("/api/"):
                 return self._send(404, {"error": "Page introuvable."})
+            if T.CLOUD and method == "GET" and path.startswith("/api/public/"):
+                return self._public(path)
             if not T.CLOUD:
                 with T.use(T.LOCAL):
                     return self._route(method, path, self._payload(MAX_UPLOAD) if method == "POST" else {})
             auth = self.headers.get("Authorization") or ""
             user = cloud.verify_token(auth[7:] if auth.startswith("Bearer ") else "")
             payload = self._payload(MAX_UPLOAD if path == "/api/upload-source" else MAX_JSON) if method == "POST" else {}
+            if path.startswith("/api/admin/"):  # administration de la plateforme : pas besoin d'espace
+                actx = T.Ctx(key=user["id"], user_id=user["id"], email=user["email"],
+                             is_admin=cloud.is_platform_admin(user["email"]))
+                return self._admin(method, path, payload, actx)
             ctx = cloud.resolve(user)
             if ctx is None:  # compte sans espace : création de l'organisation
                 if path == "/api/onboarding" and method == "POST":
@@ -1306,8 +1317,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                                         "summary": reg.summary(), "datasets": reg.latest_versions()})
             if T.CLOUD and path == "/api/team":
                 return self._send(200, cloud.team(ctx))
-            if T.CLOUD and path == "/api/admin/orgs":
-                return self._send(200, cloud.admin_orgs(ctx))
+            if T.CLOUD and path == "/api/announcements":
+                return self._send(200, cloud.announcements("app"))
             return self._send(404, {"error": "not found"})
 
         # ---- POST
@@ -1385,13 +1396,53 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if T.CLOUD and path == "/api/team/cancel":
             cloud.cancel_invite(ctx, str(p.get("id")))
             return self._send(200, {"ok": True})
-        if T.CLOUD and path == "/api/admin/plan":
-            cloud.admin_set_plan(ctx, str(p.get("org_id")), p.get("plan"), p.get("trial_days"))
-            return self._send(200, {"ok": True})
         if path == "/api/heartbeat" and not T.CLOUD:
             code, r = orchestrator("/api/v1/agents/heartbeat", method="POST", body={})
             return self._send(code if code else 502, r)
         return self._send(404, {"error": "not found"})
+
+    def _public(self, path):
+        """Données publiques de la page d'accueil (sans connexion)."""
+        if path == "/api/public/plans":
+            return self._send(200, cloud.public_plans())
+        if path == "/api/public/site":
+            return self._send(200, cloud.site_settings())
+        if path == "/api/public/announcements":
+            return self._send(200, cloud.announcements("public"))
+        return self._send(404, {"error": "not found"})
+
+    def _admin(self, method, path, p, ctx):
+        """API de l'administration de la plateforme (réservée aux administrateurs)."""
+        if not ctx.is_admin:
+            raise T.Forbidden("Réservé aux administrateurs de la plateforme.")
+        q = parse_qs(urlparse(self.path).query)
+        arg = lambda k: (q.get(k) or [""])[0]
+        if method == "GET":
+            routes = {"/api/admin/me": lambda: {"email": ctx.email, "is_admin": True},
+                      "/api/admin/stats": lambda: cloud.admin_stats(ctx),
+                      "/api/admin/orgs": lambda: cloud.admin_orgs(ctx, arg("q")),
+                      "/api/admin/org": lambda: cloud.admin_org_detail(ctx, arg("id")),
+                      "/api/admin/plans": lambda: cloud.admin_plans(ctx),
+                      "/api/admin/admins": lambda: cloud.admin_admins(ctx),
+                      "/api/admin/announcements": lambda: cloud.admin_announcements(ctx),
+                      "/api/admin/site": lambda: cloud.site_settings()}
+        else:
+            routes = {"/api/admin/plan": lambda: cloud.admin_set_plan(ctx, str(p.get("org_id")), p.get("plan"), p.get("trial_days")),
+                      "/api/admin/extend": lambda: cloud.admin_extend_trial(ctx, str(p.get("org_id")), p.get("days") or 14),
+                      "/api/admin/suspend": lambda: cloud.admin_suspend(ctx, str(p.get("org_id")), p.get("suspended")),
+                      "/api/admin/invite-client": lambda: cloud.admin_invite_client(ctx, p.get("org"), p.get("email"), p.get("plan")),
+                      "/api/admin/plans/save": lambda: cloud.admin_plan_save(ctx, p),
+                      "/api/admin/plans/delete": lambda: cloud.admin_plan_delete(ctx, str(p.get("key"))),
+                      "/api/admin/admins/add": lambda: cloud.admin_admin_add(ctx, p.get("email")),
+                      "/api/admin/admins/remove": lambda: cloud.admin_admin_remove(ctx, p.get("email")),
+                      "/api/admin/announcements/save": lambda: cloud.admin_announcement_save(ctx, p),
+                      "/api/admin/announcements/delete": lambda: cloud.admin_announcement_delete(ctx, str(p.get("id"))),
+                      "/api/admin/site": lambda: cloud.admin_site_save(ctx, p)}
+        fn = routes.get(path)
+        if fn is None:
+            return self._send(404, {"error": "not found"})
+        out = fn()
+        return self._send(200, out if out is not None else {"ok": True})
 
     def _ingest(self, p):
         if not INGESTION_OK:
