@@ -21,7 +21,26 @@ import urllib.request
 from tenancy import AuthError, Ctx, Forbidden, QuotaExceeded  # noqa: F401 (réexportées)
 
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "").rstrip("/")
-SUPABASE_ANON_KEY = os.environ.get("SUPABASE_ANON_KEY", "")
+# Clé « anon » du projet Supabase kldataviz : publique par conception (envoyée à chaque navigateur),
+# elle ne donne accès qu'à la connexion ; les données ne sont lisibles que par le serveur.
+PROJECT_ANON_KEY = ("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhzdWtld2trc3Z6ZG5jZWp2dGZnIiwicm9sZSI6"
+                    "ImFub24iLCJpYXQiOjE3OTE5MTg5MTIsImV4cCI6MjEwNzQ5NDkxMn0.0APyxEOjzZ_GFWGd10H92eyiPQ5TQDX4f-BUrGqpUAA")
+
+
+def _anon_key():
+    """Clé anon valide : celle de l'environnement si elle est propre, sinon celle du projet.
+
+    Protège contre une clé recopiée depuis un champ masqué (« •••• ») ou avec des espaces,
+    qui ferait échouer toutes les connexions dans le navigateur."""
+    k = os.environ.get("SUPABASE_ANON_KEY", "").strip()
+    if k and k.isascii() and re.fullmatch(r"[A-Za-z0-9_\-.]+", k):
+        return k
+    if "xsukewkksvzdncejvtfg" in SUPABASE_URL:
+        return PROJECT_ANON_KEY
+    return k
+
+
+SUPABASE_ANON_KEY = _anon_key()
 DATABASE_URL = os.environ.get("DATABASE_URL", "")
 BREVO_API_KEY = os.environ.get("BREVO_API_KEY", "")
 MAIL_FROM = os.environ.get("MAIL_FROM", "")
