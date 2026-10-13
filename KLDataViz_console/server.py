@@ -293,6 +293,194 @@ def _read_df(file_path):
     return df, None
 
 
+_PERIOD_HINT = None
+
+
+def _pretty(name):
+    s = str(name).replace("_", " ").strip()
+    return s[:1].upper() + s[1:]
+
+
+def _smart_charts(df, max_charts=6):
+    """Graphiques « décisionnels » choisis automatiquement : évolution dans le temps, classement par
+    groupe (avec ligne de moyenne), répartition, distribution et relation. Chaque graphique porte
+    son agrégation (somme ou moyenne) pour que l'interface puisse l'expliquer."""
+    import re
+    n = len(df)
+    if n == 0:
+        return []
+    id_hint = re.compile(r"(^|[_\s])(id|code|key|ref|numero|num|uid)($|[_\s])", re.I)
+    rate_hint = re.compile(r"(pct|percent|pourcent|taux|rate|ratio|couverture|%|moyenne|avg|mean|score)", re.I)
+    period_hint = re.compile(r"(date|mois|month|semaine|week|annee|année|year|periode|période|period|trimestre|quarter|jour|day)", re.I)
+
+    numeric_all = list(df.select_dtypes(include=[np.number]).columns)
+
+    def is_year(s):
+        v = s.dropna()
+        return len(v) > 0 and v.between(1900, 2100).all() and (v % 1 == 0).all() and v.nunique() <= 60
+
+    num = [c for c in numeric_all if not id_hint.search(str(c)) and df[c].nunique() > 1 and not is_year(df[c])]
+    num.sort(key=lambda c: (-round(df[c].notna().mean(), 1), -float(df[c].abs().sum())))
+
+    def agg_of(c):
+        v = df[c].dropna()
+        frac = len(v) > 0 and v.between(0, 1).all() and (v % 1 != 0).any()
+        return "mean" if rate_hint.search(str(c)) or frac else "sum"
+
+    def unit_of(c):
+        v = df[c].dropna()
+        return "%" if re.search(r"(pct|percent|pourcent|%|taux|couverture)", str(c), re.I) and len(v) and v.between(0, 100).all() else ""
+
+    # ---- colonne de période (date réelle ou libellé de période)
+    period, period_dt = None, None
+    for c in df.columns:
+        if c in numeric_all:
+            continue
+        s = df[c]
+        if pd.api.types.is_datetime64_any_dtype(s):
+            period, period_dt = c, s
+            break
+        sample = s.dropna().astype(str).head(40)
+        if len(sample) >= 3:
+            try:
+                parsed = pd.to_datetime(sample, errors="coerce", format="mixed", dayfirst=True)
+                if parsed.notna().mean() >= 0.9:
+                    period, period_dt = c, pd.to_datetime(s.astype(str), errors="coerce", format="mixed", dayfirst=True)
+                    break
+            except Exception:
+                pass
+    if period is None:
+        for c in df.columns:
+            if c not in numeric_all and period_hint.search(str(c)) and 3 <= df[c].nunique() <= 60:
+                period = c
+                break
+
+    group_hint = re.compile(r"(r[ée]gion|district|site|type|cat[ée]g|groupe|group|sexe|sex|genre|province|d[ée]partement|"
+                            r"zone|structure|[ée]tablissement|facility|ville|commune|pays|country|service|produit|product|"
+                            r"segment|canal|ip_?s?name|agence|magasin|client)", re.I)
+    bool_vocab = {"true", "false", "vrai", "faux", "oui", "non", "yes", "no", "0", "1", "y", "n"}
+
+    def is_bool(c):
+        return set(df[c].dropna().astype(str).str.strip().str.lower().unique()) <= bool_vocab
+
+    cats = [c for c in df.columns if c not in numeric_all and c != period and not id_hint.search(str(c))
+            and 2 <= df[c].nunique() <= 40 and df[c].notna().mean() >= 0.6 and not is_bool(c)]
+    # Noms « métier » d'abord, puis les regroupements de 3 à 20 valeurs, puis les colonnes « une ligne = une entité ».
+    cats.sort(key=lambda c: (0 if group_hint.search(str(c)) else 1, 0 if 3 <= df[c].nunique() <= 20 else 1,
+                             df[c].nunique() >= 0.9 * n, df[c].nunique()))
+
+    charts = []
+
+    def series(grouped):
+        return [None if pd.isna(v) else round(float(v), 4) for v in grouped]
+
+    # 1. Évolution
+    if period is not None and num:
+        same = [c for c in num[1:] if agg_of(c) == agg_of(num[0])]
+        metrics = [num[0]] + same[:1]
+        if period_dt is not None:
+            span = (period_dt.max() - period_dt.min()).days if period_dt.notna().any() else 0
+            freq = "D" if span <= 62 else "W" if span <= 200 else "M"
+            key = period_dt.dt.to_period(freq)
+        else:
+            key = df[period].astype(str)
+        g = df.assign(_k=key).dropna(subset=["_k"]).groupby("_k")
+        vals, names, aggs = [], [], []
+        for m in metrics:
+            a = agg_of(m)
+            vals.append(series(getattr(g[m], a)()))
+            names.append(_pretty(m))
+            aggs.append(a)
+        labels = [str(k) for k in g.size().index]
+        if len(labels) >= 3:
+            mx = [max([abs(x) for x in v if x is not None] or [0]) for v in vals]
+            two_axes = len(vals) == 2 and min(mx) > 0 and max(mx) / min(mx) > 4
+            charts.append({"kind": "trend", "type": "line", "title": "Évolution de " + " et ".join(names).lower(),
+                           "subtitle": ("Somme" if aggs[0] == "sum" else "Moyenne") + " par " + str(period).replace("_", " "),
+                           "labels": labels, "values": vals, "seriesNames": names, "axis2": two_axes,
+                           "unit": unit_of(metrics[0])})
+
+    # 2. Classements par groupe
+    pairs = []
+    if cats and num:
+        pairs.append((cats[0], num[0]))
+        if len(cats) > 1:
+            pairs.append((cats[1], num[0]))
+        if len(num) > 1:
+            pairs.append((cats[0], num[1]))
+    for cat, m in pairs[:2]:
+        a = agg_of(m)
+        g = getattr(df.groupby(cat)[m], a)().dropna().sort_values(ascending=False)
+        if len(g) < 2:
+            continue
+        top = g.head(12)
+        charts.append({"kind": "ranking", "type": "bar", "title": f"{_pretty(m)} par {str(cat).replace('_', ' ')}",
+                       "subtitle": ("Somme" if a == "sum" else "Moyenne") + (f" · {len(top)} premiers sur {len(g)}" if len(g) > 12 else "")
+                       + " · ligne : moyenne", "labels": [str(x) for x in top.index], "values": [series(top.values)],
+                       "seriesNames": [_pretty(m)], "ref": {"value": round(float(g.mean()), 4), "label": "Moyenne"},
+                       "horizontal": True, "unit": unit_of(m)})
+
+    # 3. Répartition
+    small = [c for c in cats if 2 <= df[c].nunique() <= 6]
+    if small:
+        c = small[0]
+        if num and agg_of(num[0]) == "sum":
+            g = df.groupby(c)[num[0]].sum().sort_values(ascending=False)
+            title = f"Répartition de {str(num[0]).replace('_', ' ')} par {str(c).replace('_', ' ')}"
+        else:
+            g = df[c].value_counts()
+            title = f"Répartition des lignes par {str(c).replace('_', ' ')}"
+        if len(g) >= 2 and float(g.sum()) > 0:
+            charts.append({"kind": "share", "type": "doughnut", "title": title, "subtitle": "Part du total",
+                           "labels": [str(x) for x in g.index], "values": [series(g.values)]})
+
+    # 4. Distribution
+    if num:
+        m = num[0]
+        v = df[m].dropna()
+        if v.nunique() >= 8:
+            lo, hi = v.quantile(0.01), v.quantile(0.99)
+            v2 = v[(v >= lo) & (v <= hi)]
+            raw_step = (float(v2.max()) - float(v2.min())) / 10 or 1.0
+            mag = 10 ** np.floor(np.log10(raw_step))
+            step = next(m * mag for m in (1, 2, 2.5, 5, 10) if m * mag >= raw_step)  # pas « rond »
+            start = np.floor(float(v2.min()) / step) * step
+            edges = np.arange(start, float(v2.max()) + step, step)
+            if len(edges) < 3:
+                edges = np.array([start, start + step, start + 2 * step])
+            counts, edges = np.histogram(v2, bins=edges)
+
+            def _f(x):
+                x = round(float(x), 6)
+                return (f"{x:,.0f}" if x == int(x) else f"{x:,.2f}".rstrip("0")).replace(",", " ").replace(".", ",")
+            charts.append({"kind": "distribution", "type": "histogram", "title": f"Distribution de {str(m).replace('_', ' ')}",
+                           "subtitle": "Nombre de lignes par tranche" + (" · valeurs extrêmes (1 %) écartées" if len(v2) < len(v) else ""),
+                           "labels": [f"{_f(edges[i])} – {_f(edges[i + 1])}" for i in range(len(counts))],
+                           "values": [[int(x) for x in counts]], "seriesNames": ["Lignes"]})
+
+    # 5. Relation (corrélation nette mais pas triviale)
+    if len(num) >= 2:
+        sub = df[num[:12]]
+        cm = sub.corr()
+        best = None
+        for i in range(len(cm.columns)):
+            for j in range(i):
+                r = cm.iloc[i, j]
+                if pd.notna(r) and 0.5 <= abs(r) < 0.97 and (best is None or abs(r) > abs(best[2])):
+                    best = (cm.columns[j], cm.columns[i], float(r))
+        if best:
+            a, b, r = best
+            pts = df[[a, b]].dropna()
+            if len(pts) > 400:
+                pts = pts.sample(400, random_state=0)
+            charts.append({"kind": "relation", "type": "scatter", "title": f"{_pretty(a)} et {str(b).replace('_', ' ')}",
+                           "subtitle": f"Chaque point est une ligne · corrélation r = {r:.2f}".replace(".", ",", 1),
+                           "labels": [float(x) for x in pts[a]], "values": [[float(y) for y in pts[b]]],
+                           "seriesNames": [_pretty(b)], "xTitle": _pretty(a), "yTitle": _pretty(b), "trend": True})
+
+    return charts[:max_charts]
+
+
 def analyze(file_path):
     df, err = _read_df(file_path)
     if err:
@@ -373,6 +561,7 @@ def analyze(file_path):
         "anomalies": anomalies,
         "bivariate": bivariate_stats(df),
         "charts": _auto_charts(df),
+        "smart_charts": _smart_charts(df),
     }
 
 

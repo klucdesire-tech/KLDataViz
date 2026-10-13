@@ -162,7 +162,8 @@ td.r,th.r{text-align:right}
 .ins .why{font-size:12.5px;color:var(--muted)}
 .ins button{justify-self:start;border:0;background:none;color:var(--brand-strong);font-weight:600;font-size:13px;padding:4px 0}
 .charts{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:16px}
-.cbox{position:relative;height:250px;margin-top:10px}
+.cbox{position:relative;height:260px;margin-top:12px}
+.charts .card.wide{grid-column:1/-1}
 details.more{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:0 18px}
 details.more summary{cursor:pointer;padding:14px 0;font-weight:600;font-size:14.5px}
 details.more[open] summary{border-bottom:1px solid var(--line);margin-bottom:8px}
@@ -517,7 +518,7 @@ tr.versions td{background:var(--surface-2);font-size:13px}
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 const esc=s=>String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 const md=s=>esc(s).replace(/\*\*(.+?)\*\*/g,'<b>$1</b>').replace(/`([^`]+)`/g,'<code>$1</code>');
-const nf=n=>Number(n).toLocaleString('fr-FR');
+const nf=n=>Number(n).toLocaleString('fr-FR').replace(/ /g,' ');
 const dec=n=>String(n).replace('.',',');
 const reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;
 const baseName=p=>/docs\.google\.com\/spreadsheets/.test(p)?'Google Sheets':(String(p).split(/[\\/]/).pop().split('?')[0]||String(p));
@@ -786,36 +787,112 @@ const detailsBlock=(t,html)=>`<details class="more"><summary>${t}</summary><div 
 function drawAnalyzeCharts(){
   const a=state.analysis;if(!a)return;
   state.charts.forEach(c=>c.destroy&&c.destroy());state.charts=[];
-  const list=[...(a.bivariate?.groupes||[]).map(g=>({title:`${g.num} moyen par ${g.cat}`,type:'bar',labels:g.labels,values:[g.moyennes]})),...(a.charts||[])];
-  const shown=state.showAll?list:list.slice(0,6);
-  $('#charts').innerHTML=shown.length?shown.map((c,i)=>`<div class="card"><h2 style="font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(c.title)}">${esc(c.title)}</h2><div class="cbox"><canvas id="ac${i}" role="img" aria-label="${esc(c.title)}"></canvas></div></div>`).join('')
+  const smart=a.smart_charts||[];
+  const perVar=[...(a.bivariate?.groupes||[]).map(g=>({title:`${g.num} moyen par ${g.cat}`,subtitle:'Moyenne par groupe',type:'bar',labels:g.labels,values:[g.moyennes]})),...(a.charts||[]).map(c=>({...c,subtitle:c.subtitle||'Vue par variable'}))];
+  const base=smart.length?smart:perVar.slice(0,6);
+  const shown=state.showAll?[...base,...(smart.length?perVar:perVar.slice(6))]:base;
+  const wide=c=>c.kind==='trend'||(c.kind==='ranking'&&c.labels.length>8);
+  $('#charts').innerHTML=shown.length?shown.map((c,i)=>`<div class="card${wide(c)?' wide':''}"><h2 style="font-size:14.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(c.title)}">${esc(c.title)}</h2>${c.subtitle?`<p class="sub">${esc(c.subtitle)}</p>`:''}<div class="cbox" style="${c.kind==='ranking'?`height:${Math.max(220,c.labels.length*30+50)}px`:''}"><canvas id="ac${i}" role="img" aria-label="${esc(c.title)}"></canvas></div></div>`).join('')
     :'<div class="card empty">Aucun graphique pour ce fichier.</div>';
   shown.forEach((c,i)=>{const cv=document.getElementById('ac'+i);if(cv){const ch=drawChart(cv,c);if(ch)state.charts.push(ch)}});
-  const mb=$('#moreCharts');mb.hidden=list.length<=6;mb.textContent=state.showAll?'Afficher moins':`Afficher les ${list.length} graphiques`;
+  const extra=smart.length?perVar.length:Math.max(0,perVar.length-6);
+  const mb=$('#moreCharts');mb.hidden=!extra;mb.textContent=state.showAll?'Afficher moins':`Voir aussi ${extra} graphique(s) par variable`;
 }
 $('#moreCharts').onclick=()=>{state.showAll=!state.showAll;drawAnalyzeCharts()};
 $('#toShare').onclick=()=>go(3);
 
+// ---- rendu des graphiques (style « Studio » : courbes lissées, barres triées, valeurs lisibles)
+function hexA(hex,a){const h=String(hex).trim().replace('#','');if(h.length<6)return hex;const n=parseInt(h.slice(0,6),16);return `rgba(${n>>16&255},${n>>8&255},${n&255},${a})`}
+function fmtNum(v,unit){
+  if(v==null||isNaN(v))return '';v=+v;const a=Math.abs(v);let s;
+  if(a>=1e6)s=dec((v/1e6).toFixed(a>=1e7?0:1))+' M';
+  else if(a>=1e4)s=dec((v/1e3).toFixed(a>=1e5?0:1))+' k';
+  else s=nf(+v.toFixed(a>=100||v%1===0?0:a>=10?1:2));
+  s=s.replace(/,0(?= [kM])/,'');
+  return unit==='%'?s+' %':s;
+}
+const MOIS=['janv.','févr.','mars','avr.','mai','juin','juil.','août','sept.','oct.','nov.','déc.'];
+function periodLabels(ls){if(!ls.length||!ls.every(l=>/^\d{4}-\d{2}$/.test(l)))return ls;const multi=new Set(ls.map(l=>l.slice(0,4))).size>1;return ls.map(l=>MOIS[+l.slice(5)-1]+(multi?' '+l.slice(2,4):''))}
+const studioPlugin={id:'studio',
+  beforeDatasetsDraw(chart,_a,o){
+    if(!o||!o.on||o.ref==null)return;const {ctx}=chart;ctx.save();
+    const sc=o.horizontal?chart.scales.x:chart.scales.y,p=sc.getPixelForValue(o.ref.value),ar=chart.chartArea;
+    ctx.strokeStyle=css('--muted');ctx.setLineDash([4,4]);ctx.lineWidth=1.2;ctx.beginPath();
+    if(o.horizontal){ctx.moveTo(p,ar.top);ctx.lineTo(p,ar.bottom)}else{ctx.moveTo(ar.left,p);ctx.lineTo(ar.right,p)}
+    ctx.stroke();ctx.restore();
+  },
+  afterDatasetsDraw(chart,_a,o){
+    const {ctx}=chart;if(!o||!o.on)return;
+    ctx.save();ctx.font=`600 11px ${css('--sans')}`;ctx.fillStyle=css('--fg');
+    if(o.values){const meta=chart.getDatasetMeta(0),data=chart.data.datasets[0].data;
+      meta.data.forEach((el,i)=>{const v=data[i];if(v==null)return;const t=fmtNum(v,o.unit);
+        if(o.horizontal){ctx.textAlign='left';ctx.textBaseline='middle';ctx.fillText(t,el.x+6,el.y)}
+        else{ctx.textAlign='center';ctx.textBaseline='bottom';ctx.fillText(t,el.x,el.y-4)}})}
+    if(o.ref!=null){const sc=o.horizontal?chart.scales.x:chart.scales.y,p=sc.getPixelForValue(o.ref.value),ar=chart.chartArea;
+      ctx.fillStyle=css('--muted');ctx.font=`500 11px ${css('--sans')}`;
+      const lab=`${o.ref.label} ${fmtNum(o.ref.value,o.unit)}`;
+      if(o.horizontal){ctx.textAlign=p>ar.right-90?'right':'left';ctx.textBaseline='bottom';ctx.fillText(lab,p+(p>ar.right-90?-4:4),ar.top-2)}
+      else{ctx.textAlign='right';ctx.textBaseline='bottom';ctx.fillText(lab,ar.right,p-3)}}
+    if(o.center){const m=chart.getDatasetMeta(0).data[0];if(m){ctx.textAlign='center';ctx.textBaseline='middle';
+      ctx.fillStyle=css('--fg');ctx.font=`600 20px ${css('--mono')}`;ctx.fillText(fmtNum(o.center),m.x,m.y-7);
+      ctx.fillStyle=css('--muted');ctx.font=`500 11px ${css('--sans')}`;ctx.fillText('total',m.x,m.y+13)}}
+    ctx.restore();
+  }};
 function drawChart(canvas,ch){
-  if(!window.Chart)return null;
+  if(!window.Chart||!ch)return null;
   const t=(ch.type||'bar').toLowerCase();
   if(t==='box'){drawBoxplot(canvas,ch);return null}
-  const fg=css('--muted'),grid=css('--line'),text=css('--fg');
-  const pal=[css('--brand'),css('--blue'),css('--amber'),css('--red'),'#8E6CC0','#2A9D8F','#C06C84','#6C8EAD'];
+  const fg=css('--muted'),grid=css('--line'),text=css('--fg'),brand=css('--brand'),amber=css('--amber');
+  const pal=[brand,css('--blue'),amber,'#8E6CC0','#2A9D8F','#C06C84','#6C8EAD','#B7A14A'];
   Chart.defaults.font.family=css('--sans');Chart.defaults.color=fg;
   const isPie=t==='pie'||t==='doughnut',isLine=t==='line'||t==='area',isScatter=t==='scatter',isHist=t==='histogram';
-  const type=isPie?(t==='doughnut'?'doughnut':'pie'):isLine?'line':isScatter?'scatter':'bar';
-  let labels=(ch.labels||[]).map(l=>{const s=String(l);return s.length>32?s.slice(0,31)+'…':s});
-  let values=ch.values||[];
-  if(type==='bar'&&!isHist&&labels.length>15){const v0=values[0]||[];const idx=labels.map((_,i)=>i).sort((x,y)=>(+v0[y]||0)-(+v0[x]||0)).slice(0,15);labels=idx.map(i=>labels[i]);values=values.map(v=>idx.map(i=>v[i]))}
-  const horizontal=type==='bar'&&!isHist&&labels.length>8, single=values.length<=1;
-  const datasets=isScatter?values.map((vals,i)=>({label:ch.seriesNames?.[i]||'',data:(ch.labels||[]).map((x,j)=>({x:+x,y:+vals[j]})),backgroundColor:pal[i%8]+'99',pointRadius:3}))
-    :values.map((vals,i)=>({label:ch.seriesNames?.[i]||(single?'':'Série '+(i+1)),data:vals,backgroundColor:isPie?pal:(isLine?pal[i%8]+'22':pal[i%8]),borderColor:isPie?css('--surface'):pal[i%8],
-      borderWidth:isPie?2:isLine?2:0,borderRadius:isHist?0:4,fill:t==='area'||(isLine&&single),tension:.3,pointRadius:isLine?0:undefined,pointHoverRadius:4,barPercentage:isHist?1:.8,categoryPercentage:isHist?1:.8}));
-  const ax={ticks:{color:fg,font:{size:11}},grid:{color:grid}}, axNo={ticks:{color:text,font:{size:11}},grid:{display:false}};
-  return new Chart(canvas,{type,data:{labels:isScatter?undefined:labels,datasets},options:{responsive:true,maintainAspectRatio:false,animation:reduce?false:undefined,
-    indexAxis:horizontal?'y':'x',plugins:{legend:{display:!single||isPie,position:'bottom',labels:{usePointStyle:true,boxWidth:8}}},
-    scales:isPie?{}:isScatter?{x:{...ax,type:'linear'},y:ax}:horizontal?{x:ax,y:axNo}:{x:{...axNo,ticks:{...axNo.ticks,maxRotation:40}},y:ax}}});
+  const type=isPie?'doughnut':isLine?'line':isScatter?'scatter':'bar';
+  const unit=ch.unit||'';
+  let labels=periodLabels((ch.labels||[]).map(String)).map(s=>s.length>28?s.slice(0,27)+'…':s);
+  let values=(ch.values||[]).map(v=>v.map(x=>x==null?null:+x));
+  // barres de catégories : triées, 15 au plus
+  if(type==='bar'&&!isHist&&values.length===1&&!ch.kind){const idx=labels.map((_,i)=>i).sort((x,y)=>(values[0][y]||0)-(values[0][x]||0)).slice(0,15);labels=idx.map(i=>labels[i]);values=[idx.map(i=>values[0][i])]}
+  const horizontal=type==='bar'&&!isHist&&(ch.horizontal||labels.length>6);
+  const single=values.length<=1;
+  const gradient=color=>c=>{const {chart}=c,{ctx,chartArea}=chart;if(!chartArea)return hexA(color,.15);const g=ctx.createLinearGradient(0,chartArea.top,0,chartArea.bottom);g.addColorStop(0,hexA(color,.30));g.addColorStop(1,hexA(color,0));return g};
+  let datasets;
+  if(isScatter){
+    const xs=(ch.labels||[]).map(Number),ys=values[0]||[];
+    datasets=[{label:ch.seriesNames?.[0]||'',data:xs.map((x,j)=>({x,y:ys[j]})),backgroundColor:hexA(brand,.55),borderColor:brand,borderWidth:1,pointRadius:4,pointHoverRadius:6}];
+    if(ch.trend&&xs.length>2){const n=xs.length,mx=xs.reduce((a,b)=>a+b,0)/n,my=ys.reduce((a,b)=>a+(b||0),0)/n;
+      let sxy=0,sxx=0;xs.forEach((x,j)=>{sxy+=(x-mx)*((ys[j]||0)-my);sxx+=(x-mx)**2});const b=sxx?sxy/sxx:0,a0=my-b*mx,lo=Math.min(...xs),hi=Math.max(...xs);
+      datasets.push({type:'line',label:'Tendance',data:[{x:lo,y:a0+b*lo},{x:hi,y:a0+b*hi}],borderColor:amber,borderDash:[6,4],borderWidth:2,pointRadius:0,fill:false})}
+  }else if(isPie){
+    datasets=[{data:values[0]||[],backgroundColor:pal,borderColor:css('--surface'),borderWidth:3,hoverOffset:6}];
+  }else if(isLine){
+    datasets=values.map((vals,i)=>{const c=i===0?brand:i===1?amber:pal[i%8];return {label:ch.seriesNames?.[i]||'',data:vals,borderColor:c,
+      backgroundColor:i===0?gradient(c):hexA(c,.1),fill:i===0||t==='area',tension:.4,borderWidth:i===0?2.5:2,borderDash:i===0?[]:[6,4],
+      pointRadius:0,pointHoverRadius:5,pointBackgroundColor:c,spanGaps:true,yAxisID:ch.axis2&&i===1?'y1':'y'}});
+  }else{
+    const ref=ch.ref?.value;
+    datasets=values.map((vals,i)=>({label:ch.seriesNames?.[i]||(single?'':'Série '+(i+1)),data:vals,
+      backgroundColor:single?(isHist?hexA(brand,.85):vals.map(v=>ref==null||v>=ref?brand:hexA(brand,.42))):pal[i%8],
+      borderRadius:isHist?{topLeft:4,topRight:4}:6,borderSkipped:isHist?'bottom':false,maxBarThickness:isHist?undefined:22,
+      barPercentage:isHist?.96:.8,categoryPercentage:isHist?1:.8}));
+  }
+  const tick={color:fg,font:{size:11}},valueAxis={border:{display:false},grid:{color:grid,drawTicks:false},ticks:{...tick,padding:8,maxTicksLimit:6,callback:v=>fmtNum(v,unit)}};
+  const catAxis={border:{display:false},grid:{display:false},ticks:{color:text,font:{size:11},padding:6,autoSkip:true,maxRotation:0,maxTicksLimit:isLine?8:undefined}};
+  const scales=isPie?{}:isScatter?{x:{...valueAxis,type:'linear',min:(ch.labels||[]).every(v=>+v>=0)?0:undefined,title:{display:!!ch.xTitle,text:ch.xTitle,color:fg}},y:{...valueAxis,min:(values[0]||[]).every(v=>v==null||v>=0)?0:undefined,title:{display:!!ch.yTitle,text:ch.yTitle,color:fg}}}
+    :horizontal?{x:{...valueAxis,beginAtZero:true,grace:'12%'},y:catAxis}
+    :{x:catAxis,y:{...valueAxis,beginAtZero:!isLine,grace:isLine?'8%':'12%'},...(ch.axis2?{y1:{...valueAxis,position:'right',grid:{display:false},beginAtZero:false}}:{})};
+  const showValues=type==='bar'&&!isHist&&single&&labels.length<=15;
+  return new Chart(canvas,{type,data:{labels:isScatter?undefined:labels,datasets},plugins:[studioPlugin],options:{
+    responsive:true,maintainAspectRatio:false,animation:reduce?false:{duration:600,easing:'easeOutQuart'},
+    indexAxis:horizontal?'y':'x',interaction:isLine?{mode:'index',intersect:false}:{mode:'nearest',intersect:true},
+    layout:{padding:{top:showValues&&!horizontal?16:ch.ref&&horizontal?14:4,right:showValues&&horizontal?8:4}},
+    cutout:isPie?'64%':undefined,
+    plugins:{studio:{on:true,values:showValues,horizontal,unit,ref:ch.ref||null,center:isPie?(values[0]||[]).reduce((a,b)=>a+(b||0),0):null},
+      legend:{display:!single||isPie||isScatter&&datasets.length>1,position:'bottom',labels:{usePointStyle:true,pointStyle:'circle',boxWidth:8,boxHeight:8,padding:14,color:fg}},
+      tooltip:{backgroundColor:css('--fg'),titleColor:css('--bg'),bodyColor:css('--bg'),padding:10,cornerRadius:8,boxPadding:4,usePointStyle:true,
+        callbacks:{label:c=>{const v=isScatter?c.parsed.y:(horizontal?c.parsed.x:c.parsed.y),lbl=c.dataset.label||c.label||'';
+          if(isPie){const tot=c.dataset.data.reduce((a,b)=>a+(b||0),0);return ` ${c.label} : ${fmtNum(c.parsed,unit)} (${dec((c.parsed/tot*100).toFixed(1))} %)`}
+          return ` ${lbl?lbl+' : ':''}${fmtNum(v,unit)}`}}}},
+    scales}});
 }
 function drawBoxplot(canvas,ch){
   const ctx=canvas.getContext('2d'),p=canvas.parentElement,w=p.clientWidth||400,h=p.clientHeight||200,dpr=devicePixelRatio||1;
