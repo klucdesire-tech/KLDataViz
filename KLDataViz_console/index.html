@@ -309,7 +309,7 @@ tr.versions td{background:var(--surface-2);font-size:13px}
           <div class="label" style="margin-bottom:10px">Ou connectez une source</div>
           <div class="sources">
             <button class="src" data-src="path"><div class="ic"><svg class="i" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg></div><b>Chemin du fichier</b><span>Un fichier déjà sur cet ordinateur</span></button>
-            <button class="src" data-src="url"><div class="ic"><svg class="i" viewBox="0 0 24 24"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></svg></div><b>Lien web ou API</b><span>URL directe vers un CSV, Excel ou JSON</span></button>
+            <button class="src" data-src="url"><div class="ic"><svg class="i" viewBox="0 0 24 24"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></svg></div><b>Google Sheets ou lien web</b><span>Lien de partage, ou URL d'un CSV, Excel, JSON</span></button>
             <button class="src" data-src="db"><div class="ic"><svg class="i" viewBox="0 0 24 24"><path d="M4 6c0-1.7 3.6-3 8-3s8 1.3 8 3-3.6 3-8 3-8-1.3-8-3zm0 0v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></svg></div><b>Base PostgreSQL</b><span>Une table, copiée sans la modifier</span></button>
             <button class="src" data-src="reg"><div class="ic"><svg class="i" viewBox="0 0 24 24"><path d="M12 7v5l3 2M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z"/></svg></div><b>Jeu déjà enregistré</b><span>Réanalyser une version du registre</span></button>
           </div>
@@ -520,7 +520,7 @@ const md=s=>esc(s).replace(/\*\*(.+?)\*\*/g,'<b>$1</b>').replace(/`([^`]+)`/g,'<
 const nf=n=>Number(n).toLocaleString('fr-FR');
 const dec=n=>String(n).replace('.',',');
 const reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;
-const baseName=p=>String(p).split(/[\\/]/).pop().split('?')[0]||String(p);
+const baseName=p=>/docs\.google\.com\/spreadsheets/.test(p)?'Google Sheets':(String(p).split(/[\\/]/).pop().split('?')[0]||String(p));
 const IC={check:'<svg class="i" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7"/></svg>',
   alert:'<svg class="i" viewBox="0 0 24 24"><path d="M12 9v4M12 17h.01M10.3 3.9 2.4 18a2 2 0 0 0 1.7 3h15.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>',
   x:'<svg class="i" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg>',
@@ -596,7 +596,7 @@ $$('.src').forEach(b=>b.onclick=()=>{
   const k=b.dataset.src;$$('.src').forEach(x=>x.setAttribute('aria-pressed',x===b));
   $('#dbCard').hidden=k!=='db';$('#pathCard').hidden=k==='db'||k==='reg';
   if(k==='path'){$('#pathTitle').textContent='Chemin du fichier';$('#pathHint').textContent='Copiez le chemin complet du fichier, par exemple C:\\Users\\…\\donnees.xlsx.';$('#pathInput').placeholder='C:\\Users\\…\\donnees.csv';$('#pathInput').focus()}
-  if(k==='url'){$('#pathTitle').textContent='Lien web ou API';$('#pathHint').textContent='Une URL qui renvoie directement un fichier CSV, Excel ou JSON (export Google Sheets en CSV, point d\'accès d\'API JSON…).';$('#pathInput').placeholder='https://…';$('#pathInput').focus()}
+  if(k==='url'){$('#pathTitle').textContent='Google Sheets ou lien web';$('#pathHint').textContent='Collez le lien d\'une feuille Google Sheets (partagée avec « Tous les utilisateurs disposant du lien »), ou une URL qui renvoie un fichier CSV, Excel ou JSON.';$('#pathInput').placeholder='https://…';$('#pathInput').focus()}
   if(k==='db')$('#dbDsn').focus();
   if(k==='reg')$('#recentCard').scrollIntoView({behavior:reduce?'auto':'smooth'});
 });
@@ -638,12 +638,12 @@ async function startRun(path,name,size){
   let t0=performance.now();set(0,'doing');
   const a=await api('/api/analyze',{file_path:path});
   if(a.error){set(0,'err',a.error);$('#runErr').hidden=false;return}
-  set(0,'done',`${nf(a.rows)} lignes, ${a.columns} colonnes, ${dec(a.size_kb)} Ko`,secs(t0));prog(45);
+  set(0,'done',`${nf(a.rows)} lignes, ${a.columns} colonnes, ${a.size_kb?dec(a.size_kb)+' Ko':'source en ligne'}`,secs(t0));prog(45);
   state.original=a;state.analysis=a;
   t0=performance.now();set(1,'doing');
   const c=await api('/api/clean',{file_path:path});
   if(c.error){set(1,'warn','Nettoyage indisponible : '+c.error,secs(t0));state.clean=null}
-  else{state.clean=c;const n=issuesOf().length;state.accept=new Set(issuesOf().map(x=>x.id));set(1,n?'warn':'done',n?`${n} correction${n>1?'s':''} proposée${n>1?'s':''}`:'Aucune correction nécessaire',secs(t0))}
+  else{state.clean=c;const n=issuesOf().length;state.accept=new Set(issuesOf().flatMap(idsOf));set(1,n?'warn':'done',n?`${n} correction${n>1?'s':''} proposée${n>1?'s':''}`:'Aucune correction nécessaire',secs(t0))}
   prog(85);
   set(2,'done',`${(a.anomalies||[]).length} colonne(s) avec anomalies, ${(a.charts||[]).length} graphique(s)`,'');prog(100);
   await new Promise(r=>setTimeout(r,reduce?0:350));
@@ -657,13 +657,18 @@ $('#runBack').onclick=()=>go(0);
 /* ================= verify ================= */
 const TYPE={int64:'entier',Int64:'entier',int32:'entier',float64:'décimal',float32:'décimal',object:'texte',str:'texte',string:'texte',bool:'oui/non',boolean:'oui/non','booléen':'oui/non','numérique':'nombre',category:'catégorie'};
 const typeName=t=>TYPE[t]||(String(t).startsWith('datetime')?'date':t);
+const idsOf=x=>x.ids||[x.id];
+const isOn=x=>idsOf(x).every(id=>state.accept.has(id));
 function issuesOf(){
   const r=state.clean?.rapport;if(!r)return [];
   const out=[];
   if(r.doublons_supprimes)out.push({id:'doublons',sev:'bad',t:`${nf(r.doublons_supprimes)} ligne(s) en double`,d:'Une seule occurrence est conservée.'});
   if((r.colonnes_vides||[]).length)out.push({id:'vides',sev:'warn',t:`${r.colonnes_vides.length} colonne(s) entièrement vide(s)`,d:'Supprimées : '+r.colonnes_vides.join(', ')});
-  Object.entries(r.types_corriges||{}).forEach(([k,v])=>out.push({id:'type:'+k,sev:'warn',t:`Type de « ${k} » à corriger`,d:`${typeName(v.avant)} → ${typeName(v.apres)}`}));
-  (r.imputations||[]).forEach(im=>out.push({id:'imput:'+im.colonne,sev:'warn',n:im.n,t:`${nf(im.n)} valeur(s) manquante(s) dans « ${im.colonne} »`,d:`Complétées par la ${im.methode}${im.valeur!=null?' ('+im.valeur+')':''}. Laissez désactivé si un vide a un sens.`}));
+  const types=Object.entries(r.types_corriges||{}),imps=r.imputations||[],MAX=8;
+  if(types.length>MAX)out.push({id:'type:*',ids:types.map(([k])=>'type:'+k),sev:'warn',t:`Type à corriger dans ${types.length} colonnes`,d:types.slice(0,5).map(([k,v])=>`${k} : ${typeName(v.avant)} → ${typeName(v.apres)}`).join(' · ')+' …'});
+  else types.forEach(([k,v])=>out.push({id:'type:'+k,sev:'warn',t:`Type de « ${k} » à corriger`,d:`${typeName(v.avant)} → ${typeName(v.apres)}`}));
+  if(imps.length>MAX)out.push({id:'imput:*',ids:imps.map(im=>'imput:'+im.colonne),sev:'warn',t:`${nf(imps.reduce((s,im)=>s+im.n,0))} valeur(s) manquante(s) dans ${imps.length} colonnes`,d:'Complétées par la médiane (nombres) ou la valeur la plus fréquente (textes). Laissez désactivé si un vide a un sens, par exemple « pas de cas ».'});
+  else imps.forEach(im=>out.push({id:'imput:'+im.colonne,sev:'warn',n:im.n,t:`${nf(im.n)} valeur(s) manquante(s) dans « ${im.colonne} »`,d:`Complétées par la ${im.methode}${im.valeur!=null?' ('+im.valeur+')':''}. Laissez désactivé si un vide a un sens.`}));
   const ren=Object.entries(r.colonnes_renommees||{});
   if(ren.length)out.push({id:'noms',sev:'info',t:`${ren.length} nom(s) de colonne normalisé(s)`,d:ren.slice(0,6).map(([x,y])=>`${x} → ${y}`).join(' · ')+(ren.length>6?' …':'')});
   return out;
@@ -692,7 +697,7 @@ function renderVerify(){
   $('#ringV').textContent=before.score;
   $('#scoreAfter').innerHTML=`${after.score} / 100 ${after.score>before.score?`<span class="tag ok">+${after.score-before.score}</span>`:''}`;
   $('#ringTxt').textContent=`Complétude ${dec(a.completeness_pct)} % · ${nf(a.missing_total)} valeur(s) manquante(s) · ${(a.anomalies||[]).length} colonne(s) avec des valeurs aberrantes.`;
-  $('#dsChips').innerHTML=[`${nf(a.rows)} lignes`,`${a.columns} colonnes`,`${dec(a.size_kb)} Ko`].map(x=>`<span class="tag type">${x}</span>`).join('');
+  $('#dsChips').innerHTML=[`${nf(a.rows)} lignes`,`${a.columns} colonnes`,a.size_kb?`${dec(a.size_kb)} Ko`:'source en ligne'].map(x=>`<span class="tag type">${x}</span>`).join('');
   $('#scoreHow').innerHTML='Score = 100 moins des pénalités plafonnées. Détail avec les corrections choisies :<br>'+after.parts.map(p=>`${p[0]} : −${dec(p[1].toFixed(1))}`).join(' · ');
   const cd=a.columns_detail||[], nNum=Object.keys(a.numeric_stats||{}).length;
   const ids=cd.filter(c=>c.unique===a.rows&&c.missing===0).map(c=>c.name);
@@ -701,10 +706,10 @@ function renderVerify(){
     (ids.length?` Identifiant probable : <code>${esc(ids[0])}</code>.`:'')+(cor?` Relation la plus forte : <code>${esc(cor.a)}</code> et <code>${esc(cor.b)}</code>.`:'');
   const items=issuesOf();
   $('#issues').innerHTML=!state.clean?`<div class="alert info">Le module de nettoyage n'est pas disponible. Vous pouvez analyser le fichier tel quel.</div>`
-    :items.length?items.map(x=>{const on=state.accept.has(x.id);return `<div class="issue toggle ${on?'':'off'}"><span class="sev ${x.sev==='bad'?'':x.sev}" style="${x.sev==='bad'?'background:var(--red)':''}"></span><div><b>${esc(x.t)}</b><span>${esc(x.d)}</span></div>
+    :items.length?items.map(x=>{const on=isOn(x);return `<div class="issue toggle ${on?'':'off'}"><span class="sev ${x.sev==='bad'?'':x.sev}" style="${x.sev==='bad'?'background:var(--red)':''}"></span><div><b>${esc(x.t)}</b><span>${esc(x.d)}</span></div>
       <button class="switch" role="switch" aria-checked="${on}" aria-label="Appliquer : ${esc(x.t)}" data-acc="${esc(x.id)}"></button></div>`}).join('')
     :`<div class="empty">${IC.check} Aucune correction nécessaire. Les données sont propres.</div>`;
-  const n=items.filter(x=>state.accept.has(x.id)).length;
+  const n=items.filter(isOn).length;
   $('#verifyLead').textContent=!state.clean?'Hermes a profilé le fichier.':items.length?`Hermes propose ${items.length} correction(s). Rien n'est appliqué sans votre accord.`:'Le fichier est déjà propre.';
   $('#toggleAll').hidden=items.length<2;$('#toggleAll').textContent=n===items.length?'Tout désactiver':'Tout activer';
   $('#applyClean').hidden=!items.length;
@@ -715,20 +720,20 @@ function renderVerify(){
   $('#cols').innerHTML=cd.map(c=>{const f=100-c.missing_pct;return `<tr><td class="num">${esc(c.name)}</td><td><span class="tag type">${esc(typeName(c.dtype))}</span></td>
     <td><div class="fill"><div class="meter"><i class="${f<80?'bad':f<98?'warn':''}" style="width:${f}%"></i></div><span class="num" style="font-size:12.5px">${dec(+f.toFixed(1))} %</span></div></td><td class="r num">${nf(c.unique)}</td></tr>`}).join('');
 }
-$('#issues').addEventListener('click',e=>{const b=e.target.closest('[data-acc]');if(!b)return;const id=b.dataset.acc;state.accept.has(id)?state.accept.delete(id):state.accept.add(id);renderVerify()});
-$('#toggleAll').onclick=()=>{const items=issuesOf();state.accept=items.every(x=>state.accept.has(x.id))?new Set():new Set(items.map(x=>x.id));renderVerify()};
+$('#issues').addEventListener('click',e=>{const b=e.target.closest('[data-acc]');if(!b)return;const x=issuesOf().find(i=>i.id===b.dataset.acc);if(!x)return;const on=isOn(x);idsOf(x).forEach(id=>on?state.accept.delete(id):state.accept.add(id));renderVerify()});
+$('#toggleAll').onclick=()=>{const items=issuesOf();state.accept=items.every(isOn)?new Set():new Set(items.flatMap(idsOf));renderVerify()};
 $('#skipClean').onclick=async()=>{
   if(state.applied){const a=await api('/api/analyze',{file_path:state.path});if(!a.error)state.original=a}
   state.analysis=state.original;state.applied=false;state.ai=null;go(2)};
 $('#applyClean').onclick=async()=>{
-  const b=$('#applyClean'),skip=issuesOf().map(x=>x.id).filter(id=>!state.accept.has(id));
+  const b=$('#applyClean'),skip=issuesOf().flatMap(idsOf).filter(id=>!state.accept.has(id));
   b.disabled=true;b.innerHTML='<span class="spin"></span> Application des corrections…';
   const c=await api('/api/clean',{file_path:state.path,skip});
   if(c.error){renderVerify();toast('Échec du nettoyage : '+c.error);return}
   const a=await api('/api/analyze',{file_path:c.cleaned_path});
   if(a.error){renderVerify();toast('Échec : '+a.error);return}
   state.cleanedPath=c.cleaned_path;state.cleanedRows=c.rows;state.analysis=a;state.applied=true;state.ai=null;go(2);
-  say(`${state.accept.size} correction(s) appliquée(s) sur une copie (${nf(c.rows)} lignes). Le fichier d'origine n'a pas changé.`);
+  say(`${issuesOf().filter(isOn).length} correction(s) appliquée(s) sur une copie (${nf(c.rows)} lignes). Le fichier d'origine n'a pas changé.`);
 };
 
 /* ================= analyze ================= */

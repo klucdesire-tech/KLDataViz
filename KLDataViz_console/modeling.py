@@ -111,10 +111,15 @@ def clean_dataframe(df: pd.DataFrame, skip=None):
         rapport["doublons_supprimes"] = n0 - len(df)
 
     # 3. Normalisation des noms de colonnes
-    ren = {}
+    ren, used = {}, set()
     for c in df.columns:
-        ns = _slugify(c)
-        if ns and ns != str(c):
+        ns = base = _slugify(c)
+        k = 2
+        while ns in used:  # deux libellés différents peuvent donner le même nom normalisé
+            ns = f"{base}_{k}"
+            k += 1
+        used.add(ns)
+        if ns != str(c):
             ren[str(c)] = ns
     if ren and "noms" not in skip:
         df = df.rename(columns=ren)

@@ -168,26 +168,120 @@ def _auto_charts(df):
     return charts
 
 
-def _read_df(file_path):
-    """Lit un fichier local ou une URL en DataFrame (csv/xlsx/xls/xlsm/json)."""
+def normalize_source_url(url):
+    """Transforme un lien de partage (Google Sheets, Google Drive) en lien de téléchargement direct."""
+    import re
+    from urllib.parse import urlparse, parse_qs
+    u = urlparse(url)
+    if "docs.google.com" in u.netloc and "/spreadsheets/d/" in u.path:
+        m = re.search(r"/spreadsheets/d/([^/]+)", u.path)
+        if m and m.group(1) != "e":  # /d/e/... = lien « publié sur le web », déjà téléchargeable
+            gid = (parse_qs(u.query).get("gid") or parse_qs(u.fragment).get("gid") or [None])[0]
+            return (f"https://docs.google.com/spreadsheets/d/{m.group(1)}/export?format=csv"
+                    + (f"&gid={gid}" if gid else ""))
+    if "drive.google.com" in u.netloc:
+        m = re.search(r"/file/d/([^/]+)", u.path) or re.search(r"[?&]id=([^&]+)", url)
+        if m:
+            return f"https://drive.google.com/uc?export=download&id={m.group(1)}"
+    return url
+
+
+def source_label(file_path):
+    """Nom lisible et sans caractère interdit pour une source (fichier ou URL)."""
+    import re
+    from urllib.parse import urlparse
     if file_path.startswith(("http://", "https://")):
+        u = urlparse(file_path)
+        if "docs.google.com" in u.netloc and "/spreadsheets/" in u.path:
+            m = re.search(r"/d/([^/]+)", u.path)
+            name = "google_sheet_" + (m.group(1)[:8] if m else "")
+        else:
+            name = os.path.splitext(os.path.basename(u.path))[0] or u.netloc
+    else:
+        name = os.path.splitext(os.path.basename(file_path))[0]
+    return re.sub(r'[\\/:*?"<>|]+', "_", name).strip("._ ") or "source"
+
+
+def _header_row(sample):
+    """Indice de la vraie ligne d'en-têtes dans un tableau « rapport » (titres, totaux au-dessus).
+
+    `sample` : les 20 premières lignes lues sans en-tête. On garde la ligne 0 sauf si une
+    ligne suivante porte nettement plus de libellés texte et couvre au moins la moitié des colonnes.
+    """
+    def labels(row):
+        n = 0
+        for v in row:
+            if isinstance(v, str) and v.strip():
+                try:
+                    float(v.replace(",", ".").replace(" ", ""))
+                except ValueError:
+                    n += 1
+        return n
+
+    scores = [labels(r) for r in sample.itertuples(index=False, name=None)]
+    if len(scores) < 2:
+        return 0
+    best = max(range(len(scores)), key=lambda i: (scores[i], -i))
+    if best and scores[best] >= 1.5 * scores[0] + 1 and scores[best] >= 0.5 * sample.shape[1]:
+        return best
+    return 0
+
+
+def _tidy(df):
+    """Noms de colonnes lisibles (en-têtes vides ou sur plusieurs lignes) et lignes vides retirées."""
+    names, seen = [], {}
+    for j, c in enumerate(df.columns):
+        nm = " ".join(str(c).split())
+        if not nm or nm.startswith("Unnamed:"):
+            nm = f"colonne_{j + 1}"
+        if nm in seen:
+            seen[nm] += 1
+            nm = f"{nm}_{seen[nm]}"
+        else:
+            seen[nm] = 1
+        names.append(nm)
+    df.columns = names
+    return df.dropna(how="all").reset_index(drop=True)
+
+
+def _read_df(file_path):
+    """Lit un fichier local ou une URL en DataFrame (csv/xlsx/xls/xlsm/json/parquet)."""
+    if file_path.startswith(("http://", "https://")):
+        url = normalize_source_url(file_path)
         try:
-            req = urllib.request.Request(file_path, headers={"User-Agent": "KLDataViz/1.0"})
-            data = urllib.request.urlopen(req, timeout=30).read()
-            ext = os.path.splitext(file_path.split("?")[0])[1].lower() or ".csv"
-            tmp = tempfile.NamedTemporaryFile(suffix=ext, delete=False)
-            tmp.write(data); tmp.close()
-            file_path = tmp.name
+            req = urllib.request.Request(url, headers={"User-Agent": "KLDataViz/1.0"})
+            resp = urllib.request.urlopen(req, timeout=60)
+            data = resp.read()
+            ctype = (resp.headers.get("Content-Type") or "").lower()
         except Exception as e:
+            if "google.com" in url and getattr(e, "code", None) in (401, 403, 404):
+                return None, ("Google refuse l'accès à cette feuille. Vérifiez le lien, puis dans Google Sheets "
+                              "cliquez sur Partager → « Tous les utilisateurs disposant du lien » (Lecteur).")
             return None, f"Téléchargement impossible : {e}"
+        if "text/html" in ctype or data[:300].lstrip().lower().startswith((b"<!doctype html", b"<html")):
+            if "google.com" in url:
+                return None, ("Google renvoie une page de connexion au lieu des données. Dans Google Sheets, "
+                              "cliquez sur Partager puis « Tous les utilisateurs disposant du lien » (Lecteur), "
+                              "et réessayez avec le même lien.")
+            return None, ("Ce lien renvoie une page web, pas un fichier de données. Utilisez un lien direct "
+                          "vers un fichier CSV, Excel ou JSON.")
+        ext = os.path.splitext(url.split("?")[0])[1].lower()
+        if ext not in (".csv", ".xlsx", ".xls", ".xlsm", ".json", ".parquet"):
+            ext = (".xlsx" if "spreadsheetml" in ctype or data[:2] == b"PK"
+                   else ".json" if "json" in ctype or data[:1] in (b"{", b"[") else ".csv")
+        tmp = tempfile.NamedTemporaryFile(suffix=ext, delete=False)
+        tmp.write(data); tmp.close()
+        file_path = tmp.name
     if not os.path.exists(file_path):
         return None, f"Fichier introuvable : {file_path}"
     ext = os.path.splitext(file_path)[1].lower()
     try:
         if ext == ".csv":
-            df = pd.read_csv(file_path)
+            h = _header_row(pd.read_csv(file_path, header=None, nrows=20, dtype=str, on_bad_lines="skip"))
+            df = _tidy(pd.read_csv(file_path, skiprows=h)) if h else pd.read_csv(file_path)
         elif ext in (".xlsx", ".xls", ".xlsm"):
-            df = pd.read_excel(file_path)
+            h = _header_row(pd.read_excel(file_path, header=None, nrows=20, dtype=str))
+            df = _tidy(pd.read_excel(file_path, header=h)) if h else pd.read_excel(file_path)
         elif ext == ".json":
             df = pd.read_json(file_path)
         elif ext == ".parquet":
@@ -204,7 +298,7 @@ def analyze(file_path):
     if err:
         return {"error": err}
 
-    size = os.path.getsize(file_path)
+    size = os.path.getsize(file_path) if os.path.exists(file_path) else 0
     rows, cols = df.shape
     total_cells = rows * cols
 
@@ -266,7 +360,7 @@ def analyze(file_path):
     completeness = round((1 - missing_total / total_cells) * 100, 2) if total_cells else 100
 
     return {
-        "file": os.path.basename(file_path),
+        "file": os.path.basename(file_path) if os.path.exists(file_path) else source_label(file_path),
         "size_kb": round(size / 1024, 1),
         "rows": int(rows),
         "columns": int(cols),
@@ -309,7 +403,7 @@ def clean(file_path, skip=None):
     # Sauvegarde de la version nettoyée (c'est elle, et elle seule, qui sera ingérée)
     cleaned_dir = os.path.join(BASE, "storage", "cleaned")
     os.makedirs(cleaned_dir, exist_ok=True)
-    stem = os.path.splitext(os.path.basename(file_path))[0]
+    stem = source_label(file_path)
     cleaned_path = os.path.join(cleaned_dir, f"{stem}_nettoye.csv")
     df_clean.to_csv(cleaned_path, index=False, encoding="utf-8-sig")
 
@@ -318,7 +412,7 @@ def clean(file_path, skip=None):
               for row in preview.itertuples(index=False, name=None)]
 
     return {
-        "file": os.path.basename(file_path),
+        "file": source_label(file_path),
         "cleaned_path": cleaned_path,
         "rows": int(len(df_clean)),
         "cols": int(len(df_clean.columns)),
@@ -933,6 +1027,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 except Exception:
                     payload = {}
                 source = str(payload.get("file_path") or payload.get("source") or "").strip()
+                if source.startswith(("http://", "https://")):
+                    source = normalize_source_url(source)
                 if not source:
                     self._send(400, {"error": "Indiquez un chemin de fichier, une URL ou un DSN PostgreSQL."})
                 else:
