@@ -11,3 +11,4 @@ storage/
 ingestion/data/
 llm_config.json
 .cvlynk-orchestrator.json
+tmp/

@@ -1,0 +1,38 @@
+# Render Blueprint — KLDataViz Studio en ligne.
+# Render → New → Blueprint → choisir ce dépôt. Les valeurs « sync: false » sont demandées
+# à la création : colle-les toi-même dans le tableau de bord Render (jamais dans Git).
+services:
+  - type: web
+    name: kldataviz
+    runtime: docker
+    rootDir: KLDataViz_console
+    dockerfilePath: ./Dockerfile
+    plan: starter            # le disque persistant demande une offre payante
+    region: frankfurt        # au plus près de Supabase (Europe)
+    healthCheckPath: /healthz
+    autoDeploy: true
+    disk:
+      name: donnees
+      mountPath: /data
+      sizeGB: 5
+    envVars:
+      - key: KLDV_MODE
+        value: cloud
+      - key: KLDV_SECRET          # signe les liens de téléchargement
+        generateValue: true
+      - key: SUPABASE_URL         # https://<projet>.supabase.co
+        sync: false
+      - key: SUPABASE_ANON_KEY    # clé publique « anon » du projet Supabase
+        sync: false
+      - key: DATABASE_URL         # chaîne « Session pooler » de Supabase (port 5432)
+        sync: false
+      - key: DEEPSEEK_API_KEY
+        sync: false
+      - key: BREVO_API_KEY        # facultatif : invitations et rapports par e-mail
+        sync: false
+      - key: MAIL_FROM            # adresse d'expédition vérifiée dans Brevo
+        sync: false
+      - key: ADMIN_EMAILS         # ton adresse : accès à l'administration des espaces
+        sync: false
+      - key: APP_URL              # ex. https://kldataviz.onrender.com
+        sync: false

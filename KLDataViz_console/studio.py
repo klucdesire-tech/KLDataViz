@@ -3,7 +3,9 @@
 KLDataViz Studio — services de la console : réglages, rapports planifiés,
 envoi par e-mail et points clés rédigés par l'IA.
 
-Les réglages et planifications sont stockés dans storage/ (ignoré par Git).
+En local, réglages et planifications sont stockés dans storage/ (ignoré par Git).
+En ligne (KLDV_MODE=cloud), ils sont stockés par organisation dans la base (cloud.py)
+et les e-mails partent par le service d'envoi de la plateforme.
 """
 import datetime as dt
 import json
@@ -14,6 +16,11 @@ import threading
 import time
 import uuid
 from email.message import EmailMessage
+
+import tenancy as T
+
+if T.CLOUD:
+    import cloud
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 STORAGE = os.path.join(BASE, "storage")
@@ -49,6 +56,12 @@ def _write_json(path, data):
 
 def load_settings():
     s = json.loads(json.dumps(DEFAULT_SETTINGS))
+    if T.CLOUD:
+        ctx = T.current()
+        s.update(cloud.get_settings(ctx.org_id))
+        s["org"] = ctx.plan.get("org_name") or ""
+        s["name"] = ctx.email or ""
+        return s
     saved = _read_json(SETTINGS_PATH, {})
     for k, v in saved.items():
         if k == "smtp" and isinstance(v, dict):
@@ -61,6 +74,11 @@ def load_settings():
 def public_settings():
     """Réglages renvoyés au navigateur : le mot de passe SMTP n'est jamais exposé."""
     s = load_settings()
+    if T.CLOUD:
+        s.pop("smtp", None)
+        s["smtp_ready"] = cloud.mail_ready()
+        s["cloud"] = True
+        return s
     smtp = dict(s["smtp"])
     smtp["has_password"] = bool(smtp.pop("password", ""))
     s["smtp"] = smtp
@@ -69,6 +87,13 @@ def public_settings():
 
 
 def save_settings(payload):
+    if T.CLOUD:
+        langue = payload.get("langue") if payload.get("langue") in ("Français", "English") else "Français"
+        detail = payload.get("detail") if payload.get("detail") in ("simple", "detaille") else "simple"
+        cloud.save_settings(T.current(), langue, detail, payload.get("org"))
+        if payload.get("org") and T.current().role == "owner":
+            T.current().plan["org_name"] = str(payload["org"]).strip()[:80]
+        return public_settings()
     with _lock:
         s = load_settings()
         for k in ("name", "org", "langue", "detail"):
@@ -103,11 +128,15 @@ def chat_preamble():
 
 # ---------------------------------------------------------------- e-mail
 def smtp_ready(s):
+    if T.CLOUD:
+        return cloud.mail_ready()
     m = s["smtp"]
     return bool(m.get("host") and (m.get("sender") or m.get("user")))
 
 
 def send_mail(recipients, subject, body, attachment=None):
+    if T.CLOUD:
+        return cloud.send_mail(recipients, subject, body, attachment)
     s = load_settings()
     if not smtp_ready(s):
         raise RuntimeError("Envoi par e-mail non configuré (Réglages → E-mail d'envoi).")
@@ -158,6 +187,8 @@ def next_run(freq, hour, after=None):
 
 
 def list_schedules():
+    if T.CLOUD:
+        return cloud.schedules(T.current().org_id)
     return _read_json(SCHEDULES_PATH, [])
 
 
@@ -182,6 +213,15 @@ def create_schedule(payload):
            "created": dt.datetime.now().isoformat(timespec="seconds"),
            "last_run": None, "last_status": None, "last_file": None,
            "next_run": next_run(freq, hour).isoformat(timespec="seconds")}
+    if T.CLOUD:
+        ctx = T.current()
+        if not (source.startswith("https://") or ctx.owns(source)):
+            raise ValueError("Source non autorisée.")
+        if len(cloud.schedules(ctx.org_id)) >= 20:
+            raise ValueError("20 planifications au maximum par espace.")
+        cloud.schedule_insert(ctx.org_id, dict(job, created=dt.datetime.fromisoformat(job["created"]),
+                                               next_run=dt.datetime.fromisoformat(job["next_run"])))
+        return job
     with _lock:
         items = list_schedules()
         items.insert(0, job)
@@ -190,6 +230,17 @@ def create_schedule(payload):
 
 
 def update_schedule(job_id, **changes):
+    if T.CLOUD:
+        org = T.current().org_id
+        job = cloud.schedule_get(org, job_id)
+        if job is None:
+            raise KeyError("Planification introuvable.")
+        if changes.get("on"):
+            changes["next_run"] = next_run(job["freq"], job["hour"]).isoformat(timespec="seconds")
+        for k in ("last_run", "next_run"):
+            if isinstance(changes.get(k), str):
+                changes[k] = dt.datetime.fromisoformat(changes[k])
+        return cloud.schedule_update(org, job_id, **changes)
     with _lock:
         items = list_schedules()
         for j in items:
@@ -205,6 +256,8 @@ def update_schedule(job_id, **changes):
 
 
 def delete_schedule(job_id):
+    if T.CLOUD:
+        return cloud.schedule_delete(T.current().org_id, job_id)
     with _lock:
         items = [j for j in list_schedules() if j["id"] != job_id]
         _save_schedules(items)
@@ -238,6 +291,23 @@ def run_schedule(job_id, analyze_fn, exporters, exports_dir):
 
 
 def start_scheduler(analyze_fn, exporters, exports_dir):
+    if T.CLOUD:
+        def cloud_loop():
+            while True:
+                try:
+                    for org_id, j in cloud.due_schedules():
+                        with T.use(cloud.org_ctx(org_id)):
+                            try:
+                                run_schedule(j["id"], analyze_fn, exporters, T.exports_dir())
+                            except Exception as exc:
+                                update_schedule(j["id"], last_status=f"Erreur : {exc}"[:300],
+                                                next_run=next_run(j["freq"], j["hour"]).isoformat(timespec="seconds"))
+                except Exception:
+                    pass
+                time.sleep(30)
+        threading.Thread(target=cloud_loop, daemon=True).start()
+        return
+
     def loop():
         while True:
             try:

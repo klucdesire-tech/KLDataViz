@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Connexion · KLDataViz Studio</title>
+<link rel="icon" href="/logo.png">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@500;600&family=Fira+Sans:wght@400;500;600;700&display=swap">
+<script src="/config.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<style>
+:root{--bg:#F3F6F4;--surface:#FFFFFF;--surface-2:#EBF1ED;--line:#D9E3DD;--fg:#11241A;--muted:#55685D;--brand:#1D7A4C;--brand-strong:#15633D;--brand-soft:#DCEFE4;--on-brand:#FFFFFF;--red:#B4372A;--red-soft:#FBE3DF;
+  --sans:'Fira Sans',system-ui,-apple-system,'Segoe UI',sans-serif;--mono:'Fira Code',ui-monospace,Consolas,monospace;color-scheme:light}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0D1411;--surface:#141D18;--surface-2:#1A2620;--line:#273730;--fg:#E4EEE8;--muted:#93A79B;--brand:#3FBF7E;--brand-strong:#5FD196;--brand-soft:#173826;--on-brand:#06140C;--red:#F2776A;--red-soft:#3C1D19;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#0D1411;--surface:#141D18;--surface-2:#1A2620;--line:#273730;--fg:#E4EEE8;--muted:#93A79B;--brand:#3FBF7E;--brand-strong:#5FD196;--brand-soft:#173826;--on-brand:#06140C;--red:#F2776A;--red-soft:#3C1D19;color-scheme:dark}
+*{box-sizing:border-box}
+html,body{min-height:100%;margin:0}
+body{background:var(--bg);color:var(--fg);font:15px/1.5 var(--sans);display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);min-height:100vh}
+:focus-visible{outline:2px solid var(--brand);outline-offset:2px;border-radius:6px}
+.pitch{background:var(--brand-strong);color:#EAF6EF;padding:56px clamp(24px,6vw,72px);display:flex;flex-direction:column;gap:28px;justify-content:center}
+.pitch .brand{display:flex;align-items:center;gap:12px;font-weight:700;font-size:18px}
+.pitch .brand img{width:34px;height:42px;object-fit:contain;background:#fff;border-radius:8px;padding:3px}
+.pitch h1{font-size:clamp(26px,3.2vw,38px);line-height:1.15;margin:0;max-width:18ch;text-wrap:balance;color:#fff}
+.pitch ol{list-style:none;padding:0;margin:0;display:grid;gap:14px;max-width:46ch}
+.pitch li{display:grid;grid-template-columns:30px 1fr;gap:12px;align-items:start}
+.pitch li span{width:30px;height:30px;border-radius:50%;background:rgba(255,255,255,.14);display:grid;place-items:center;font:600 13px var(--mono)}
+.pitch li b{display:block;color:#fff}.pitch li small{color:#BFE3CF;font-size:13.5px}
+.pitch .foot{font-size:12.5px;color:#BFE3CF}
+.side{display:grid;place-items:center;padding:32px 16px}
+.card{width:min(420px,100%);background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:28px;display:grid;gap:16px;box-shadow:0 1px 2px rgba(17,36,26,.05),0 10px 30px rgba(17,36,26,.07)}
+.tabs{display:grid;grid-template-columns:1fr 1fr;background:var(--surface-2);border-radius:10px;padding:4px;gap:4px}
+.tabs button{border:0;background:none;border-radius:8px;padding:9px;font:600 14px var(--sans);color:var(--muted);cursor:pointer;min-height:40px}
+.tabs button[aria-selected="true"]{background:var(--surface);color:var(--fg);box-shadow:0 1px 2px rgba(0,0,0,.08)}
+h2{margin:0;font-size:20px}
+p.sub{margin:-8px 0 0;color:var(--muted);font-size:14px}
+form{display:grid;gap:14px}
+label{display:grid;gap:6px;font-size:13.5px;font-weight:600}
+input{font:inherit;font-weight:400;padding:11px 12px;border:1px solid var(--line);border-radius:10px;background:var(--surface);color:var(--fg);min-height:44px;width:100%}
+input:focus{border-color:var(--brand);outline:none;box-shadow:0 0 0 3px color-mix(in srgb,var(--brand) 22%,transparent)}
+.btn{border:0;border-radius:10px;padding:12px 16px;min-height:46px;font:600 15px var(--sans);background:var(--brand);color:var(--on-brand);cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:8px}
+.btn:hover{background:var(--brand-strong)}.btn[disabled]{opacity:.6;cursor:wait}
+.btn.ghost{background:var(--surface);color:var(--fg);border:1px solid var(--line)}.btn.ghost:hover{background:var(--surface-2)}
+.link{background:none;border:0;color:var(--brand-strong);font:600 13.5px var(--sans);cursor:pointer;padding:4px 0;justify-self:start}
+.msg{border-radius:10px;padding:11px 13px;font-size:14px}
+.msg.err{background:var(--red-soft);color:var(--red)}.msg.ok{background:var(--brand-soft);color:var(--brand-strong)}
+.or{display:flex;align-items:center;gap:10px;color:var(--muted);font-size:12.5px}.or::before,.or::after{content:"";flex:1;height:1px;background:var(--line)}
+.legal{font-size:12px;color:var(--muted);text-align:center}
+.spin{width:14px;height:14px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:sp .8s linear infinite}
+@keyframes sp{to{transform:rotate(360deg)}}
+[hidden]{display:none!important}
+@media (max-width:860px){body{grid-template-columns:minmax(0,1fr)}.pitch{padding:32px 20px;gap:18px}.pitch ol,.pitch .foot{display:none}}
+@media (prefers-reduced-motion:reduce){*{animation-duration:.01ms!important}}
+</style>
+</head>
+<body>
+<section class="pitch">
+  <div class="brand"><img src="/logo.png" alt="">KLDataViz Studio</div>
+  <h1>Vos données expliquées en minutes, pas en semaines.</h1>
+  <ol>
+    <li><span>1</span><div><b>Importez</b><small>Excel, CSV, JSON ou un lien Google Sheets.</small></div></li>
+    <li><span>2</span><div><b>Vérifiez</b><small>Hermes repère les erreurs et propose les corrections, vous choisissez.</small></div></li>
+    <li><span>3</span><div><b>Comprenez</b><small>Graphiques, points clés rédigés et réponses à vos questions en français.</small></div></li>
+    <li><span>4</span><div><b>Partagez</b><small>Rapports PDF, Excel ou web, envoyés automatiquement chaque mois.</small></div></li>
+  </ol>
+  <div class="foot">Vos données restent privées à votre espace. Essai gratuit de 14 jours.</div>
+</section>
+
+<main class="side">
+  <div class="card">
+    <div class="tabs" role="tablist" id="tabs">
+      <button role="tab" aria-selected="true" data-tab="in">Connexion</button>
+      <button role="tab" aria-selected="false" data-tab="up">Créer un compte</button>
+    </div>
+    <div id="msg" class="msg" hidden></div>
+
+    <form id="fIn">
+      <h2>Bon retour</h2>
+      <label for="inEmail">Adresse e-mail<input type="email" id="inEmail" autocomplete="email" required></label>
+      <label for="inPass">Mot de passe<input type="password" id="inPass" autocomplete="current-password" required></label>
+      <button class="btn" type="submit">Se connecter</button>
+      <button class="link" type="button" id="forgot">Mot de passe oublié ?</button>
+    </form>
+
+    <form id="fUp" hidden>
+      <h2>Essayez KLDataViz</h2>
+      <p class="sub" id="upSub">14 jours gratuits, sans carte bancaire.</p>
+      <label for="upName">Votre nom<input type="text" id="upName" autocomplete="name" required></label>
+      <label for="upEmail">Adresse e-mail professionnelle<input type="email" id="upEmail" autocomplete="email" required></label>
+      <label for="upPass">Mot de passe <small style="font-weight:400;color:var(--muted)">(10 caractères minimum)</small><input type="password" id="upPass" autocomplete="new-password" minlength="10" required></label>
+      <button class="btn" type="submit">Créer mon compte</button>
+    </form>
+
+    <form id="fReset" hidden>
+      <h2>Mot de passe oublié</h2>
+      <p class="sub">Nous vous envoyons un lien pour en choisir un nouveau.</p>
+      <label for="rsEmail">Adresse e-mail<input type="email" id="rsEmail" autocomplete="email" required></label>
+      <button class="btn" type="submit">Envoyer le lien</button>
+      <button class="link" type="button" data-back>Retour à la connexion</button>
+    </form>
+
+    <form id="fNew" hidden>
+      <h2>Nouveau mot de passe</h2>
+      <label for="nwPass">Nouveau mot de passe<input type="password" id="nwPass" autocomplete="new-password" minlength="10" required></label>
+      <button class="btn" type="submit">Enregistrer</button>
+    </form>
+
+    <p class="legal">En continuant, vous acceptez les conditions d'utilisation de KLDataViz.</p>
+  </div>
+</main>
+
+<script>
+const $=s=>document.querySelector(s);
+const cfg=window.KLDV||{};
+if(!cfg.cloud)location.replace('/');
+const sb=window.supabase.createClient(cfg.supabaseUrl,cfg.supabaseAnonKey,{auth:{persistSession:true,detectSessionInUrl:true}});
+const forms=['fIn','fUp','fReset','fNew'];
+function show(id){forms.forEach(f=>$('#'+f).hidden=f!==id);$('#tabs').hidden=id==='fReset'||id==='fNew';
+  $$('[data-tab]').forEach(b=>b.setAttribute('aria-selected',(b.dataset.tab==='in'&&id==='fIn')||(b.dataset.tab==='up'&&id==='fUp')));msg('')}
+function $$(s){return [...document.querySelectorAll(s)]}
+function msg(t,ok){const m=$('#msg');m.hidden=!t;m.textContent=t||'';m.className='msg '+(ok?'ok':'err')}
+const FR={'Invalid login credentials':'Adresse e-mail ou mot de passe incorrect.','Email not confirmed':'Confirmez d\'abord votre adresse : cliquez sur le lien reçu par e-mail.',
+  'User already registered':'Un compte existe déjà avec cette adresse. Connectez-vous.','Password should be at least':'Mot de passe trop court.',
+  'For security purposes':'Trop de tentatives. Patientez une minute puis réessayez.'};
+const fr=e=>{const t=String(e?.message||e||'Erreur inconnue');const k=Object.keys(FR).find(k=>t.startsWith(k));return k?FR[k]:t};
+async function busy(form,fn){const b=form.querySelector('.btn');const old=b.innerHTML;b.disabled=true;b.innerHTML='<span class="spin"></span>';
+  try{await fn()}catch(e){msg(fr(e))}finally{b.disabled=false;b.innerHTML=old}}
+
+$$('[data-tab]').forEach(b=>b.onclick=()=>show(b.dataset.tab==='in'?'fIn':'fUp'));
+$('#forgot').onclick=()=>{$('#rsEmail').value=$('#inEmail').value;show('fReset')};
+$$('[data-back]').forEach(b=>b.onclick=()=>show('fIn'));
+
+$('#fIn').onsubmit=e=>{e.preventDefault();busy(e.target,async()=>{
+  const {error}=await sb.auth.signInWithPassword({email:$('#inEmail').value.trim(),password:$('#inPass').value});
+  if(error)throw error;location.replace('/')})};
+$('#fUp').onsubmit=e=>{e.preventDefault();busy(e.target,async()=>{
+  const {data,error}=await sb.auth.signUp({email:$('#upEmail').value.trim(),password:$('#upPass').value,
+    options:{data:{full_name:$('#upName').value.trim()},emailRedirectTo:location.origin+'/'}});
+  if(error)throw error;
+  if(data.session)location.replace('/');
+  else{show('fIn');$('#inEmail').value=$('#upEmail').value;msg('Compte créé. Ouvrez l\'e-mail de confirmation que nous venons d\'envoyer, puis connectez-vous.',true)}})};
+$('#fReset').onsubmit=e=>{e.preventDefault();busy(e.target,async()=>{
+  const {error}=await sb.auth.resetPasswordForEmail($('#rsEmail').value.trim(),{redirectTo:location.origin+'/login?reset=1'});
+  if(error)throw error;msg('Si un compte existe pour cette adresse, un lien vient d\'être envoyé.',true)})};
+$('#fNew').onsubmit=e=>{e.preventDefault();busy(e.target,async()=>{
+  const {error}=await sb.auth.updateUser({password:$('#nwPass').value});if(error)throw error;location.replace('/')})};
+
+const qs=new URLSearchParams(location.search);
+sb.auth.onAuthStateChange(ev=>{if(ev==='PASSWORD_RECOVERY')show('fNew')});
+if(qs.get('reset'))show('fNew');
+else if(qs.get('invite')){show('fUp');$('#upEmail').value=qs.get('email')||'';$('#upSub').textContent='Vous avez été invité à rejoindre un espace. Créez votre compte avec l\'adresse qui a reçu l\'invitation.'}
+else sb.auth.getSession().then(({data})=>{if(data.session)location.replace('/')});
+</script>
+</body>
+</html>

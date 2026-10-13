@@ -32,7 +32,12 @@ except Exception as _ingest_exc:  # la console reste utilisable même si l'agent
     INGESTION_ERROR = str(_ingest_exc)
 
 BASE = os.path.dirname(os.path.abspath(__file__))
+import hashlib, hmac, re, secrets
+import tenancy as T
+import sandbox, netguard
 import studio
+if T.CLOUD:
+    import cloud
 from urllib.parse import urlparse, parse_qs
 PORT = int(os.environ.get("KLDAVIZ_PORT", "8642"))
 ORCHESTRATOR = os.environ.get("CVLYNK_ORCHESTRATOR", "https://api.cvlynk.com")
@@ -60,14 +65,12 @@ def _load_agent_token():
 
 
 AGENT_TOKEN = _load_agent_token()
-EXPORTS = os.path.join(BASE, "exports")
-os.makedirs(EXPORTS, exist_ok=True)
 
-LAST_RESULT = None   # dernière analyse (pour les exports)
-CURRENT_PATH = None  # fichier de la dernière analyse (contexte du chat)
-LAST_INGEST = None   # dernier contrat d'ingestion
+# Dernière analyse, fichier en cours et dernier contrat d'ingestion : par utilisateur, voir tenancy.state().
 
 def orchestrator(path, method="GET", body=None):
+    if T.CLOUD:  # l'agent CVLynk n'est utilisé que par la console locale
+        return 503, {"error": "Orchestrateur désactivé dans la version en ligne."}
     req = urllib.request.Request(ORCHESTRATOR + path, method=method)
     req.add_header("Authorization", "Bearer " + AGENT_TOKEN)
     req.add_header("Accept", "application/json")
@@ -245,14 +248,19 @@ def _tidy(df):
 
 
 def _read_df(file_path):
-    """Lit un fichier local ou une URL en DataFrame (csv/xlsx/xls/xlsm/json/parquet)."""
-    if file_path.startswith(("http://", "https://")):
+    """Lit un fichier local ou une URL en DataFrame (csv/xlsx/xls/xlsm/json/parquet).
+
+    En ligne : seuls les fichiers de l'organisation et les liens https publics sont acceptés."""
+    tmp_to_delete = None
+    is_url = file_path.startswith(("http://", "https://"))
+    if T.CLOUD and not is_url and not T.current().owns(file_path):
+        return None, "Fichier introuvable."
+    if is_url:
         url = normalize_source_url(file_path)
         try:
-            req = urllib.request.Request(url, headers={"User-Agent": "KLDataViz/1.0"})
-            resp = urllib.request.urlopen(req, timeout=60)
-            data = resp.read()
-            ctype = (resp.headers.get("Content-Type") or "").lower()
+            data, ctype = netguard.fetch(url, allow_private=not T.CLOUD, https_only=T.CLOUD)
+        except netguard.BlockedURL as e:
+            return None, str(e)
         except Exception as e:
             if "google.com" in url and getattr(e, "code", None) in (401, 403, 404):
                 return None, ("Google refuse l'accès à cette feuille. Vérifiez le lien, puis dans Google Sheets "
@@ -271,7 +279,7 @@ def _read_df(file_path):
                    else ".json" if "json" in ctype or data[:1] in (b"{", b"[") else ".csv")
         tmp = tempfile.NamedTemporaryFile(suffix=ext, delete=False)
         tmp.write(data); tmp.close()
-        file_path = tmp.name
+        file_path = tmp_to_delete = tmp.name
     if not os.path.exists(file_path):
         return None, f"Fichier introuvable : {file_path}"
     ext = os.path.splitext(file_path)[1].lower()
@@ -290,6 +298,12 @@ def _read_df(file_path):
             return None, f"Format non supporté : {ext}"
     except Exception as e:
         return None, f"Lecture impossible : {e}"
+    finally:
+        if tmp_to_delete:
+            try:
+                os.remove(tmp_to_delete)
+            except OSError:
+                pass
     return df, None
 
 
@@ -590,7 +604,7 @@ def clean(file_path, skip=None):
     df_clean, rapport = clean_dataframe(df, skip=skip) if skip else clean_dataframe(df)
 
     # Sauvegarde de la version nettoyée (c'est elle, et elle seule, qui sera ingérée)
-    cleaned_dir = os.path.join(BASE, "storage", "cleaned")
+    cleaned_dir = T.cleaned_dir()
     os.makedirs(cleaned_dir, exist_ok=True)
     stem = source_label(file_path)
     cleaned_path = os.path.join(cleaned_dir, f"{stem}_nettoye.csv")
@@ -646,7 +660,7 @@ def export_excel(result):
     sheet(wb.create_sheet(), "Anomalies", ["Colonne", "Type", "Nombre", "Détail"],
           [[a["column"], a["type"], a["count"], a["detail"]] for a in result.get("anomalies", [])])
     fn = f"analyse_{time.strftime('%Y%m%d_%H%M%S')}.xlsx"
-    wb.save(os.path.join(EXPORTS, fn))
+    wb.save(os.path.join(T.exports_dir(), fn))
     return fn
 
 def export_html(result):
@@ -672,7 +686,7 @@ th,td{{border:1px solid #cbd5e0;padding:6px 9px;text-align:left;}} th{{backgroun
 <h2>Anomalies</h2><ul>{anom_html or '<li>Aucune anomalie détectée.</li>'}</ul>
 <p style="color:#888;font-size:11px;">Généré par KLDataViz — agent Data Analytics &amp; BI</p></body></html>"""
     fn = f"analyse_{time.strftime('%Y%m%d_%H%M%S')}.html"
-    with open(os.path.join(EXPORTS, fn), "w", encoding="utf-8") as f:
+    with open(os.path.join(T.exports_dir(), fn), "w", encoding="utf-8") as f:
         f.write(html)
     return fn
 
@@ -682,7 +696,7 @@ def export_pdf(result):
     from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
     from reportlab.lib.styles import getSampleStyleSheet
     fn = f"analyse_{time.strftime('%Y%m%d_%H%M%S')}.pdf"
-    path = os.path.join(EXPORTS, fn)
+    path = os.path.join(T.exports_dir(), fn)
     doc = SimpleDocTemplate(path, pagesize=A4)
     styles = getSampleStyleSheet()
     blue = colors.HexColor("#1286b4")
@@ -743,7 +757,7 @@ def _chat_load_work(path):
 def chat_query(question):
     import re
     from ingestion.store import Registry
-    reg = Registry()
+    reg = T.registry()
     reg.ensure()
     datasets = reg.latest_versions()
     ql = (question or "").strip().lower()
@@ -868,6 +882,10 @@ def chat_query(question):
 
 # ---------- Chat LLM (DeepSeek, texte -> pandas + visualisation) ----------
 def _llm_config():
+    if T.CLOUD:
+        key = os.environ.get("DEEPSEEK_API_KEY")
+        return {"api_key": key, "model": os.environ.get("DEEPSEEK_MODEL", "deepseek-v4-pro"),
+                "base_url": os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com/chat/completions")} if key else None
     p = os.path.join(BASE, "llm_config.json")
     if os.path.exists(p):
         try:
@@ -898,7 +916,7 @@ def _llm_call(messages, max_tokens=8000, temperature=0):
 
 def _llm_context():
     from ingestion.store import Registry
-    reg = Registry()
+    reg = T.registry()
     reg.ensure()
     datasets = reg.latest_versions()
     out = []
@@ -916,70 +934,35 @@ def _llm_context():
                     "lignes": d.get("row_count"), "colonnes": cols})
     return out
 
-def _llm_loader(datasets):
-    idx = {}
-    for d in datasets:
-        nm = (d.get("dataset_name") or "").lower()
-        idx[nm] = d
-        for ext in (".csv", ".xlsx", ".xls", ".xlsm", ".json"):
-            if nm.endswith(ext):
-                idx[nm[: -len(ext)]] = d
-    def load(name):
-        key = str(name).lower()
-        for ext in (".csv", ".xlsx", ".xls", ".xlsm", ".json"):
-            if key.endswith(ext):
-                key = key[: -len(ext)]
-        d = idx.get(key)
-        if d is None:
-            for k, v in idx.items():
-                if k and key and (key in k or k in key):
-                    d = v
-                    break
-        if d is None:
-            raise ValueError("dataset inconnu : " + str(name))
-        df = _chat_load_work(d.get("work_path"))
-        if df is None:
-            raise ValueError("impossible de charger : " + str(name))
-        return df
-    return load
+def _work_file(path):
+    """Fichier de travail (parquet/csv) d'une version du registre, ou None."""
+    if not path:
+        return None
+    p = str(path)
+    if os.path.isfile(p):
+        return p
+    if os.path.isdir(p):
+        c = [os.path.join(p, f) for f in sorted(os.listdir(p)) if f.endswith((".parquet", ".csv"))]
+        return c[0] if c else None
+    for ext in (".parquet", ".csv"):
+        if os.path.exists(p + ext):
+            return p + ext
+    return None
 
-def _llm_format(result):
-    if result is None:
-        return None, None
-    if isinstance(result, pd.DataFrame):
-        cols = [str(c) for c in result.columns]
-        rows = [[str(v) for v in row] for row in result.head(50).values.tolist()]
-        return {"columns": cols, "rows": rows}, None
-    if isinstance(result, pd.Series):
-        if len(result) == 1:
-            return None, str(result.iloc[0])
-        rows = [[str(i), str(v)] for i, v in result.head(50).items()]
-        return {"columns": [str(result.name or "valeur"), "valeur"], "rows": rows}, None
-    if isinstance(result, (int, float, str, bool)):
-        return None, str(result)
-    try:
-        return None, json.dumps(result, ensure_ascii=False, default=str)
-    except Exception:
-        return None, str(result)
-
-def _code_safe(code):
-    banned = ("__import__", "subprocess", "os.system", "os.popen", "import os", "import sys",
-              "import shutil", "import socket", "import urllib", "import requests", "import pickle",
-              "open(", "eval(", "exec(")
-    return not any(b in code.lower() for b in banned)
 
 def llm_chat(question):
     import re
     from ingestion.store import Registry
-    reg = Registry()
+    reg = T.registry()
     reg.ensure()
     datasets = reg.latest_versions()
     context = _llm_context()
     current_df, current_name = None, None
-    if CURRENT_PATH:
-        current_df, _err = _read_df(CURRENT_PATH)
+    cur_path = T.state()["current_path"]
+    if cur_path:
+        current_df, _err = _read_df(cur_path)
         if current_df is not None:
-            current_name = os.path.splitext(os.path.basename(CURRENT_PATH))[0]
+            current_name = source_label(cur_path)
             context.insert(0, {"name": current_name, "fichier_en_cours_d_analyse": True, "lignes": int(len(current_df)),
                                "colonnes": [{"name": str(c), "dtype": str(current_df[c].dtype),
                                              "exemples": [str(v) for v in current_df[c].dropna().head(3).tolist()]}
@@ -1039,33 +1022,32 @@ def llm_chat(question):
     chart = data.get("chart")
     table = None
     if code:
-        if not _code_safe(code):
-            answer += "\n(requête bloquée par le filtre de sécurité)"
-        else:
+        # Le code de l'IA s'exécute dans un processus isolé (sandbox.py), sans secrets ni accès fichiers.
+        paths = {}
+        for _d in datasets:
+            _p = _work_file(_d.get("work_path"))
+            if _p and T.current().owns(_p):
+                paths[_d.get("dataset_name") or _d.get("dataset_id")] = _p
+        if current_df is not None:
+            _cur = os.path.join(T.current().dir("tmp"), f"courant_{T.current().key[:12]}.parquet")
             try:
-                ns = {"pd": pd, "np": np, "load_dataset": _llm_loader(datasets)}
-                # précharger les datasets : dict `data` (clé = nom) + variables directes
-                _data = {}
-                for _d in datasets:
-                    _nm = _d.get("dataset_name") or _d.get("dataset_id")
-                    _df = _chat_load_work(_d.get("work_path"))
-                    if _df is None:
-                        continue
-                    _data[_nm] = _df
-                    _key = re.sub(r"[^0-9A-Za-z_]", "_", str(_nm)).strip("_").lower()
-                    if _key and _key.isidentifier():
-                        ns.setdefault(_key, _df)
-                if current_df is not None:
-                    _data[current_name] = current_df
-                    ns.setdefault(re.sub(r"[^0-9A-Za-z_]", "_", current_name).strip("_").lower() or "df", current_df)
-                ns["data"] = _data
-                exec(code, ns)
-                chart = ns.get("chart") or chart
-                table, scalar = _llm_format(ns.get("result"))
-                if scalar:
-                    answer = (answer + "\n" + scalar).strip()
-            except Exception as e:
-                answer += "\n(erreur d'exécution : " + str(e) + ")"
+                current_df.to_parquet(_cur)
+            except Exception:
+                current_df.astype(str).to_parquet(_cur)
+            paths[current_name] = _cur
+        try:
+            out = sandbox.run(code, paths)
+        except sandbox.UnsafeCode as e:
+            out = {"error": f"calcul refusé par le contrôle de sécurité ({e})"}
+        if out.get("error"):
+            answer += "\n(" + out["error"] + ")"
+        else:
+            chart = out.get("chart") or chart
+            res = out.get("result") or {}
+            if res.get("kind") == "table":
+                table = {"columns": res["columns"], "rows": res["rows"]}
+            elif res.get("kind") == "scalar":
+                answer = (answer + "\n" + res["value"]).strip()
     # normaliser chart(s) en liste (un ou plusieurs graphiques)
     charts = []
     if isinstance(chart, list):
@@ -1091,239 +1073,371 @@ def _json_safe(obj):
         return [_json_safe(v) for v in obj]
     return obj
 
+# ---------------------------------------------------------------- serveur HTTP
+SECRET = (os.environ.get("KLDV_SECRET") or secrets.token_hex(32)).encode()  # signe les liens de téléchargement
+MAX_UPLOAD = int(os.environ.get("KLDV_MAX_UPLOAD_MB", "50")) * 1024 * 1024
+MAX_JSON = 2 * 1024 * 1024
+ALLOWED_EXT = (".csv", ".xlsx", ".xls", ".xlsm", ".json", ".parquet")
+EXPORTERS = {"pdf": export_pdf, "excel": export_excel, "html": export_html}
+STATIC = {"/": ("index.html", "text/html"), "/index.html": ("index.html", "text/html"),
+          "/login": ("login.html", "text/html"), "/logo.png": ("logo.png", "image/png"),
+          "/favicon.png": ("logo.png", "image/png"), "/chart.umd.min.js": ("chart.umd.min.js", "application/javascript")}
+if not T.CLOUD:
+    STATIC.update({"/classic": ("index_classic.html", "text/html"), "/index_classic.html": ("index_classic.html", "text/html")})
+VIEWER_POST = {"/api/chat", "/api/insights"}  # seules actions permises au rôle « lecteur »
+CSP = ("default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+       "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; "
+       "img-src 'self' data: blob:; connect-src 'self' " + (os.environ.get("SUPABASE_URL", "") or "") +
+       "; frame-ancestors 'none'; base-uri 'self'; form-action 'self'")
+
+_rate, _rate_lock = {}, threading.Lock()
+
+
+def _rate_ok(key, limit=30, window=60):
+    now = time.time()
+    with _rate_lock:
+        hits = [t for t in _rate.get(key, []) if now - t < window]
+        ok = len(hits) < limit
+        if ok:
+            hits.append(now)
+        _rate[key] = hits
+        return ok
+
+
+def download_url(fn):
+    """Lien de téléchargement. En ligne, il est signé et valable 2 heures pour l'organisation courante."""
+    from urllib.parse import quote
+    if not T.CLOUD:
+        return f"/download/{quote(fn)}"
+    org, exp = T.current().org_id, int(time.time()) + 7200
+    sig = hmac.new(SECRET, f"{org}|{fn}|{exp}".encode(), hashlib.sha256).hexdigest()[:40]
+    return f"/download/{quote(fn)}?k={org}.{exp}.{sig}"
+
+
+def _list_exports():
+    d, files = T.exports_dir(), []
+    for fn in os.listdir(d):
+        fp = os.path.join(d, fn)
+        if os.path.isfile(fp):
+            st = os.stat(fp)
+            files.append({"file": fn, "url": download_url(fn), "size_kb": round(st.st_size / 1024, 1),
+                          "modified": time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(st.st_mtime))})
+    return sorted(files, key=lambda x: x["modified"], reverse=True)
+
+
+def _safe_name(name):
+    base = os.path.basename(str(name or "source"))
+    stem, ext = os.path.splitext(base)
+    stem = re.sub(r"[^\w\-. ]+", "_", stem, flags=re.UNICODE).strip("._ ")[:80] or "source"
+    return stem + ext.lower()
+
+
 class Handler(http.server.BaseHTTPRequestHandler):
+    server_version = "KLDataViz"
+    sys_version = ""
+    timeout = 120
+
+    # ---- réponses
+    def _security_headers(self):
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Referrer-Policy", "same-origin")
+        if T.CLOUD:
+            self.send_header("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+            self.send_header("X-Frame-Options", "DENY")
+            self.send_header("Content-Security-Policy", CSP)
+
     def _send(self, code, obj, ctype="application/json"):
-        body = obj if isinstance(obj, (bytes, str)) else json.dumps(_json_safe(obj), ensure_ascii=False, default=str)
         if isinstance(obj, (dict, list)):
-            body = json.dumps(_json_safe(obj), ensure_ascii=False, default=str)
-        data = body.encode("utf-8") if isinstance(body, str) else body
+            obj = json.dumps(_json_safe(obj), ensure_ascii=False, default=str)
+        data = obj.encode("utf-8") if isinstance(obj, str) else obj
         self.send_response(code)
         self.send_header("Content-Type", ctype + "; charset=utf-8")
-        self.send_header("Access-Control-Allow-Origin", "*")
+        if not T.CLOUD:
+            self.send_header("Access-Control-Allow-Origin", "*")
+        if ctype == "application/json":
+            self.send_header("Cache-Control", "no-store")
+        self._security_headers()
         self.send_header("Content-Length", str(len(data)))
         self.end_headers()
         self.wfile.write(data)
 
+    def _payload(self, limit=MAX_JSON):
+        ln = int(self.headers.get("Content-Length") or 0)
+        if ln > limit:
+            raise ValueError(f"Envoi trop volumineux (maximum {limit // (1024 * 1024)} Mo).")
+        raw = self.rfile.read(ln) if ln else b""
+        try:
+            return json.loads(raw.decode("utf-8") or "{}")
+        except Exception:
+            return {}
+
     def do_GET(self):
-        if self.path in ("/", "/index.html"):
-            with open(os.path.join(BASE, "index.html"), "rb") as f:
-                self._send(200, f.read(), "text/html")
-        elif self.path in ("/classic", "/index_classic.html"):
-            with open(os.path.join(BASE, "index_classic.html"), "rb") as f:
-                self._send(200, f.read(), "text/html")
-        elif self.path in ("/logo.png", "/favicon.png"):
-            with open(os.path.join(BASE, "logo.png"), "rb") as f:
-                self._send(200, f.read(), "image/png")
-        elif self.path == "/chart.umd.min.js":
-            with open(os.path.join(BASE, "chart.umd.min.js"), "rb") as f:
-                self._send(200, f.read(), "application/javascript")
-        elif self.path.startswith("/download/"):
-            u = urlparse(self.path)
-            fn = os.path.basename(urllib.request.url2pathname(u.path))
-            inline = parse_qs(u.query).get("inline") == ["1"]
-            fp = os.path.join(EXPORTS, fn)
-            if os.path.exists(fp):
-                ctype = "application/octet-stream"
-                if fn.endswith(".pdf"): ctype = "application/pdf"
-                elif fn.endswith(".html"): ctype = "text/html"
-                elif fn.endswith(".xlsx"): ctype = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                with open(fp, "rb") as f:
-                    self.send_response(200)
-                    self.send_header("Content-Type", ctype)
-                    self.send_header("Content-Disposition", f'{"inline" if inline else "attachment"}; filename="{fn}"')
-                    self.send_header("Content-Length", str(os.path.getsize(fp)))
-                    self.end_headers()
-                    self.wfile.write(f.read())
-            else:
-                self._send(404, {"error": "fichier introuvable"})
-        elif self.path == "/api/status":
-            code, r = orchestrator("/api/v1/agents/me")
-            self._send(code if code else 502, r)
-        elif self.path == "/api/tasks":
-            code, r = orchestrator("/api/v1/agents/tasks")
-            self._send(code if code else 502, r)
-        elif self.path == "/api/exports":
-            files = []
-            for fn in os.listdir(EXPORTS):
-                fp = os.path.join(EXPORTS, fn)
-                if os.path.isfile(fp):
-                    st = os.stat(fp)
-                    files.append({"file": fn, "url": f"/download/{fn}", "size_kb": round(st.st_size / 1024, 1),
-                                  "modified": time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(st.st_mtime))})
-            files.sort(key=lambda x: x["modified"], reverse=True)
-            self._send(200, files)
-        elif self.path == "/api/settings":
-            self._send(200, studio.public_settings())
-        elif self.path == "/api/schedules":
-            self._send(200, studio.list_schedules())
-        elif self.path.startswith("/api/ingest/versions"):
-            ds_id = (parse_qs(urlparse(self.path).query).get("id") or [""])[0]
-            try:
-                reg = IngestionRegistry()
-                reg.ensure()
-                self._send(200, reg.list_versions(ds_id))
-            except Exception as exc:
-                self._send(500, {"error": str(exc)})
-        elif self.path == "/api/fetch-source":
-            self._send(200, fetch_source())
-        elif self.path == "/api/ingest/list":
-            if not INGESTION_OK:
-                self._send(500, {"error": f"Agent d'ingestion indisponible : {INGESTION_ERROR}"})
-            else:
-                try:
-                    reg = IngestionRegistry()
-                    info = reg.ensure()
-                    self._send(200, {"backend": reg.backend, "connection": info,
-                                     "summary": reg.summary(), "datasets": reg.latest_versions()})
-                except Exception as exc:
-                    self._send(500, {"error": str(exc)})
-        else:
-            self._send(404, {"error": "not found"})
+        self._dispatch("GET")
 
     def do_POST(self):
-        if self.path == "/api/analyze":
-            ln = int(self.headers.get("Content-Length", 0))
-            raw = self.rfile.read(ln) if ln else b""
-            try:
-                payload = json.loads(raw.decode("utf-8"))
-                file_path = payload.get("file_path", "")
-            except Exception:
-                file_path = ""
-            result = analyze(file_path)
-            if "error" not in result:
-                global LAST_RESULT, CURRENT_PATH
-                LAST_RESULT = result
-                CURRENT_PATH = file_path
-            self._send(200, result)
-        elif self.path == "/api/clean":
-            ln = int(self.headers.get("Content-Length", 0))
-            raw = self.rfile.read(ln) if ln else b""
-            try:
-                payload = json.loads(raw.decode("utf-8"))
-                file_path = payload.get("file_path", "")
-                skip = payload.get("skip") or None
-            except Exception:
-                file_path, skip = "", None
-            self._send(200, clean(file_path, skip))
-        elif self.path == "/api/ingest":
-            if not INGESTION_OK:
-                self._send(500, {"error": f"Agent d'ingestion indisponible : {INGESTION_ERROR}"})
-            else:
-                ln = int(self.headers.get("Content-Length", 0))
-                raw = self.rfile.read(ln) if ln else b""
-                try:
-                    payload = json.loads(raw.decode("utf-8"))
-                except Exception:
-                    payload = {}
-                source = str(payload.get("file_path") or payload.get("source") or "").strip()
-                if source.startswith(("http://", "https://")):
-                    source = normalize_source_url(source)
-                if not source:
-                    self._send(400, {"error": "Indiquez un chemin de fichier, une URL ou un DSN PostgreSQL."})
-                else:
-                    kwargs = {}
-                    sheet = payload.get("sheet")
-                    if sheet not in (None, ""):
-                        try:
-                            sheet = int(sheet)
-                        except (TypeError, ValueError):
-                            pass
-                        kwargs["sheet"] = sheet
-                    if payload.get("kind"):
-                        kwargs["kind"] = payload["kind"]
-                    if payload.get("table"):
-                        kwargs["table"] = payload["table"]
-                    if payload.get("schema"):
-                        kwargs["schema_name"] = payload["schema"]
-                    if payload.get("name"):
-                        kwargs["dataset_name"] = payload["name"]
-                    if payload.get("limit"):
-                        kwargs["limit"] = int(payload["limit"])
-                    if payload.get("force"):
-                        kwargs["force"] = True
-                    try:
-                        result = ingest_agent(source, **kwargs)
-                    except Exception as exc:
-                        result = {"error": f"{type(exc).__name__} : {exc}"}
-                    if "error" not in result:
-                        global LAST_INGEST
-                        LAST_INGEST = result
-                    self._send(200, result)
-        elif self.path in ("/api/export/pdf", "/api/export/excel", "/api/export/html"):
-            if LAST_RESULT is None:
-                self._send(400, {"error": "Lancez d'abord une analyse."})
-            else:
-                kind = self.path.rsplit("/", 1)[-1]
-                fn = {"pdf": export_pdf, "excel": export_excel, "html": export_html}[kind](LAST_RESULT)
-                self._send(200, {"url": f"/download/{fn}", "file": fn})
-        elif self.path == "/api/upload-source":
-            ln = int(self.headers.get("Content-Length", 0))
-            raw = self.rfile.read(ln) if ln else b""
-            try:
-                payload = json.loads(raw.decode("utf-8"))
-                name = os.path.basename(payload.get("name") or "source.dat")
-                data = base64.b64decode(payload.get("data") or "")
-                up = os.path.join(BASE, "uploads")
-                os.makedirs(up, exist_ok=True)
-                dest = os.path.join(up, name)
-                with open(dest, "wb") as f:
-                    f.write(data)
-                self._send(200, {"path": dest, "name": name, "size": len(data)})
-            except Exception as e:
-                self._send(400, {"error": str(e)})
-        elif self.path == "/api/chat":
-            ln = int(self.headers.get("Content-Length", 0))
-            raw = self.rfile.read(ln) if ln else b""
-            try:
-                payload = json.loads(raw.decode("utf-8"))
-                question = payload.get("question", "")
-            except Exception:
-                question = ""
-            resp = llm_chat(question)
-            if resp is None:
-                resp = chat_query(question)  # repli règle-based si l'IA est indisponible
-            self._send(200, resp)
-        elif self.path.startswith(("/api/settings", "/api/schedules", "/api/insights", "/api/exports/delete")):
-            ln = int(self.headers.get("Content-Length", 0))
-            try:
-                payload = json.loads((self.rfile.read(ln) if ln else b"{}").decode("utf-8") or "{}")
-            except Exception:
-                payload = {}
-            exporters = {"pdf": export_pdf, "excel": export_excel, "html": export_html}
-            try:
-                if self.path == "/api/settings":
-                    self._send(200, studio.save_settings(payload))
-                elif self.path == "/api/schedules":
-                    self._send(200, studio.create_schedule(payload))
-                elif self.path == "/api/schedules/update":
-                    self._send(200, studio.update_schedule(payload.get("id"), on=payload.get("on")))
-                elif self.path == "/api/schedules/delete":
-                    studio.delete_schedule(payload.get("id"))
-                    self._send(200, {"ok": True})
-                elif self.path == "/api/schedules/run":
-                    self._send(200, studio.run_schedule(payload.get("id"), analyze, exporters, EXPORTS))
-                elif self.path == "/api/insights":
-                    self._send(200, {"insights": studio.insights(LAST_RESULT, _llm_call)})
-                elif self.path == "/api/exports/delete":
-                    fp = os.path.join(EXPORTS, os.path.basename(str(payload.get("file") or "")))
-                    if not os.path.isfile(fp):
-                        raise FileNotFoundError("Fichier introuvable.")
-                    os.remove(fp)
-                    self._send(200, {"ok": True})
-                else:
-                    self._send(404, {"error": "not found"})
-            except (ValueError, KeyError, FileNotFoundError, RuntimeError) as exc:
-                self._send(400, {"error": str(exc).strip("'")})
-            except Exception as exc:
-                self._send(500, {"error": f"{type(exc).__name__} : {exc}"})
-        elif self.path == "/api/heartbeat":
-            code, r = orchestrator("/api/v1/agents/heartbeat", method="POST", body={})
-            self._send(code if code else 502, r)
-        else:
-            self._send(404, {"error": "not found"})
+        self._dispatch("POST")
 
     def log_message(self, *a):
         pass
+
+    # ---- aiguillage : fichiers publics, puis connexion, puis organisation
+    def _dispatch(self, method):
+        path = urlparse(self.path).path
+        try:
+            if method == "GET" and path in STATIC:
+                fn, ctype = STATIC[path]
+                with open(os.path.join(BASE, fn), "rb") as f:
+                    return self._send(200, f.read(), ctype)
+            if method == "GET" and path == "/healthz":
+                return self._send(200, {"ok": True})
+            if method == "GET" and path == "/config.js":
+                cfg = {"cloud": T.CLOUD}
+                if T.CLOUD:
+                    cfg.update(supabaseUrl=cloud.SUPABASE_URL, supabaseAnonKey=cloud.SUPABASE_ANON_KEY)
+                return self._send(200, "window.KLDV=" + json.dumps(cfg) + ";", "application/javascript")
+            if method == "GET" and path.startswith("/download/"):
+                return self._download()
+            if not path.startswith("/api/"):
+                return self._send(404, {"error": "Page introuvable."})
+            if not T.CLOUD:
+                with T.use(T.LOCAL):
+                    return self._route(method, path, self._payload(MAX_UPLOAD) if method == "POST" else {})
+            auth = self.headers.get("Authorization") or ""
+            user = cloud.verify_token(auth[7:] if auth.startswith("Bearer ") else "")
+            payload = self._payload(MAX_UPLOAD if path == "/api/upload-source" else MAX_JSON) if method == "POST" else {}
+            ctx = cloud.resolve(user)
+            if ctx is None:  # compte sans espace : création de l'organisation
+                if path == "/api/onboarding" and method == "POST":
+                    cloud.create_org(user, payload.get("org"))
+                    return self._send(200, {"ok": True})
+                if path == "/api/me":
+                    return self._send(200, {"onboarding": True, "email": user["email"]})
+                return self._send(409, {"error": "Créez d'abord votre espace.", "onboarding": True})
+            if method == "POST" and ctx.role == "viewer" and path not in VIEWER_POST:
+                raise T.Forbidden("Votre rôle (lecteur) permet de consulter et de poser des questions uniquement.")
+            with T.use(ctx):
+                return self._route(method, path, payload)
+        except T.AuthError as e:
+            self._send(401, {"error": str(e), "auth": True})
+        except T.Forbidden as e:
+            self._send(403, {"error": str(e)})
+        except T.QuotaExceeded as e:
+            self._send(402, {"error": str(e), "quota": True})
+        except PermissionError:
+            self._send(403, {"error": "Accès refusé."})
+        except (ValueError, KeyError, FileNotFoundError, netguard.BlockedURL) as e:
+            self._send(400, {"error": str(e).strip("'")})
+        except Exception as e:
+            sys.stderr.write(f"[erreur] {method} {path} : {type(e).__name__} : {e}\n")
+            self._send(500, {"error": "Erreur interne. Réessayez." if T.CLOUD else f"{type(e).__name__} : {e}"})
+
+    def _download(self):
+        u = urlparse(self.path)
+        fn = os.path.basename(urllib.request.url2pathname(u.path))
+        qs = parse_qs(u.query)
+        inline = qs.get("inline") == ["1"]
+        if T.CLOUD:
+            try:
+                org, exp, sig = (qs.get("k") or [""])[0].split(".")
+                good = hmac.new(SECRET, f"{org}|{fn}|{exp}".encode(), hashlib.sha256).hexdigest()[:40]
+                if not hmac.compare_digest(sig, good) or int(exp) < time.time():
+                    raise ValueError
+            except ValueError:
+                return self._send(403, {"error": "Lien expiré. Rouvrez la page Rapports."})
+            ctx = T.Ctx(key="download", org_id=org)
+        else:
+            ctx = T.LOCAL
+        with T.use(ctx):
+            fp = os.path.join(T.exports_dir(), fn)
+        if not os.path.isfile(fp):
+            return self._send(404, {"error": "fichier introuvable"})
+        ctype = {".pdf": "application/pdf", ".html": "text/html",
+                 ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}.get(
+            os.path.splitext(fn)[1], "application/octet-stream")
+        with open(fp, "rb") as f:
+            data = f.read()
+        self.send_response(200)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Disposition", f'{"inline" if inline else "attachment"}; filename="{fn}"')
+        self._security_headers()
+        if T.CLOUD and ctype == "text/html":  # rapport HTML ouvert seul : aucun script exécuté
+            self.send_header("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; img-src data:")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+    # ---- routes de l'API (contexte de l'organisation déjà posé)
+    def _route(self, method, path, p):
+        ctx, st = T.current(), T.state()
+        if method == "GET":
+            if path == "/api/me":
+                return self._send(200, cloud.me(ctx) if T.CLOUD else {"local": True})
+            if path == "/api/status":
+                if T.CLOUD:
+                    return self._send(200, {"status": "CLOUD"})
+                code, r = orchestrator("/api/v1/agents/me")
+                return self._send(code if code else 502, r)
+            if path == "/api/tasks":
+                if T.CLOUD:
+                    return self._send(200, [])
+                code, r = orchestrator("/api/v1/agents/tasks")
+                return self._send(code if code else 502, r)
+            if path == "/api/exports":
+                return self._send(200, _list_exports())
+            if path == "/api/settings":
+                return self._send(200, studio.public_settings())
+            if path == "/api/schedules":
+                return self._send(200, studio.list_schedules())
+            if path == "/api/ingest/versions":
+                ds_id = (parse_qs(urlparse(self.path).query).get("id") or [""])[0]
+                reg = T.registry()
+                reg.ensure()
+                return self._send(200, reg.list_versions(ds_id))
+            if path == "/api/fetch-source":
+                if T.CLOUD:
+                    return self._send(200, {"source": None, "message": "Indisponible dans la version en ligne."})
+                return self._send(200, fetch_source())
+            if path == "/api/ingest/list":
+                if not INGESTION_OK:
+                    return self._send(500, {"error": f"Agent d'ingestion indisponible : {INGESTION_ERROR}"})
+                reg = T.registry()
+                info = reg.ensure()
+                return self._send(200, {"backend": reg.backend, "connection": {} if T.CLOUD else info,
+                                        "summary": reg.summary(), "datasets": reg.latest_versions()})
+            if T.CLOUD and path == "/api/team":
+                return self._send(200, cloud.team(ctx))
+            if T.CLOUD and path == "/api/admin/orgs":
+                return self._send(200, cloud.admin_orgs(ctx))
+            return self._send(404, {"error": "not found"})
+
+        # ---- POST
+        if path in ("/api/analyze", "/api/chat", "/api/insights", "/api/clean") and not _rate_ok(f"{ctx.key}:{path}"):
+            return self._send(429, {"error": "Trop de demandes en peu de temps. Patientez une minute."})
+        if path == "/api/analyze":
+            file_path = str(p.get("file_path") or "")
+            if T.CLOUD and not os.path.realpath(file_path).startswith(os.path.realpath(T.cleaned_dir()) + os.sep):
+                cloud.consume(ctx, "analyses")  # la réanalyse d'une copie corrigée n'est pas décomptée
+            result = analyze(file_path)
+            if "error" not in result:
+                st["last_result"], st["current_path"] = result, file_path
+            return self._send(200, result)
+        if path == "/api/clean":
+            return self._send(200, clean(str(p.get("file_path") or ""), p.get("skip") or None))
+        if path == "/api/ingest":
+            return self._ingest(p)
+        if path in ("/api/export/pdf", "/api/export/excel", "/api/export/html"):
+            if st["last_result"] is None:
+                return self._send(400, {"error": "Lancez d'abord une analyse."})
+            fn = EXPORTERS[path.rsplit("/", 1)[-1]](st["last_result"])
+            return self._send(200, {"url": download_url(fn), "file": fn})
+        if path == "/api/upload-source":
+            name = _safe_name(p.get("name"))
+            if T.CLOUD and not name.lower().endswith(ALLOWED_EXT):
+                raise ValueError("Format non pris en charge. Utilisez CSV, Excel, JSON ou Parquet.")
+            data = base64.b64decode(p.get("data") or "")
+            if len(data) > MAX_UPLOAD:
+                raise ValueError(f"Fichier trop volumineux (maximum {MAX_UPLOAD // (1024 * 1024)} Mo).")
+            dest = os.path.join(T.uploads_dir(), name)
+            with open(dest, "wb") as f:
+                f.write(data)
+            return self._send(200, {"path": dest, "name": name, "size": len(data)})
+        if path == "/api/chat":
+            question = str(p.get("question") or "")[:2000]
+            if T.CLOUD and _llm_config():
+                cloud.consume(ctx, "ai")
+            resp = llm_chat(question)
+            if resp is None:
+                resp = chat_query(question)  # repli par règles si l'IA est indisponible
+            return self._send(200, resp)
+        if path == "/api/insights":
+            if st["last_result"] is not None and T.CLOUD and _llm_config():
+                cloud.consume(ctx, "ai")
+            return self._send(200, {"insights": studio.insights(st["last_result"], _llm_call)})
+        if path == "/api/settings":
+            return self._send(200, studio.save_settings(p))
+        if path == "/api/schedules":
+            return self._send(200, studio.create_schedule(p))
+        if path == "/api/schedules/update":
+            return self._send(200, studio.update_schedule(p.get("id"), on=p.get("on")))
+        if path == "/api/schedules/delete":
+            studio.delete_schedule(p.get("id"))
+            return self._send(200, {"ok": True})
+        if path == "/api/schedules/run":
+            if T.CLOUD:
+                cloud.consume(ctx, "analyses")
+            return self._send(200, studio.run_schedule(p.get("id"), analyze, EXPORTERS, T.exports_dir()))
+        if path == "/api/exports/delete":
+            fp = os.path.join(T.exports_dir(), os.path.basename(str(p.get("file") or "")))
+            if not os.path.isfile(fp):
+                raise FileNotFoundError("Fichier introuvable.")
+            os.remove(fp)
+            return self._send(200, {"ok": True})
+        if T.CLOUD and path == "/api/onboarding":
+            raise ValueError("Votre espace existe déjà.")
+        if T.CLOUD and path == "/api/team/invite":
+            return self._send(200, cloud.invite(ctx, p.get("email"), p.get("role") or "analyst"))
+        if T.CLOUD and path == "/api/team/role":
+            cloud.set_role(ctx, str(p.get("user_id")), p.get("role"))
+            return self._send(200, {"ok": True})
+        if T.CLOUD and path == "/api/team/remove":
+            cloud.remove_member(ctx, str(p.get("user_id")))
+            return self._send(200, {"ok": True})
+        if T.CLOUD and path == "/api/team/cancel":
+            cloud.cancel_invite(ctx, str(p.get("id")))
+            return self._send(200, {"ok": True})
+        if T.CLOUD and path == "/api/admin/plan":
+            cloud.admin_set_plan(ctx, str(p.get("org_id")), p.get("plan"), p.get("trial_days"))
+            return self._send(200, {"ok": True})
+        if path == "/api/heartbeat" and not T.CLOUD:
+            code, r = orchestrator("/api/v1/agents/heartbeat", method="POST", body={})
+            return self._send(code if code else 502, r)
+        return self._send(404, {"error": "not found"})
+
+    def _ingest(self, p):
+        if not INGESTION_OK:
+            return self._send(500, {"error": f"Agent d'ingestion indisponible : {INGESTION_ERROR}"})
+        source = str(p.get("file_path") or p.get("source") or "").strip()
+        if not source:
+            raise ValueError("Indiquez un fichier ou un lien.")
+        kwargs = {"registry_schema": T.current().schema}
+        if T.storage_root():
+            kwargs["storage_root"] = T.storage_root()
+        if source.startswith(("http://", "https://")):
+            source = normalize_source_url(source)
+            if T.CLOUD:  # téléchargé par le serveur (protection SSRF), puis ingéré comme fichier
+                data, ctype = netguard.fetch(source)
+                ext = ".xlsx" if data[:2] == b"PK" else ".json" if data[:1] in (b"{", b"[") else ".csv"
+                local = os.path.join(T.uploads_dir(), source_label(source) + ext)
+                with open(local, "wb") as f:
+                    f.write(data)
+                kwargs["dataset_name"] = source_label(source) + ext
+                source = local
+        elif T.CLOUD and not T.current().owns(source):
+            raise PermissionError("source hors de l'espace")
+        if T.CLOUD and p.get("kind") in ("postgres", "sqlite"):
+            raise ValueError("L'import depuis une base de données n'est pas disponible dans la version en ligne.")
+        sheet = p.get("sheet")
+        if sheet not in (None, ""):
+            try:
+                sheet = int(sheet)
+            except (TypeError, ValueError):
+                pass
+            kwargs["sheet"] = sheet
+        for key, arg in (("kind", "kind"), ("table", "table"), ("schema", "schema_name"), ("name", "dataset_name")):
+            if p.get(key):
+                kwargs[arg] = p[key]
+        if p.get("limit"):
+            kwargs["limit"] = int(p["limit"])
+        if p.get("force"):
+            kwargs["force"] = True
+        try:
+            result = ingest_agent(source, **kwargs)
+        except Exception as exc:
+            result = {"error": f"{type(exc).__name__} : {exc}"}
+        if "error" not in result:
+            T.state()["last_ingest"] = result
+        return self._send(200, result)
+
 
 def heartbeat_loop():
     while True:
@@ -1333,9 +1447,15 @@ def heartbeat_loop():
             pass
         time.sleep(45)
 
+
 if __name__ == "__main__":
-    threading.Thread(target=heartbeat_loop, daemon=True).start()
-    studio.start_scheduler(analyze, {"pdf": export_pdf, "excel": export_excel, "html": export_html}, EXPORTS)
-    with socketserver.ThreadingTCPServer(("127.0.0.1", PORT), Handler) as httpd:
-        print(f"KLDataViz Console démarrée : http://localhost:{PORT}")
+    if not T.CLOUD:
+        threading.Thread(target=heartbeat_loop, daemon=True).start()
+    studio.start_scheduler(analyze, EXPORTERS, T.LOCAL.dir("exports") if not T.CLOUD else None)
+    host = "0.0.0.0" if T.CLOUD else "127.0.0.1"
+    port = int(os.environ.get("PORT") or PORT)
+    socketserver.ThreadingTCPServer.allow_reuse_address = True
+    socketserver.ThreadingTCPServer.daemon_threads = True
+    with socketserver.ThreadingTCPServer((host, port), Handler) as httpd:
+        print(f"KLDataViz {'en ligne' if T.CLOUD else 'Console'} démarrée : http://localhost:{port}")
         httpd.serve_forever()

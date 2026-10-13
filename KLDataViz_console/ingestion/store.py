@@ -178,6 +178,9 @@ class Registry:
                 return psycopg.connect(self.dsn, autocommit=True)
             except Exception as exc:
                 self._connect_error = str(exc)
+                if os.environ.get("KLDV_MODE", "").lower() == "cloud":
+                    # En ligne, pas de repli SQLite : il mélangerait les organisations.
+                    raise RuntimeError("Registre PostgreSQL injoignable") from exc
                 self.warnings.append(
                     f"PostgreSQL injoignable ({self._connect_error}) → registre de repli SQLite : {self.sqlite_path}")
                 self.backend = "sqlite"
