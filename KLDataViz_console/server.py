@@ -805,6 +805,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if self.path in ("/", "/index.html"):
             with open(os.path.join(BASE, "index.html"), "rb") as f:
                 self._send(200, f.read(), "text/html")
+        elif self.path in ("/classic", "/index_classic.html"):
+            with open(os.path.join(BASE, "index_classic.html"), "rb") as f:
+                self._send(200, f.read(), "text/html")
         elif self.path in ("/logo.png", "/favicon.png"):
             with open(os.path.join(BASE, "logo.png"), "rb") as f:
                 self._send(200, f.read(), "image/png")
@@ -834,6 +837,16 @@ class Handler(http.server.BaseHTTPRequestHandler):
         elif self.path == "/api/tasks":
             code, r = orchestrator("/api/v1/agents/tasks")
             self._send(code if code else 502, r)
+        elif self.path == "/api/exports":
+            files = []
+            for fn in os.listdir(EXPORTS):
+                fp = os.path.join(EXPORTS, fn)
+                if os.path.isfile(fp):
+                    st = os.stat(fp)
+                    files.append({"file": fn, "url": f"/download/{fn}", "size_kb": round(st.st_size / 1024, 1),
+                                  "modified": time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(st.st_mtime))})
+            files.sort(key=lambda x: x["modified"], reverse=True)
+            self._send(200, files)
         elif self.path == "/api/fetch-source":
             self._send(200, fetch_source())
         elif self.path == "/api/ingest/list":

@@ -2,627 +2,794 @@
 <html lang="fr">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>KLDataViz</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>KLDataViz Studio</title>
 <link rel="icon" href="/logo.png">
-<style>
-:root{--blue:#1d7a4c;--blue-d:#15633d;--green:#1d7a4c;--green-d:#15633d;
---bg:#f6f8f7;--card:#ffffff;--card2:#eef3f0;--line:#e3e9e6;--fg:#1f2937;--muted:#667085;}
-*{box-sizing:border-box;margin:0;padding:0;}
-body{background:linear-gradient(180deg,#eaf4ee 0%,var(--bg) 300px);color:var(--fg);font-family:'Segoe UI',system-ui,sans-serif;padding:30px;min-height:100vh;}
-.wrap{max-width:1120px;margin:0 auto;}
-header{display:flex;align-items:center;gap:18px;padding-bottom:22px;border-bottom:1px solid var(--line);margin-bottom:22px;}
-header img{width:58px;height:72px;object-fit:contain;filter:drop-shadow(0 2px 8px rgba(29,122,76,.25));}
-header .t{flex:1;}
-h1{font-size:25px;font-weight:700;letter-spacing:-.4px;}
-h1 .grad{background:linear-gradient(90deg,#1d7a4c,#3bb273);-webkit-background-clip:text;background-clip:text;color:transparent;}
-.badge{display:inline-flex;align-items:center;gap:8px;padding:6px 15px;border-radius:20px;font-size:12.5px;font-weight:600;border:1px solid var(--line);}
-.badge.online{background:rgba(29,122,76,.12);color:var(--green);border-color:rgba(29,122,76,.3);}
-.badge.offline{background:rgba(248,81,73,.12);color:#f85149;border-color:rgba(248,81,73,.35);}
-.badge.pending{background:rgba(210,153,34,.12);color:#d29922;}
-.dot{width:8px;height:8px;border-radius:50%;background:currentColor;box-shadow:0 0 8px currentColor;}
-.grid{display:grid;grid-template-columns:1.25fr 1fr;gap:16px;align-items:start;}
-.panel{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:20px;}
-.panel.full{grid-column:1/-1;}
-.panel h2{font-size:12px;text-transform:uppercase;letter-spacing:1px;color:var(--muted);margin-bottom:14px;font-weight:600;}
-.kv{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--line);font-size:13.5px;}
-.kv:last-child{border-bottom:none;}
-.kv .k{color:var(--muted);}
-.kv .v{font-weight:600;word-break:break-all;}
-.caps{display:flex;flex-wrap:wrap;gap:7px;margin-top:12px;}
-.cap{background:var(--card2);border:1px solid var(--blue-d);border-radius:7px;padding:5px 11px;font-size:12px;color:#1d7a4c;}
-input{background:var(--card2);color:var(--fg);border:1px solid var(--line);border-radius:10px;padding:12px 15px;font-size:14px;width:100%;font-family:inherit;}
-input:focus{border-color:var(--blue);outline:none;box-shadow:0 0 0 3px rgba(29,122,76,.2);}
-.btn{background:linear-gradient(135deg,var(--blue),var(--blue-d));color:#fff;border:none;border-radius:10px;padding:12px 22px;font-size:14px;font-weight:600;cursor:pointer;transition:filter .15s,transform .1s;}
-.btn:hover{filter:brightness(1.1);}
-.btn:active{transform:translateY(1px);}
-.btn.ghost{background:transparent;border:1px solid var(--line);color:var(--fg);font-weight:500;}
-.btn.green{background:linear-gradient(135deg,#2f9e63,var(--green-d));}
-.row{display:flex;gap:10px;margin-top:14px;}
-.hint{font-size:12px;color:var(--muted);margin-top:10px;}
-.statgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin-top:14px;}
-.chip{background:var(--card2);border:1px solid var(--line);border-radius:10px;padding:13px;text-align:center;}
-.chip .n{font-size:21px;font-weight:700;color:#1d7a4c;}
-.chip .l{font-size:11px;color:var(--muted);margin-top:3px;}
-.chartgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:16px;margin-top:12px;}
-.chartcard{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:13px;box-shadow:0 1px 3px rgba(0,0,0,.04);}
-.chartcard .ctitle{font-size:13px;font-weight:600;color:var(--fg);margin-bottom:9px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-.chartcard .cbody{position:relative;height:240px;}
-.taskgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(225px,1fr));gap:12px;margin-top:12px;}
-.taskcard{background:var(--card2);border:1px solid var(--line);border-radius:10px;padding:14px;transition:border-color .15s,transform .1s;}
-.taskcard:hover{border-color:var(--blue);transform:translateY(-1px);}
-.taskcard .tt{font-size:14px;font-weight:600;color:#1d7a4c;margin-bottom:4px;}
-.taskcard .td{font-size:12.5px;color:var(--muted);line-height:1.5;}
-.chatbox{display:flex;flex-direction:column;gap:12px;max-height:460px;overflow-y:auto;margin-bottom:8px;padding:6px 4px;}
-.msg{max-width:84%;padding:11px 15px;border-radius:14px;font-size:13.5px;line-height:1.55;word-break:break-word;}
-.msg .mt{white-space:pre-wrap;}
-.msg.user{align-self:flex-end;background:linear-gradient(135deg,var(--blue),var(--blue-d));color:#fff;border-bottom-right-radius:5px;box-shadow:0 2px 10px rgba(29,122,76,.3);}
-.msg.agent{align-self:flex-start;background:var(--card2);border:1px solid var(--line);border-bottom-left-radius:5px;}
-.msg table{margin-top:10px;font-size:12px;overflow:hidden;border-radius:8px;}
-.msg th{background:rgba(29,122,76,.12);color:#1d7a4c;font-weight:600;text-transform:none;letter-spacing:0;font-size:12px;}
-.msg th,.msg td{padding:6px 9px;}
-.msg td{border-bottom:1px solid var(--line);}
-.msg tr:last-child td{border-bottom:none;}
-.msg tr:nth-child(even) td{background:rgba(0,0,0,.03);}
-table{width:100%;border-collapse:collapse;font-size:12.5px;margin-top:8px;}
-th,td{padding:7px 9px;text-align:left;border-bottom:1px solid var(--line);}
-th{color:var(--muted);font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.4px;}
-.r{text-align:right;}
-.muted{color:var(--muted);}
-.anom{border-left:3px solid #d29922;background:var(--card2);padding:9px 12px;margin:7px 0;border-radius:5px;font-size:12.5px;}
-.empty{color:var(--muted);font-size:13px;padding:14px 0;}
-.spin{display:inline-block;width:14px;height:14px;border:2px solid var(--muted);border-top-color:transparent;border-radius:50%;animation:sp .7s linear infinite;vertical-align:middle;margin-right:7px;}
-@keyframes sp{to{transform:rotate(360deg)}}
-ul{list-style:none;font-size:13.5px;line-height:2.15;}
-ul li::before{content:"—";color:var(--blue);margin-right:9px;font-weight:700;}
-footer{margin-top:24px;color:var(--muted);font-size:11.5px;border-top:1px solid var(--line);padding-top:14px;}
-@media(max-width:860px){.grid{grid-template-columns:1fr;}}
-</style>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&family=Fira+Sans:wght@400;500;600;700&display=swap">
 <script src="/chart.umd.min.js"></script>
+<style>
+/* Layout: nav rail | guided workspace (Importer → Vérifier → Analyser → Partager) | Hermes chat */
+:root{
+  --bg:#F3F6F4; --surface:#FFFFFF; --surface-2:#EBF1ED; --line:#D9E3DD;
+  --fg:#11241A; --muted:#55685D; --brand:#1D7A4C; --brand-strong:#15633D; --brand-soft:#DCEFE4; --on-brand:#FFFFFF;
+  --amber:#A8580A; --amber-soft:#FCEFD9; --red:#B4372A; --red-soft:#FBE3DF; --blue:#2F62C9;
+  --shadow:0 1px 2px rgba(17,36,26,.05),0 6px 20px rgba(17,36,26,.06);
+  --sans:'Fira Sans',system-ui,-apple-system,'Segoe UI',sans-serif;
+  --mono:'Fira Code',ui-monospace,'Cascadia Code',Consolas,monospace;
+  --r:12px; color-scheme:light;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0D1411; --surface:#141D18; --surface-2:#1A2620; --line:#273730;
+  --fg:#E4EEE8; --muted:#93A79B; --brand:#3FBF7E; --brand-strong:#5FD196; --brand-soft:#173826; --on-brand:#06140C;
+  --amber:#F0A852; --amber-soft:#3A2A14; --red:#F2776A; --red-soft:#3C1D19; --blue:#7EA6F5;
+  --shadow:0 1px 2px rgba(0,0,0,.3),0 6px 20px rgba(0,0,0,.25); color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0D1411; --surface:#141D18; --surface-2:#1A2620; --line:#273730;
+  --fg:#E4EEE8; --muted:#93A79B; --brand:#3FBF7E; --brand-strong:#5FD196; --brand-soft:#173826; --on-brand:#06140C;
+  --amber:#F0A852; --amber-soft:#3A2A14; --red:#F2776A; --red-soft:#3C1D19; --blue:#7EA6F5;
+  --shadow:0 1px 2px rgba(0,0,0,.3),0 6px 20px rgba(0,0,0,.25); color-scheme:dark}
+
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--fg);font:15px/1.5 var(--sans);-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit;cursor:pointer}
+a{color:var(--brand-strong)}
+:focus-visible{outline:2px solid var(--brand);outline-offset:2px;border-radius:6px}
+[hidden]{display:none!important}
+svg.i{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;flex:none}
+.num{font-family:var(--mono);font-variant-numeric:tabular-nums}
+h1,h2,h3{margin:0;text-wrap:balance;letter-spacing:-.01em}
+code{font-family:var(--mono);font-size:.92em;background:var(--surface-2);padding:1px 5px;border-radius:5px}
+
+.app{display:grid;grid-template-columns:232px minmax(0,1fr) 372px;height:100%}
+
+/* rail */
+.rail{background:var(--surface);border-right:1px solid var(--line);display:flex;flex-direction:column;padding:18px 12px;gap:18px;min-height:0}
+.brand{display:flex;align-items:center;gap:10px;padding:0 8px}
+.brand img{width:30px;height:38px;object-fit:contain}
+.brand b{font-weight:700;font-size:16px}.brand small{display:block;color:var(--muted);font-size:12px;line-height:1.2}
+nav.menu{display:flex;flex-direction:column;gap:2px}
+nav.menu button{display:flex;align-items:center;gap:11px;border:0;background:none;padding:9px 10px;border-radius:9px;color:var(--muted);text-align:left;font-size:14px;min-height:40px;transition:background .15s,color .15s}
+nav.menu button:hover{background:var(--surface-2);color:var(--fg)}
+nav.menu button[aria-current="page"]{background:var(--brand-soft);color:var(--brand-strong);font-weight:600}
+nav.menu .count{margin-left:auto;font:500 11.5px var(--mono);color:var(--muted)}
+.railfoot{margin-top:auto;border:1px solid var(--line);border-radius:var(--r);padding:12px;font-size:12.5px;color:var(--muted);display:grid;gap:6px}
+
+/* main */
+.main{display:flex;flex-direction:column;min-width:0;min-height:0}
+.top{display:flex;align-items:center;gap:12px;padding:14px 28px;border-bottom:1px solid var(--line);background:var(--surface);flex-wrap:wrap}
+.crumb{font-size:13px;color:var(--muted);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.crumb b{color:var(--fg);font-weight:600}
+.status{display:inline-flex;align-items:center;gap:7px;font-size:12.5px;padding:5px 11px;border-radius:99px;font-weight:600;background:var(--surface-2);color:var(--muted)}
+.status i{width:7px;height:7px;border-radius:50%;background:currentColor}
+.status.on{background:var(--brand-soft);color:var(--brand-strong)}
+.status.off{background:var(--red-soft);color:var(--red)}
+.spacer{flex:1}
+.iconbtn{width:40px;height:40px;border-radius:10px;border:1px solid var(--line);background:var(--surface);display:grid;place-items:center;color:var(--muted)}
+.iconbtn:hover{color:var(--fg);background:var(--surface-2)}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;border-radius:10px;padding:10px 16px;min-height:42px;font-weight:600;font-size:14px;border:1px solid transparent;transition:background .15s,border-color .15s,transform .1s;text-decoration:none}
+.btn:active{transform:translateY(1px)}
+.btn.primary{background:var(--brand);color:var(--on-brand)}.btn.primary:hover{background:var(--brand-strong)}
+.btn.ghost{background:var(--surface);border-color:var(--line);color:var(--fg)}.btn.ghost:hover{background:var(--surface-2)}
+.btn.sm{min-height:34px;padding:5px 11px;font-size:13px}
+.btn[disabled]{opacity:.55;cursor:not-allowed}
+
+.stepper{display:flex;gap:6px;padding:16px 28px 0;flex-wrap:wrap}
+.step{display:flex;align-items:center;gap:9px;border:1px solid var(--line);background:var(--surface);padding:7px 14px 7px 8px;border-radius:99px;font-size:13.5px;color:var(--muted);min-height:40px}
+.step .n{width:24px;height:24px;border-radius:50%;display:grid;place-items:center;background:var(--surface-2);font:600 12px var(--mono)}
+.step[aria-current="step"]{border-color:var(--brand);color:var(--fg);font-weight:600}
+.step[aria-current="step"] .n{background:var(--brand);color:var(--on-brand)}
+.step.done{color:var(--fg)}.step.done .n{background:var(--brand-soft);color:var(--brand-strong)}
+.step[disabled]{cursor:not-allowed;opacity:.55}
+.sep{align-self:center;width:18px;height:1px;background:var(--line)}
+
+.scroll{flex:1;overflow:auto;padding:22px 28px 40px}
+.view{display:grid;gap:20px;max-width:1100px}
+.head h1{font-size:24px;font-weight:700}
+.head p{margin:6px 0 0;color:var(--muted);max-width:68ch;overflow-wrap:anywhere}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:18px;min-width:0}
+.card h2{font-size:15px;font-weight:600;display:flex;align-items:center;gap:8px}
+.sub{color:var(--muted);font-size:13px;margin:2px 0 0}
+.label{font-size:11.5px;font-weight:600;text-transform:uppercase;letter-spacing:.07em;color:var(--muted)}
+.actions{display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap}
+.alert{border-radius:10px;padding:12px 14px;font-size:14px;background:var(--red-soft);color:var(--red);overflow-wrap:anywhere}
+.alert.info{background:var(--surface-2);color:var(--muted)}
+
+/* import */
+.drop{border:2px dashed var(--line);border-radius:16px;background:var(--surface);padding:34px 20px;display:grid;justify-items:center;gap:12px;text-align:center;transition:border-color .15s,background .15s}
+.drop.over{border-color:var(--brand);background:var(--brand-soft)}
+.drop .big{width:56px;height:56px;border-radius:14px;background:var(--brand-soft);color:var(--brand-strong);display:grid;place-items:center}
+.drop .big svg{width:26px;height:26px}
+.drop h2{font-size:18px}
+.drop p{margin:0;color:var(--muted);font-size:13.5px}
+.drop .acts{display:flex;gap:10px;flex-wrap:wrap;justify-content:center;margin-top:4px}
+.pathrow{display:flex;gap:10px;flex-wrap:wrap;margin-top:12px}
+.pathrow input{flex:1;min-width:220px}
+input[type=text],input[type=email],select{font:inherit;font-size:14px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--surface);color:var(--fg);min-height:42px;width:100%}
+input:focus,select:focus{border-color:var(--brand);outline:none;box-shadow:0 0 0 3px color-mix(in srgb,var(--brand) 22%,transparent)}
+
+.tablewrap{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:13.5px}
+th{font-size:11.5px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);white-space:nowrap}
+td{padding:9px 10px;border-bottom:1px solid var(--line);vertical-align:middle}
+tr:last-child td{border-bottom:0}
+tbody tr:hover td{background:var(--surface-2)}
+td.r,th.r{text-align:right}
+.tag{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:600;padding:2px 9px;border-radius:99px;white-space:nowrap}
+.tag.ok{background:var(--brand-soft);color:var(--brand-strong)}
+.tag.warn{background:var(--amber-soft);color:var(--amber)}
+.tag.bad{background:var(--red-soft);color:var(--red)}
+.tag.type{background:var(--surface-2);color:var(--muted);font-family:var(--mono);font-weight:500}
+
+/* run */
+.run{display:grid;grid-template-columns:minmax(0,1fr) 260px;gap:16px;align-items:start}
+.task{display:grid;grid-template-columns:32px minmax(0,1fr) auto;gap:12px;align-items:start;padding:12px 0;border-bottom:1px solid var(--line)}
+.task:last-child{border-bottom:0}
+.task .dot{width:28px;height:28px;border-radius:50%;display:grid;place-items:center;background:var(--surface-2);color:var(--muted)}
+.task.doing .dot{background:var(--brand-soft);color:var(--brand)}
+.task.done .dot{background:var(--brand);color:var(--on-brand)}
+.task.warn .dot{background:var(--amber-soft);color:var(--amber)}
+.task.err .dot{background:var(--red-soft);color:var(--red)}
+.task b{font-size:14px;display:block}.task span{font-size:13px;color:var(--muted);overflow-wrap:anywhere}
+.task em{font-style:normal;font:500 12px var(--mono);color:var(--muted)}
+.spin{display:inline-block;width:14px;height:14px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:sp .8s linear infinite;vertical-align:middle}
+@keyframes sp{to{transform:rotate(360deg)}}
+.bar{height:8px;background:var(--surface-2);border-radius:99px;overflow:hidden}.bar i{display:block;height:100%;width:0;background:var(--brand);border-radius:99px;transition:width .4s ease}
+.meter{height:6px;border-radius:99px;background:var(--surface-2);overflow:hidden}.meter i{display:block;height:100%;background:var(--brand);border-radius:99px}
+.meter i.warn{background:var(--amber)}.meter i.bad{background:var(--red)}
+
+/* verify */
+.grid2{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px}
+.score{display:flex;align-items:center;gap:18px}
+.ring{width:104px;height:104px;border-radius:50%;display:grid;place-items:center;flex:none}
+.ring>div{width:80px;height:80px;border-radius:50%;background:var(--surface);display:grid;place-items:center;text-align:center;line-height:1.1}
+.ring b{font:600 22px var(--mono)}.ring small{font-size:11px;color:var(--muted)}
+.chips{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+.issue{display:grid;grid-template-columns:4px minmax(0,1fr);gap:14px;padding:12px 0;border-bottom:1px solid var(--line)}
+.issue:last-child{border-bottom:0}
+.issue .sev{border-radius:4px;background:var(--amber)}
+.issue .sev.info{background:var(--blue)}
+.issue b{font-size:14px;display:block}.issue span{font-size:13px;color:var(--muted);overflow-wrap:anywhere}
+.fill{display:flex;align-items:center;gap:8px;min-width:130px}.fill .meter{flex:1}
+
+/* analyze */
+.kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+.kpi{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:14px 16px;display:grid;gap:2px;min-width:0}
+.kpi .v{font:600 24px var(--mono);letter-spacing:-.02em}
+.kpi .d{font-size:12.5px;color:var(--muted)}
+.insights{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px}
+.ins{border:1px solid var(--line);border-radius:var(--r);padding:14px;background:var(--surface);display:grid;gap:8px;align-content:start;min-width:0}
+.ins p{margin:0;font-size:14px;overflow-wrap:anywhere}
+.ins .why{font-size:12.5px;color:var(--muted)}
+.ins button{justify-self:start;border:0;background:none;color:var(--brand-strong);font-weight:600;font-size:13px;padding:4px 0}
+.charts{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:16px}
+.cbox{position:relative;height:250px;margin-top:10px}
+details.more{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:0 18px}
+details.more summary{cursor:pointer;padding:14px 0;font-weight:600;font-size:14.5px}
+details.more[open] summary{border-bottom:1px solid var(--line);margin-bottom:8px}
+details.more>div{padding-bottom:14px}
+
+/* share & lists */
+.exports{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px}
+.exp{border:1px solid var(--line);border-radius:var(--r);padding:16px;background:var(--surface);display:grid;gap:8px;text-align:left;transition:border-color .15s,box-shadow .15s;align-content:start}
+.exp:hover{border-color:var(--brand);box-shadow:var(--shadow)}
+.exp .fmt{font:600 12px var(--mono);color:var(--brand-strong);background:var(--brand-soft);padding:3px 8px;border-radius:6px;justify-self:start}
+.exp b{font-size:14.5px}.exp span{font-size:12.5px;color:var(--muted);overflow-wrap:anywhere}
+.list{display:grid}
+.li{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:14px;align-items:center;padding:13px 0;border-bottom:1px solid var(--line)}
+.li:last-child{border-bottom:0}
+.li b{font-size:14.5px;display:block;overflow-wrap:anywhere}.li span{font-size:13px;color:var(--muted)}
+.setrow{display:flex;justify-content:space-between;align-items:center;gap:16px;padding:12px 0;border-bottom:1px solid var(--line)}
+.setrow:last-child{border-bottom:0}
+.setrow b{font-size:14px;display:block;font-weight:500}.setrow span{font-size:12.5px;color:var(--muted);overflow-wrap:anywhere}
+.empty{color:var(--muted);font-size:14px;padding:18px 0;text-align:center}
+.toolbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+
+/* chat */
+.chat{background:var(--surface);border-left:1px solid var(--line);display:flex;flex-direction:column;min-height:0}
+.chat header{display:flex;align-items:center;gap:10px;padding:16px 18px;border-bottom:1px solid var(--line)}
+.chat header .av{width:34px;height:34px;border-radius:50%;background:var(--brand-soft);color:var(--brand-strong);display:grid;place-items:center}
+.chat header b{font-size:14.5px;display:block}.chat header small{color:var(--muted);font-size:12px}
+.chat header .iconbtn{margin-left:auto;display:none}
+.msgs{flex:1;overflow:auto;padding:16px 18px;display:flex;flex-direction:column;gap:12px}
+.m{max-width:94%;font-size:14px;line-height:1.55;padding:10px 13px;border-radius:12px;overflow-wrap:anywhere;min-width:0}
+.m.agent{background:var(--surface-2);border-top-left-radius:4px;align-self:flex-start}
+.m.user{background:var(--brand);color:var(--on-brand);border-top-right-radius:4px;align-self:flex-end}
+.m .mt{white-space:pre-wrap}
+.m table{margin-top:8px;font-size:12.5px;background:var(--surface);border-radius:8px}
+.m td,.m th{padding:6px 8px}
+.m .ctitle{font-size:12px;font-weight:600;color:var(--brand-strong);margin-top:10px}
+.m .mcbox{position:relative;height:220px;margin-top:6px;background:var(--surface);border-radius:8px;padding:6px}
+.sugs{display:flex;flex-wrap:wrap;gap:6px;padding:0 18px 10px}
+.sug{border:1px solid var(--line);background:var(--surface);border-radius:99px;padding:6px 12px;font-size:12.5px;min-height:34px;text-align:left}
+.sug:hover{border-color:var(--brand);color:var(--brand-strong)}
+.composer{display:flex;gap:8px;padding:12px 18px 16px;border-top:1px solid var(--line)}
+.composer input{flex:1;min-width:0}
+.composer .btn{padding:0 14px}
+.fab{display:none}
+.toast{position:fixed;left:50%;bottom:calc(24px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--fg);color:var(--bg);padding:10px 16px;border-radius:10px;font-size:13.5px;box-shadow:var(--shadow);z-index:50;max-width:calc(100% - 32px)}
+
+@media (max-width:1240px){
+  .app{grid-template-columns:220px minmax(0,1fr)}
+  .chat{position:fixed;top:0;right:0;bottom:0;width:min(400px,100%);z-index:40;box-shadow:-10px 0 40px rgba(0,0,0,.18);transform:translateX(105%);transition:transform .25s ease}
+  .chat.open{transform:none}
+  .chat header .iconbtn{display:grid}
+  .fab{display:inline-flex}
+}
+@media (max-width:980px){.kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.grid2,.run{grid-template-columns:minmax(0,1fr)}}
+@media (max-width:760px){
+  .app{grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr) auto}
+  .rail{order:2;flex-direction:row;padding:6px 8px calc(6px + env(safe-area-inset-bottom,0px));border-right:0;border-top:1px solid var(--line);gap:0}
+  .rail .brand,.rail .railfoot{display:none}
+  nav.menu{flex-direction:row;flex:1;justify-content:space-around}
+  nav.menu button{flex-direction:column;gap:2px;font-size:11px;padding:6px 4px;min-width:56px}
+  nav.menu .count{display:none}
+  .top,.stepper,.scroll{padding-left:16px;padding-right:16px}
+  .step .t{display:none}.step{padding:7px 8px}.sep{width:10px}
+  .step[aria-current="step"] .t{display:inline}
+  .hide-sm{display:none!important}
+  .score{flex-direction:column;align-items:flex-start}
+  .charts{grid-template-columns:minmax(0,1fr)}
+  .li{grid-template-columns:minmax(0,1fr)}
+}
+@media (prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01ms!important;transition-duration:.01ms!important}}
+</style>
 </head>
 <body>
-<div class="wrap">
-  <header>
-    <img src="/logo.png" alt="KLDataViz">
-    <div class="t"><h1><span class="grad">KLDataViz</span></h1></div>
-    <span id="statusBadge" class="badge pending"><span class="dot"></span>Connexion…</span>
-  </header>
+<div class="app">
+  <aside class="rail" aria-label="Navigation">
+    <div class="brand"><img src="/logo.png" alt=""><div><b>KLDataViz</b><small>Studio · agent Hermes</small></div></div>
+    <nav class="menu">
+      <button aria-current="page" data-nav="home"><svg class="i" viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5V21h-6v-6H9v6H3z"/></svg>Analyse</button>
+      <button data-nav="datasets"><svg class="i" viewBox="0 0 24 24"><path d="M4 6c0-1.7 3.6-3 8-3s8 1.3 8 3-3.6 3-8 3-8-1.3-8-3zm0 0v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></svg>Données<span class="count" id="cntDs"></span></button>
+      <button data-nav="reports"><svg class="i" viewBox="0 0 24 24"><path d="M14 3H6a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8zM14 3v5h5M9 13h6M9 17h6"/></svg>Rapports<span class="count" id="cntRp"></span></button>
+      <button data-nav="tasks"><svg class="i" viewBox="0 0 24 24"><path d="M9 6h11M9 12h11M9 18h11M4 6l1 1 2-2M4 12l1 1 2-2M4 18l1 1 2-2"/></svg>Tâches<span class="count" id="cntTk"></span></button>
+      <button data-nav="settings"><svg class="i" viewBox="0 0 24 24"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M14 4v4M8 10v4M16 16v4"/></svg>Réglages</button>
+    </nav>
+    <div class="railfoot"><span>Console locale</span><span>Vos fichiers restent sur cet ordinateur.</span></div>
+  </aside>
 
-  <div class="grid">
-    <div class="panel full">
-      <h2>Analyser un fichier de données</h2>
-      <input id="filePath" placeholder="Chemin du fichier — CSV, Excel ou JSON" value="">
-      <div class="row">
-        <button class="btn ghost" onclick="fetchSource()">Récupérer la source</button>
-        <button class="btn green" id="analyzeBtn" onclick="runAnalyze()">Lancer l'analyse</button>
-        <button class="btn" id="cleanBtn" onclick="runClean()">Nettoyer / Modéliser</button>
-        <button class="btn ghost" onclick="setPath('C:/Users/Luc Déisré KOUAKOU/OneDrive/Desktop/cours/AGENT IA/Projets/TA-MOH_analyse/data/fact_district.csv')">Exemple</button>
-      </div>
-      <div class="row" id="sourceRow" style="display:none;">
-        <input id="sourceUrl" placeholder="Collez ici l'URL ou le chemin de la source à analyser…">
-        <button class="btn green" onclick="confirmSource()">Valider</button>
-        <label class="btn ghost" for="sourceFile" style="cursor:pointer;margin:0;">📂 Choisir un fichier</label>
-        <input type="file" id="sourceFile" onchange="uploadSource()" style="display:none;">
-      </div>
-      <div class="row" id="exportRow">
-        <button class="btn" onclick="exportResult('pdf')">Exporter en PDF</button>
-        <button class="btn" onclick="exportResult('excel')">Exporter en Excel</button>
-        <button class="btn" onclick="exportResult('html')">Exporter en HTML</button>
-      </div>
-      <div class="hint">Le fichier est lu localement — il n'est jamais envoyé à l'extérieur.</div>
-      <div id="msg"></div>
-      <div id="result"></div>
+  <main class="main">
+    <div class="top">
+      <div class="crumb" id="crumb"><b>Nouvelle analyse</b></div>
+      <span class="status hide-sm" id="status"><i></i>Connexion…</span>
+      <span class="spacer"></span>
+      <button class="iconbtn" id="themeBtn" aria-label="Changer de thème" title="Changer de thème"><svg class="i" viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 0 1 9.5 4 8 8 0 1 0 20 14.5z"/></svg></button>
+      <button class="btn ghost fab" id="chatOpen"><svg class="i" viewBox="0 0 24 24"><path d="M4 5h16v11H8l-4 4z"/></svg>Hermes</button>
+      <button class="btn primary" id="newBtn"><svg class="i" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg><span class="hide-sm">Nouvelle analyse</span></button>
     </div>
 
-    <div class="panel full">
-      <h2>Ingestion — data ingestion agent (la source n'est jamais modifiée)</h2>
-      <input id="ingestPath" placeholder="Chemin du fichier, URL ou DSN PostgreSQL" value="">
-      <div class="row">
-        <input id="ingestSheet" placeholder="Feuille Excel (optionnel)" style="max-width:200px">
-        <input id="ingestTable" placeholder="Table source (optionnel)" style="max-width:220px">
-        <input id="ingestName" placeholder="Nom logique (optionnel)" style="max-width:200px">
-        <button class="btn green" id="ingestBtn" onclick="runIngest()">Ingérer</button>
-        <button class="btn ghost" onclick="loadRegistry()">Registre PostgreSQL</button>
-      </div>
-      <div class="hint">Détection format / encodage / séparateur / feuilles / types / identifiants, copie RAW avec SHA-256 vérifié, version de travail (Parquet) et métadonnées dans PostgreSQL.</div>
-      <div id="ingestResult"></div>
-      <div id="registry"></div>
-    </div>
+    <div class="stepper" id="stepper"></div>
 
-    <div class="panel full">
-      <h2>Ce que l'agent peut accomplir</h2>
-      <div class="taskgrid">
-        <div class="taskcard"><div class="tt">Analyser</div><div class="td">Profilage, statistiques descriptives, corrélations, distributions.</div></div>
-        <div class="taskcard"><div class="tt">Nettoyer &amp; contrôler</div><div class="td">Qualité des données (DQA), valeurs manquantes, doublons, cohérence.</div></div>
-        <div class="taskcard"><div class="tt">Modéliser</div><div class="td">Schéma en étoile, tables de faits &amp; dimensions, base SQLite.</div></div>
-        <div class="taskcard"><div class="tt">Détecter des anomalies</div><div class="td">IQR, z-score, ruptures de tendance, comparaisons entre groupes.</div></div>
-        <div class="taskcard"><div class="tt">Visualiser</div><div class="td">Dashboards HTML interactifs, graphiques, cartes KPI.</div></div>
-        <div class="taskcard"><div class="tt">Rapporter</div><div class="td">Rapports PDF, Excel, HTML, synthèse exécutive.</div></div>
-        <div class="taskcard"><div class="tt">Préparer pour BI</div><div class="td">Power BI, Excel / Power Query, connexions aux données.</div></div>
-        <div class="taskcard"><div class="tt">Calculer des KPI</div><div class="td">Indicateurs, data marts, agrégations temporelles.</div></div>
-      </div>
-    </div>
+    <div class="scroll" id="scroll">
 
-    <div class="panel full">
-      <h2>Tâches assignées</h2>
-      <div id="tasks" class="empty">Chargement…</div>
-    </div>
+      <!-- 1. IMPORTER -->
+      <section class="view" data-view="import">
+        <div class="head"><h1>Quelles données voulez-vous comprendre ?</h1>
+          <p>Déposez un fichier. Hermes le lit, vérifie sa qualité et prépare l'analyse. Votre fichier d'origine n'est jamais modifié.</p></div>
+        <div class="drop" id="drop">
+          <div class="big"><svg class="i" viewBox="0 0 24 24"><path d="M12 16V4M7 9l5-5 5 5M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/></svg></div>
+          <h2>Glissez votre fichier ici</h2>
+          <p>Excel, CSV ou JSON</p>
+          <div class="acts">
+            <label class="btn primary" for="file" tabindex="0" id="fileLabel">Choisir un fichier</label>
+            <input type="file" id="file" accept=".csv,.xlsx,.xls,.xlsm,.json" hidden>
+            <button class="btn ghost" id="taskSrcBtn">Source de la tâche assignée</button>
+          </div>
+        </div>
+        <div class="card">
+          <h2>Ou indiquez un chemin ou une URL</h2>
+          <p class="sub">Un fichier sur cet ordinateur (C:\…\donnees.csv) ou un lien direct vers un CSV, Excel ou JSON.</p>
+          <form class="pathrow" id="pathForm">
+            <label for="pathInput" hidden>Chemin ou URL</label>
+            <input type="text" id="pathInput" placeholder="C:\Users\…\donnees.csv ou https://…" autocomplete="off">
+            <button class="btn primary" type="submit">Analyser</button>
+          </form>
+          <div id="importMsg" style="margin-top:12px" hidden></div>
+        </div>
+        <div class="card">
+          <div class="toolbar"><h2>Jeux de données récents</h2><span class="spacer"></span><button class="btn ghost sm" data-goto="datasets">Tout voir</button></div>
+          <div id="recent" class="empty">Chargement du registre…</div>
+        </div>
+      </section>
 
-    <div class="panel full">
-      <h2>Interroger les données (chat)</h2>
-      <div id="chatBox" class="chatbox"></div>
-      <div class="row">
-        <input id="chatInput" placeholder="Ex. « somme de value par district » · « combien de lignes dans fact_district ? »" onkeydown="if(event.key==='Enter')sendQuestion()">
-        <button class="btn green" onclick="sendQuestion()">Envoyer</button>
-      </div>
-      <div class="hint" id="chatHints">Posez n'importe quelle question : « corrélation entre les colonnes de fact_district » · « évolution de value par quarter » · « top 5 districts par value » · « fais un graphique de value par région »</div>
-    </div>
-  </div>
+      <!-- 1b. PIPELINE -->
+      <section class="view" data-view="run" hidden>
+        <div class="head"><h1>Hermes prépare vos données</h1><p id="runFile"></p></div>
+        <div class="run">
+          <div class="card"><div id="feed"></div><div id="runErr" class="actions" style="margin-top:12px" hidden>
+            <button class="btn ghost" id="runBack">Changer de fichier</button><button class="btn primary" id="runRetry">Réessayer</button></div></div>
+          <div class="card" style="display:grid;gap:10px">
+            <div class="label">Progression</div>
+            <div class="num" style="font-size:30px;font-weight:600" id="pct">0 %</div>
+            <div class="bar"><i id="bar"></i></div>
+            <small style="color:var(--muted)">Le traitement se fait sur cet ordinateur.</small>
+          </div>
+        </div>
+      </section>
 
-  <footer id="meta">Console locale · connectée à api.cvlynk.com</footer>
+      <!-- 2. VÉRIFIER -->
+      <section class="view" data-view="verify" hidden>
+        <div class="head"><h1>Vérifiez la qualité avant d'analyser</h1><p id="verifyLead"></p></div>
+        <div class="grid2">
+          <div class="card score">
+            <div class="ring" id="ring"><div><b id="ringV" class="num">–</b><small>complétude</small></div></div>
+            <div style="min-width:0"><h2>Qualité des données</h2><p class="sub" id="ringTxt"></p><div class="chips" id="dsChips"></div></div>
+          </div>
+          <div class="card"><h2>Ce que Hermes a compris</h2><p class="sub" style="font-size:14px;color:var(--fg);margin-top:8px" id="understood"></p></div>
+        </div>
+        <div class="card">
+          <h2>Corrections proposées</h2>
+          <p class="sub">Elles s'appliquent à une copie de travail. Le fichier source reste intact.</p>
+          <div id="issues" style="margin-top:6px"></div>
+        </div>
+        <div class="card"><h2>Colonnes</h2>
+          <div class="tablewrap"><table><thead><tr><th>Colonne</th><th>Type</th><th>Remplissage</th><th class="r">Valeurs distinctes</th></tr></thead><tbody id="cols"></tbody></table></div>
+        </div>
+        <div class="actions">
+          <button class="btn ghost" id="skipClean">Analyser sans corriger</button>
+          <button class="btn primary" id="applyClean">Appliquer les corrections et analyser<svg class="i" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button>
+        </div>
+      </section>
+
+      <!-- 3. ANALYSER -->
+      <section class="view" data-view="analyze" hidden>
+        <div class="head"><h1>Ce que disent vos données</h1><p id="anLead"></p></div>
+        <div class="kpis" id="kpis"></div>
+        <div><div class="label" style="margin-bottom:10px">Points clés trouvés par Hermes</div><div class="insights" id="insights"></div></div>
+        <div><div class="toolbar" style="margin-bottom:10px"><div class="label">Graphiques</div><span class="spacer"></span><button class="btn ghost sm" id="moreCharts" hidden></button></div>
+          <div class="charts" id="charts"></div></div>
+        <div id="details" style="display:grid;gap:12px"></div>
+        <div class="actions"><button class="btn primary" id="toShare">Exporter et partager<svg class="i" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button></div>
+      </section>
+
+      <!-- 4. PARTAGER -->
+      <section class="view" data-view="share" hidden>
+        <div class="head"><h1>Partagez le résultat</h1><p>Les exports reprennent l'analyse affichée : statistiques, corrélations et anomalies.</p></div>
+        <div class="exports">
+          <button class="exp" data-exp="pdf"><span class="fmt">PDF</span><b>Rapport à imprimer</b><span>Synthèse prête pour la direction</span></button>
+          <button class="exp" data-exp="excel"><span class="fmt">XLSX</span><b>Classeur Excel</b><span>Une feuille par section de l'analyse</span></button>
+          <button class="exp" data-exp="html"><span class="fmt">HTML</span><b>Page web</b><span>S'ouvre dans n'importe quel navigateur</span></button>
+          <button class="exp" id="ingestCard"><span class="fmt">DB</span><b>Enregistrer dans le registre</b><span>Nouvelle version, source intacte, métadonnées dans PostgreSQL</span></button>
+        </div>
+        <div class="card" id="ingestOut" hidden></div>
+      </section>
+
+      <!-- DONNÉES -->
+      <section class="view" data-view="datasets" hidden>
+        <div class="head"><h1>Données</h1><p>Les jeux de données enregistrés dans le registre, avec leur dernière version.</p></div>
+        <div class="card"><div id="dsBody" class="empty">Chargement…</div></div>
+      </section>
+
+      <!-- RAPPORTS -->
+      <section class="view" data-view="reports" hidden>
+        <div class="head"><h1>Rapports</h1><p>Tous les exports générés sur cet ordinateur.</p></div>
+        <div class="card"><div class="list" id="rpList"><div class="empty">Chargement…</div></div></div>
+      </section>
+
+      <!-- TÂCHES -->
+      <section class="view" data-view="tasks" hidden>
+        <div class="head"><h1>Tâches assignées</h1><p>Les demandes reçues par l'agent depuis l'orchestrateur.</p></div>
+        <div class="card"><div class="list" id="tkList"><div class="empty">Chargement…</div></div></div>
+      </section>
+
+      <!-- RÉGLAGES -->
+      <section class="view" data-view="settings" hidden>
+        <div class="head"><h1>Réglages</h1><p>Apparence et état des services utilisés par Hermes.</p></div>
+        <div class="card"><h2>Apparence</h2>
+          <div class="setrow"><div><b>Thème</b><span>Suivre le système, ou forcer clair ou sombre</span></div>
+            <select id="themeSel" style="width:auto"><option value="">Système</option><option value="light">Clair</option><option value="dark">Sombre</option></select></div>
+        </div>
+        <div class="card"><h2>Services</h2><div id="services"><div class="empty">Vérification…</div></div></div>
+        <div class="card"><h2>Ancienne console</h2>
+          <div class="setrow"><div><b>Interface classique</b><span>Toutes les options techniques sur une seule page (ingestion avancée : feuille, table, nom logique).</span></div>
+            <a class="btn ghost sm" href="/classic">Ouvrir</a></div>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <aside class="chat" id="chat" aria-label="Discussion avec Hermes">
+    <header>
+      <div class="av"><svg class="i" viewBox="0 0 24 24"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"/></svg></div>
+      <div><b>Hermes</b><small>Posez vos questions sur les données</small></div>
+      <button class="iconbtn" id="chatClose" aria-label="Fermer la discussion"><svg class="i" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+    </header>
+    <div class="msgs" id="msgs" aria-live="polite"></div>
+    <div class="sugs" id="sugs"></div>
+    <form class="composer" id="composer">
+      <label for="q" hidden>Votre question</label>
+      <input type="text" id="q" placeholder="Ex. top 5 districts par valeur" autocomplete="off">
+      <button class="btn primary" aria-label="Envoyer"><svg class="i" viewBox="0 0 24 24"><path d="M4 12 20 4l-6 16-3-7z"/></svg></button>
+    </form>
+  </aside>
 </div>
+<div class="toast" id="toast" hidden></div>
 
 <script>
-const $=id=>document.getElementById(id);
-function fmt(t){return t?new Date(t).toLocaleString('fr-FR'):'—';}
-async function loadStatus(){
-  try{
-    const r=await fetch('/api/status');const d=await jparse(r);
-    const st=(d.status||'?').toUpperCase();
-    const b=$('statusBadge');
-    b.className='badge '+(st==='ONLINE'?'online':st==='OFFLINE'?'offline':'pending');
-    b.innerHTML=`<span class="dot"></span>${st==='ONLINE'?'Agent en ligne':st==='OFFLINE'?'Hors ligne':st}`;
-    $('meta').textContent=`Console locale · connectée à api.cvlynk.com · ${(d.capabilities||[]).length} capacités · heartbeat auto 45 s`;
-  }catch(e){
-    $('statusBadge').className='badge offline';$('statusBadge').innerHTML='<span class="dot"></span>Hors ligne';
-  }
+const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
+const esc=s=>String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+const md=s=>esc(s).replace(/\*\*(.+?)\*\*/g,'<b>$1</b>').replace(/`([^`]+)`/g,'<code>$1</code>');
+const nf=n=>Number(n).toLocaleString('fr-FR');
+const reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;
+const IC={check:'<svg class="i" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7"/></svg>',
+  alert:'<svg class="i" viewBox="0 0 24 24"><path d="M12 9v4M12 17h.01M10.3 3.9 2.4 18a2 2 0 0 0 1.7 3h15.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>',
+  x:'<svg class="i" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg>',
+  clock:'<svg class="i" viewBox="0 0 24 24"><path d="M12 7v5l3 2M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z"/></svg>'};
+
+function toast(t){const el=$('#toast');el.textContent=t;el.hidden=false;clearTimeout(el._t);el._t=setTimeout(()=>el.hidden=true,3200)}
+async function jparse(r){
+  try{const t=await r.text();try{return JSON.parse(t)}catch(e){return {error:'Réponse serveur invalide (délai dépassé ou erreur interne). Réessayez avec un fichier plus petit.'}}}
+  catch(e){return {error:'Connexion interrompue : '+e}}
+}
+async function api(url,body){
+  try{const r=await fetch(url,body===undefined?{}:{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});return await jparse(r)}
+  catch(e){return {error:'Serveur injoignable. Vérifiez que la console tourne (lancer_console.bat).'}}
+}
+
+/* ================= state & navigation ================= */
+const state={step:0,path:'',name:'',original:null,analysis:null,clean:null,applied:false,charts:[],showAll:false};
+const STEPS=['Importer','Vérifier','Analyser','Partager'], VIEWS=['import','verify','analyze','share'];
+const SECTIONS={datasets:'Données',reports:'Rapports',tasks:'Tâches',settings:'Réglages'};
+
+function reach(i){return i===0||(i===1&&!!state.original)||(i>=2&&!!state.analysis)}
+function renderStepper(){
+  $('#stepper').innerHTML=STEPS.map((s,i)=>(i?'<span class="sep"></span>':'')+
+    `<button class="step ${i<state.step?'done':''}" ${i===state.step?'aria-current="step"':''} ${reach(i)?'':'disabled'} data-go="${i}"><span class="n">${i<state.step?'✓':i+1}</span><span class="t">${s}</span></button>`).join('');
+}
+function show(view){$$('[data-view]').forEach(v=>v.hidden=v.dataset.view!==view);$('#scroll').scrollTop=0}
+function setNav(key){
+  $$('nav.menu button').forEach(b=>b.dataset.nav===key?b.setAttribute('aria-current','page'):b.removeAttribute('aria-current'));
+  $('#stepper').hidden=key!=='home';
+  $('#crumb').innerHTML=key==='home'?(state.name?`Analyse / <b>${esc(state.name)}</b>`:'<b>Nouvelle analyse</b>'):`<b>${SECTIONS[key]}</b>`;
+}
+function go(i){
+  setNav('home');state.step=i;renderStepper();show(VIEWS[i]);
+  if(i===1)renderVerify();if(i===2)renderAnalyze();if(i===0)loadRecent();
+  renderSugs();
+}
+function nav(key){
+  if(key==='home'){go(state.step);return}
+  setNav(key);show(key);
+  ({datasets:loadDatasets,reports:loadReports,tasks:loadTasks,settings:loadSettings})[key]();
+}
+$('#stepper').addEventListener('click',e=>{const b=e.target.closest('[data-go]');if(b&&!b.disabled)go(+b.dataset.go)});
+$$('nav.menu button').forEach(b=>b.onclick=()=>nav(b.dataset.nav));
+document.addEventListener('click',e=>{const b=e.target.closest('[data-goto]');if(b)nav(b.dataset.goto)});
+$('#newBtn').onclick=()=>{Object.assign(state,{path:'',name:'',original:null,analysis:null,clean:null,applied:false});$('#pathInput').value='';go(0)};
+
+/* ================= import ================= */
+function importMsg(html,cls='alert'){const m=$('#importMsg');m.hidden=!html;m.innerHTML=html?`<div class="${cls}">${html}</div>`:''}
+const drop=$('#drop');
+['dragenter','dragover'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.add('over')}));
+['dragleave','drop'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.remove('over')}));
+drop.addEventListener('drop',e=>{const f=e.dataTransfer.files[0];if(f)upload(f)});
+$('#file').addEventListener('change',e=>{const f=e.target.files[0];if(f)upload(f);e.target.value=''});
+$('#fileLabel').addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();$('#file').click()}});
+function upload(f){
+  if(!/\.(csv|xlsx|xls|xlsm|json)$/i.test(f.name)){importMsg('Format non pris en charge. Utilisez un fichier CSV, Excel (.xlsx, .xls) ou JSON.');return}
+  importMsg(`<span class="spin"></span> Envoi de ${esc(f.name)}…`,'alert info');
+  const reader=new FileReader();
+  reader.onload=async()=>{
+    const data=String(reader.result).split(',')[1]||'';
+    const d=await api('/api/upload-source',{name:f.name,data});
+    if(d.path){importMsg('');startRun(d.path,f.name,f.size)}
+    else importMsg('Envoi impossible : '+esc(d.error||'erreur inconnue'));
+  };
+  reader.onerror=()=>importMsg('Lecture du fichier impossible.');
+  reader.readAsDataURL(f);
+}
+$('#pathForm').addEventListener('submit',e=>{e.preventDefault();const p=$('#pathInput').value.trim().replace(/^"|"$/g,'');
+  if(!p){importMsg('Indiquez un chemin de fichier ou une URL.');$('#pathInput').focus();return}
+  startRun(p,p.split(/[\\/]/).pop().split('?')[0]||p)});
+$('#taskSrcBtn').onclick=async()=>{
+  const d=await api('/api/fetch-source');
+  if(d.source){$('#pathInput').value=d.source;startRun(d.source,String(d.source).split(/[\\/]/).pop())}
+  else importMsg(esc(d.message||d.error||'Aucune tâche assignée pour le moment.'),'alert info');
+};
+
+/* ================= pipeline ================= */
+async function startRun(path,name,size){
+  Object.assign(state,{path,name,original:null,analysis:null,clean:null,applied:false,showAll:false});
+  setNav('home');state.step=0;renderStepper();show('run');
+  $('#runFile').textContent=name+(size?` · ${(size/1048576).toFixed(1).replace('.',',')} Mo`:'');
+  $('#runErr').hidden=true;
+  const steps=[['Lecture et profilage','Types, valeurs manquantes, statistiques'],['Contrôle qualité','Doublons, types, colonnes vides, imputations'],['Préparation de l\'analyse','Corrélations, anomalies, graphiques']];
+  $('#feed').innerHTML=steps.map(t=>`<div class="task"><div class="dot">${IC.clock}</div><div><b>${t[0]}</b><span>${t[1]}</span></div><em></em></div>`).join('');
+  const rows=[...$('#feed').children];
+  const set=(i,cls,txt,t)=>{const r=rows[i];r.className='task '+cls;r.querySelector('.dot').innerHTML=cls==='doing'?'<span class="spin"></span>':cls==='err'?IC.x:cls==='warn'?IC.alert:IC.check;
+    if(txt)r.querySelector('span').textContent=txt;r.querySelector('em').textContent=t||''};
+  const prog=p=>{$('#pct').textContent=p+' %';$('#bar').style.width=p+'%'};
+  prog(0);
+  let t0=performance.now();set(0,'doing');
+  const a=await api('/api/analyze',{file_path:path});
+  if(a.error){set(0,'err',a.error);$('#runErr').hidden=false;return}
+  set(0,'done',`${nf(a.rows)} lignes, ${a.columns} colonnes, ${a.size_kb} Ko`,secs(t0));prog(45);
+  state.original=a;state.analysis=a;
+  t0=performance.now();set(1,'doing');
+  const c=await api('/api/clean',{file_path:path});
+  if(c.error){set(1,'warn','Nettoyage indisponible : '+c.error,secs(t0));state.clean=null}
+  else{state.clean=c;const n=countFixes(c.rapport||{});set(1,n?'warn':'done',n?`${n} correction${n>1?'s':''} proposée${n>1?'s':''}`:'Aucune correction nécessaire',secs(t0))}
+  prog(85);
+  set(2,'done',`${(a.anomalies||[]).length} anomalie(s), ${(a.charts||[]).length} graphique(s)`,'');prog(100);
+  await new Promise(r=>setTimeout(r,reduce?0:350));
+  go(1);
+  say(`J'ai lu **${name}** : ${nf(a.rows)} lignes et ${a.columns} colonnes, complétude de ${String(a.completeness_pct).replace('.',',')} %. Vérifiez les corrections proposées, puis lancez l'analyse. Vous pouvez aussi me poser une question dès maintenant.`);
+}
+const secs=t=>((performance.now()-t)/1000).toFixed(1).replace('.',',')+' s';
+$('#runRetry').onclick=()=>startRun(state.path,state.name);
+$('#runBack').onclick=()=>go(0);
+
+/* ================= verify ================= */
+function countFixes(r){return (r.doublons_supprimes?1:0)+(r.colonnes_vides||[]).length+Object.keys(r.colonnes_renommees||{}).length+Object.keys(r.types_corriges||{}).length+(r.imputations||[]).length}
+const TYPE={int64:'entier',Int64:'entier',int32:'entier',float64:'décimal',float32:'décimal',object:'texte',str:'texte',string:'texte',bool:'oui/non',boolean:'oui/non','booléen':'oui/non',category:'catégorie'};
+const typeName=t=>TYPE[t]||(String(t).startsWith('datetime')?'date':t);
+function renderVerify(){
+  const a=state.original;if(!a)return;
+  const comp=a.completeness_pct, col=comp>=95?'var(--brand)':comp>=80?'var(--amber)':'var(--red)';
+  $('#ring').style.background=`conic-gradient(${col} ${comp}%, var(--surface-2) 0)`;
+  $('#ringV').textContent=Math.round(comp)+'%';
+  $('#ringTxt').textContent=`${nf(a.missing_total)} valeur(s) manquante(s) et ${(a.anomalies||[]).length} colonne(s) avec des valeurs aberrantes.`;
+  $('#dsChips').innerHTML=[`${nf(a.rows)} lignes`,`${a.columns} colonnes`,`${a.size_kb} Ko`].map(x=>`<span class="tag type">${x}</span>`).join('');
+  const cd=a.columns_detail||[], nNum=Object.keys(a.numeric_stats||{}).length;
+  const ids=cd.filter(c=>c.unique===a.rows&&c.missing===0).map(c=>c.name);
+  $('#understood').innerHTML=`Le fichier <b>${esc(a.file)}</b> contient <b>${nNum}</b> variable(s) numérique(s) et <b>${cd.length-nNum}</b> variable(s) texte ou date.`+
+    (ids.length?` Identifiant probable : <code>${esc(ids[0])}</code>.`:'')+
+    ((a.bivariate?.correlations||[])[0]?` Relation la plus forte : <code>${esc(a.bivariate.correlations[0].a)}</code> et <code>${esc(a.bivariate.correlations[0].b)}</code>.`:'');
+  const r=state.clean?.rapport||{}, items=[];
+  if(r.doublons_supprimes)items.push(['warn',`${nf(r.doublons_supprimes)} ligne(s) en double`,'Une seule occurrence est conservée.']);
+  if((r.colonnes_vides||[]).length)items.push(['warn',`${r.colonnes_vides.length} colonne(s) entièrement vide(s)`,r.colonnes_vides.join(', ')]);
+  Object.entries(r.types_corriges||{}).forEach(([k,v])=>items.push(['warn',`Type de « ${k} » à corriger`,`${typeName(v.avant)} → ${typeName(v.apres)}`]));
+  (r.imputations||[]).forEach(im=>items.push(['warn',`${nf(im.n)} valeur(s) manquante(s) dans « ${im.colonne} »`,`Complétées par ${im.methode}${im.valeur!=null?' ('+im.valeur+')':''}.`]));
+  const ren=Object.entries(r.colonnes_renommees||{});
+  if(ren.length)items.push(['info',`${ren.length} nom(s) de colonne normalisé(s)`,ren.slice(0,6).map(([x,y])=>`${x} → ${y}`).join(' · ')+(ren.length>6?' …':'')]);
+  $('#issues').innerHTML=!state.clean?`<div class="alert info">Le module de nettoyage n'est pas disponible. Vous pouvez analyser le fichier tel quel.</div>`
+    :items.length?items.map(x=>`<div class="issue"><span class="sev ${x[0]}"></span><div><b>${esc(x[1])}</b><span>${esc(x[2])}</span></div></div>`).join('')
+    :`<div class="empty">${IC.check} Aucune correction nécessaire. Les données sont propres.</div>`;
+  $('#verifyLead').textContent=!state.clean?'Hermes a profilé le fichier.':items.length?`Hermes propose ${items.length} correction(s). Rien n'est appliqué sans votre accord.`:'Le fichier est déjà propre.';
+  $('#applyClean').hidden=!state.clean||!items.length;
+  $('#skipClean').textContent=(!state.clean||!items.length)?'Lancer l\'analyse':'Analyser sans corriger';
+  $('#skipClean').className='btn '+((!state.clean||!items.length)?'primary':'ghost');
+  $('#cols').innerHTML=cd.map(c=>{const f=100-c.missing_pct;return `<tr><td class="num">${esc(c.name)}</td><td><span class="tag type">${esc(typeName(c.dtype))}</span></td>
+    <td><div class="fill"><div class="meter"><i class="${f<80?'bad':f<98?'warn':''}" style="width:${f}%"></i></div><span class="num" style="font-size:12.5px">${String(+f.toFixed(1)).replace('.',',')} %</span></div></td><td class="r num">${nf(c.unique)}</td></tr>`}).join('');
+}
+$('#skipClean').onclick=()=>{state.analysis=state.original;state.applied=false;go(2)};
+$('#applyClean').onclick=async()=>{
+  const b=$('#applyClean');b.disabled=true;b.innerHTML='<span class="spin"></span> Analyse des données corrigées…';
+  const a=await api('/api/analyze',{file_path:state.clean.cleaned_path});
+  b.disabled=false;b.innerHTML='Appliquer les corrections et analyser';
+  if(a.error){toast('Échec : '+a.error);return}
+  state.analysis=a;state.applied=true;go(2);
+  say(`Les corrections sont appliquées sur une copie (${nf(state.clean.rows)} lignes). Le fichier d'origine n'a pas changé.`);
+};
+
+/* ================= analyze ================= */
+const css=v=>getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+function renderAnalyze(){
+  const a=state.analysis;if(!a)return;
+  $('#anLead').textContent=`${a.file} · ${state.applied?'données corrigées':'données d\'origine'} · ${nf(a.rows)} lignes`;
+  const nAn=(a.anomalies||[]).reduce((s,x)=>s+x.count,0);
+  $('#kpis').innerHTML=[['Lignes',nf(a.rows),state.applied?`${nf(state.original.rows-a.rows)} retirée(s)`:'données d\'origine'],['Colonnes',a.columns,`${Object.keys(a.numeric_stats||{}).length} numérique(s)`],
+    ['Complétude',String(a.completeness_pct).replace('.',',')+' %',`${nf(a.missing_total)} manquante(s)`],['Valeurs aberrantes',nf(nAn),`dans ${(a.anomalies||[]).length} colonne(s)`]]
+    .map(k=>`<div class="kpi"><span class="label">${k[0]}</span><span class="v">${k[1]}</span><span class="d">${k[2]}</span></div>`).join('');
+  const ins=[], bv=a.bivariate||{};
+  const cor=(bv.correlations||a.correlations||[]).find(c=>Math.abs(c.r)>=0.4);
+  if(cor)ins.push(['ok','Relation',`<b>${esc(cor.a)}</b> et <b>${esc(cor.b)}</b> ${cor.r>0?'évoluent ensemble':'évoluent en sens inverse'} (r = ${String(cor.r).replace('.',',')}).`,`Corrélation ${cor.force||(Math.abs(cor.r)>=0.7?'forte':'modérée')}. Une corrélation n'est pas une cause.`,`corrélation entre ${cor.a} et ${cor.b}`]);
+  const an=[...(a.anomalies||[])].sort((x,y)=>y.count-x.count)[0];
+  if(an)ins.push(['bad','Anomalie',`<b>${nf(an.count)}</b> valeur(s) aberrante(s) dans <b>${esc(an.column)}</b>.`,esc(an.detail),`valeurs aberrantes de ${an.column}`]);
+  const g=(bv.groupes||[])[0];
+  if(g&&g.labels?.length>1){const m=g.moyennes.map(Number),hi=m.indexOf(Math.max(...m)),lo=m.indexOf(Math.min(...m));
+    ins.push(['warn','Écart entre groupes',`La moyenne de <b>${esc(g.num)}</b> est la plus haute pour <b>${esc(g.labels[hi])}</b> (${nf(+m[hi].toFixed(2))}) et la plus basse pour <b>${esc(g.labels[lo])}</b> (${nf(+m[lo].toFixed(2))}).`,`Comparaison par ${esc(g.cat)}.`,`moyenne de ${g.num} par ${g.cat}`])}
+  const worst=[...(a.columns_detail||[])].sort((x,y)=>y.missing_pct-x.missing_pct)[0];
+  if(ins.length<3&&worst&&worst.missing_pct>0)ins.push(['warn','Données manquantes',`<b>${esc(worst.name)}</b> est vide à ${String(worst.missing_pct).replace('.',',')} %.`,'C\'est la colonne la moins remplie.',`valeurs manquantes de ${worst.name}`]);
+  $('#insights').innerHTML=ins.length?ins.map(x=>`<div class="ins"><span class="tag ${x[0]}" style="justify-self:start">${x[1]}</span><p>${x[2]}</p><span class="why">${x[3]}</span><button data-ask="${esc(x[4])}">Demander à Hermes →</button></div>`).join('')
+    :'<div class="ins"><p>Aucun point saillant détecté automatiquement. Posez une question à Hermes pour explorer.</p></div>';
+  drawAnalyzeCharts();
+  const ns=Object.entries(a.numeric_stats||{}), f=v=>nf(+Number(v).toFixed(2));
+  let h='';
+  if(ns.length)h+=detailsBlock('Statistiques numériques',`<table><thead><tr><th>Variable</th><th class="r">Moyenne</th><th class="r">Écart-type</th><th class="r">Min</th><th class="r">Médiane</th><th class="r">Max</th><th class="r">Aberrantes</th></tr></thead><tbody>${ns.map(([k,v])=>`<tr><td>${esc(k)}</td><td class="r num">${f(v.mean)}</td><td class="r num">${f(v.std)}</td><td class="r num">${f(v.min)}</td><td class="r num">${f(v.median)}</td><td class="r num">${f(v.max)}</td><td class="r num">${v.outliers}</td></tr>`).join('')}</tbody></table>`);
+  if((bv.correlations||[]).length)h+=detailsBlock('Corrélations',`<table><thead><tr><th>Variable A</th><th>Variable B</th><th class="r">r</th><th>Force</th></tr></thead><tbody>${bv.correlations.map(c=>`<tr><td>${esc(c.a)}</td><td>${esc(c.b)}</td><td class="r num">${c.r}</td><td>${esc(c.force||'')}</td></tr>`).join('')}</tbody></table>`);
+  if((bv.cramer||[]).length)h+=detailsBlock('Associations entre catégories (V de Cramér)',`<table><thead><tr><th>Variable A</th><th>Variable B</th><th class="r">V</th></tr></thead><tbody>${bv.cramer.slice(0,15).map(c=>`<tr><td>${esc(c.a)}</td><td>${esc(c.b)}</td><td class="r num">${c.v}</td></tr>`).join('')}</tbody></table>`);
+  if((a.anomalies||[]).length)h+=detailsBlock('Anomalies',`<table><thead><tr><th>Colonne</th><th>Type</th><th class="r">Nombre</th><th>Détail</th></tr></thead><tbody>${a.anomalies.map(x=>`<tr><td>${esc(x.column)}</td><td>${esc(x.type)}</td><td class="r num">${x.count}</td><td>${esc(x.detail)}</td></tr>`).join('')}</tbody></table>`);
+  $('#details').innerHTML=h;
+}
+const detailsBlock=(t,html)=>`<details class="more"><summary>${t}</summary><div class="tablewrap">${html}</div></details>`;
+function drawAnalyzeCharts(){
+  const a=state.analysis;if(!a)return;
+  state.charts.forEach(c=>c.destroy&&c.destroy());state.charts=[];
+  const list=[...(a.bivariate?.groupes||[]).map(g=>({title:`${g.num} moyen par ${g.cat}`,type:'bar',labels:g.labels,values:[g.moyennes]})),...(a.charts||[])];
+  const shown=state.showAll?list:list.slice(0,6);
+  $('#charts').innerHTML=shown.length?shown.map((c,i)=>`<div class="card"><h2 style="font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(c.title)}">${esc(c.title)}</h2><div class="cbox"><canvas id="ac${i}" role="img" aria-label="${esc(c.title)}"></canvas></div></div>`).join('')
+    :'<div class="card empty">Aucun graphique pour ce fichier.</div>';
+  shown.forEach((c,i)=>{const cv=document.getElementById('ac'+i);if(cv){const ch=drawChart(cv,c);if(ch)state.charts.push(ch)}});
+  const mb=$('#moreCharts');mb.hidden=list.length<=6;mb.textContent=state.showAll?'Afficher moins':`Afficher les ${list.length} graphiques`;
+}
+$('#moreCharts').onclick=()=>{state.showAll=!state.showAll;drawAnalyzeCharts()};
+$('#toShare').onclick=()=>go(3);
+
+function drawChart(canvas,ch){
+  if(!window.Chart)return null;
+  const t=(ch.type||'bar').toLowerCase();
+  if(t==='box'){drawBoxplot(canvas,ch);return null}
+  const fg=css('--muted'),grid=css('--line'),text=css('--fg');
+  const pal=[css('--brand'),css('--blue'),css('--amber'),css('--red'),'#8E6CC0','#2A9D8F','#C06C84','#6C8EAD'];
+  Chart.defaults.font.family=css('--sans');Chart.defaults.color=fg;
+  const isPie=t==='pie'||t==='doughnut',isLine=t==='line'||t==='area',isScatter=t==='scatter',isHist=t==='histogram';
+  const type=isPie?(t==='doughnut'?'doughnut':'pie'):isLine?'line':isScatter?'scatter':'bar';
+  let labels=(ch.labels||[]).map(l=>{const s=String(l);return s.length>32?s.slice(0,31)+'…':s});
+  let values=ch.values||[];
+  if(type==='bar'&&!isHist&&labels.length>15){const v0=values[0]||[];const idx=labels.map((_,i)=>i).sort((x,y)=>(+v0[y]||0)-(+v0[x]||0)).slice(0,15);labels=idx.map(i=>labels[i]);values=values.map(v=>idx.map(i=>v[i]))}
+  const horizontal=type==='bar'&&!isHist&&labels.length>8, single=values.length<=1;
+  const datasets=isScatter?values.map((vals,i)=>({label:ch.seriesNames?.[i]||'',data:(ch.labels||[]).map((x,j)=>({x:+x,y:+vals[j]})),backgroundColor:pal[i%8]+'99',pointRadius:3}))
+    :values.map((vals,i)=>({label:ch.seriesNames?.[i]||(single?'':'Série '+(i+1)),data:vals,backgroundColor:isPie?pal:(isLine?pal[i%8]+'22':pal[i%8]),borderColor:isPie?css('--surface'):pal[i%8],
+      borderWidth:isPie?2:isLine?2:0,borderRadius:isHist?0:4,fill:t==='area'||(isLine&&single),tension:.3,pointRadius:isLine?0:undefined,pointHoverRadius:4,barPercentage:isHist?1:.8,categoryPercentage:isHist?1:.8}));
+  const ax={ticks:{color:fg,font:{size:11}},grid:{color:grid}}, axNo={ticks:{color:text,font:{size:11}},grid:{display:false}};
+  return new Chart(canvas,{type,data:{labels:isScatter?undefined:labels,datasets},options:{responsive:true,maintainAspectRatio:false,animation:reduce?false:undefined,
+    indexAxis:horizontal?'y':'x',plugins:{legend:{display:!single||isPie,position:'bottom',labels:{usePointStyle:true,boxWidth:8}}},
+    scales:isPie?{}:isScatter?{x:{...ax,type:'linear'},y:ax}:horizontal?{x:ax,y:axNo}:{x:{...axNo,ticks:{...axNo.ticks,maxRotation:40}},y:ax}}});
+}
+function drawBoxplot(canvas,ch){
+  const ctx=canvas.getContext('2d'),p=canvas.parentElement,w=p.clientWidth||400,h=p.clientHeight||200,dpr=devicePixelRatio||1;
+  canvas.width=w*dpr;canvas.height=h*dpr;canvas.style.width=w+'px';canvas.style.height=h+'px';ctx.scale(dpr,dpr);
+  const cats=ch.labels||[],boxes=ch.values||[],n=Math.min(cats.length,boxes.length);if(!n)return;
+  let all=[];boxes.forEach(b=>{if(Array.isArray(b))all=all.concat(b.map(Number))});if(!all.length)return;
+  let mn=Math.min(...all),mx=Math.max(...all);if(mn===mx){mn--;mx++}
+  const padL=Math.min(170,Math.max(80,w*.33)),padR=14,padT=10,padB=22,pw=w-padL-padR,ph=h-padT-padB,x=v=>padL+(v-mn)/(mx-mn)*pw,ys=ph/n,bw=Math.min(16,ys*.6);
+  ctx.font='11px '+css('--sans');ctx.strokeStyle=css('--line');ctx.fillStyle=css('--muted');
+  ctx.beginPath();ctx.moveTo(padL,padT);ctx.lineTo(padL,h-padB);ctx.lineTo(w-padR,h-padB);ctx.stroke();
+  for(let k=0;k<=4;k++){const v=mn+(mx-mn)*k/4;ctx.fillText(String(Math.round(v*100)/100),x(v)-8,h-padB+14)}
+  for(let i=0;i<n;i++){const b=boxes[i];if(!Array.isArray(b)||b.length<5)continue;const [mi,q1,me,q3,ma]=b.map(Number),cy=padT+ys*i+ys/2;
+    ctx.strokeStyle=css('--muted');ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(x(mi),cy);ctx.lineTo(x(ma),cy);ctx.stroke();
+    ctx.fillStyle=css('--brand');ctx.fillRect(x(q1),cy-bw/2,Math.max(1,x(q3)-x(q1)),bw);
+    ctx.strokeStyle=css('--fg');ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(x(me),cy-bw/2);ctx.lineTo(x(me),cy+bw/2);ctx.stroke();
+    ctx.fillStyle=css('--fg');ctx.textAlign='right';ctx.textBaseline='middle';const l=String(cats[i]);ctx.fillText(l.length>22?l.slice(0,21)+'…':l,padL-6,cy);ctx.textAlign='left';ctx.textBaseline='alphabetic'}
+}
+
+/* ================= share ================= */
+$$('.exp[data-exp]').forEach(b=>b.onclick=async()=>{
+  const kind=b.dataset.exp,s=b.querySelector('span:last-child'),old=s.textContent;
+  s.innerHTML='<span class="spin"></span> Génération…';
+  const d=await api('/api/export/'+kind,{});
+  if(d.url){s.innerHTML=`Prêt : <a href="${esc(d.url)}" download="${esc(d.file)}">${esc(d.file)}</a>`;const a=document.createElement('a');a.href=d.url;a.download=d.file||'';document.body.append(a);a.click();a.remove();toast(`Export ${kind.toUpperCase()} téléchargé`);loadCounts()}
+  else{s.textContent=old;toast(d.error||'Export impossible')}
+});
+$('#ingestCard').onclick=async()=>{
+  const b=$('#ingestCard'),s=b.querySelector('span:last-child'),old=s.textContent;
+  const src=state.applied&&state.clean?state.clean.cleaned_path:state.path;
+  if(!src){toast('Analysez d\'abord un fichier');return}
+  s.innerHTML='<span class="spin"></span> Enregistrement…';
+  const d=await api('/api/ingest',{file_path:src});
+  s.textContent=old;
+  const out=$('#ingestOut');out.hidden=false;
+  if(d.error){out.innerHTML=`<div class="alert">${esc(d.error)}</div>`;return}
+  const v=d.version||{};
+  out.innerHTML=`<h2>${d.status==='OK'?IC.check:IC.alert} Enregistré dans le registre</h2>
+    <div class="setrow"><div><b>Version</b><span>${esc(d.dataset_id||'')}</span></div><span class="tag ok num">v${String(v.version_no||0).padStart(3,'0')}</span></div>
+    <div class="setrow"><div><b>Contenu</b><span>${nf(d.row_count||0)} lignes · ${d.column_count||0} colonnes</span></div><span class="tag ${d.status==='OK'?'ok':'warn'}">${esc(d.status||'')}</span></div>
+    <div class="setrow"><div><b>Source intacte</b><span>Vérifiée par empreinte SHA-256</span></div><span class="tag ${d.source_metadata?.integrity?.source_unchanged?'ok':'warn'}">${d.source_metadata?.integrity?.source_unchanged?'Oui':'Non vérifié'}</span></div>
+    ${(d.warnings||[]).length?`<p class="sub" style="margin-top:8px">${d.warnings.length} avertissement(s) : ${esc(d.warnings.slice(0,3).join(' · '))}</p>`:''}`;
+  toast('Jeu de données enregistré');loadCounts();
+};
+
+/* ================= sections ================= */
+const fmtDate=t=>t?new Date(t).toLocaleString('fr-FR',{day:'numeric',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'}):'—';
+function dsTable(ds,limit){
+  const rows=limit?ds.slice(0,limit):ds;
+  return `<div class="tablewrap"><table><thead><tr><th>Nom</th><th>Version</th><th>Format</th><th class="r">Lignes</th><th class="r">Colonnes</th><th>Enregistré le</th></tr></thead><tbody>
+    ${rows.map(x=>`<tr><td>${esc(x.dataset_name)}</td><td class="num">v${String(x.version_no).padStart(3,'0')}</td><td>${esc(x.source_format||'—')}</td><td class="r num">${nf(x.row_count||0)}</td><td class="r num">${x.column_count??''}</td><td>${fmtDate(x.ingested_at)}</td></tr>`).join('')}</tbody></table></div>`;
+}
+async function loadRecent(){
+  const d=await api('/api/ingest/list'),el=$('#recent');
+  if(d.error){el.className='empty';el.textContent='Registre indisponible : '+d.error;return}
+  const ds=d.datasets||[];el.className='';el.innerHTML=ds.length?dsTable(ds,4):'<div class="empty">Aucun jeu de données enregistré pour le moment.</div>';
+  $('#cntDs').textContent=ds.length||'';
+}
+async function loadDatasets(){
+  const d=await api('/api/ingest/list'),el=$('#dsBody');
+  if(d.error){el.className='';el.innerHTML=`<div class="alert">Registre indisponible : ${esc(d.error)}</div>`;return}
+  const s=(d.summary||{}).counts||{},ds=d.datasets||[];
+  el.className='';el.innerHTML=`<p class="sub" style="margin-bottom:8px">${s.datasets??ds.length} jeu(x) de données · ${s.versions??'—'} version(s) · ${s.executions??'—'} exécution(s) · stockage ${esc(d.backend||'')}</p>`+
+    (ds.length?dsTable(ds):'<div class="empty">Le registre est vide. Analysez un fichier puis choisissez « Enregistrer dans le registre ».</div>');
+  $('#cntDs').textContent=ds.length||'';
+}
+async function loadReports(){
+  const d=await api('/api/exports'),el=$('#rpList');
+  if(d.error||!Array.isArray(d)){el.innerHTML=`<div class="alert">${esc(d.error||'Liste indisponible')}</div>`;return}
+  el.innerHTML=d.length?d.map(f=>{const ext=f.file.split('.').pop().toUpperCase();return `<div class="li"><div><b>${esc(f.file)}</b><span><span class="tag type">${esc(ext)}</span> ${String(f.size_kb).replace('.',',')} Ko · ${fmtDate(f.modified)}</span></div>
+    <a class="btn ghost sm" href="${esc(f.url)}" download="${esc(f.file)}">Télécharger</a></div>`}).join('')
+    :'<div class="empty">Aucun rapport pour le moment. Analysez un fichier puis exportez-le.</div>';
+  $('#cntRp').textContent=d.length||'';
 }
 async function loadTasks(){
-  try{
-    const r=await fetch('/api/tasks');const d=await jparse(r);
-    if(!Array.isArray(d)||d.length===0){$('tasks').innerHTML='<div class="empty">Aucune tâche pour le moment.</div>';return;}
-    $('tasks').innerHTML='<table><tr><th>ID</th><th>Statut</th><th>Type</th></tr>'+d.map(t=>
-      `<tr><td>${t.id||t.task_id||'—'}</td><td>${t.status||'—'}</td><td>${t.type||'—'}</td></tr>`).join('')+'</table>';
-  }catch(e){$('tasks').innerHTML='<div class="empty">Impossible de charger les tâches.</div>';}
+  const d=await api('/api/tasks'),el=$('#tkList');
+  if(!Array.isArray(d)){el.innerHTML=`<div class="alert info">Orchestrateur injoignable${d.error?' : '+esc(d.error):''}. Les tâches s'afficheront dès que la connexion sera rétablie.</div>`;return}
+  el.innerHTML=d.length?d.map(t=>{const p=t.payload||{},src=p.source||p.file||p.link||p.url||t.source||t.file||'';return `<div class="li"><div><b>${esc(t.type||'Tâche')} <span class="num" style="font-weight:400">#${esc(t.id||t.task_id||'')}</span></b>
+    <span><span class="tag ${/done|complet/i.test(t.status||'')?'ok':'warn'}">${esc(t.status||'—')}</span> ${src?esc(src):'Aucune source jointe'}</span></div>
+    ${src?`<button class="btn primary sm" data-src="${esc(src)}">Analyser la source</button>`:''}</div>`}).join('')
+    :'<div class="empty">Aucune tâche assignée pour le moment.</div>';
+  $('#cntTk').textContent=d.length||'';
 }
-function setPath(p){$('filePath').value=p;}
-function notify(msg, isErr){
-  const m=$('msg');
-  m.innerHTML=`<div class="${isErr?'anom':'empty'}" style="padding:10px 0;">${msg}</div>`;
-  if(msg) setTimeout(()=>{if(m.innerHTML.includes(msg))m.innerHTML='';},6000);
+$('#tkList').addEventListener('click',e=>{const b=e.target.closest('[data-src]');if(b){const s=b.dataset.src;startRun(s,s.split(/[\\/]/).pop())}});
+async function loadSettings(){
+  $('#themeSel').value=document.documentElement.dataset.theme||'';
+  const [st,reg]=await Promise.all([api('/api/status'),api('/api/ingest/list')]);
+  const on=st&&!st.error&&String(st.status||'').toUpperCase()==='ONLINE';
+  $('#services').innerHTML=`
+    <div class="setrow"><div><b>Orchestrateur CVLynk</b><span>${on?`${(st.capabilities||[]).length} capacité(s) déclarée(s), signal envoyé toutes les 45 s`:esc(st.error||st.detail||'Statut : '+(st.status||'inconnu'))}</span></div><span class="tag ${on?'ok':'bad'}">${on?'En ligne':'Hors ligne'}</span></div>
+    <div class="setrow"><div><b>Registre des données</b><span>${reg.error?esc(reg.error):'Stockage : '+esc(reg.backend||'')}</span></div><span class="tag ${reg.error?'bad':'ok'}">${reg.error?'Indisponible':'Disponible'}</span></div>`;
 }
-async function fetchSource(){
-  try{
-    const r=await fetch('/api/fetch-source');const d=await jparse(r);
-    if(d.source){$('filePath').value=d.source;notify('Source récupérée : '+d.source);}
-    else{
-      $('sourceRow').style.display='flex';
-      $('sourceUrl').focus();
-      notify('Aucune tâche côté orchestrateur. Collez une URL ou un chemin de fichier, puis « Valider la source ».', true);
-    }
-  }catch(e){notify('Erreur : '+e, true);}
+async function loadCounts(){
+  const [r,t]=await Promise.all([api('/api/exports'),api('/api/tasks')]);
+  if(Array.isArray(r))$('#cntRp').textContent=r.length||'';
+  if(Array.isArray(t))$('#cntTk').textContent=t.length||'';
 }
-function confirmSource(){
-  const u=$('sourceUrl').value.trim();
-  if(u){$('filePath').value=u;$('sourceRow').style.display='none';notify('Source définie : '+u);}
-  else notify('Collez une URL ou un chemin de fichier.', true);
-}
-async function uploadSource(){
-  const f=$('sourceFile').files[0];
-  if(!f) return;
-  notify('Envoi de '+f.name+'…');
-  try{
-    const reader=new FileReader();
-    reader.onload=async ()=>{
-      const data=String(reader.result).split(',')[1]||'';
-      const r=await fetch('/api/upload-source',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:f.name,data})});
-      const d=await jparse(r);
-      if(d.path){$('filePath').value=d.path;$('sourceRow').style.display='none';notify('Fichier chargé : '+d.path);}
-      else notify('Échec : '+(d.error||'inconnu'), true);
-    };
-    reader.readAsDataURL(f);
-  }catch(e){notify('Erreur : '+e, true);}
-  $('sourceFile').value='';
-}
-async function exportResult(kind){
-  try{
-    const r=await fetch('/api/export/'+kind,{method:'POST'});
-    const d=await jparse(r);
-    if(d.url){
-      const a=document.createElement('a');a.href=d.url;a.download=d.file||'';document.body.appendChild(a);a.click();a.remove();
-      notify('Export '+kind.toUpperCase()+' téléchargé : '+d.file);
-    } else {
-      notify(d.error||'Erreur export.', true);
-    }
-  }catch(e){notify('Erreur : '+e, true);}
-}
-async function runAnalyze(){
-  const p=$('filePath').value.trim();
-  if(!p){$('result').innerHTML='<div class="anom">⚠ Indiquez un chemin de fichier.</div>';return;}
-  const btn=$('analyzeBtn');btn.disabled=true;btn.innerHTML='<span class="spin"></span>Analyse en cours…';
-  $('result').innerHTML='<div class="empty"><span class="spin"></span>Analyse en cours…</div>';
-  try{
-    const r=await fetch('/api/analyze',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({file_path:p})});
-    const d=await jparse(r);
-    if(d.error){$('result').innerHTML=`<div class="anom">⚠ ${d.error}</div>`;btn.disabled=false;btn.textContent="Lancer l'analyse";return;}
-    renderResult(d);
-  }catch(e){$('result').innerHTML='<div class="anom">⚠ Erreur : '+e+'</div>';}
-  btn.disabled=false;btn.textContent="Lancer l'analyse";
-}
-function renderResult(d){
-  let html=`
-    <div class="statgrid">
-      <div class="chip"><div class="n">${d.rows.toLocaleString('fr-FR')}</div><div class="l">lignes</div></div>
-      <div class="chip"><div class="n">${d.columns}</div><div class="l">colonnes</div></div>
-      <div class="chip"><div class="n">${d.completeness_pct}%</div><div class="l">complétude</div></div>
-      <div class="chip"><div class="n">${d.missing_total}</div><div class="l">manquantes</div></div>
-      <div class="chip"><div class="n">${(d.anomalies||[]).length}</div><div class="l">anomalies</div></div>
-    </div>
-    <h2 style="margin-top:20px;">Colonnes</h2>
-    <table><tr><th>Variable</th><th>Type</th><th class="r">Uniques</th><th class="r">Manquantes</th><th class="r">%</th></tr>
-    ${d.columns_detail.map(c=>`<tr><td>${c.name}</td><td>${c.dtype}</td><td class="r">${c.unique}</td><td class="r">${c.missing}</td><td class="r">${c.missing_pct}%</td></tr>`).join('')}
-    </table>`;
-  const ns=Object.entries(d.numeric_stats||{});
-  if(ns.length){
-    html+=`<h2 style="margin-top:20px;">Statistiques numériques</h2>
-    <table><tr><th>Variable</th><th class="r">Moyenne</th><th class="r">Écart-type</th><th class="r">Min</th><th class="r">Médiane</th><th class="r">Max</th><th class="r">Hors-normes</th></tr>
-    ${ns.map(([k,v])=>`<tr><td>${k}</td><td class="r">${v.mean}</td><td class="r">${v.std}</td><td class="r">${v.min}</td><td class="r">${v.median}</td><td class="r">${v.max}</td><td class="r">${v.outliers}</td></tr>`).join('')}
-    </table>`;
-  }
-  const bv=d.bivariate||{};
-  if((bv.correlations||[]).length){
-    html+=`<h2 style="margin-top:20px;">Corrélations (numérique × numérique)</h2>
-    <table><tr><th>Variable A</th><th>Variable B</th><th class="r">r</th><th>Force</th></tr>
-    ${bv.correlations.map(c=>`<tr><td>${c.a}</td><td>${c.b}</td><td class="r">${c.r}</td><td>${c.force}</td></tr>`).join('')}</table>`;
-  }
-  if((bv.cramer||[]).length){
-    html+=`<h2 style="margin-top:20px;">Associations catégorielles (V de Cramér)</h2>
-    <table><tr><th>Variable A</th><th>Variable B</th><th class="r">V</th></tr>
-    ${bv.cramer.slice(0,15).map(c=>`<tr><td>${c.a}</td><td>${c.b}</td><td class="r">${c.v}</td></tr>`).join('')}</table>`;
-  }
-  if((bv.groupes||[]).length){
-    html+=`<h2 style="margin-top:20px;">Moyennes par groupe (numérique vs catégoriel)</h2><div class="chartgrid">`;
-    html+=bv.groupes.map((g,i)=>`<div class="chartcard"><div class="ctitle">${esc(g.num)} par ${esc(g.cat)}</div><div class="cbody"><canvas id="bg${i}"></canvas></div></div>`).join('');
-    html+=`</div>`;
-  }
-  if((d.anomalies||[]).length){
-    html+=`<h2 style="margin-top:20px;">Anomalies</h2>`;
-    html+=d.anomalies.map(a=>`<div class="anom"><b>${a.column}</b> — ${a.type} (${a.count}) : ${a.detail}</div>`).join('');
-  }
-  if((d.charts||[]).length){
-    html+=`<h2 style="margin-top:20px;">Visualisation des variables</h2><div class="chartgrid">`;
-    html+=d.charts.map((c,i)=>`<div class="chartcard"><div class="ctitle">${esc(c.title||'')}</div><div class="cbody"><canvas id="vc${i}"></canvas></div></div>`).join('');
-    html+=`</div>`;
-  }
-  $('result').innerHTML=html;
-  if((bv.groupes||[]).length){
-    bv.groupes.forEach((g,i)=>{
-      const cv=document.getElementById('bg'+i);
-      if(cv && window.Chart) drawChart(cv, {type:'bar', labels:g.labels, values:[g.moyennes]});
-    });
-  }
-  if((d.charts||[]).length){
-    d.charts.forEach((c,i)=>{
-      const cv=document.getElementById('vc'+i);
-      if(cv && window.Chart) drawChart(cv, c);
-    });
-  }
-}
-let lastCleanedPath='';
-async function ingestCleaned(){
-  if(!lastCleanedPath){notify('Aucune donnée nettoyée à ingérer.', true);return;}
-  const btn=$('ingestCleanedBtn');
-  if(btn){btn.disabled=true;btn.innerHTML='<span class="spin"></span>Ingestion…';}
-  try{
-    const r=await fetch('/api/ingest',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({file_path:lastCleanedPath})});
-    const d=await jparse(r);
-    if(d.error) notify('Échec ingestion : '+d.error, true);
-    else { notify('✓ Données nettoyées ingérées'); if(typeof renderIngest==='function') renderIngest(d); }
-  }catch(e){notify('Erreur : '+e, true);}
-  if(btn){btn.disabled=false;btn.textContent='Ingérer les données nettoyées';}
-}
-async function runClean(){
-  const p=$('filePath').value.trim();
-  if(!p){$('result').innerHTML='<div class="anom">⚠ Indiquez un chemin de fichier.</div>';return;}
-  const btn=$('cleanBtn');btn.disabled=true;btn.innerHTML='<span class="spin"></span>Nettoyage…';
-  $('result').innerHTML='<div class="empty"><span class="spin"></span>Nettoyage et modélisation en cours…</div>';
-  try{
-    const r=await fetch('/api/clean',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({file_path:p})});
-    const d=await jparse(r);
-    if(d.error){$('result').innerHTML=`<div class="anom">⚠ ${d.error}</div>`;btn.disabled=false;btn.textContent='Nettoyer / Modéliser';return;}
-    renderClean(d);
-  }catch(e){$('result').innerHTML='<div class="anom">⚠ Erreur : '+e+'</div>';}
-  btn.disabled=false;btn.textContent='Nettoyer / Modéliser';
-}
-function renderClean(d){
-  const r=d.rapport||{};
-  let html=`<div class="statgrid">
-    <div class="chip"><div class="n">${r.lignes_avant??d.rows}</div><div class="l">lignes avant</div></div>
-    <div class="chip"><div class="n">${r.lignes_apres??d.rows}</div><div class="l">lignes après</div></div>
-    <div class="chip"><div class="n">${r.doublons_supprimes??0}</div><div class="l">doublons supprimés</div></div>
-    <div class="chip"><div class="n">${Object.keys(r.types_corriges||{}).length}</div><div class="l">types corrigés</div></div>
-    <div class="chip"><div class="n">${(r.imputations||[]).length}</div><div class="l">imputations</div></div>
-  </div>`;
-  lastCleanedPath=d.cleaned_path||'';
-  if(lastCleanedPath) $('ingestPath').value=lastCleanedPath;
-  html+=`<div class="row" style="margin-top:16px;">
-    <button class="btn green" id="ingestCleanedBtn" onclick="ingestCleaned()">Ingérer les données nettoyées</button>
-    ${lastCleanedPath?`<span class="hint" style="margin:0;">→ ${esc(lastCleanedPath)}</span>`:''}
-  </div>`;
-  html+=`<h2 style="margin-top:20px;">Détail du nettoyage</h2>`;
-  const details=[];
-  if((r.colonnes_vides||[]).length) details.push(`<div class="anom" style="border-color:var(--blue);">🗑 Colonnes vides supprimées : <b>${r.colonnes_vides.join(', ')}</b></div>`);
-  if(r.doublons_supprimes) details.push(`<div class="anom" style="border-color:var(--blue);">♻ ${r.doublons_supprimes} ligne(s) dupliquée(s) supprimée(s)</div>`);
-  const ren=Object.entries(r.colonnes_renommees||{});
-  if(ren.length) details.push(`<div class="anom" style="border-color:var(--blue);">✏ Colonnes renommées : ${ren.map(([a,b])=>`<b>${esc(a)}</b> → <b>${esc(b)}</b>`).join(', ')}</div>`);
-  const tc=Object.entries(r.types_corriges||{});
-  if(tc.length) details.push(`<div class="anom" style="border-color:var(--blue);">🔧 Types corrigés : ${tc.map(([k,v])=>`<b>${esc(k)}</b> (${v.avant} → ${v.apres})`).join(', ')}</div>`);
-  (r.imputations||[]).forEach(im=>details.push(`<div class="anom" style="border-color:var(--blue);">📊 <b>${esc(im.colonne)}</b> : ${im.n} valeur(s) manquante(s) imputée(s) par <b>${im.methode}</b>${im.valeur!=null?' ('+esc(String(im.valeur))+')':''}</div>`));
-  if(!details.length) details.push(`<div class="hint">Aucune anomalie détectée — données déjà propres.</div>`);
-  html+=details.join('');
-  html+=`<h2 style="margin-top:20px;">Types des variables (après nettoyage)</h2>
-  <table><tr><th>Variable</th><th>Type</th></tr>
-  ${d.colonnes.map(c=>`<tr><td>${esc(c)}</td><td>${esc(d.types[c]||'')}</td></tr>`).join('')}</table>`;
-  if((r.ordre_colonnes||[]).length){
-    html+=`<h2 style="margin-top:20px;">Disposition proposée</h2><div class="hint">${r.ordre_colonnes.map(esc).join(' → ')}</div>`;
-  }
-  html+=`<h2 style="margin-top:20px;">Aperçu des données nettoyées (${d.rows} lignes)</h2>`;
-  html+=`<div style="overflow-x:auto;"><table><tr>${d.colonnes.map(c=>`<th>${esc(c)}</th>`).join('')}</tr>`;
-  html+=d.apercu.map(row=>`<tr>${row.map(cell=>`<td>${cell==null?'':esc(String(cell))}</td>`).join('')}</tr>`).join('');
-  html+=`</table></div>`;
-  if(d.rows>30) html+=`<div class="hint">Aperçu limité aux 30 premières lignes sur ${d.rows}.</div>`;
-  $('result').innerHTML=html;
-}
-async function runIngest(){
-  const p=$('ingestPath').value.trim();
-  const box=$('ingestResult');
-  if(!p){box.innerHTML='<div class="anom">⚠ Indiquez un chemin, une URL ou un DSN.</div>';return;}
-  const btn=$('ingestBtn');btn.disabled=true;btn.innerHTML='<span class="spin"></span>Ingestion…';
-  box.innerHTML='<div class="empty"><span class="spin"></span>Ingestion en cours (détection, copie RAW, version de travail, métadonnées)…</div>';
-  try{
-    const body={file_path:p,sheet:$('ingestSheet').value.trim(),table:$('ingestTable').value.trim(),name:$('ingestName').value.trim()};
-    const r=await fetch('/api/ingest',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
-    const d=await jparse(r);
-    if(d.error){box.innerHTML=`<div class="anom">⚠ ${d.error}</div>`;}
-    else renderIngest(d);
-  }catch(e){box.innerHTML='<div class="anom">⚠ Erreur : '+e+'</div>';}
-  btn.disabled=false;btn.textContent='Ingérer';
-}
-function renderIngest(d){
-  const sm=d.source_metadata||{}, v=d.version||{}, st=d.storage||{}, ms=d.metadata_store||{};
-  const intg=sm.integrity||{};
-  const badge=(d.status==='OK')?'online':(d.status==='ERREUR'?'offline':'pending');
-  let html=`<div class="statgrid">
-    <div class="chip"><div class="n">${(d.row_count||0).toLocaleString('fr-FR')}</div><div class="l">lignes</div></div>
-    <div class="chip"><div class="n">${d.column_count||0}</div><div class="l">colonnes</div></div>
-    <div class="chip"><div class="n">v${String(v.version_no||0).padStart(3,'0')}</div><div class="l">version</div></div>
-    <div class="chip"><div class="n">${(d.variables||[]).filter(c=>c.id_candidate).length}</div><div class="l">identifiants</div></div>
-    <div class="chip"><div class="n">${(d.warnings||[]).length}</div><div class="l">avertissements</div></div>
-    <div class="chip"><div class="n">${d.duration_ms||0}</div><div class="l">ms</div></div>
-  </div>
-  <div class="kv"><span class="k">statut</span><span class="v"><span class="badge ${badge}"><span class="dot"></span>${d.status}</span></span></div>
-  <div class="kv"><span class="k">dataset_id</span><span class="v">${d.dataset_id||'—'}</span></div>
-  <div class="kv"><span class="k">dataset_version_id</span><span class="v">${d.dataset_version_id||'—'}</span></div>
-  <div class="kv"><span class="k">format / encodage</span><span class="v">${sm.format||'—'} / ${sm.encoding||'—'}${sm.separator?' — séparateur « '+sm.separator+' »':''}</span></div>
-  <div class="kv"><span class="k">source intacte</span><span class="v">${intg.source_unchanged===true?'OUI':'—'} <span class="muted">${intg.mode||''}</span></span></div>
-  <div class="kv"><span class="k">version de travail</span><span class="v">${st.work_path||'—'}</span></div>
-  <div class="kv"><span class="k">métadonnées</span><span class="v">${ms.backend||'—'} — ${JSON.stringify(ms.written||{})}</span></div>`;
-  const vars=d.variables||[];
-  if(vars.length){
-    html+=`<h2 style="margin-top:18px;">Variables (${vars.length})</h2>
-    <table><tr><th>#</th><th>Variable</th><th>Type</th><th>Rôle</th><th class="r">Vides</th><th class="r">Uniques</th><th>ID</th></tr>
-    ${vars.map(c=>`<tr><td>${c.ordinal}</td><td>${c.name}</td><td>${c.normalized_type}</td><td>${c.semantic_role}</td>
-      <td class="r">${c.null_pct}%</td><td class="r">${c.distinct_count}</td><td>${c.id_candidate?'✔':''}</td></tr>`).join('')}</table>`;
-  }
-  const w=d.warnings||[];
-  html+=`<h2 style="margin-top:18px;">Avertissements (${w.length})</h2>`;
-  html+= w.length? w.slice(0,12).map(x=>`<div class="anom">${x}</div>`).join('')+(w.length>12?`<div class="empty">… ${w.length-12} autre(s)</div>`:'') : '<div class="empty">Aucun avertissement.</div>';
-  const e=d.errors||[];
-  if(e.length){html+=`<h2 style="margin-top:18px;">Erreurs</h2>`+e.map(x=>`<div class="anom" style="border-color:#f85149;">${x}</div>`).join('');}
-  html+=`<div class="hint">Contrat complet : /api/ingest · ${d.run_id||''} · ${(d.audit||[]).length} étapes journalisées</div>`;
-  $('ingestResult').innerHTML=html;
-}
-async function loadRegistry(){
-  const box=$('registry');
-  box.innerHTML='<div class="empty"><span class="spin"></span>Lecture du registre…</div>';
-  try{
-    const r=await fetch('/api/ingest/list');const d=await jparse(r);
-    if(d.error){box.innerHTML=`<div class="anom">⚠ ${d.error}</div>`;return;}
-    const s=(d.summary||{}).counts||{};
-    let html=`<h2 style="margin-top:18px;">Registre de métadonnées — ${d.backend}</h2>
-      <div class="hint">${s.datasets??0} dataset(s) · ${s.versions??0} version(s) · ${s.colonnes??0} colonne(s) · ${s.executions??0} exécution(s)</div>`;
-    const ds=d.datasets||[];
-    if(ds.length){
-      html+=`<table><tr><th>dataset_id</th><th>v</th><th>Nom</th><th>Format</th><th class="r">Lignes</th><th class="r">Col.</th><th>Ingéré le</th></tr>
-      ${ds.map(x=>`<tr><td>${x.dataset_id}</td><td>v${String(x.version_no).padStart(3,'0')}</td><td>${x.dataset_name}</td><td>${x.source_format||'—'}</td>
-        <td class="r">${x.row_count}</td><td class="r">${x.column_count}</td><td class="muted">${fmt(x.ingested_at)}</td></tr>`).join('')}</table>`;
-    } else html+='<div class="empty">Registre vide.</div>';
-    box.innerHTML=html;
-  }catch(e){box.innerHTML='<div class="anom">⚠ Erreur : '+e+'</div>';}
-}
-loadStatus();loadTasks();
-setInterval(loadStatus,60000);
 
-function esc(s){return String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
-function md(s){return esc(s).replace(/\*\*(.+?)\*\*/g,'<b>$1</b>').replace(/`([^`]+)`/g,'<code>$1</code>');}
-async function jparse(r){
-  try{
-    const t=await r.text();
-    try{ return JSON.parse(t); }
-    catch(e){ return {error:'Réponse serveur invalide (timeout ou erreur interne). Réessayez en local ou avec un fichier plus petit.'}; }
-  }catch(e){ return {error:'Connexion interrompue : '+e}; }
+/* ================= status ================= */
+async function loadStatus(){
+  const d=await api('/api/status'),el=$('#status'),st=String(d.status||'').toUpperCase();
+  el.className='status hide-sm '+(st==='ONLINE'?'on':'off');
+  el.innerHTML=`<i></i>${st==='ONLINE'?'Hermes en ligne':'Orchestrateur hors ligne'}`;
+  el.title=st==='ONLINE'?'':'L\'analyse locale fonctionne. Seules les tâches assignées sont indisponibles.';
 }
-function addMsg(role, text, table, charts){
-  const box=$('chatBox');
-  const div=document.createElement('div');
-  div.className='msg '+role;
-  // normaliser en liste de graphiques
-  const list = Array.isArray(charts) ? charts.filter(c=>c && c.labels && c.values)
-             : (charts && charts.labels && charts.values ? [charts] : []);
-  let inner=`<div class="mt">${md(text)}</div>`;
-  if(list.length===1){
-    // graphique unique : limiter les barres au top 12
-    let c=list[0], truncated=0;
-    if(c.type==='bar' && c.labels.length>12){
-      const v0=c.values[0]||[];
-      const idx=c.labels.map((_,i)=>i).sort((a,b)=>(Number(v0[b])||0)-(Number(v0[a])||0)).slice(0,12);
-      truncated=c.labels.length-idx.length;
-      c={type:c.type,title:c.title,labels:idx.map(i=>c.labels[i]),values:c.values.map(v=>idx.map(i=>v[i])),seriesNames:c.seriesNames};
+
+/* ================= chat ================= */
+function say(text){addMsg('agent',text)}
+function addMsg(role,text,table,charts){
+  const m=document.createElement('div');m.className='m '+role;
+  if(role==='user'){m.textContent=text}else{
+    const list=Array.isArray(charts)?charts.filter(c=>c&&c.labels&&c.values):(charts&&charts.labels&&charts.values?[charts]:[]);
+    let h=`<div class="mt">${md(text)}</div>`;
+    h+=list.map(c=>`<div class="ctitle">${esc(c.title||'')}</div><div class="mcbox"><canvas></canvas></div>`).join('');
+    if(table&&table.columns){
+      const tb=`<div class="tablewrap"><table><thead><tr>${table.columns.map(c=>`<th>${esc(c)}</th>`).join('')}</tr></thead><tbody>${(table.rows||[]).slice(0,12).map(r=>`<tr>${r.map(c=>`<td>${esc(c)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+      h+=list.length?`<details style="margin-top:8px"><summary style="cursor:pointer;font-size:12.5px;font-weight:600;color:var(--brand-strong)">Voir le tableau (${table.rows.length} lignes)</summary>${tb}</details>`:tb;
+      if(table.rows.length>12)h+=`<div class="sub">… ${table.rows.length-12} ligne(s) de plus</div>`;
     }
-    const chartH=Math.min(540,Math.max(260,c.labels.length*22+60));
-    inner+=`<div style="font-size:12px;color:#1d7a4c;font-weight:600;margin-top:10px;">${esc(c.title||'')}</div>`;
-    inner+=`<div style="position:relative;height:${chartH}px;margin-top:6px;"><canvas></canvas></div>`;
-    if(truncated>0) inner+=`<div class="hint">Top ${c.labels.length} sur ${c.labels.length+truncated} indicateurs</div>`;
-    list[0]=c;
-  } else if(list.length>1){
-    inner+=`<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px;margin-top:10px;">`+
-      list.map((c,i)=>`<div style="border:1px solid var(--line);border-radius:10px;padding:10px;"><div style="font-size:12px;color:#1d7a4c;font-weight:600;margin-bottom:6px;">${esc(c.title||('Graphique '+(i+1)))}</div><div style="position:relative;height:200px;"><canvas></canvas></div></div>`).join('')+
-      `</div>`;
+    m.innerHTML=h;
+    $('#msgs').append(m);
+    m.querySelectorAll('canvas').forEach((cv,i)=>{try{drawChart(cv,list[i])}catch(e){console.warn(e)}});
   }
-  if(table){
-    const th=table.columns.map(c=>`<th>${esc(c)}</th>`).join('');
-    const trs=table.rows.slice(0,12).map(r=>`<tr>${r.map(c=>`<td>${esc(c)}</td>`).join('')}</tr>`).join('');
-    if(list.length>0){
-      inner+=`<details style="margin-top:10px;"><summary style="cursor:pointer;color:#1d7a4c;font-size:12px;font-weight:600;">📋 Voir le tableau (${table.rows.length} lignes)</summary><table>${th}${trs}</table></details>`;
-    } else {
-      inner+=`<table>${th}${trs}</table>`;
-    }
-    if(table.rows.length>12) inner+=`<div class="hint">… ${table.rows.length-12} ligne(s) supplémentaire(s)</div>`;
-  }
-  div.innerHTML=inner;
-  box.appendChild(div);
-  if(list.length){
-    const canvases=div.querySelectorAll('canvas');
-    list.forEach((c,i)=>{ if(canvases[i]) try{ drawChart(canvases[i],c); }catch(e){ console.warn('chart',e); } });
-  }
-  box.scrollTop=box.scrollHeight;
+  if(!m.isConnected)$('#msgs').append(m);
+  $('#msgs').scrollTop=$('#msgs').scrollHeight;
+  return m;
 }
-function drawChart(canvas, ch){
-  if(!window.Chart) return;
-  const blue='#1d7a4c', green='#3bb273';
-  const t=(ch.type||'bar').toLowerCase();
-  if(t==='box'){ drawBoxplot(canvas, ch); return; }
-  const isPie=(t==='pie'||t==='doughnut');
-  const isLine=(t==='line'||t==='area');
-  const isScatter=(t==='scatter');
-  const isHist=(t==='histogram');
-  const type = isPie ? (t==='doughnut'?'doughnut':'pie') : (isLine?'line':(isScatter?'scatter':'bar'));
-  const labels=(ch.labels||[]).map(l=>{const s=String(l); return s.length>40? s.slice(0,39)+'…' : s;});
-  const horizontal=(type==='bar' && !isHist && labels.length>8);
-  const palette=[blue, green, '#2f9e63', '#52c489', '#74d1a0', '#f4c95d', '#e76f51', '#8fd18f'];
-  const single=(ch.values||[]).length<=1;
-  let datasets;
-  if(isScatter){
-    datasets=(ch.values||[]).map((vals,i)=>({
-      label:(ch.seriesNames&&ch.seriesNames[i])||'',
-      data:(ch.labels||[]).map((x,j)=>({x:Number(x),y:Number(vals[j])})),
-      backgroundColor:palette[i%palette.length],
-      borderColor:palette[i%palette.length],
-      pointRadius:4, pointHoverRadius:6
-    }));
-  } else {
-    datasets=(ch.values||[]).map((vals,i)=>({
-      label:(ch.seriesNames&&ch.seriesNames[i])||(single?'':('Série '+(i+1))),
-      data:vals,
-      backgroundColor:isPie? palette : (single? blue : palette[i%palette.length]),
-      borderColor:'#0a1824',
-      borderWidth:1,
-      borderRadius: horizontal? 3 : 0,
-      fill: t==='area',
-      tension: isLine? 0.3 : 0,
-      barPercentage: isHist? 1.0 : 0.9,
-      categoryPercentage: isHist? 1.0 : 0.8
-    }));
-  }
-  new Chart(canvas, {
-    type: type,
-    data: { labels: isScatter? undefined : labels, datasets: datasets },
-    options: {
-      responsive:true, maintainAspectRatio:false,
-      indexAxis: horizontal? 'y' : 'x',
-      plugins:{ legend:{ display: !single || isPie, labels:{color:'#667085',font:{size:11}} } },
-      scales: isPie? {} : (isScatter? {
-        x:{ type:'linear', ticks:{color:'#667085',font:{size:10}}, grid:{color:'#e5e7eb'} },
-        y:{ ticks:{color:'#667085',font:{size:10}}, grid:{color:'#e5e7eb'} }
-      } : (horizontal? {
-        x:{ ticks:{color:'#667085',font:{size:10}}, grid:{color:'#e5e7eb'} },
-        y:{ ticks:{color:'#374151',font:{size:10}}, grid:{display:false} }
-      } : {
-        x:{ ticks:{color:'#374151',font:{size:10}, maxRotation:40, minRotation:0}, grid:{display:false} },
-        y:{ ticks:{color:'#667085',font:{size:10}}, grid:{color:'#e5e7eb'} }
-      }))
-    }
-  });
+async function ask(q){
+  openChat();addMsg('user',q);
+  const w=addMsg('agent','');w.innerHTML='<span class="spin"></span> Hermes analyse…';
+  const d=await api('/api/chat',{question:q});
+  w.remove();addMsg('agent',d.answer||d.error||'(pas de réponse)',d.table,d.charts);
 }
-function drawBoxplot(canvas, ch){
-  const ctx=canvas.getContext('2d');
-  const parent=canvas.parentElement;
-  const w=parent.clientWidth||400, h=parent.clientHeight||200;
-  const dpr=window.devicePixelRatio||1;
-  canvas.width=w*dpr; canvas.height=h*dpr; canvas.style.width=w+'px'; canvas.style.height=h+'px';
-  ctx.scale(dpr,dpr);
-  const blue='#1d7a4c';
-  const cats=ch.labels||[];
-  const boxes=ch.values||[];
-  const n=Math.min(cats.length, boxes.length);
-  if(n===0) return;
-  let all=[];
-  boxes.forEach(b=>{ if(Array.isArray(b)) all=all.concat(b.map(Number)); });
-  if(all.length===0) return;
-  let mn=Math.min(...all), mx=Math.max(...all);
-  if(!isFinite(mn)||!isFinite(mx)) return;
-  if(mn===mx){ mn-=1; mx+=1; }
-  const padL=Math.min(180, Math.max(80, w*0.35)), padR=16, padT=12, padB=24;
-  const plotW=w-padL-padR, plotH=h-padT-padB;
-  const x=v=>padL+(v-mn)/(mx-mn)*plotW;
-  const yStep=plotH/n;
-  const bw=Math.min(16, yStep*0.6);
-  ctx.clearRect(0,0,w,h);
-  ctx.strokeStyle='#e5e7eb'; ctx.fillStyle='#667085'; ctx.font='10px sans-serif'; ctx.lineWidth=1;
-  ctx.beginPath(); ctx.moveTo(padL,padT); ctx.lineTo(padL,h-padB); ctx.lineTo(w-padR,h-padB); ctx.stroke();
-  const ticks=5;
-  for(let k=0;k<=ticks;k++){
-    const v=mn+(mx-mn)*k/ticks, px=x(v);
-    ctx.fillText(String(Math.round(v*100)/100), px-8, h-padB+12);
+function renderSugs(){
+  const a=state.analysis;let list;
+  if(!a)list=['Que peux-tu faire ?'];
+  else{
+    const nums=Object.keys(a.numeric_stats||{}),cats=(a.columns_detail||[]).filter(c=>!nums.includes(c.name)&&c.unique>1&&c.unique<=50).map(c=>c.name);
+    list=[`Combien de lignes dans ${a.file.replace(/\.[^.]+$/,'')} ?`];
+    if(nums[0]&&cats[0])list.push(`Top 5 ${cats[0]} par ${nums[0]}`,`Fais un graphique de ${nums[0]} par ${cats[0]}`);
+    if(nums.length>1)list.push(`Corrélation entre ${nums[0]} et ${nums[1]}`);
   }
-  for(let i=0;i<n;i++){
-    const b=boxes[i]; if(!Array.isArray(b)||b.length<5) continue;
-    const min=Number(b[0]), q1=Number(b[1]), med=Number(b[2]), q3=Number(b[3]), max=Number(b[4]);
-    const cy=padT+yStep*i+yStep/2;
-    const y0=cy-bw/2, y1=cy+bw/2;
-    ctx.strokeStyle='#667085'; ctx.lineWidth=1;
-    ctx.beginPath(); ctx.moveTo(x(min),cy); ctx.lineTo(x(max),cy); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(x(min),cy-4); ctx.lineTo(x(min),cy+4); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(x(max),cy-4); ctx.lineTo(x(max),cy+4); ctx.stroke();
-    ctx.fillStyle=blue;
-    ctx.fillRect(x(q1), y0, Math.max(1,x(q3)-x(q1)), bw);
-    ctx.strokeStyle='#0a1824'; ctx.lineWidth=2;
-    ctx.beginPath(); ctx.moveTo(x(med),y0); ctx.lineTo(x(med),y1); ctx.stroke();
-    ctx.fillStyle='#374151'; ctx.textAlign='right'; ctx.textBaseline='middle';
-    const lbl=String(cats[i]);
-    ctx.fillText(lbl.length>22? lbl.slice(0,21)+'…':lbl, padL-6, cy);
-  }
+  $('#sugs').innerHTML=list.slice(0,4).map(s=>`<button class="sug">${esc(s)}</button>`).join('');
 }
-async function sendQuestion(){
-  const inp=$('chatInput');const q=inp.value.trim();
-  if(!q) return;
-  inp.value='';
-  addMsg('user', q);
-  const box=$('chatBox');
-  const spin=document.createElement('div');
-  spin.className='msg agent';spin.innerHTML='<span class="spin"></span> Analyse…';
-  box.appendChild(spin);box.scrollTop=box.scrollHeight;
-  try{
-    const r=await fetch('/api/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({question:q})});
-    const d=await jparse(r);
-    box.removeChild(spin);
-    addMsg('agent', d.answer||'(pas de réponse)', d.table, d.charts);
-  }catch(e){
-    box.removeChild(spin);
-    addMsg('agent', 'Erreur : '+e);
-  }
-}
-$('ingestPath').value='C:\\Users\\Luc Déisré KOUAKOU\\OneDrive\\Desktop\\cours\\AGENT IA\\Projets\\TA-MOH_analyse\\data\\quality_issues.csv';
+$('#sugs').addEventListener('click',e=>{const b=e.target.closest('.sug');if(!b)return;
+  if(!state.analysis&&b.textContent==='Que peux-tu faire ?'){addMsg('user',b.textContent);say('Je lis vos fichiers CSV, Excel ou JSON, je repère les erreurs et propose des corrections, je calcule les statistiques, les corrélations et les anomalies, puis je prépare des exports PDF, Excel ou HTML. Une fois un fichier analysé, posez-moi vos questions en français : « top 5 districts par valeur », « évolution par mois », « fais un graphique… ».');return}
+  ask(b.textContent)});
+document.addEventListener('click',e=>{const b=e.target.closest('[data-ask]');if(b)ask(b.dataset.ask)});
+$('#composer').addEventListener('submit',e=>{e.preventDefault();const q=$('#q').value.trim();if(!q)return;$('#q').value='';ask(q)});
+function openChat(){$('#chat').classList.add('open')}
+$('#chatOpen').onclick=openChat;$('#chatClose').onclick=()=>$('#chat').classList.remove('open');
+
+/* ================= theme ================= */
+function applyTheme(v){if(v)document.documentElement.dataset.theme=v;else delete document.documentElement.dataset.theme;
+  try{v?localStorage.setItem('kldv-theme',v):localStorage.removeItem('kldv-theme')}catch(e){}
+  if(!$('[data-view="analyze"]').hidden)drawAnalyzeCharts()}
+try{const t=localStorage.getItem('kldv-theme');if(t)document.documentElement.dataset.theme=t}catch(e){}
+const isDark=()=>{const t=document.documentElement.dataset.theme;return t?t==='dark':matchMedia('(prefers-color-scheme: dark)').matches};
+$('#themeBtn').onclick=()=>applyTheme(isDark()?'light':'dark');
+$('#themeSel').onchange=e=>applyTheme(e.target.value);
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change',()=>{if(!$('[data-view="analyze"]').hidden)drawAnalyzeCharts()});
+
+/* ================= boot ================= */
+say('Bonjour, je suis **Hermes**. Déposez un fichier Excel, CSV ou JSON : je vérifie sa qualité, je l\'analyse et je prépare vos exports. Ensuite, posez-moi vos questions en français.');
+go(0);loadStatus();loadCounts();setInterval(loadStatus,60000);
 </script>
 </body>
 </html>
