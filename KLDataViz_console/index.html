@@ -161,7 +161,8 @@ td.r,th.r{text-align:right}
 .ins p{margin:0;font-size:14px;overflow-wrap:anywhere}
 .ins .why{font-size:12.5px;color:var(--muted)}
 .ins button{justify-self:start;border:0;background:none;color:var(--brand-strong);font-weight:600;font-size:13px;padding:4px 0}
-.charts{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:16px}
+.charts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+@media (max-width:900px){.charts{grid-template-columns:minmax(0,1fr)}}
 .cbox{position:relative;height:260px;margin-top:12px}
 .charts .card.wide{grid-column:1/-1}
 details.more{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:0 18px}
