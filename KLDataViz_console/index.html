@@ -41,7 +41,7 @@ svg.i{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.8;stro
 h1,h2,h3{margin:0;text-wrap:balance;letter-spacing:-.01em}
 code{font-family:var(--mono);font-size:.92em;background:var(--surface-2);padding:1px 5px;border-radius:5px}
 
-.app{display:grid;grid-template-columns:232px minmax(0,1fr) 372px;height:100%}
+.app{--chat-w:372px;display:grid;grid-template-columns:232px minmax(0,1fr) var(--chat-w);height:100%}
 
 /* rail */
 .rail{background:var(--surface);border-right:1px solid var(--line);display:flex;flex-direction:column;padding:18px 12px;gap:18px;min-height:0}
@@ -214,11 +214,16 @@ tr.versions td{background:var(--surface-2);font-size:13px}
 @media (max-width:980px){.sources{grid-template-columns:repeat(2,minmax(0,1fr))}}
 
 /* chat */
-.chat{background:var(--surface);border-left:1px solid var(--line);display:flex;flex-direction:column;min-height:0}
+.chat{position:relative;background:var(--surface);border-left:1px solid var(--line);display:flex;flex-direction:column;min-height:0}
+.chat .grip{position:absolute;left:-5px;top:0;bottom:0;width:10px;cursor:col-resize;z-index:5;touch-action:none}
+.chat .grip::after{content:"";position:absolute;left:4px;top:0;bottom:0;width:2px;background:transparent;transition:background .15s}
+.chat .grip:hover::after,.chat.resizing .grip::after{background:var(--brand)}
+.chat.resizing,.chat.resizing *{user-select:none}
+.chat header .hbtns{margin-left:auto;display:flex;gap:6px}
 .chat header{display:flex;align-items:center;gap:10px;padding:16px 18px;border-bottom:1px solid var(--line)}
 .chat header .av{width:34px;height:34px;border-radius:50%;background:var(--brand-soft);color:var(--brand-strong);display:grid;place-items:center}
 .chat header b{font-size:14.5px;display:block}.chat header small{color:var(--muted);font-size:12px}
-.chat header .iconbtn{margin-left:auto;display:none}
+.chat header #chatClose{display:none}
 .msgs{flex:1;overflow:auto;padding:16px 18px;display:flex;flex-direction:column;gap:12px}
 .m{max-width:94%;font-size:14px;line-height:1.55;padding:10px 13px;border-radius:12px;overflow-wrap:anywhere;min-width:0}
 .m.agent{background:var(--surface-2);border-top-left-radius:4px;align-self:flex-start}
@@ -239,9 +244,9 @@ tr.versions td{background:var(--surface-2);font-size:13px}
 
 @media (max-width:1240px){
   .app{grid-template-columns:220px minmax(0,1fr)}
-  .chat{position:fixed;top:0;right:0;bottom:0;width:min(400px,100%);z-index:40;box-shadow:-10px 0 40px rgba(0,0,0,.18);transform:translateX(105%);transition:transform .25s ease}
+  .chat{position:fixed;top:0;right:0;bottom:0;width:min(max(400px,var(--chat-w)),100%);z-index:40;box-shadow:-10px 0 40px rgba(0,0,0,.18);transform:translateX(105%);transition:transform .25s ease}
   .chat.open{transform:none}
-  .chat header .iconbtn{display:grid}
+  .chat header #chatClose{display:grid}
   .fab{display:inline-flex}
 }
 @media (max-width:980px){.kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.grid2,.run{grid-template-columns:minmax(0,1fr)}}
@@ -502,8 +507,10 @@ tr.versions td{background:var(--surface-2);font-size:13px}
     <header>
       <div class="av"><svg class="i" viewBox="0 0 24 24"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"/></svg></div>
       <div><b>Hermes</b><small>Posez vos questions sur les données</small></div>
-      <button class="iconbtn" id="chatClose" aria-label="Fermer la discussion"><svg class="i" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+      <div class="hbtns"><button class="iconbtn" id="chatWide" aria-label="Agrandir la discussion" title="Agrandir"><svg class="i" viewBox="0 0 24 24"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg></button>
+      <button class="iconbtn" id="chatClose" aria-label="Fermer la discussion"><svg class="i" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button></div>
     </header>
+    <div class="grip" id="chatGrip" role="separator" aria-orientation="vertical" aria-label="Redimensionner la discussion" tabindex="0"></div>
     <div class="msgs" id="msgs" aria-live="polite"></div>
     <div class="sugs" id="sugs"></div>
     <form class="composer" id="composer">
@@ -1134,7 +1141,8 @@ function renderSugs(){
   const a=state.analysis;let list;
   if(!a)list=['Que peux-tu faire ?'];
   else{
-    const nums=Object.keys(a.numeric_stats||{}),cats=(a.columns_detail||[]).filter(c=>!nums.includes(c.name)&&c.unique>1&&c.unique<=50).sort((x,y)=>x.unique-y.unique).map(c=>c.name);
+    const skipCol=/(^|_)(id|code|key|ref|uid|period|periode|annee|year)|(id|code)$/i;
+    const nums=Object.keys(a.numeric_stats||{}).filter(n=>!skipCol.test(n)),cats=(a.columns_detail||[]).filter(c=>!(c.name in (a.numeric_stats||{}))&&!skipCol.test(c.name)&&c.unique>1&&c.unique<=50).sort((x,y)=>x.unique-y.unique).map(c=>c.name);
     list=['Résume ce fichier en 3 points'];
     if(nums[0]&&cats[0])list.push(`Top 5 ${cats[0]} par ${nums[0]}`,`Fais un graphique de ${nums[0]} par ${cats[0]}`);
     if(nums.length>1)list.push(`Corrélation entre ${nums[0]} et ${nums[1]}`);
@@ -1148,6 +1156,24 @@ document.addEventListener('click',e=>{const b=e.target.closest('[data-ask]');if(
 $('#composer').addEventListener('submit',e=>{e.preventDefault();const q=$('#q').value.trim();if(!q)return;$('#q').value='';ask(q)});
 function openChat(){$('#chat').classList.add('open')}
 $('#chatOpen').onclick=openChat;$('#chatClose').onclick=()=>$('#chat').classList.remove('open');
+// Largeur de la discussion : bouton Agrandir/Réduire + poignée à glisser (mémorisée dans ce navigateur)
+const CHAT_MIN=320,CHAT_STD=372;
+const chatMax=()=>Math.max(CHAT_MIN,innerWidth-(innerWidth>1240?232+420:0));
+const wideIcon='<svg class="i" viewBox="0 0 24 24"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>',narrowIcon='<svg class="i" viewBox="0 0 24 24"><path d="M4 14h6v6M20 10h-6V4M14 10l7-7M3 21l7-7"/></svg>';
+function setChatW(w,save=true){
+  w=Math.round(Math.min(chatMax(),Math.max(CHAT_MIN,w)));
+  $('.app').style.setProperty('--chat-w',w+'px');
+  const wide=w>CHAT_STD+40;const b=$('#chatWide');b.innerHTML=wide?narrowIcon:wideIcon;b.title=wide?'Réduire':'Agrandir';b.setAttribute('aria-label',wide?'Réduire la discussion':'Agrandir la discussion');
+  if(save)try{localStorage.setItem('kldv-chat-w',w)}catch(e){}
+  state.charts.forEach(c=>c.resize&&c.resize());
+}
+$('#chatWide').onclick=()=>{const cur=parseInt(getComputedStyle($('.app')).getPropertyValue('--chat-w'))||CHAT_STD;setChatW(cur>CHAT_STD+40?CHAT_STD:Math.max(680,innerWidth*.5))};
+const grip=$('#chatGrip');
+grip.addEventListener('pointerdown',e=>{e.preventDefault();grip.setPointerCapture(e.pointerId);$('#chat').classList.add('resizing')});
+grip.addEventListener('pointermove',e=>{if(grip.hasPointerCapture(e.pointerId))setChatW(innerWidth-e.clientX,false)});
+grip.addEventListener('pointerup',e=>{grip.releasePointerCapture(e.pointerId);$('#chat').classList.remove('resizing');setChatW(innerWidth-e.clientX)});
+grip.addEventListener('keydown',e=>{const cur=parseInt(getComputedStyle($('.app')).getPropertyValue('--chat-w'))||CHAT_STD;if(e.key==='ArrowLeft'){e.preventDefault();setChatW(cur+40)}if(e.key==='ArrowRight'){e.preventDefault();setChatW(cur-40)}});
+try{const w=+localStorage.getItem('kldv-chat-w');if(w)setChatW(w,false)}catch(e){}
 
 /* ================= theme ================= */
 function applyTheme(v){if(v)document.documentElement.dataset.theme=v;else delete document.documentElement.dataset.theme;
