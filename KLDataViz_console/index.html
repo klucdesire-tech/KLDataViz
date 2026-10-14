@@ -755,6 +755,8 @@ function issuesOf(){
   const out=[];
   if(r.doublons_supprimes)out.push({id:'doublons',sev:'bad',t:`${nf(r.doublons_supprimes)} ligne(s) en double`,d:'Une seule occurrence est conservée.'});
   if((r.colonnes_vides||[]).length)out.push({id:'vides',sev:'warn',t:`${r.colonnes_vides.length} colonne(s) entièrement vide(s)`,d:'Supprimées : '+r.colonnes_vides.join(', ')});
+  Object.entries(r.encodage_corrige||{}).forEach(([k,n])=>{const ex=(r.details||{})['encodage:'+k]?.exemples?.[0];
+    out.push({id:'encodage:'+k,sev:'warn',t:`Texte mal encodé dans « ${k} »`,d:`${nf(n)} valeur(s) réparée(s)`+(ex?` : « ${ex.avant} » → « ${ex.apres} »`:'')})});
   const types=Object.entries(r.types_corriges||{}),imps=r.imputations||[],MAX=8;
   if(types.length>MAX)out.push({id:'type:*',ids:types.map(([k])=>'type:'+k),sev:'warn',t:`Type à corriger dans ${types.length} colonnes`,d:types.slice(0,5).map(([k,v])=>`${k} : ${typeName(v.avant)} → ${typeName(v.apres)}`).join(' · ')+' …'});
   else types.forEach(([k,v])=>out.push({id:'type:'+k,sev:'warn',t:`Type de « ${k} » à corriger`,d:`${typeName(v.avant)} → ${typeName(v.apres)}`}));
@@ -918,6 +920,7 @@ function corrDetail(x){
       return `<li><b>${esc(col)}</b> : ${d.valeurs_modifiees!==undefined?`${nf(d.valeurs_modifiees)} valeur(s) réécrite(s). `:''}${d.exemples.map(e=>`ligne ${e.ligne} ${fmtV(e.avant)} → ${fmtV(e.apres)}`).join(' ; ')}</li>`+
         (d.non_convertibles?`<li class="warn">${nf(d.non_convertibles)} valeur(s) non convertible(s) deviendront vides : ${d.exemples_non_convertibles.map(e=>`ligne ${e.ligne} ${fmtV(e.valeur)}`).join(' ; ')}${d.non_convertibles>d.exemples_non_convertibles.length?' …':''}</li>`:'');
     }
+    if(kind==='encodage'&&d)return `<li><b>${esc(col)}</b> : ${d.exemples.map(e=>`ligne ${e.ligne} ${fmtV(e.avant)} → ${fmtV(e.apres)}`).join(' ; ')}</li>`;
     if(kind==='imput'&&d){
       const im=(r.imputations||[]).find(i=>i.colonne===col)||{};
       return `<li><b>${esc(col)}</b> : ${nf(d.n)} cellule(s) vide(s) remplie(s) par ${fmtV(im.valeur)} (${esc(im.methode||'')}) — ${lignes(d.lignes)}${d.dont_non_convertibles?` · dont ${nf(d.dont_non_convertibles)} issue(s) de valeurs non convertibles`:''}</li>`;

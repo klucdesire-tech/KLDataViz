@@ -32,6 +32,24 @@ def _short(x, n=60):
     return s if len(s) <= n else s[: n - 1] + "…"
 
 
+# Texte UTF-8 relu comme Windows-1252/Latin-1 : « Ã© » pour « é », « Ã´ » pour « ô », « â€™ » pour « ’ ».
+_MOJIBAKE = re.compile(r"Ã[\x80-\xbfŒœŠšŸŽžƒˆ˜–-›€™ ]|Â[\x80-\xbf ]|â€")
+
+
+def _fix_mojibake(x):
+    """Répare un texte mal décodé ; renvoie la valeur inchangée si ce n'en est pas un."""
+    if not isinstance(x, str) or not _MOJIBAKE.search(x):
+        return x
+    for enc in ("cp1252", "latin-1"):
+        try:
+            fixed = x.encode(enc).decode("utf-8")
+        except (UnicodeEncodeError, UnicodeDecodeError):
+            continue
+        if fixed != x:
+            return fixed
+    return x
+
+
 def _slugify(name: str) -> str:
     """Normalise un nom de colonne : minuscules, sans accents, snake_case."""
     s = str(name).strip().lower()
@@ -168,6 +186,20 @@ def clean_dataframe(df: pd.DataFrame, skip=None):
         if (pd.api.types.is_object_dtype(df[c])
                 or pd.api.types.is_string_dtype(df[c])):
             df[c] = df[c].replace(r"^\s*$", np.nan, regex=True)
+
+    # 3.7. Caractères mal encodés (« contrÃ´le » → « contrôle »)
+    rapport["encodage_corrige"] = {}
+    for c in df.columns:
+        if not (pd.api.types.is_object_dtype(df[c]) or pd.api.types.is_string_dtype(df[c])):
+            continue
+        fixed = df[c].map(_fix_mojibake)
+        changed = df[c].notna() & (fixed.astype(str) != df[c].astype(str))
+        if changed.any() and not _skipped("encodage", c):
+            details[f"encodage:{c}"] = {
+                "exemples": [{"ligne": _line(i), "avant": _short(df.at[i, c]), "apres": _short(fixed[i])}
+                             for i in df[c][changed].drop_duplicates().index[:5]]}
+            rapport["encodage_corrige"][str(c)] = int(changed.sum())
+            df[c] = fixed
 
     # 4. Correction des types (typage automatique)
     for c in df.columns:
