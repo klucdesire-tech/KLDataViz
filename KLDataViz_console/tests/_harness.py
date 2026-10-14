@@ -8,7 +8,17 @@ import threading
 import urllib.error
 import urllib.request
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+APP = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, APP)
+
+
+def reset_app_modules():
+    """Oublie les modules de la console déjà chargés : le mode (local/cloud) est lu à l'import,
+    et test_local.py / test_cloud.py tournent dans le même processus pytest."""
+    for name, mod in list(sys.modules.items()):
+        f = os.path.abspath(getattr(mod, "__file__", None) or "")
+        if f.startswith(APP + os.sep) and not any(os.sep + d + os.sep in f for d in (".venv", "tests")):
+            del sys.modules[name]
 
 
 def start(server_module):
