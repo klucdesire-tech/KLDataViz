@@ -12,6 +12,7 @@ Deux barrières :
 import ast
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -66,14 +67,46 @@ def validate(code: str) -> None:
             raise UnsafeCode("chaîne suspecte")
 
 
-def _limits():  # exécuté dans le sous-processus, sous Linux uniquement
-    import resource
-    mem = MEMORY_MB * 1024 * 1024
-    resource.setrlimit(resource.RLIMIT_AS, (mem, mem))
-    resource.setrlimit(resource.RLIMIT_CPU, (TIMEOUT_S, TIMEOUT_S + 1))
-    resource.setrlimit(resource.RLIMIT_NOFILE, (64, 64))
-    if hasattr(resource, "RLIMIT_NPROC"):
-        resource.setrlimit(resource.RLIMIT_NPROC, (0, 0))  # aucun nouveau processus
+# Bibliothèques de calcul limitées à un fil : sinon OpenBLAS/pyarrow tentent d'en créer
+# plusieurs au démarrage, échouent sous la limite RLIMIT_NPROC et interrompent le calcul
+# (« échec du calcul : KeyboardInterrupt » vu en ligne).
+THREAD_ENV = {k: "1" for k in ("OPENBLAS_NUM_THREADS", "OMP_NUM_THREADS", "MKL_NUM_THREADS",
+                               "NUMEXPR_NUM_THREADS", "VECLIB_MAXIMUM_THREADS", "ARROW_IO_THREADS")}
+NPROC_MARGIN = 8  # fils que le calcul peut encore créer (pyarrow, numpy…)
+THREAD_FAILURE = re.compile(r"KeyboardInterrupt|pthread_create|can't start new thread|Resource temporarily unavailable")
+
+
+def _user_tasks():
+    """Fils d'exécution déjà ouverts par l'utilisateur courant (RLIMIT_NPROC les compte tous,
+    serveur compris). None si /proc n'est pas lisible."""
+    uid, total = os.getuid(), 0
+    try:
+        for pid in os.listdir("/proc"):
+            if not pid.isdigit():
+                continue
+            try:
+                with open(f"/proc/{pid}/status") as f:
+                    fields = dict(line.split(":", 1) for line in f if ":" in line)
+            except OSError:
+                continue
+            if int(fields.get("Uid", "-1").split()[0]) == uid:
+                total += int(fields.get("Threads", "1"))
+    except OSError:
+        return None
+    return total
+
+
+def _make_limits(nproc):
+    def _limits():  # exécuté dans le sous-processus, sous Linux uniquement
+        import resource
+        mem = MEMORY_MB * 1024 * 1024
+        resource.setrlimit(resource.RLIMIT_AS, (mem, mem))
+        resource.setrlimit(resource.RLIMIT_CPU, (TIMEOUT_S, TIMEOUT_S + 1))
+        resource.setrlimit(resource.RLIMIT_NOFILE, (64, 64))
+        if nproc is not None and hasattr(resource, "RLIMIT_NPROC"):
+            # Pas de rafale de processus : seulement une petite marge au-delà de l'existant.
+            resource.setrlimit(resource.RLIMIT_NPROC, (nproc, nproc))
+    return _limits
 
 
 def run(code: str, datasets: dict) -> dict:
@@ -82,24 +115,37 @@ def run(code: str, datasets: dict) -> dict:
     Renvoie {"result": …, "chart": …} ou {"error": "…"}.
     """
     validate(code)
-    env = {}
+    env = dict(THREAD_ENV)  # aucune autre variable : ni clés ni mots de passe
     if os.name == "nt":  # Python a besoin de ces variables pour démarrer sous Windows
         for k in ("SYSTEMROOT", "TEMP", "TMP"):
             if os.environ.get(k):
                 env[k] = os.environ[k]
+    used = _user_tasks() if os.name != "nt" else None
+    nproc = used + NPROC_MARGIN if used is not None else None
     job = json.dumps({"code": code, "datasets": {str(k): str(v) for k, v in datasets.items()}})
-    with tempfile.TemporaryDirectory(prefix="kldv-sbx-") as tmp:
-        try:
-            proc = subprocess.run(
+
+    def attempt(nproc_limit):
+        with tempfile.TemporaryDirectory(prefix="kldv-sbx-") as tmp:
+            return subprocess.run(
                 [sys.executable, "-I", RUNNER], input=job.encode("utf-8"), capture_output=True,
                 cwd=tmp, env=env, timeout=TIMEOUT_S,
-                preexec_fn=_limits if os.name != "nt" else None,
+                preexec_fn=_make_limits(nproc_limit) if os.name != "nt" else None,
             )
-        except subprocess.TimeoutExpired:
-            return {"error": f"calcul trop long (plus de {TIMEOUT_S} s), arrêté"}
+
+    try:
+        proc = attempt(nproc)
+        err = proc.stderr.decode("utf-8", "replace")
+        if nproc is not None and not proc.stdout.strip() and THREAD_FAILURE.search(err):
+            # Le calcul n'a pas pu créer ses fils malgré la marge : on relance sans cette seule limite
+            # (mémoire, CPU, fichiers, environnement vide et contrôle du code restent en place).
+            sys.stderr.write("[sandbox] limite de fils atteinte, nouvel essai sans RLIMIT_NPROC\n")
+            proc = attempt(None)
+    except subprocess.TimeoutExpired:
+        return {"error": f"calcul trop long (plus de {TIMEOUT_S} s), arrêté"}
     out = proc.stdout.decode("utf-8", "replace").strip().splitlines()
     if not out:
         err = proc.stderr.decode("utf-8", "replace").strip().splitlines()
+        sys.stderr.write("[sandbox] échec : " + " | ".join(err[-5:])[:800] + "\n")
         return {"error": "échec du calcul" + (f" : {err[-1][:200]}" if err else "")}
     try:
         return json.loads(out[-1])
