@@ -82,3 +82,21 @@ def test_nouvel_essai_si_limite_de_fils(monkeypatch):
     assert calls[0]["preexec_fn"] == ("limites", 10 + sandbox.NPROC_MARGIN)
     assert calls[1]["preexec_fn"] == ("limites", None)
     assert calls[0]["env"]["OMP_NUM_THREADS"] == "1"
+
+
+def test_imports_des_modules_fournis_acceptes(tmp_path):
+    """« import numpy as np », « import pandas », « from math import sqrt » : réécrits, pas refusés."""
+    p = tmp_path / "t.parquet"
+    pd.DataFrame({"age": [20, 30, 40]}).to_parquet(p)
+    code = ("import numpy as np\nimport pandas\nfrom math import sqrt\n"
+            "df = data['t']\nresult = round(sqrt(float(np.mean(df['age']))) + pandas.Series([0]).sum(), 3)")
+    out = sandbox.run(code, {"t": str(p)})
+    assert "error" not in out, out
+    assert out["result"]["value"] == "5.477"
+
+
+def test_autres_imports_toujours_refuses():
+    for code in ("import os\nresult = 1", "import numpy, os\nresult = 1", "from os import path\nresult = 1",
+                 "from numpy import *\nresult = 1"):
+        with pytest.raises(sandbox.UnsafeCode):
+            sandbox.run(code, {})

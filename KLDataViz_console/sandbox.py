@@ -44,6 +44,41 @@ class UnsafeCode(ValueError):
     pass
 
 
+# Modules déjà fournis au calcul, sous ce nom : leurs imports sont réécrits en simples
+# affectations au lieu d'être refusés (l'IA écrit souvent « import numpy as np »).
+PROVIDED_MODULES = {"pandas": "pd", "numpy": "np", "math": "math"}
+
+
+def strip_provided_imports(code: str) -> str:
+    """Remplace `import numpy as np`, `from math import sqrt`… par des affectations vers les
+    modules déjà fournis. Tout autre import est laissé tel quel (et sera refusé par validate)."""
+    try:
+        tree = ast.parse(code, mode="exec")
+    except SyntaxError:
+        return code  # validate() renverra l'erreur de syntaxe
+    changed = False
+    body = []
+    for node in tree.body:
+        if isinstance(node, ast.Import) and all(a.name in PROVIDED_MODULES for a in node.names):
+            for a in node.names:
+                name, provided = a.asname or a.name, PROVIDED_MODULES[a.name]
+                if name != provided:
+                    body.append(ast.parse(f"{name} = {provided}").body[0])
+            changed = True
+            continue
+        if (isinstance(node, ast.ImportFrom) and node.module in PROVIDED_MODULES and node.level == 0
+                and all(a.name != "*" and not a.name.startswith("_") for a in node.names)):
+            for a in node.names:
+                body.append(ast.parse(f"{a.asname or a.name} = {PROVIDED_MODULES[node.module]}.{a.name}").body[0])
+            changed = True
+            continue
+        body.append(node)
+    if not changed:
+        return code
+    tree.body = body
+    return ast.unparse(tree)
+
+
 def validate(code: str) -> None:
     """Lève UnsafeCode si le code utilise une construction interdite."""
     try:
@@ -114,6 +149,7 @@ def run(code: str, datasets: dict) -> dict:
 
     Renvoie {"result": …, "chart": …} ou {"error": "…"}.
     """
+    code = strip_provided_imports(code)
     validate(code)
     env = dict(THREAD_ENV)  # aucune autre variable : ni clés ni mots de passe
     if os.name == "nt":  # Python a besoin de ces variables pour démarrer sous Windows
