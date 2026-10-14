@@ -7,7 +7,8 @@ import pandas as pd
 import pytest
 
 os.environ.pop("KLDV_MODE", None)
-from _harness import call, start  # noqa: E402
+from _harness import call, reset_app_modules, start  # noqa: E402
+reset_app_modules()
 import server  # noqa: E402
 
 

@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Sécurité de la version en ligne, avec comptes simulés (sans Supabase) :
-python -m pytest tests/test_cloud.py   (à lancer séparément de test_local.py)"""
+python -m pytest tests/test_cloud.py"""
 import base64
 import os
 import tempfile
@@ -10,7 +10,8 @@ import pytest
 
 DATA = tempfile.mkdtemp(prefix="kldv-cloud-")
 os.environ.update(KLDV_MODE="cloud", KLDV_DATA_DIR=DATA, KLDV_SECRET="test-secret")
-from _harness import call, start  # noqa: E402
+from _harness import call, reset_app_modules, start  # noqa: E402
+reset_app_modules()
 import cloud  # noqa: E402
 import server  # noqa: E402
 import tenancy as T  # noqa: E402

@@ -25,7 +25,9 @@ Règles :
 - Appuie chaque problème sur un chiffre présent dans le profil. N'invente rien ; une hypothèse se dit « probable ».
 - Dans les comptages, vide ≠ zéro : ne recommande jamais d'imputer des comptages par moyenne/médiane.
 - Structure cible par défaut : table de faits au format long (une ligne = grain le plus fin, une colonne valeur)
-  + tables de dimensions. Retire les lignes agrégées (totaux, niveaux hiérarchiques) de la table de faits.
+  + tables de dimensions. Retire les lignes agrégées (totaux, niveaux hiérarchiques) de la table de faits :
+  le profil les liste dans lignes.lignes_agregat_probables ; retire-les avec drop_rows sauf si tu as une
+  raison chiffrée de penser le contraire, et cite-les dans les problèmes.
 - Si le fichier est déjà au bon format, dis-le et propose seulement types, clés et dimensions.
 - Français simple, pour un responsable non technique.
 
@@ -118,7 +120,15 @@ def _fallback(prof, df):
     if prof.get("alerte_majeure"):
         problemes.append({"titre": "Colonnes entièrement imputées", "preuve": prof["alerte_majeure"],
                           "consequence": "Ces colonnes ne contiennent aucune information réelle.", "severite": "bad"})
+    aggregates = [a["libelle"] for a in prof["lignes"].get("lignes_agregat_probables", [])]
+    if aggregates:
+        problemes.append({"titre": "Lignes de zones ou de totaux mélangées aux établissements",
+                          "preuve": ", ".join(aggregates[:10]),
+                          "consequence": "Double comptage si on additionne tout : retirées de la table de faits.",
+                          "severite": "bad"})
     for g in (prof["lignes"].get("groupes_de_lignes_aux_valeurs_identiques") or {}).get("groupes", []):
+        if set(g) <= set(aggregates):
+            continue
         problemes.append({"titre": "Lignes aux valeurs identiques", "preuve": ", ".join(map(str, g[:6])),
                           "consequence": "Agrégats ou lignes inventées : risque de double comptage.", "severite": "warn"})
     labels = {"mélange entiers / x,5": "Valeurs décimales dans des comptages (imputation probable)",
@@ -134,6 +144,8 @@ def _fallback(prof, df):
     if wide:
         ids = [c for c in df.columns if c not in _wide_columns(df)]
         spec = {"id_columns": ids, "melt": {"auto": True}, "value_rules": {"non_integer": "flag"}, "fact_name": "fait"}
+        if aggregates and prof.get("colonne_libelle_probable"):
+            spec["drop_rows"] = {"column": prof["colonne_libelle_probable"], "values": aggregates}
     return {
         "comprehension": {
             "source": prof["source"].get("fichier", ""),
@@ -174,7 +186,7 @@ def propose(df: pd.DataFrame, info: dict, llm_call) -> dict:
     proposal, ia, spec_error = None, False, None
     content = llm_call([{"role": "system", "content": SYSTEM},
                         {"role": "user", "content": json.dumps(_compact_profile(prof, df), ensure_ascii=False, default=str)}],
-                       max_tokens=32000, timeout=300) if llm_call else None  # le modèle raisonne longuement
+                       max_tokens=32000) if llm_call else None
     data = _parse_json(content)
     if isinstance(data, dict) and data.get("comprehension"):
         proposal, ia = data, True

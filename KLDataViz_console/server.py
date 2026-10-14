@@ -905,13 +905,16 @@ def _llm_config():
             return None
     return None
 
-def _llm_call(messages, max_tokens=8000, temperature=0, timeout=120):
+def _llm_call(messages, max_tokens=8000, temperature=0, timeout=120, model=None, effort=None, attempts=2):
     cfg = _llm_config()
     if not cfg or not cfg.get("api_key"):
         return None
-    body = json.dumps({"model": cfg.get("model", "deepseek-v4-pro"), "messages": messages,
-                       "temperature": temperature, "max_tokens": max_tokens}).encode("utf-8")
-    for attempt in range(2):
+    payload = {"model": model or cfg.get("model", "deepseek-v4-pro"), "messages": messages,
+               "temperature": temperature, "max_tokens": max_tokens}
+    if effort:
+        payload["reasoning_effort"] = effort
+    body = json.dumps(payload).encode("utf-8")
+    for attempt in range(attempts):
         req = urllib.request.Request(cfg.get("base_url", "https://api.deepseek.com/chat/completions"),
                                      data=body, method="POST",
                                      headers={"Content-Type": "application/json",
@@ -1105,7 +1108,16 @@ def architect_propose(file_path):
     df, info, err = _architect_df(file_path)
     if err:
         return {"error": err}
-    return _json_safe(architect.propose(df, info, _llm_call if _llm_config() else None))
+    cfg = _llm_config()
+    # Modèle rapide par défaut : deepseek-flash répond en ~1 min contre 3 à 7 min pour deepseek-v4-pro,
+    # avec une qualité équivalente sur cette tâche (le moteur fournit déjà les faits mesurés).
+    # Si l'API traîne, on réessaie une fois avec moins de réflexion (~30 s), puis repli par règles.
+    model = os.environ.get("KLDV_ARCHITECT_MODEL") or (cfg or {}).get("architect_model") or "deepseek-flash"
+
+    def llm(messages, max_tokens):
+        return (_llm_call(messages, max_tokens, model=model, effort="high", timeout=120, attempts=1)
+                or _llm_call(messages, max_tokens, model=model, effort="low", timeout=90, attempts=1))
+    return _json_safe(architect.propose(df, info, llm if cfg else None))
 
 
 # L'analyse IA dure plusieurs minutes : elle tourne en tâche de fond et le navigateur

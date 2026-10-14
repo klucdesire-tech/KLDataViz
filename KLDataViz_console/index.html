@@ -40,7 +40,7 @@ a{color:var(--brand-strong)}
 svg.i{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;flex:none}
 .num{font-family:var(--mono);font-variant-numeric:tabular-nums}
 h1,h2,h3{margin:0;text-wrap:balance;letter-spacing:-.01em}
-code{font-family:var(--mono);font-size:.92em;background:var(--surface-2);padding:1px 5px;border-radius:5px}
+code{font-family:var(--mono);font-size:.92em;background:var(--surface-2);padding:1px 5px;border-radius:5px;overflow-wrap:anywhere}
 
 .app{--chat-w:372px;display:grid;grid-template-columns:232px minmax(0,1fr) var(--chat-w);height:100%}
 
@@ -818,13 +818,13 @@ function renderArch(){
   out.innerHTML=
     `<p style="font-size:14px;margin:8px 0 0">${md(c.resume||'')}</p>
      ${c.grain?`<p class="sub" style="margin-top:8px"><b>Grain :</b> ${esc(c.grain)}</p>`:''}
-     <div class="chips">${(c.dimensions||[]).map(d=>`<span class="tag ok">${esc(d)}</span>`).join('')}</div>`+
+     <div class="chips">${(c.dimensions||[]).map(d=>`<span class="tag ok" style="white-space:normal">${esc(d)}</span>`).join('')}</div>`+
     (p.recommandation?`<div class="alert info" style="margin-top:12px;color:var(--fg)"><b>Priorité :</b> ${md(p.recommandation)}</div>`:'')+
     list('Problèmes détectés',p.problemes)+(p.problemes||[]).map(x=>`<div class="issue"><span class="sev ${x.severite==='info'?'info':''}" ${x.severite==='bad'?'style="background:var(--red)"':''}></span><div><b>${esc(x.titre)}</b><span>${esc(x.preuve)}${x.consequence?' — '+esc(x.consequence):''}</span></div></div>`).join('')+
     list('Tables proposées',p.structure)+(p.structure||[]).map(t=>`<div class="issue"><span class="sev info"></span><div><b>${esc(t.table)} <span class="tag type">${esc(t.role||'')}</span></b><span>${esc(t.description||'')}${(t.colonnes||[]).length?' · '+t.colonnes.map(esc).join(', '):''}</span></div></div>`).join('')+
     list('Ce que cette structure permet',p.analyses)+((p.analyses||[]).length?`<ul class="sub" style="margin:6px 0 0 18px">${p.analyses.map(a=>`<li>${md(a)}</li>`).join('')}</ul>`:'')+
     (tables.length?`<div class="label" style="margin-top:14px">Aperçu du résultat</div>`+tables.map(([n,t])=>
-      `<p class="sub" style="margin-top:8px"><b>${esc(n)}</b> · ${nf(t.lignes)} lignes</p><div class="tablewrap"><table><thead><tr>${t.colonnes.map(h=>`<th>${esc(h)}</th>`).join('')}</tr></thead>
+      `<p class="sub" style="margin-top:8px"><b>${esc(n)}</b> · ${nf(t.lignes)} ligne${t.lignes>1?'s':''}</p><div class="tablewrap"><table><thead><tr>${t.colonnes.map(h=>`<th>${esc(h)}</th>`).join('')}</tr></thead>
        <tbody>${t.exemple.map(row=>`<tr>${row.map(v=>`<td class="num">${esc(v)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`).join(''):'')+
     `<div class="actions" style="margin-top:14px">`+
     (state.archFile?`<a class="btn primary" href="${esc(state.archFile.url)}" download>Télécharger ${esc(state.archFile.file)}</a>`
@@ -832,10 +832,10 @@ function renderArch(){
       :`<span class="sub">Aucune restructuration automatique n'a pu être validée pour ce fichier.</span>`)+`</div>`;
 }
 $('#archRun').onclick=async()=>{
-  const b=$('#archRun');b.disabled=true;b.innerHTML='<span class="spin"></span> Hermes étudie le fichier (quelques minutes, vous pouvez continuer)…';
+  const b=$('#archRun');b.disabled=true;b.innerHTML='<span class="spin"></span> Hermes étudie le fichier (environ 1 min)…';
   const path=state.path,s=await api('/api/architect',{file_path:path});
   let r=s.error?s:null;
-  for(let i=0;!r&&i<240;i++){  // tâche de fond, interrogée toutes les 3 s ; 12 min couvrent 2 essais IA de 5 min
+  for(let i=0;!r&&i<100;i++){  // tâche de fond interrogée toutes les 3 s ; 5 min couvrent les 2 essais IA (2 min + 1 min 30)
     await new Promise(ok=>setTimeout(ok,3000));
     const j=await api('/api/architect/job?id='+encodeURIComponent(s.job));
     if(j.error)r=j;else if(j.status==='done')r=j.result;
