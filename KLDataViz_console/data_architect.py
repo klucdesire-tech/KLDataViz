@@ -232,6 +232,24 @@ def _row_checks(df: pd.DataFrame, label_col: str | None) -> dict:
                 suspects.append(i)
         if suspects:
             out["ligne_total_probable"] = [str(df.at[i, label_col]) if label_col else i for i in suspects]
+        # Niveaux hiérarchiques mélangés aux détails : libellé d'un seul mot quand les autres en ont
+        # plusieurs (« NAWA » parmi « CSR-D PUBLIC DE ... »), ou valeurs identiques à 2 autres lignes ou plus.
+        agg = {}
+        if label_col:
+            labels = df[label_col].astype(str).str.strip()
+            multi = labels.str.contains(r"\s")
+            if multi.mean() >= 0.8:
+                for i in labels[~multi].index:
+                    agg[i] = "libellé d'un seul mot (nom de zone ?) parmi des noms d'établissements"
+            for ix in (dup.groupby(dup).groups.values() if len(dup) else []):
+                if len(ix) >= 3:
+                    for i in ix:
+                        agg[i] = (agg[i] + " ; " if i in agg else "") + f"valeurs identiques à {len(ix) - 1} autres lignes"
+            for i in suspects:
+                agg[i] = (agg[i] + " ; " if i in agg else "") + "total égal à la somme des autres lignes"
+        if agg:
+            out["lignes_agregat_probables"] = [
+                {"libelle": str(df.at[i, label_col]), "raison": r} for i, r in list(agg.items())[:30]]
         fill = num.notna().mean(axis=1)
         out["completude_lignes"] = {"min_pct": round(100 * fill.min(), 1), "mediane_pct": round(100 * fill.median(), 1)}
     return out
