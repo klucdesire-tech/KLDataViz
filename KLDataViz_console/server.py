@@ -32,6 +32,16 @@ except Exception as _ingest_exc:  # la console reste utilisable même si l'agent
     INGESTION_ERROR = str(_ingest_exc)
 
 BASE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, BASE)
+
+# --- Agent ARCHITECTE DE DONNÉES (compréhension + structure cible) ---
+try:
+    import architect, data_architect
+    ARCHITECT_ERROR = None
+except Exception as _arch_exc:
+    architect = None
+    ARCHITECT_ERROR = str(_arch_exc)
+
 import hashlib, hmac, re, secrets
 import tenancy as T
 import sandbox, netguard
@@ -895,7 +905,7 @@ def _llm_config():
             return None
     return None
 
-def _llm_call(messages, max_tokens=8000, temperature=0):
+def _llm_call(messages, max_tokens=8000, temperature=0, timeout=120):
     cfg = _llm_config()
     if not cfg or not cfg.get("api_key"):
         return None
@@ -907,7 +917,7 @@ def _llm_call(messages, max_tokens=8000, temperature=0):
                                      headers={"Content-Type": "application/json",
                                               "Authorization": "Bearer " + cfg["api_key"]})
         try:
-            r = urllib.request.urlopen(req, timeout=120)
+            r = urllib.request.urlopen(req, timeout=timeout)
             return json.loads(r.read().decode())["choices"][0]["message"]["content"]
         except Exception:
             if attempt == 0:
@@ -1072,6 +1082,46 @@ def _json_safe(obj):
     if isinstance(obj, (list, tuple)):
         return [_json_safe(v) for v in obj]
     return obj
+
+def _architect_df(file_path):
+    """Lit la source pour l'architecte : détection d'encodage et de séparateur (« ; » des exports FR/DHIS2)."""
+    if file_path.startswith(("http://", "https://")):
+        df, err = _read_df(file_path)
+        return df, {"fichier": source_label(file_path)}, err
+    if T.CLOUD and not T.current().owns(file_path):
+        return None, None, "Fichier introuvable."
+    if not os.path.isfile(file_path):
+        return None, None, f"Fichier introuvable : {file_path}"
+    try:
+        df, info = data_architect.load_table(file_path)
+    except Exception as e:
+        return None, None, f"Lecture impossible : {e}"
+    return df, info, None
+
+
+def architect_propose(file_path):
+    if architect is None:
+        return {"error": f"Agent architecte indisponible : {ARCHITECT_ERROR}"}
+    df, info, err = _architect_df(file_path)
+    if err:
+        return {"error": err}
+    return _json_safe(architect.propose(df, info, _llm_call if _llm_config() else None))
+
+
+def architect_apply(file_path, spec):
+    if architect is None:
+        return {"error": f"Agent architecte indisponible : {ARCHITECT_ERROR}"}
+    if not isinstance(spec, dict) or not spec:
+        return {"error": "Aucune structure à générer."}
+    df, info, err = _architect_df(file_path)
+    if err:
+        return {"error": err}
+    try:
+        r = architect.apply(df, spec, T.exports_dir(), (info or {}).get("fichier") or file_path)
+    except Exception as e:
+        return {"error": f"Restructuration impossible : {e}"}
+    return {**r, "url": download_url(r["file"])}
+
 
 # ---------------------------------------------------------------- serveur HTTP
 SECRET = (os.environ.get("KLDV_SECRET") or secrets.token_hex(32)).encode()  # signe les liens de téléchargement
@@ -1324,7 +1374,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return self._send(404, {"error": "not found"})
 
         # ---- POST
-        if path in ("/api/analyze", "/api/chat", "/api/insights", "/api/clean") and not _rate_ok(f"{ctx.key}:{path}"):
+        if path in ("/api/analyze", "/api/chat", "/api/insights", "/api/clean", "/api/architect",
+                    "/api/architect/apply") and not _rate_ok(f"{ctx.key}:{path}"):
             return self._send(429, {"error": "Trop de demandes en peu de temps. Patientez une minute."})
         if path == "/api/analyze":
             file_path = str(p.get("file_path") or "")
@@ -1336,6 +1387,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return self._send(200, result)
         if path == "/api/clean":
             return self._send(200, clean(str(p.get("file_path") or ""), p.get("skip") or None))
+        if path == "/api/architect":
+            if T.CLOUD and _llm_config():
+                cloud.consume(ctx, "ai")
+            return self._send(200, architect_propose(str(p.get("file_path") or "")))
+        if path == "/api/architect/apply":
+            return self._send(200, architect_apply(str(p.get("file_path") or ""), p.get("spec")))
         if path == "/api/ingest":
             return self._ingest(p)
         if path in ("/api/export/pdf", "/api/export/excel", "/api/export/html"):

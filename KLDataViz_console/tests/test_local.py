@@ -43,3 +43,20 @@ def test_parcours_analyse_export(base, csv):
     assert any(f["file"] == e["file"] for f in files)
     assert call(base, "/api/exports/delete", {"file": e["file"]})[0] == 200
     os.remove(c["cleaned_path"])
+
+
+def test_architecte_format_large(base, tmp_path, monkeypatch):
+    """Export type DHIS2 (« ; », dimensions dans les en-têtes, ligne d'agrégat) → format long."""
+    monkeypatch.setattr(server, "_llm_config", lambda: None)  # repli par règles, sans appel réseau
+    ages = ["00-04 ans", "05-09 ans", "50 ans et plus"]
+    cols = {f"Mars 2026 SIG - Nombre de {i} {a}": [3, 5, 7, 3] for i in ("consultations", "consultants") for a in ages}
+    p = tmp_path / "dhis2.csv"
+    pd.DataFrame({"orgid": ["a1", "b2", "c3", "d4"], "nom": ["CSR-D A", "CSR-D B", "CSU C", "DISTRICT"], **cols}) \
+        .to_csv(p, sep=";", index=False, encoding="utf-8-sig")
+    code, r = call(base, "/api/architect", {"file_path": str(p)})
+    assert code == 200 and not r.get("error"), r
+    assert r["ia"] is False and set(r["proposition"]["comprehension"]["dimensions"]) == {"periode", "tranche_age"}
+    assert r["apercu"]["fait"]["lignes"] == 4 * len(cols)
+    code, a = call(base, "/api/architect/apply", {"file_path": str(p), "spec": r["proposition"]["spec"]})
+    assert code == 200 and a["url"].startswith("/download/"), a
+    assert call(base, "/api/exports/delete", {"file": a["file"]})[0] == 200
