@@ -53,3 +53,32 @@ def test_boucle_infinie_arretee(monkeypatch):
     monkeypatch.setattr(sandbox, "TIMEOUT_S", 3)
     out = sandbox.run("x = 0\nwhile True:\n    x += 1", {})
     assert "error" in out and "trop long" in out["error"]
+
+
+def test_calcul_limite_a_un_fil():
+    """Les bibliothèques de calcul ne créent qu'un fil (sinon échec sous RLIMIT_NPROC en ligne)."""
+    out = sandbox.run("result = 1", {})
+    assert out["result"]["value"] == "1"
+    assert sandbox.THREAD_ENV["OPENBLAS_NUM_THREADS"] == "1"
+
+
+def test_nouvel_essai_si_limite_de_fils(monkeypatch):
+    """Échec « KeyboardInterrupt » (fils refusés) → un seul nouvel essai, sans la limite de fils."""
+    import subprocess
+    calls = []
+
+    def fake_run(args, **kw):
+        calls.append(kw)
+        if len(calls) == 1:
+            return subprocess.CompletedProcess(args, 1, b"", b"OpenBLAS blas_thread_init: pthread_create failed\nKeyboardInterrupt")
+        return subprocess.CompletedProcess(args, 0, b'{"result": {"kind": "scalar", "value": "42"}, "chart": null}\n', b"")
+
+    monkeypatch.setattr(sandbox.subprocess, "run", fake_run)
+    monkeypatch.setattr(sandbox, "_user_tasks", lambda: 10)
+    monkeypatch.setattr(sandbox.os, "name", "posix")
+    monkeypatch.setattr(sandbox, "_make_limits", lambda n: ("limites", n))
+    out = sandbox.run("result = 42", {})
+    assert out["result"]["value"] == "42" and len(calls) == 2
+    assert calls[0]["preexec_fn"] == ("limites", 10 + sandbox.NPROC_MARGIN)
+    assert calls[1]["preexec_fn"] == ("limites", None)
+    assert calls[0]["env"]["OMP_NUM_THREADS"] == "1"
