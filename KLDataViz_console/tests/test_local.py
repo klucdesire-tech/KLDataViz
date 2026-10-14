@@ -128,6 +128,19 @@ def test_csv_point_virgule(base, tmp_path):
     assert code == 200 and a["columns"] == 2, a
 
 
+def test_reparation_encodage():
+    """« contrÃ´le » → « contrôle », détaillé, et refusable par l'utilisateur."""
+    import modeling
+    df = pd.DataFrame({"motif": ["sous contrÃ´le ARV", "DÃ©cÃ¨s", "Soubré", None] * 5})
+    out, r = modeling.clean_dataframe(df)
+    assert r["encodage_corrige"] == {"motif": 2}  # après dédoublonnage des 5 répétitions
+    assert out["motif"].iloc[0] == "sous contrôle ARV" and out["motif"].iloc[2] == "Soubré"
+    assert r["details"]["encodage:motif"]["exemples"][0] == {"ligne": 2, "avant": "sous contrÃ´le ARV",
+                                                            "apres": "sous contrôle ARV"}
+    out2, r2 = modeling.clean_dataframe(df, skip=["encodage:motif"])
+    assert r2["encodage_corrige"] == {} and out2["motif"].iloc[0] == "sous contrÃ´le ARV"
+
+
 def test_pas_de_fausse_correction_trim():
     """Une colonne texte avec des cases vides mais sans espaces superflus n'est pas « à corriger »."""
     import modeling
