@@ -830,7 +830,12 @@ function renderArch(){
   const p=r.proposition||{},c=p.comprehension||{};
   const list=(t,xs)=>xs&&xs.length?`<div class="label" style="margin-top:14px">${t}</div>`:'';
   const tables=Object.entries(r.apercu||{});
-  out.innerHTML=
+  // D'où vient la structure proposée, et pourquoi l'IA n'a pas été suivie le cas échéant
+  const why=!r.ia?(r.ia_disponible===false?'Analyse IA non configurée : structure proposée par règles.'
+      :'L\'IA n\'a pas répondu à temps : structure proposée par règles. Vous pouvez relancer l\'analyse.')
+    :r.source_structure==='ia_corrigee'?`La recette de l'IA a d'abord échoué (${r.spec_error}) ; elle l'a corrigée elle-même.`
+    :r.source_structure==='regles'?`La recette de l'IA n'a pas pu être exécutée (${r.spec_error}) : structure de secours proposée par règles.`:'';
+  out.innerHTML=(why?`<div class="alert info" style="margin-top:8px">${esc(why)}</div>`:'')+
     `<p style="font-size:14px;margin:8px 0 0">${md(c.resume||'')}</p>
      ${c.grain?`<p class="sub" style="margin-top:8px"><b>Grain :</b> ${esc(c.grain)}</p>`:''}
      <div class="chips">${(c.dimensions||[]).map(d=>`<span class="tag ok" style="white-space:normal">${esc(d)}</span>`).join('')}</div>`+
@@ -846,7 +851,7 @@ function renderArch(){
     (state.archFile?(state.archFile.vues||[]).map((v,i)=>`<button class="btn primary" data-arch-view="${i}">Analyser ${esc(v.table)} (${nf(v.lignes)} ligne${v.lignes>1?'s':''})<svg class="i" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button>`).join('')+
       `<a class="btn ghost" href="${esc(state.archFile.url)}" download>Télécharger ${esc(state.archFile.file)}</a>`
       :p.spec?`<button class="btn primary" id="archApply">Générer le modèle Excel</button>`
-      :`<span class="sub">Aucune restructuration automatique n'a pu être validée pour ce fichier.</span>`)+`</div>`;
+      :`<span class="sub">Aucune structure n'a pu être exécutée${r.spec_error?` (erreur : ${esc(r.spec_error)})`:''}. Relancez l'analyse ; si le problème persiste, vérifiez que le fichier contient bien un en-tête de colonnes.</span> <button class="btn ghost sm" id="archRetry">Relancer</button>`)+`</div>`;
 }
 $('#archRun').onclick=async()=>{
   const b=$('#archRun');b.disabled=true;b.innerHTML='<span class="spin"></span> Hermes étudie le fichier (environ 1 min)…';
@@ -880,6 +885,7 @@ $('#archFileInput').addEventListener('change',e=>{
   reader.onerror=()=>toast('Lecture du fichier impossible.');
   reader.readAsDataURL(f);
 });
+$('#archOut').addEventListener('click',e=>{if(e.target.closest('#archRetry')){state.arch=null;renderArch();$('#archRun').click()}});
 // Analyse à partir de la structure : la table de faits jointe à ses dimensions part dans l'étape Analyser.
 $('#archOut').addEventListener('click',async e=>{
   const b=e.target.closest('[data-arch-view]');if(!b)return;

@@ -146,6 +146,12 @@ def _fallback(prof, df):
         spec = {"id_columns": ids, "melt": {"auto": True}, "value_rules": {"non_integer": "flag"}, "fact_name": "fait"}
         if aggregates and prof.get("colonne_libelle_probable"):
             spec["drop_rows"] = {"column": prof["colonne_libelle_probable"], "values": aggregates}
+    else:
+        # Fichier déjà « long » (une ligne par enregistrement) : la structure est le fichier lui-même,
+        # sans colonnes vides ni lignes de zone/total. Toujours exécutable, donc toujours proposable.
+        spec = {"fact_name": "fait", "drop_columns": prof.get("colonnes_vides", [])}
+        if aggregates and prof.get("colonne_libelle_probable"):
+            spec["drop_rows"] = {"column": prof["colonne_libelle_probable"], "values": aggregates}
     return {
         "comprehension": {
             "source": prof["source"].get("fichier", ""),
@@ -159,7 +165,11 @@ def _fallback(prof, df):
         "problemes": problemes,
         "structure": ([{"table": "fait", "role": "faits",
                         "colonnes": ids + ["indicateur"] + list(wide["dimensions_detectees"]) + ["valeur"],
-                        "description": "Une ligne par entité × indicateur × dimension."}] if wide else []),
+                        "description": "Une ligne par entité × indicateur × dimension."}] if wide else
+                      [{"table": "fait", "role": "faits",
+                        "colonnes": [c for c in df.columns if c not in set(prof.get("colonnes_vides", []))],
+                        "description": "Fichier déjà au format long (une ligne par enregistrement) : conservé tel quel, "
+                                       "sans colonnes vides ni lignes de zone/total."}]),
         "analyses": [],
         "recommandation": ("Dépivoter les colonnes au format long pour pouvoir filtrer et grouper."
                            if wide else "Vérifier les types et les clés avant l'analyse."),
@@ -181,27 +191,53 @@ def _preview(tables, n=5):
     return out
 
 
+REPAIR = ("Le moteur a exécuté ton spec et il a échoué avec cette erreur :\n{err}\n"
+          "Corrige le spec (noms de colonnes EXACTS du profil, regex valides). "
+          'Réponds avec un objet JSON valide et rien d\'autre : {{"spec": {{…}}}}')
+
+
+def _resolve_spec(proposal, ia, messages, content, llm_call, try_fn, fallback_spec):
+    """Rend un spec exécutable, dans cet ordre : celui de l'IA ; celui de l'IA corrigé par
+    elle-même à partir de l'erreur ; celui des règles. Renvoie (tables, source, erreur IA)."""
+    tables, err = try_fn(proposal.get("spec"))
+    if tables is not None:
+        return tables, "ia" if ia else "regles", None
+    if ia and llm_call:
+        fixed = _parse_json(llm_call(messages + [{"role": "assistant", "content": content},
+                                                 {"role": "user", "content": REPAIR.format(err=err)}],
+                                     max_tokens=16000))
+        if isinstance(fixed, dict) and isinstance(fixed.get("spec"), dict):
+            t2, _ = try_fn(fixed["spec"])
+            if t2 is not None:
+                proposal["spec"] = fixed["spec"]
+                return t2, "ia_corrigee", err
+    if ia:
+        spec = fallback_spec()
+        t3, _ = try_fn(spec)
+        if t3 is not None:
+            proposal["spec"] = spec
+            return t3, "regles", err
+    proposal["spec"] = None
+    return None, None, err
+
+
 def propose(df: pd.DataFrame, info: dict, llm_call) -> dict:
     prof = A.profile(df, info)
-    proposal, ia, spec_error = None, False, None
-    content = llm_call([{"role": "system", "content": SYSTEM},
-                        {"role": "user", "content": json.dumps(_compact_profile(prof, df), ensure_ascii=False, default=str)}],
-                       max_tokens=32000) if llm_call else None
+    proposal, ia = None, False
+    messages = [{"role": "system", "content": SYSTEM},
+                {"role": "user", "content": json.dumps(_compact_profile(prof, df), ensure_ascii=False, default=str)}]
+    content = llm_call(messages, max_tokens=32000) if llm_call else None
     data = _parse_json(content)
     if isinstance(data, dict) and data.get("comprehension"):
         proposal, ia = data, True
     else:
         proposal = _fallback(prof, df)
-    tables, spec_error = _try_spec(df, proposal.get("spec"))
-    if tables is None and ia:  # spec de l'IA inexécutable : on garde l'explication, on bascule sur le spec par règles
-        fb = _fallback(prof, df)
-        tables, _ = _try_spec(df, fb.get("spec"))
-        if tables is not None:
-            proposal["spec"] = fb["spec"]
-    if tables is None:
-        proposal["spec"] = None
+    tables, source, spec_error = _resolve_spec(proposal, ia, messages, content, llm_call,
+                                               lambda s: _try_spec(df, s), lambda: _fallback(prof, df)["spec"])
     return {
         "ia": ia,
+        "ia_disponible": bool(llm_call),
+        "source_structure": source,
         "proposition": proposal,
         "spec_error": spec_error,
         "apercu": _preview(tables) if tables is not None else None,
@@ -329,22 +365,18 @@ def propose_many(tables_in: dict, llm_call) -> dict:
         for p in payload["fichiers"].values():
             p["colonnes"] = {k: v for k, v in p["colonnes"].items() if v.get("alerte") or v.get("identifiant_potentiel")}
         text = json.dumps(payload, ensure_ascii=False, default=str)
-    content = llm_call([{"role": "system", "content": SYSTEM_MULTI}, {"role": "user", "content": text}],
-                       max_tokens=32000) if llm_call else None
+    messages = [{"role": "system", "content": SYSTEM_MULTI}, {"role": "user", "content": text}]
+    content = llm_call(messages, max_tokens=32000) if llm_call else None
     data = _parse_json(content)
     ia = isinstance(data, dict) and bool(data.get("comprehension"))
     proposal = data if ia else _fallback_many(profs, tables_in, relations)
     if ia and isinstance(proposal.get("spec"), dict) and proposal.get("relations"):
         proposal["spec"]["relations"] = proposal["relations"]
-    tables, spec_error = _try_spec_many(dfs, proposal.get("spec"))
-    if tables is None and ia:
-        fb = _fallback_many(profs, tables_in, relations)
-        tables, _ = _try_spec_many(dfs, fb["spec"])
-        if tables is not None:
-            proposal["spec"] = fb["spec"]
-    if tables is None:
-        proposal["spec"] = None
-    return {"ia": ia, "proposition": proposal, "spec_error": spec_error, "relations_mesurees": relations,
+    tables, source, spec_error = _resolve_spec(
+        proposal, ia, messages, content, llm_call, lambda s: _try_spec_many(dfs, s),
+        lambda: _fallback_many(profs, tables_in, relations)["spec"])
+    return {"ia": ia, "ia_disponible": bool(llm_call), "source_structure": source, "proposition": proposal,
+            "spec_error": spec_error, "relations_mesurees": relations,
             "apercu": _preview(tables) if tables is not None else None}
 
 

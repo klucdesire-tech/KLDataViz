@@ -93,6 +93,32 @@ def test_detail_des_corrections(base, tmp_path):
     os.remove(c["cleaned_path"])
 
 
+def test_architecte_fichier_long_sans_ia(base, tmp_path, monkeypatch):
+    """Fichier déjà « long » et IA indisponible : une structure exécutable est quand même proposée."""
+    monkeypatch.setattr(server, "_llm_config", lambda: None)
+    p = tmp_path / "prelevements.csv"
+    pd.DataFrame({"patient": [f"P{i}" for i in range(30)], "site": ["Buyo", "Soubré", "Méagui"] * 10,
+                  "resultat": range(30), "vide": [None] * 30}).to_csv(p, index=False)
+    r = _wait_job(base, call(base, "/api/architect", {"file_path": str(p)})[1])
+    assert r["source_structure"] == "regles" and r["proposition"]["spec"], r
+    assert r["apercu"]["fait"]["colonnes"] == ["patient", "site", "resultat"]  # colonne vide retirée
+
+
+def test_architecte_ia_corrige_sa_recette():
+    """Recette de l'IA inexécutable → l'erreur lui est renvoyée, la recette corrigée est retenue."""
+    import json as _json
+    import architect
+    df = pd.DataFrame({"site": ["A", "B"], "valeur": [1, 2]})
+    good = {"comprehension": {"resume": "ok"}, "problemes": [], "structure": [],
+            "spec": {"fact_name": "fait", "drop_columns": ["colonne_inexistante"],
+                     "dimensions": {"dim_site": {"key": "SITE"}}}}
+    answers = iter([_json.dumps(good), _json.dumps({"spec": {"fact_name": "fait",
+                                                              "dimensions": {"dim_site": {"key": "site"}}}})])
+    r = architect.propose(df, {}, lambda messages, max_tokens: next(answers))
+    assert r["source_structure"] == "ia_corrigee" and "SITE" in r["spec_error"], r
+    assert set(r["apercu"]) == {"fait", "dim_site"}
+
+
 def test_pas_de_fausse_correction_trim():
     """Une colonne texte avec des cases vides mais sans espaces superflus n'est pas « à corriger »."""
     import modeling
