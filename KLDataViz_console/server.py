@@ -1102,10 +1102,36 @@ def _architect_df(file_path):
     return df, info, None
 
 
-def architect_propose(file_path):
+MAX_ARCHITECT_FILES = 6
+
+
+def _architect_paths(p):
+    """Chemins envoyés par l'interface : `file_paths` (plusieurs fichiers) ou `file_path` (un seul)."""
+    paths = p.get("file_paths")
+    return [str(x) for x in paths] if isinstance(paths, list) else [str(p.get("file_path") or "")]
+
+
+def _architect_tables(paths):
+    """{nom de fichier unique: (DataFrame, info)} pour une liste de chemins, ou (None, erreur)."""
+    paths = [str(p) for p in (paths or []) if p][:MAX_ARCHITECT_FILES]
+    if not paths:
+        return None, "Aucun fichier."
+    tables = {}
+    for p in paths:
+        df, info, err = _architect_df(p)
+        if err:
+            return None, f"{os.path.basename(p)} : {err}"
+        name = (info or {}).get("fichier") or os.path.basename(p)
+        while name in tables:
+            name = "_" + name
+        tables[name] = (df, info)
+    return tables, None
+
+
+def architect_propose(paths):
     if architect is None:
         return {"error": f"Agent architecte indisponible : {ARCHITECT_ERROR}"}
-    df, info, err = _architect_df(file_path)
+    tables, err = _architect_tables(paths)
     if err:
         return {"error": err}
     cfg = _llm_config()
@@ -1117,7 +1143,10 @@ def architect_propose(file_path):
     def llm(messages, max_tokens):
         return (_llm_call(messages, max_tokens, model=model, effort="high", timeout=120, attempts=1)
                 or _llm_call(messages, max_tokens, model=model, effort="low", timeout=90, attempts=1))
-    return _json_safe(architect.propose(df, info, llm if cfg else None))
+    if len(tables) == 1:
+        df, info = next(iter(tables.values()))
+        return _json_safe(architect.propose(df, info, llm if cfg else None))
+    return _json_safe(architect.propose_many(tables, llm if cfg else None))
 
 
 # L'analyse IA dure plusieurs minutes : elle tourne en tâche de fond et le navigateur
@@ -1125,14 +1154,14 @@ def architect_propose(file_path):
 _arch_jobs, _arch_lock = {}, threading.Lock()
 
 
-def architect_start(file_path):
+def architect_start(paths):
     ctx = T.current()
     job_id = secrets.token_hex(8)
 
     def run():
         with T.use(ctx):
             try:
-                result = architect_propose(file_path)
+                result = architect_propose(paths)
             except Exception as e:
                 result = {"error": f"Analyse impossible : {e}"}
         with _arch_lock:
@@ -1154,16 +1183,20 @@ def architect_job(job_id):
         return {"status": j["status"], "result": j["result"]}
 
 
-def architect_apply(file_path, spec):
+def architect_apply(paths, spec):
     if architect is None:
         return {"error": f"Agent architecte indisponible : {ARCHITECT_ERROR}"}
     if not isinstance(spec, dict) or not spec:
         return {"error": "Aucune structure à générer."}
-    df, info, err = _architect_df(file_path)
+    tables, err = _architect_tables(paths)
     if err:
         return {"error": err}
     try:
-        r = architect.apply(df, spec, T.exports_dir(), (info or {}).get("fichier") or file_path)
+        if len(tables) == 1:
+            (name, (df, _)), = tables.items()
+            r = architect.apply(df, spec, T.exports_dir(), name)
+        else:
+            r = architect.apply_many(tables, spec, T.exports_dir())
     except Exception as e:
         return {"error": f"Restructuration impossible : {e}"}
     return {**r, "url": download_url(r["file"])}
@@ -1438,9 +1471,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if path == "/api/architect":
             if T.CLOUD and _llm_config():
                 cloud.consume(ctx, "ai")
-            return self._send(200, architect_start(str(p.get("file_path") or "")))
+            return self._send(200, architect_start(_architect_paths(p)))
         if path == "/api/architect/apply":
-            return self._send(200, architect_apply(str(p.get("file_path") or ""), p.get("spec")))
+            return self._send(200, architect_apply(_architect_paths(p), p.get("spec")))
         if path == "/api/ingest":
             return self._ingest(p)
         if path in ("/api/export/pdf", "/api/export/excel", "/api/export/html"):

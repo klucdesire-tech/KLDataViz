@@ -70,3 +70,31 @@ def test_architecte_format_large(base, tmp_path, monkeypatch):
     code, a = call(base, "/api/architect/apply", {"file_path": str(p), "spec": r["proposition"]["spec"]})
     assert code == 200 and a["url"].startswith("/download/"), a
     assert call(base, "/api/exports/delete", {"file": a["file"]})[0] == 200
+
+
+def _wait_job(base, job):
+    for _ in range(100):
+        j = call(base, f"/api/architect/job?id={job['job']}")[1]
+        if j.get("status") == "done":
+            return j["result"]
+        time.sleep(0.1)
+    raise AssertionError("tâche non terminée")
+
+
+def test_architecte_plusieurs_fichiers(base, tmp_path, monkeypatch):
+    """Deux fichiers reliés par un identifiant de nom différent → relation détectée, modèle commun."""
+    monkeypatch.setattr(server, "_llm_config", lambda: None)
+    ventes = tmp_path / "ventes.csv"
+    clients = tmp_path / "clients.xlsx"
+    pd.DataFrame({"id_client": ["C1", "C2", "C3", "C1"] * 5, "montant": range(20)}).to_csv(ventes, index=False)
+    pd.DataFrame({"CODE CLIENT": ["C1", "C2", "C3", "C4"], "ville": ["Abidjan", "Soubré", "Méagui", "Buyo"]}) \
+        .to_excel(clients, index=False)
+    paths = [str(ventes), str(clients)]
+    r = _wait_job(base, call(base, "/api/architect", {"file_paths": paths})[1])
+    assert not r.get("error"), r
+    rel = r["relations_mesurees"][0]
+    assert {rel["gauche"], rel["droite"]} == {"ventes.csv :: id_client", "clients.xlsx :: CODE CLIENT"}
+    assert rel["cardinalite"] in ("N:1", "1:N")
+    a = call(base, "/api/architect/apply", {"file_paths": paths, "spec": r["proposition"]["spec"]})[1]
+    assert a.get("url") and len(a["tables"]) == 2, a
+    assert call(base, "/api/exports/delete", {"file": a["file"]})[0] == 200

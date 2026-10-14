@@ -3,6 +3,8 @@
 Usage :
     python -I data_architect.py profile <fichier> [--sheet NOM] [--out rapport.json]
     python -I data_architect.py restructure <fichier> <spec.json> <dossier_sortie>
+    python -I data_architect.py profile <fichier1> <fichier2> ...       (relations entre fichiers)
+    python -I data_architect.py restructure-multi <spec.json> <dossier_sortie> <fichier1> <fichier2> ...
 
 Le profilage est déterministe : il mesure, il ne devine pas. L'interprétation
 (qu'est-ce qu'une ligne ? quelle structure cible ?) revient au LLM, qui s'appuie
@@ -381,12 +383,19 @@ def restructure(df: pd.DataFrame, spec: dict) -> dict[str, pd.DataFrame]:
         elif rule == "null":
             fact.loc[frac, vname] = pd.NA
 
-    for name, d in spec.get("dimensions", {}).items():
+    # Toutes les dimensions sont construites avant de retirer quoi que ce soit de la table de faits :
+    # une dimension peut en référencer une autre (établissement → district).
+    dims = spec.get("dimensions", {})
+    keys = {d["key"] for d in dims.values()}
+    to_drop = set()
+    for name, d in dims.items():
         key = d["key"]
+        if key not in fact.columns:
+            raise KeyError(f"clé « {key} » de {name} absente de la table de faits")
         cols = [key] + [c for c in d.get("columns", []) if c in fact.columns and c != key]
-        dim = fact[cols].drop_duplicates(subset=[key]).sort_values(key).reset_index(drop=True)
-        tables[name] = dim
-        fact = fact.drop(columns=[c for c in cols if c != key])
+        tables[name] = fact[cols].drop_duplicates(subset=[key]).sort_values(key).reset_index(drop=True)
+        to_drop |= set(cols[1:]) - keys
+    fact = fact.drop(columns=sorted(to_drop))
 
     tables = {spec.get("fact_name", "fait"): fact.reset_index(drop=True), **tables}
     tables["_journal"] = pd.DataFrame(
@@ -395,6 +404,99 @@ def restructure(df: pd.DataFrame, spec: dict) -> dict[str, pd.DataFrame]:
          {"etape": "lignes table de faits", "detail": str(len(fact))}]
     )
     return tables
+
+
+# --------------------------------------------------------------------------- #
+# Plusieurs fichiers : relations et modèle commun
+# --------------------------------------------------------------------------- #
+
+KEY_NAME = re.compile(r"(^|[_\s])(id|code|cle|clé|key|ref|num|matricule)([_\s]|$)|id$|uid$|code", re.IGNORECASE)
+
+
+def _norm_name(c: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", str(c).lower())
+
+
+def _key_values(s: pd.Series) -> set | None:
+    """Valeurs normalisées d'une colonne candidate à une jointure (None si elle n'en est pas une)."""
+    s = s.dropna()
+    if len(s) < 2 or s.nunique() < 2:
+        return None
+    if pd.api.types.is_bool_dtype(s):
+        return None
+    if pd.api.types.is_numeric_dtype(s):
+        if (s % 1 != 0).any():
+            return None
+        if not (KEY_NAME.search(str(s.name)) or s.is_unique):  # un comptage n'est pas une clé
+            return None
+        s = s.astype("int64")
+    vals = s.astype(str).str.strip().str.upper()
+    if vals.str.len().mean() > 60:  # texte libre
+        return None
+    return set(vals.unique())
+
+
+def find_relations(dfs: dict[str, pd.DataFrame], top: int = 20) -> list[dict]:
+    """Colonnes de fichiers différents dont les valeurs se recoupent : jointures candidates."""
+    cands = []
+    for f, df in dfs.items():
+        for c in df.columns:
+            v = _key_values(df[c])
+            if v:
+                cands.append((f, c, v, bool(df[c].dropna().is_unique)))
+    rel = []
+    for i, (f1, c1, v1, u1) in enumerate(cands):
+        for f2, c2, v2, u2 in cands[i + 1:]:
+            if f1 == f2:
+                continue
+            inter = len(v1 & v2)
+            if inter < 2:
+                continue
+            r1, r2 = inter / len(v1), inter / len(v2)
+            if max(r1, r2) < 0.5:
+                continue
+            card = "1:1" if u1 and u2 else "N:1" if u2 else "1:N" if u1 else "N:N"
+            rel.append({
+                "gauche": f"{f1} :: {c1}", "droite": f"{f2} :: {c2}", "cardinalite": card,
+                "valeurs_communes": inter,
+                "pct_gauche_trouvees": round(100 * r1, 1), "pct_droite_trouvees": round(100 * r2, 1),
+                "noms_proches": _norm_name(c1) == _norm_name(c2) or _norm_name(c1) in _norm_name(c2)
+                or _norm_name(c2) in _norm_name(c1),
+            })
+    rel.sort(key=lambda r: (r["noms_proches"], max(r["pct_gauche_trouvees"], r["pct_droite_trouvees"]),
+                            r["valeurs_communes"]), reverse=True)
+    return rel[:top]
+
+
+def profile_many(tables: dict[str, tuple[pd.DataFrame, dict]]) -> dict:
+    return {"fichiers": {n: profile(df, info) for n, (df, info) in tables.items()},
+            "relations": find_relations({n: df for n, (df, _) in tables.items()})}
+
+
+def restructure_many(dfs: dict[str, pd.DataFrame], spec: dict) -> dict[str, pd.DataFrame]:
+    """spec = {"fichiers": {nom: spec d'un fichier}, "relations": [...]} ; les dimensions de même
+    nom venant de plusieurs fichiers sont fusionnées (dédoublonnées sur leur clé = 1re colonne)."""
+    out: dict[str, pd.DataFrame] = {}
+    journal = []
+    for name, sub in spec.get("fichiers", {}).items():
+        if name not in dfs:
+            raise KeyError(f"fichier inconnu dans le spec : {name}")
+        for tname, t in restructure(dfs[name], sub).items():
+            if tname == "_journal":
+                journal.append(t.assign(fichier=name))
+            elif tname not in out:
+                out[tname] = t
+            elif tname.startswith("dim_"):
+                key = t.columns[0]
+                merged = pd.concat([out[tname], t], ignore_index=True)
+                out[tname] = merged.drop_duplicates(subset=[key]).sort_values(key).reset_index(drop=True)
+            else:
+                out[f"{tname}_{_norm_name(Path(name).stem)[:20]}"] = t
+    if journal:
+        out["_journal"] = pd.concat(journal, ignore_index=True)
+    if spec.get("relations"):
+        out["_relations"] = pd.DataFrame(spec["relations"])
+    return out
 
 
 # --------------------------------------------------------------------------- #
@@ -407,14 +509,48 @@ def _json_default(o):
     return str(o)
 
 
+def _write_tables(tables: dict[str, pd.DataFrame], out: Path) -> None:
+    out.mkdir(parents=True, exist_ok=True)
+    for name, t in tables.items():
+        t.to_csv(out / f"{name}.csv", index=False, sep=";", encoding="utf-8-sig")
+    with pd.ExcelWriter(out / "modele_analyse.xlsx") as xw:
+        for name, t in tables.items():
+            t.to_excel(xw, sheet_name=name[:31], index=False)
+    sys.stdout.reconfigure(encoding="utf-8")
+    for name, t in tables.items():
+        print(f"{name}: {t.shape[0]} lignes x {t.shape[1]} colonnes")
+    print(f"Sorties dans {out}")
+
+
+def _load_named(paths: list[str]) -> dict[str, tuple[pd.DataFrame, dict]]:
+    tables = {}
+    for p in paths:
+        df, info = load_table(p)
+        name = Path(p).name
+        while name in tables:
+            name = "_" + name
+        tables[name] = (df, info)
+    return tables
+
+
 def main(argv: list[str]) -> int:
-    if len(argv) < 2 or argv[0] not in ("profile", "restructure"):
+    if len(argv) < 2 or argv[0] not in ("profile", "restructure", "restructure-multi"):
         print(__doc__)
         return 1
+    if argv[0] == "restructure-multi":
+        spec = json.loads(Path(argv[1]).read_text(encoding="utf-8"))
+        tables = _load_named(argv[3:])
+        _write_tables(restructure_many({n: df for n, (df, _) in tables.items()}, spec), Path(argv[2]))
+        return 0
     if argv[0] == "profile":
         sheet = argv[argv.index("--sheet") + 1] if "--sheet" in argv else None
-        df, info = load_table(argv[1], sheet)
-        rep = profile(df, info)
+        flags = {"--sheet", "--out"}
+        files = [a for i, a in enumerate(argv[1:], 1) if a not in flags and argv[i - 1] not in flags]
+        if len(files) > 1:
+            rep = profile_many(_load_named(files))
+        else:
+            df, info = load_table(files[0], sheet)
+            rep = profile(df, info)
         text = json.dumps(rep, ensure_ascii=False, indent=1, default=_json_default)
         if "--out" in argv:
             Path(argv[argv.index("--out") + 1]).write_text(text, encoding="utf-8")
@@ -425,18 +561,7 @@ def main(argv: list[str]) -> int:
         return 0
     df, _ = load_table(argv[1])
     spec = json.loads(Path(argv[2]).read_text(encoding="utf-8"))
-    out = Path(argv[3])
-    out.mkdir(parents=True, exist_ok=True)
-    tables = restructure(df, spec)
-    for name, t in tables.items():
-        t.to_csv(out / f"{name}.csv", index=False, sep=";", encoding="utf-8-sig")
-    with pd.ExcelWriter(out / "modele_analyse.xlsx") as xw:
-        for name, t in tables.items():
-            t.to_excel(xw, sheet_name=name[:31], index=False)
-    sys.stdout.reconfigure(encoding="utf-8")
-    for name, t in tables.items():
-        print(f"{name}: {t.shape[0]} lignes x {t.shape[1]} colonnes")
-    print(f"Sorties dans {out}")
+    _write_tables(restructure(df, spec), Path(argv[3]))
     return 0
 
 

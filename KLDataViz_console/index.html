@@ -407,6 +407,8 @@ tr.versions td{background:var(--surface-2);font-size:13px}
           <div class="toolbar"><h2>Structure recommandée pour l'analyse</h2><span class="spacer"></span><span class="aibadge" id="archBadge"></span>
             <button class="btn ghost sm" id="archRun">Proposer une structure</button></div>
           <p class="sub" id="archLead">Hermes examine le fichier comme un architecte de données : ce que représente une ligne, les dimensions cachées dans les en-têtes, les lignes de total, les valeurs imputées. Il propose ensuite des tables prêtes pour Power BI ou un tableau croisé.</p>
+          <div class="chips" id="archFiles"></div>
+          <input type="file" id="archFileInput" accept=".csv,.xlsx,.xls,.xlsm,.json,.parquet" hidden>
           <div id="archOut"></div>
         </div>
         <div class="card"><h2>Colonnes</h2>
@@ -708,7 +710,7 @@ $('#dbForm').addEventListener('submit',async e=>{
 
 /* ================= pipeline ================= */
 async function startRun(path,name,size){
-  Object.assign(state,{path,name,original:null,analysis:null,clean:null,applied:false,showAll:false,ai:null,arch:null,archFile:null});state.accept=new Set();
+  Object.assign(state,{path,name,original:null,analysis:null,clean:null,applied:false,showAll:false,ai:null,arch:null,archFile:null,archExtra:[]});state.accept=new Set();
   setNav('home');state.step=0;renderStepper();show('run');
   $('#runFile').textContent=name+(size?` · ${dec((size/1048576).toFixed(1))} Mo`:'');
   $('#runErr').hidden=true;
@@ -806,7 +808,15 @@ function renderVerify(){
     <td><div class="fill"><div class="meter"><i class="${f<80?'bad':f<98?'warn':''}" style="width:${f}%"></i></div><span class="num" style="font-size:12.5px">${dec(+f.toFixed(1))} %</span></div></td><td class="r num">${nf(c.unique)}</td></tr>`}).join('');
 }
 /* ---- architecte de données : structure cible ---- */
+const archPaths=()=>[state.path,...(state.archExtra||[]).map(x=>x.path)];
+function renderArchFiles(){
+  const extra=state.archExtra||[];
+  $('#archFiles').innerHTML=`<span class="tag type">${esc(state.name)}</span>`+
+    extra.map((x,i)=>`<span class="tag type">${esc(x.name)} <button class="btn ghost sm" style="min-height:0;padding:0 4px" data-arch-rm="${i}" aria-label="Retirer ${esc(x.name)}">×</button></span>`).join('')+
+    (extra.length<5?`<button class="btn ghost sm" id="archAdd">+ Croiser avec un autre fichier</button>`:'');
+}
 function renderArch(){
+  renderArchFiles();
   const r=state.arch,out=$('#archOut');
   $('#archBadge').textContent=r?(r.ia?'✦ Analyse IA':'Analyse par règles'):'';
   $('#archRun').hidden=!!r;$('#archLead').hidden=!!r;
@@ -820,6 +830,7 @@ function renderArch(){
      ${c.grain?`<p class="sub" style="margin-top:8px"><b>Grain :</b> ${esc(c.grain)}</p>`:''}
      <div class="chips">${(c.dimensions||[]).map(d=>`<span class="tag ok" style="white-space:normal">${esc(d)}</span>`).join('')}</div>`+
     (p.recommandation?`<div class="alert info" style="margin-top:12px;color:var(--fg)"><b>Priorité :</b> ${md(p.recommandation)}</div>`:'')+
+    list('Liens entre les fichiers',p.relations)+(p.relations||[]).map(x=>`<div class="issue"><span class="sev info"></span><div><b>${esc(x.de)} → ${esc(x.vers)} <span class="tag type">${esc(x.type||'')}</span></b><span>${esc(x.usage||'')}${x.correspondance?' · '+esc(x.correspondance):''}</span></div></div>`).join('')+
     list('Problèmes détectés',p.problemes)+(p.problemes||[]).map(x=>`<div class="issue"><span class="sev ${x.severite==='info'?'info':''}" ${x.severite==='bad'?'style="background:var(--red)"':''}></span><div><b>${esc(x.titre)}</b><span>${esc(x.preuve)}${x.consequence?' — '+esc(x.consequence):''}</span></div></div>`).join('')+
     list('Tables proposées',p.structure)+(p.structure||[]).map(t=>`<div class="issue"><span class="sev info"></span><div><b>${esc(t.table)} <span class="tag type">${esc(t.role||'')}</span></b><span>${esc(t.description||'')}${(t.colonnes||[]).length?' · '+t.colonnes.map(esc).join(', '):''}</span></div></div>`).join('')+
     list('Ce que cette structure permet',p.analyses)+((p.analyses||[]).length?`<ul class="sub" style="margin:6px 0 0 18px">${p.analyses.map(a=>`<li>${md(a)}</li>`).join('')}</ul>`:'')+
@@ -833,7 +844,7 @@ function renderArch(){
 }
 $('#archRun').onclick=async()=>{
   const b=$('#archRun');b.disabled=true;b.innerHTML='<span class="spin"></span> Hermes étudie le fichier (environ 1 min)…';
-  const path=state.path,s=await api('/api/architect',{file_path:path});
+  const path=state.path,s=await api('/api/architect',{file_paths:archPaths()});
   let r=s.error?s:null;
   for(let i=0;!r&&i<100;i++){  // tâche de fond interrogée toutes les 3 s ; 5 min couvrent les 2 essais IA (2 min + 1 min 30)
     await new Promise(ok=>setTimeout(ok,3000));
@@ -846,10 +857,27 @@ $('#archRun').onclick=async()=>{
   state.arch=r;state.archFile=null;renderArch();
   if(!r.error)say(`J'ai étudié la structure de **${state.name}**. ${r.proposition?.recommandation||''}`);
 };
+// Fichiers à croiser : envoyés comme une source, puis analysés avec le fichier courant.
+$('#archFiles').addEventListener('click',e=>{
+  if(e.target.closest('#archAdd'))return $('#archFileInput').click();
+  const rm=e.target.closest('[data-arch-rm]');
+  if(rm){state.archExtra.splice(+rm.dataset.archRm,1);state.arch=null;state.archFile=null;renderArch()}
+});
+$('#archFileInput').addEventListener('change',e=>{
+  const f=e.target.files[0];e.target.value='';if(!f)return;
+  const reader=new FileReader();
+  reader.onload=async()=>{
+    const d=await api('/api/upload-source',{name:f.name,data:String(reader.result).split(',')[1]||''});
+    if(!d.path)return toast('Envoi impossible : '+(d.error||'erreur inconnue'));
+    state.archExtra=[...(state.archExtra||[]),{path:d.path,name:f.name}];state.arch=null;state.archFile=null;renderArch();
+  };
+  reader.onerror=()=>toast('Lecture du fichier impossible.');
+  reader.readAsDataURL(f);
+});
 $('#archOut').addEventListener('click',async e=>{
   if(!e.target.closest('#archApply'))return;
   const b=$('#archApply');b.disabled=true;b.innerHTML='<span class="spin"></span> Génération…';
-  const r=await api('/api/architect/apply',{file_path:state.path,spec:state.arch.proposition.spec});
+  const r=await api('/api/architect/apply',{file_paths:archPaths(),spec:state.arch.proposition.spec});
   if(r.error){toast(r.error);renderArch();return}
   state.archFile=r;renderArch();toast('Modèle généré : '+r.file);
 });
