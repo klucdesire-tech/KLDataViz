@@ -1108,6 +1108,40 @@ def architect_propose(file_path):
     return _json_safe(architect.propose(df, info, _llm_call if _llm_config() else None))
 
 
+# L'analyse IA dure plusieurs minutes : elle tourne en tâche de fond et le navigateur
+# interroge son état, pour ne pas dépasser le délai des proxys (Render coupe vers 100 s).
+_arch_jobs, _arch_lock = {}, threading.Lock()
+
+
+def architect_start(file_path):
+    ctx = T.current()
+    job_id = secrets.token_hex(8)
+
+    def run():
+        with T.use(ctx):
+            try:
+                result = architect_propose(file_path)
+            except Exception as e:
+                result = {"error": f"Analyse impossible : {e}"}
+        with _arch_lock:
+            _arch_jobs[job_id].update(status="done", result=result)
+
+    with _arch_lock:
+        for k in [k for k, j in _arch_jobs.items() if time.time() - j["t"] > 3600]:
+            del _arch_jobs[k]
+        _arch_jobs[job_id] = {"key": ctx.key, "status": "running", "result": None, "t": time.time()}
+    threading.Thread(target=run, daemon=True).start()
+    return {"job": job_id}
+
+
+def architect_job(job_id):
+    with _arch_lock:
+        j = _arch_jobs.get(job_id)
+        if not j or j["key"] != T.current().key:  # une tâche n'est visible que par son auteur
+            return {"error": "Tâche introuvable ou expirée."}
+        return {"status": j["status"], "result": j["result"]}
+
+
 def architect_apply(file_path, spec):
     if architect is None:
         return {"error": f"Agent architecte indisponible : {ARCHITECT_ERROR}"}
@@ -1347,6 +1381,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 return self._send(code if code else 502, r)
             if path == "/api/exports":
                 return self._send(200, _list_exports())
+            if path == "/api/architect/job":
+                return self._send(200, architect_job((parse_qs(urlparse(self.path).query).get("id") or [""])[0]))
             if path == "/api/settings":
                 return self._send(200, studio.public_settings())
             if path == "/api/schedules":
@@ -1390,7 +1426,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if path == "/api/architect":
             if T.CLOUD and _llm_config():
                 cloud.consume(ctx, "ai")
-            return self._send(200, architect_propose(str(p.get("file_path") or "")))
+            return self._send(200, architect_start(str(p.get("file_path") or "")))
         if path == "/api/architect/apply":
             return self._send(200, architect_apply(str(p.get("file_path") or ""), p.get("spec")))
         if path == "/api/ingest":

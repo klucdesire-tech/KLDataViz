@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """Non-régression de la console locale : python -m pytest tests/test_local.py"""
 import os
+import time
 
 import pandas as pd
 import pytest
@@ -53,8 +54,16 @@ def test_architecte_format_large(base, tmp_path, monkeypatch):
     p = tmp_path / "dhis2.csv"
     pd.DataFrame({"orgid": ["a1", "b2", "c3", "d4"], "nom": ["CSR-D A", "CSR-D B", "CSU C", "DISTRICT"], **cols}) \
         .to_csv(p, sep=";", index=False, encoding="utf-8-sig")
-    code, r = call(base, "/api/architect", {"file_path": str(p)})
-    assert code == 200 and not r.get("error"), r
+    code, job = call(base, "/api/architect", {"file_path": str(p)})
+    assert code == 200 and job.get("job"), job
+    for _ in range(100):  # tâche de fond
+        code, j = call(base, f"/api/architect/job?id={job['job']}")
+        if j.get("status") == "done":
+            break
+        time.sleep(0.1)
+    r = j["result"]
+    assert not r.get("error"), r
+    assert call(base, "/api/architect/job?id=inconnu")[1].get("error")
     assert r["ia"] is False and set(r["proposition"]["comprehension"]["dimensions"]) == {"periode", "tranche_age"}
     assert r["apercu"]["fait"]["lignes"] == 4 * len(cols)
     code, a = call(base, "/api/architect/apply", {"file_path": str(p), "spec": r["proposition"]["spec"]})

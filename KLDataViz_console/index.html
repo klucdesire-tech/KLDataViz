@@ -832,9 +832,17 @@ function renderArch(){
       :`<span class="sub">Aucune restructuration automatique n'a pu être validée pour ce fichier.</span>`)+`</div>`;
 }
 $('#archRun').onclick=async()=>{
-  const b=$('#archRun');b.disabled=true;b.innerHTML='<span class="spin"></span> Hermes étudie le fichier (jusqu\'à 3 min)…';
-  const r=await api('/api/architect',{file_path:state.path});
+  const b=$('#archRun');b.disabled=true;b.innerHTML='<span class="spin"></span> Hermes étudie le fichier (quelques minutes, vous pouvez continuer)…';
+  const path=state.path,s=await api('/api/architect',{file_path:path});
+  let r=s.error?s:null;
+  for(let i=0;!r&&i<240;i++){  // tâche de fond, interrogée toutes les 3 s ; 12 min couvrent 2 essais IA de 5 min
+    await new Promise(ok=>setTimeout(ok,3000));
+    const j=await api('/api/architect/job?id='+encodeURIComponent(s.job));
+    if(j.error)r=j;else if(j.status==='done')r=j.result;
+  }
   b.disabled=false;b.textContent='Proposer une structure';
+  if(state.path!==path)return;  // l'utilisateur a changé de fichier entre-temps
+  r=r||{error:'L\'analyse prend trop de temps. Réessayez plus tard.'};
   state.arch=r;state.archFile=null;renderArch();
   if(!r.error)say(`J'ai étudié la structure de **${state.name}**. ${r.proposition?.recommandation||''}`);
 };
