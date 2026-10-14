@@ -4,7 +4,7 @@ KLDataViz — Console d'utilisation de l'agent (serveur local).
 Backend : proxy orchestrateUR CVLynk + moteur d'analyse (pandas) + exports PDF/Excel/HTML.
 Sert l'interface web sur http://localhost:8642
 """
-import http.server, socketserver, json, os, io, threading, time, tempfile, urllib.request, urllib.error, base64, sys, subprocess
+import http.server, socketserver, json, os, io, threading, time, tempfile, urllib.request, urllib.error, base64, sys, subprocess, traceback
 import pandas as pd
 import numpy as np
 import openpyxl
@@ -215,6 +215,15 @@ def source_label(file_path):
     return re.sub(r'[\\/:*?"<>|]+', "_", name).strip("._ ") or "source"
 
 
+def _csv_options(file_path):
+    """Séparateur et encodage d'un CSV ; options par défaut de pandas si la détection échoue."""
+    try:
+        enc, sep = data_architect._sniff_text(data_architect.Path(file_path))
+        return {"sep": sep, "encoding": enc}
+    except Exception:
+        return {}
+
+
 def _header_row(sample):
     """Indice de la vraie ligne d'en-têtes dans un tableau « rapport » (titres, totaux au-dessus).
 
@@ -295,8 +304,10 @@ def _read_df(file_path):
     ext = os.path.splitext(file_path)[1].lower()
     try:
         if ext == ".csv":
-            h = _header_row(pd.read_csv(file_path, header=None, nrows=20, dtype=str, on_bad_lines="skip"))
-            df = _tidy(pd.read_csv(file_path, skiprows=h)) if h else pd.read_csv(file_path)
+            # Séparateur et encodage détectés : les exports français et DHIS2 utilisent « ; » (et parfois cp1252)
+            opts = _csv_options(file_path)
+            h = _header_row(pd.read_csv(file_path, header=None, nrows=20, dtype=str, on_bad_lines="skip", **opts))
+            df = _tidy(pd.read_csv(file_path, skiprows=h, **opts)) if h else pd.read_csv(file_path, **opts)
         elif ext in (".xlsx", ".xls", ".xlsm"):
             h = _header_row(pd.read_excel(file_path, header=None, nrows=20, dtype=str))
             df = _tidy(pd.read_excel(file_path, header=h)) if h else pd.read_excel(file_path)
@@ -766,10 +777,7 @@ def _chat_load_work(path):
 
 def chat_query(question):
     import re
-    from ingestion.store import Registry
-    reg = T.registry()
-    reg.ensure()
-    datasets = reg.latest_versions()
+    datasets = _registry_datasets()
     ql = (question or "").strip().lower()
     if not ql:
         return {"answer": "Posez une question sur les données (ex. « combien de lignes dans fact_district ? », « somme de value par district »).", "type": "text"}
@@ -786,6 +794,7 @@ def chat_query(question):
         return {"answer": "Aucun dataset ingéré pour le moment. Ingérez d'abord un fichier (panneau Ingestion).", "type": "text"}
 
     # --- dataset cible : par nom, sinon par recouvrement de colonnes, sinon le plus récent
+    reg = T.registry()  # joignable : il vient de fournir `datasets`
     dataset_cols = {}
     for d in datasets:
         try:
@@ -927,11 +936,20 @@ def _llm_call(messages, max_tokens=8000, temperature=0, timeout=120, model=None,
                 time.sleep(2)
     return None
 
-def _llm_context():
-    from ingestion.store import Registry
-    reg = T.registry()
-    reg.ensure()
-    datasets = reg.latest_versions()
+def _registry_datasets():
+    """Jeux de données du registre ; liste vide (et trace dans les journaux) s'il est injoignable,
+    pour que le chat réponde quand même sur le fichier en cours."""
+    try:
+        reg = T.registry()
+        reg.ensure()
+        return reg.latest_versions()
+    except Exception as e:
+        sys.stderr.write(f"[registre] indisponible pour le chat : {type(e).__name__} : {e}\n")
+        return []
+
+
+def _llm_context(datasets=None):
+    datasets = _registry_datasets() if datasets is None else datasets
     out = []
     for d in datasets[:12]:
         df = _chat_load_work(d.get("work_path"))
@@ -965,11 +983,8 @@ def _work_file(path):
 
 def llm_chat(question):
     import re
-    from ingestion.store import Registry
-    reg = T.registry()
-    reg.ensure()
-    datasets = reg.latest_versions()
-    context = _llm_context()
+    datasets = _registry_datasets()
+    context = _llm_context(datasets)
     current_df, current_name = None, None
     cur_path = T.state()["current_path"]
     if cur_path:
@@ -1194,9 +1209,9 @@ def architect_apply(paths, spec):
     try:
         if len(tables) == 1:
             (name, (df, _)), = tables.items()
-            r = architect.apply(df, spec, T.exports_dir(), name)
+            r = architect.apply(df, spec, T.exports_dir(), name, views_dir=T.cleaned_dir())
         else:
-            r = architect.apply_many(tables, spec, T.exports_dir())
+            r = architect.apply_many(tables, spec, T.exports_dir(), views_dir=T.cleaned_dir())
     except Exception as e:
         return {"error": f"Restructuration impossible : {e}"}
     return {**r, "url": download_url(r["file"])}
@@ -1370,8 +1385,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
         except (ValueError, KeyError, FileNotFoundError, netguard.BlockedURL) as e:
             self._send(400, {"error": str(e).strip("'")})
         except Exception as e:
-            sys.stderr.write(f"[erreur] {method} {path} : {type(e).__name__} : {e}\n")
-            self._send(500, {"error": "Erreur interne. Réessayez." if T.CLOUD else f"{type(e).__name__} : {e}"})
+            # En ligne, le détail reste dans les journaux ; la référence permet de l'y retrouver.
+            ref = secrets.token_hex(3)
+            sys.stderr.write(f"[erreur {ref}] {method} {path} : {type(e).__name__} : {e}\n"
+                             + "".join(traceback.format_exception(e)[-4:]))
+            self._send(500, {"error": f"Erreur interne (réf. {ref}). Réessayez." if T.CLOUD else f"{type(e).__name__} : {e}"})
 
     def _download(self):
         u = urlparse(self.path)

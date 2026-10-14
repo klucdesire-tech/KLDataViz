@@ -29,6 +29,9 @@ SQLITE_PATH = BASE_DIR / "storage" / "registry.sqlite"
 def default_dsn(dbname: str = DEFAULT_DB) -> str:
     if os.environ.get("KLINGEST_PG_DSN"):
         return os.environ["KLINGEST_PG_DSN"]
+    # En ligne (Render + Supabase), la base est celle de l'application : DATABASE_URL.
+    if os.environ.get("DATABASE_URL"):
+        return os.environ["DATABASE_URL"]
     parts = [f"host={DEFAULT_HOST}", f"port={DEFAULT_PORT}", f"dbname={dbname}"]
     if os.environ.get("KLINGEST_PG_USER"):
         parts.append(f"user={os.environ['KLINGEST_PG_USER']}")
@@ -175,7 +178,8 @@ class Registry:
             try:
                 import psycopg
 
-                return psycopg.connect(self.dsn, autocommit=True)
+                # prepare_threshold=None : compatible avec les poolers (Supabase/pgbouncer)
+                return psycopg.connect(self.dsn, autocommit=True, prepare_threshold=None, connect_timeout=10)
             except Exception as exc:
                 self._connect_error = str(exc)
                 if os.environ.get("KLDV_MODE", "").lower() == "cloud":
@@ -226,6 +230,10 @@ class Registry:
     def _ensure_database(self) -> None:
         import psycopg
 
+        # Base hébergée (Supabase…) : elle existe déjà et on n'a pas le droit d'en créer ;
+        # chaque organisation a son schéma, créé par le DDL d'ensure().
+        if os.environ.get("KLDV_MODE", "").lower() == "cloud" or "://" in self.dsn:
+            return
         dbname = _dsn_get(self.dsn, "dbname") or DEFAULT_DB
         maintenance = _dsn_with(self.dsn, dbname="postgres")
         try:

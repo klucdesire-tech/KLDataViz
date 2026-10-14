@@ -13,6 +13,25 @@ import numpy as np
 import pandas as pd
 
 
+def _line(i) -> int:
+    """N° de ligne dans le fichier source (l'en-tête est la ligne 1)."""
+    return int(i) + 2
+
+
+def _short(x, n=60):
+    """Valeur lisible et courte pour le détail des corrections."""
+    if x is None or (not isinstance(x, (list, dict)) and pd.isna(x)):
+        return None
+    if isinstance(x, (bool, np.bool_)):
+        return bool(x)
+    if isinstance(x, (int, np.integer)):
+        return int(x)
+    if isinstance(x, (float, np.floating)):
+        return float(x)
+    s = str(x)
+    return s if len(s) <= n else s[: n - 1] + "…"
+
+
 def _slugify(name: str) -> str:
     """Normalise un nom de colonne : minuscules, sans accents, snake_case."""
     s = str(name).strip().lower()
@@ -70,9 +89,11 @@ def _coerce_series(s: pd.Series):
     if dt.notna().mean() >= 0.9:
         return pd.to_datetime(s, errors="coerce", format="mixed", dayfirst=True), "date"
 
-    # Texte : on trime au minimum.
-    if (s.astype(str) != s.astype(str).str.strip()).any():
-        return s.astype(str).str.strip(), "texte (trim)"
+    # Texte : on trime au minimum. Comparaison sur les seules valeurs remplies : une case vide
+    # n'est jamais égale à elle-même et faisait signaler à tort toute colonne avec des vides.
+    filled = non_null.astype(str)
+    if (filled != filled.str.strip()).any():
+        return s.map(lambda x: x.strip() if isinstance(x, str) else x), "texte (trim)"
     return s, None
 
 
@@ -96,7 +117,13 @@ def clean_dataframe(df: pd.DataFrame, skip=None):
         "ordre_colonnes": [],
         "lignes_apres": 0,
         "colonnes_apres": 0,
+        # Détail de chaque correction, indexé comme les corrections de l'interface
+        # (« doublons », « vides », « type:<col> », « imput:<col> ») ; « ligne » = n° de ligne
+        # dans le fichier source, en-tête compris.
+        "details": {},
     }
+    details = rapport["details"]
+    df.index = pd.RangeIndex(len(df))  # index = position d'origine, conservé jusqu'à la fin
 
     # 1. Colonnes entièrement vides
     vide = [c for c in df.columns if df[c].notna().sum() == 0]
@@ -106,8 +133,15 @@ def clean_dataframe(df: pd.DataFrame, skip=None):
 
     # 2. Doublons (lignes identiques)
     if "doublons" not in skip:
+        dup = df[df.duplicated(keep=False)]
+        if len(dup):
+            groups = dup.groupby(pd.util.hash_pandas_object(dup, index=False), sort=False).groups.values()
+            details["doublons"] = {"groupes": [
+                {"lignes": [_line(i) for i in list(ix)[:10]],
+                 "apercu": {str(c): _short(dup.at[ix[0], c]) for c in list(df.columns)[:6]}}
+                for ix in list(groups)[:8]]}
         n0 = len(df)
-        df = df.drop_duplicates().reset_index(drop=True)
+        df = df.drop_duplicates()
         rapport["doublons_supprimes"] = n0 - len(df)
 
     # 3. Normalisation des noms de colonnes
@@ -143,6 +177,20 @@ def clean_dataframe(df: pd.DataFrame, skip=None):
         if t and not _skipped("type", c):
             df[c] = out
             rapport["types_corriges"][str(c)] = {"avant": avant, "apres": t}
+            ok = s.notna() & out.notna()
+            lost = s.notna() & out.isna()  # valeurs qui ne passent pas la conversion : elles deviennent vides
+            # Exemples parlants : d'abord les valeurs dont l'écriture change (espaces, virgule décimale…)
+            changed = ok & (s.astype(str).str.replace(" ", " ") != out.astype(str))
+            pick = s[changed].drop_duplicates().index[:5]
+            if len(pick) < 5:
+                pick = pick.append(s[ok & ~changed].drop_duplicates().index[: 5 - len(pick)])
+            details[f"type:{c}"] = {
+                "valeurs_modifiees": int(changed.sum()),
+                "exemples": [{"ligne": _line(i), "avant": _short(s[i]), "apres": _short(out[i])} for i in pick],
+                "non_convertibles": int(lost.sum()),
+                "exemples_non_convertibles": [{"ligne": _line(i), "valeur": _short(s[i])}
+                                              for i in s[lost].index[:8]],
+            }
 
     # 5. Valeurs manquantes (méthodes statistiques)
     for c in df.columns:
@@ -154,6 +202,9 @@ def clean_dataframe(df: pd.DataFrame, skip=None):
             continue
         if _skipped("imput", c) or na == len(df):  # colonne vide conservée : on ne l'invente pas
             continue
+        missing = df.index[df[c].isna()]
+        details[f"imput:{c}"] = {"n": na, "lignes": [_line(i) for i in missing[:30]],
+                                 "dont_non_convertibles": details.get(f"type:{c}", {}).get("non_convertibles", 0)}
         if pd.api.types.is_bool_dtype(df[c]):
             mode = df[c].mode()
             val = bool(mode.iloc[0]) if len(mode) else False
@@ -189,7 +240,7 @@ def clean_dataframe(df: pd.DataFrame, skip=None):
         return 2
 
     ordered = sorted(df.columns, key=_rank)
-    df = df[ordered]
+    df = df[ordered].reset_index(drop=True)
     rapport["ordre_colonnes"] = [str(c) for c in ordered]
 
     rapport["lignes_apres"] = int(len(df))

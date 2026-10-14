@@ -69,7 +69,71 @@ def test_architecte_format_large(base, tmp_path, monkeypatch):
     assert r["apercu"]["fait"]["lignes"] == 4 * len(cols)
     code, a = call(base, "/api/architect/apply", {"file_path": str(p), "spec": r["proposition"]["spec"]})
     assert code == 200 and a["url"].startswith("/download/"), a
+    # La structure est analysable directement : vue à plat de la table de faits
+    vue = a["vues"][0]
+    assert vue["lignes"] == r["apercu"]["fait"]["lignes"]
+    code, an = call(base, "/api/analyze", {"file_path": vue["path"]})
+    assert code == 200 and an["rows"] == vue["lignes"], an
+    os.remove(vue["path"])
     assert call(base, "/api/exports/delete", {"file": a["file"]})[0] == 200
+
+
+def test_detail_des_corrections(base, tmp_path):
+    """Chaque correction proposée est détaillée : lignes, avant → après, valeurs non convertibles."""
+    p = tmp_path / "sale.csv"
+    pd.DataFrame({"client": ["A", "B", "A"] + list("CDEFGHIJKLMNOPQRSTUVW"),
+                  "montant": ["1 200,5", "30", "1 200,5", "inconnu"] + [str(i) for i in range(20)]}).to_csv(p, index=False)
+    code, c = call(base, "/api/clean", {"file_path": str(p)})
+    assert code == 200, c
+    d = c["rapport"]["details"]
+    assert d["doublons"]["groupes"][0]["lignes"] == [2, 4]  # n° de ligne du fichier, en-tête = 1
+    assert d["type:montant"]["non_convertibles"] == 1
+    assert d["type:montant"]["exemples_non_convertibles"][0] == {"ligne": 5, "valeur": "inconnu"}
+    assert d["imput:montant"]["lignes"] == [5]
+    os.remove(c["cleaned_path"])
+
+
+def test_architecte_fichier_long_sans_ia(base, tmp_path, monkeypatch):
+    """Fichier déjà « long » et IA indisponible : une structure exécutable est quand même proposée."""
+    monkeypatch.setattr(server, "_llm_config", lambda: None)
+    p = tmp_path / "prelevements.csv"
+    pd.DataFrame({"patient": [f"P{i}" for i in range(30)], "site": ["Buyo", "Soubré", "Méagui"] * 10,
+                  "resultat": range(30), "vide": [None] * 30}).to_csv(p, index=False)
+    r = _wait_job(base, call(base, "/api/architect", {"file_path": str(p)})[1])
+    assert r["source_structure"] == "regles" and r["proposition"]["spec"], r
+    assert r["apercu"]["fait"]["colonnes"] == ["patient", "site", "resultat"]  # colonne vide retirée
+
+
+def test_architecte_ia_corrige_sa_recette():
+    """Recette de l'IA inexécutable → l'erreur lui est renvoyée, la recette corrigée est retenue."""
+    import json as _json
+    import architect
+    df = pd.DataFrame({"site": ["A", "B"], "valeur": [1, 2]})
+    good = {"comprehension": {"resume": "ok"}, "problemes": [], "structure": [],
+            "spec": {"fact_name": "fait", "drop_columns": ["colonne_inexistante"],
+                     "dimensions": {"dim_site": {"key": "SITE"}}}}
+    answers = iter([_json.dumps(good), _json.dumps({"spec": {"fact_name": "fait",
+                                                              "dimensions": {"dim_site": {"key": "site"}}}})])
+    r = architect.propose(df, {}, lambda messages, max_tokens: next(answers))
+    assert r["source_structure"] == "ia_corrigee" and "SITE" in r["spec_error"], r
+    assert set(r["apercu"]) == {"fait", "dim_site"}
+
+
+def test_csv_point_virgule(base, tmp_path):
+    """Exports français / DHIS2 : séparateur « ; » et encodage Windows détectés à l'analyse."""
+    p = tmp_path / "export_fr.csv"
+    pd.DataFrame({"établissement": ["CSR Buyo", "CSU Méagui"] * 10, "consultations": range(20)}) \
+        .to_csv(p, sep=";", index=False, encoding="cp1252")
+    code, a = call(base, "/api/analyze", {"file_path": str(p)})
+    assert code == 200 and a["columns"] == 2, a
+
+
+def test_pas_de_fausse_correction_trim():
+    """Une colonne texte avec des cases vides mais sans espaces superflus n'est pas « à corriger »."""
+    import modeling
+    assert modeling._coerce_series(pd.Series(["a", None, "b"]))[1] is None
+    out, t = modeling._coerce_series(pd.Series([" a", None, "b "]))
+    assert t == "texte (trim)" and out.iloc[0] == "a" and pd.isna(out.iloc[1])
 
 
 def _wait_job(base, job):

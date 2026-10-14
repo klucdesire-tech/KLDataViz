@@ -204,6 +204,11 @@ details.more>div{padding-bottom:14px}
 .switch[aria-checked="true"]::after{transform:translateX(18px)}
 .issue.toggle{grid-template-columns:4px minmax(0,1fr) auto;align-items:center}
 .issue.off b,.issue.off span{opacity:.55}
+details.corr{margin-top:6px;font-size:13px}
+details.corr summary{cursor:pointer;color:var(--brand-strong);font-weight:600;font-size:12.5px;width:max-content}
+details.corr ul{margin:6px 0 0 18px;padding:0;display:grid;gap:4px;color:var(--fg);overflow-wrap:anywhere}
+details.corr li.warn{color:var(--amber)}
+details.corr b{display:inline;font-size:13px}
 .scoreline{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;margin-top:6px}
 .scoreline .num{font-size:15px;font-weight:600}
 .chipf{border:1px solid var(--line);background:var(--surface);border-radius:99px;padding:6px 13px;font-size:13px;min-height:36px}
@@ -710,7 +715,7 @@ $('#dbForm').addEventListener('submit',async e=>{
 
 /* ================= pipeline ================= */
 async function startRun(path,name,size){
-  Object.assign(state,{path,name,original:null,analysis:null,clean:null,applied:false,showAll:false,ai:null,arch:null,archFile:null,archExtra:[]});state.accept=new Set();
+  Object.assign(state,{path,name,original:null,analysis:null,clean:null,applied:false,showAll:false,ai:null,arch:null,archFile:null,archExtra:[],structView:null});state.accept=new Set();
   setNav('home');state.step=0;renderStepper();show('run');
   $('#runFile').textContent=name+(size?` · ${dec((size/1048576).toFixed(1))} Mo`:'');
   $('#runErr').hidden=true;
@@ -792,7 +797,7 @@ function renderVerify(){
     (ids.length?` Identifiant probable : <code>${esc(ids[0])}</code>.`:'')+(cor?` Relation la plus forte : <code>${esc(cor.a)}</code> et <code>${esc(cor.b)}</code>.`:'');
   const items=issuesOf();
   $('#issues').innerHTML=!state.clean?`<div class="alert info">Le module de nettoyage n'est pas disponible. Vous pouvez analyser le fichier tel quel.</div>`
-    :items.length?items.map(x=>{const on=isOn(x);return `<div class="issue toggle ${on?'':'off'}"><span class="sev ${x.sev==='bad'?'':x.sev}" style="${x.sev==='bad'?'background:var(--red)':''}"></span><div><b>${esc(x.t)}</b><span>${esc(x.d)}</span></div>
+    :items.length?items.map(x=>{const on=isOn(x),det=corrDetail(x);return `<div class="issue toggle ${on?'':'off'}"><span class="sev ${x.sev==='bad'?'':x.sev}" style="${x.sev==='bad'?'background:var(--red)':''}"></span><div><b>${esc(x.t)}</b><span>${esc(x.d)}</span>${det?`<details class="corr"><summary>Voir le détail</summary>${det}</details>`:''}</div>
       <button class="switch" role="switch" aria-checked="${on}" aria-label="Appliquer : ${esc(x.t)}" data-acc="${esc(x.id)}"></button></div>`}).join('')
     :`<div class="empty">${IC.check} Aucune correction nécessaire. Les données sont propres.</div>`;
   const n=items.filter(isOn).length;
@@ -825,7 +830,12 @@ function renderArch(){
   const p=r.proposition||{},c=p.comprehension||{};
   const list=(t,xs)=>xs&&xs.length?`<div class="label" style="margin-top:14px">${t}</div>`:'';
   const tables=Object.entries(r.apercu||{});
-  out.innerHTML=
+  // D'où vient la structure proposée, et pourquoi l'IA n'a pas été suivie le cas échéant
+  const why=!r.ia?(r.ia_disponible===false?'Analyse IA non configurée : structure proposée par règles.'
+      :'L\'IA n\'a pas répondu à temps : structure proposée par règles. Vous pouvez relancer l\'analyse.')
+    :r.source_structure==='ia_corrigee'?`La recette de l'IA a d'abord échoué (${r.spec_error}) ; elle l'a corrigée elle-même.`
+    :r.source_structure==='regles'?`La recette de l'IA n'a pas pu être exécutée (${r.spec_error}) : structure de secours proposée par règles.`:'';
+  out.innerHTML=(why?`<div class="alert info" style="margin-top:8px">${esc(why)}</div>`:'')+
     `<p style="font-size:14px;margin:8px 0 0">${md(c.resume||'')}</p>
      ${c.grain?`<p class="sub" style="margin-top:8px"><b>Grain :</b> ${esc(c.grain)}</p>`:''}
      <div class="chips">${(c.dimensions||[]).map(d=>`<span class="tag ok" style="white-space:normal">${esc(d)}</span>`).join('')}</div>`+
@@ -838,9 +848,10 @@ function renderArch(){
       `<p class="sub" style="margin-top:8px"><b>${esc(n)}</b> · ${nf(t.lignes)} ligne${t.lignes>1?'s':''}</p><div class="tablewrap"><table><thead><tr>${t.colonnes.map(h=>`<th>${esc(h)}</th>`).join('')}</tr></thead>
        <tbody>${t.exemple.map(row=>`<tr>${row.map(v=>`<td class="num">${esc(v)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`).join(''):'')+
     `<div class="actions" style="margin-top:14px">`+
-    (state.archFile?`<a class="btn primary" href="${esc(state.archFile.url)}" download>Télécharger ${esc(state.archFile.file)}</a>`
+    (state.archFile?(state.archFile.vues||[]).map((v,i)=>`<button class="btn primary" data-arch-view="${i}">Analyser ${esc(v.table)} (${nf(v.lignes)} ligne${v.lignes>1?'s':''})<svg class="i" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button>`).join('')+
+      `<a class="btn ghost" href="${esc(state.archFile.url)}" download>Télécharger ${esc(state.archFile.file)}</a>`
       :p.spec?`<button class="btn primary" id="archApply">Générer le modèle Excel</button>`
-      :`<span class="sub">Aucune restructuration automatique n'a pu être validée pour ce fichier.</span>`)+`</div>`;
+      :`<span class="sub">Aucune structure n'a pu être exécutée${r.spec_error?` (erreur : ${esc(r.spec_error)})`:''}. Relancez l'analyse ; si le problème persiste, vérifiez que le fichier contient bien un en-tête de colonnes.</span> <button class="btn ghost sm" id="archRetry">Relancer</button>`)+`</div>`;
 }
 $('#archRun').onclick=async()=>{
   const b=$('#archRun');b.disabled=true;b.innerHTML='<span class="spin"></span> Hermes étudie le fichier (environ 1 min)…';
@@ -874,6 +885,17 @@ $('#archFileInput').addEventListener('change',e=>{
   reader.onerror=()=>toast('Lecture du fichier impossible.');
   reader.readAsDataURL(f);
 });
+$('#archOut').addEventListener('click',e=>{if(e.target.closest('#archRetry')){state.arch=null;renderArch();$('#archRun').click()}});
+// Analyse à partir de la structure : la table de faits jointe à ses dimensions part dans l'étape Analyser.
+$('#archOut').addEventListener('click',async e=>{
+  const b=e.target.closest('[data-arch-view]');if(!b)return;
+  const v=state.archFile.vues[+b.dataset.archView];
+  b.disabled=true;b.innerHTML='<span class="spin"></span> Analyse de la structure…';
+  const a=await api('/api/analyze',{file_path:v.path});
+  if(a.error){toast('Échec : '+a.error);renderArch();return}
+  Object.assign(state,{analysis:a,applied:false,ai:null,structView:v});go(2);
+  say(`J'analyse la structure proposée : table **${v.table}** (${nf(v.lignes)} lignes, ${v.colonnes} colonnes), jointe à ses tables de référence.`);
+});
 $('#archOut').addEventListener('click',async e=>{
   if(!e.target.closest('#archApply'))return;
   const b=$('#archApply');b.disabled=true;b.innerHTML='<span class="spin"></span> Génération…';
@@ -881,11 +903,35 @@ $('#archOut').addEventListener('click',async e=>{
   if(r.error){toast(r.error);renderArch();return}
   state.archFile=r;renderArch();toast('Modèle généré : '+r.file);
 });
+/* Détail d'une correction (lignes touchées, avant → après), à partir de rapport.details du nettoyage */
+const lignes=ls=>ls.length?`ligne${ls.length>1?'s':''} ${ls.slice(0,15).join(', ')}${ls.length>15?' …':''}`:'';
+// Les espaces en début/fin sont rendus visibles (␣) : c'est souvent tout ce que la correction change.
+const fmtV=v=>v===null||v===undefined?'<i>vide</i>':typeof v==='boolean'?`« ${v?'oui':'non'} »`:`« ${esc(String(v).replace(/^\s+|\s+$/g,m=>'␣'.repeat(m.length)))} »`;
+function corrDetail(x){
+  const r=state.clean?.rapport,D=r?.details||{};if(!r)return '';
+  const one=id=>{
+    if(id==='doublons')return (D.doublons?.groupes||[]).map(g=>`<li>${lignes(g.lignes)} identiques : ${Object.entries(g.apercu).map(([k,v])=>`${esc(k)} = ${fmtV(v)}`).join(' · ')}</li>`).join('');
+    if(id==='vides')return (r.colonnes_vides||[]).map(c=>`<li><code>${esc(c)}</code> : aucune valeur</li>`).join('');
+    if(id==='noms')return Object.entries(r.colonnes_renommees||{}).map(([a,b])=>`<li><code>${esc(a)}</code> → <code>${esc(b)}</code></li>`).join('');
+    const [kind,col]=[id.split(':')[0],id.slice(id.indexOf(':')+1)],d=D[id];
+    if(kind==='type'&&d){
+      return `<li><b>${esc(col)}</b> : ${d.valeurs_modifiees!==undefined?`${nf(d.valeurs_modifiees)} valeur(s) réécrite(s). `:''}${d.exemples.map(e=>`ligne ${e.ligne} ${fmtV(e.avant)} → ${fmtV(e.apres)}`).join(' ; ')}</li>`+
+        (d.non_convertibles?`<li class="warn">${nf(d.non_convertibles)} valeur(s) non convertible(s) deviendront vides : ${d.exemples_non_convertibles.map(e=>`ligne ${e.ligne} ${fmtV(e.valeur)}`).join(' ; ')}${d.non_convertibles>d.exemples_non_convertibles.length?' …':''}</li>`:'');
+    }
+    if(kind==='imput'&&d){
+      const im=(r.imputations||[]).find(i=>i.colonne===col)||{};
+      return `<li><b>${esc(col)}</b> : ${nf(d.n)} cellule(s) vide(s) remplie(s) par ${fmtV(im.valeur)} (${esc(im.methode||'')}) — ${lignes(d.lignes)}${d.dont_non_convertibles?` · dont ${nf(d.dont_non_convertibles)} issue(s) de valeurs non convertibles`:''}</li>`;
+    }
+    return '';
+  };
+  const ids=idsOf(x),html=ids.slice(0,12).map(one).join('');
+  return html?`<ul>${html}${ids.length>12?`<li>… et ${ids.length-12} autre(s) colonne(s)</li>`:''}</ul>`:'';
+}
 $('#issues').addEventListener('click',e=>{const b=e.target.closest('[data-acc]');if(!b)return;const x=issuesOf().find(i=>i.id===b.dataset.acc);if(!x)return;const on=isOn(x);idsOf(x).forEach(id=>on?state.accept.delete(id):state.accept.add(id));renderVerify()});
 $('#toggleAll').onclick=()=>{const items=issuesOf();state.accept=items.every(isOn)?new Set():new Set(items.flatMap(idsOf));renderVerify()};
 $('#skipClean').onclick=async()=>{
   if(state.applied){const a=await api('/api/analyze',{file_path:state.path});if(!a.error)state.original=a}
-  state.analysis=state.original;state.applied=false;state.ai=null;go(2)};
+  state.analysis=state.original;state.applied=false;state.ai=null;state.structView=null;go(2)};
 $('#applyClean').onclick=async()=>{
   const b=$('#applyClean'),skip=issuesOf().flatMap(idsOf).filter(id=>!state.accept.has(id));
   b.disabled=true;b.innerHTML='<span class="spin"></span> Application des corrections…';
@@ -893,7 +939,7 @@ $('#applyClean').onclick=async()=>{
   if(c.error){renderVerify();toast('Échec du nettoyage : '+c.error);return}
   const a=await api('/api/analyze',{file_path:c.cleaned_path});
   if(a.error){renderVerify();toast('Échec : '+a.error);return}
-  state.cleanedPath=c.cleaned_path;state.cleanedRows=c.rows;state.analysis=a;state.applied=true;state.ai=null;go(2);
+  state.cleanedPath=c.cleaned_path;state.cleanedRows=c.rows;state.analysis=a;state.applied=true;state.ai=null;state.structView=null;go(2);
   say(`${issuesOf().filter(isOn).length} correction(s) appliquée(s) sur une copie (${nf(c.rows)} lignes). Le fichier d'origine n'a pas changé.`);
 };
 
@@ -927,9 +973,10 @@ async function loadAiInsights(){
 }
 function renderAnalyze(){
   const a=state.analysis;if(!a)return;
-  $('#anLead').textContent=`${a.file} · ${state.applied?'données corrigées':'données d\'origine'} · ${nf(a.rows)} lignes`;
+  const src=state.structView?`structure proposée (table ${state.structView.table})`:state.applied?'données corrigées':'données d\'origine';
+  $('#anLead').textContent=`${state.structView?state.name:a.file} · ${src} · ${nf(a.rows)} lignes`;
   const nAn=(a.anomalies||[]).reduce((s,x)=>s+x.count,0);
-  $('#kpis').innerHTML=[['Lignes',nf(a.rows),state.applied?`${nf(state.original.rows-a.rows)} retirée(s)`:'données d\'origine'],['Colonnes',a.columns,`${Object.keys(a.numeric_stats||{}).length} numérique(s)`],
+  $('#kpis').innerHTML=[['Lignes',nf(a.rows),state.structView?'structure proposée':state.applied?`${nf(state.original.rows-a.rows)} retirée(s)`:'données d\'origine'],['Colonnes',a.columns,`${Object.keys(a.numeric_stats||{}).length} numérique(s)`],
     ['Complétude',dec(a.completeness_pct)+' %',`${nf(a.missing_total)} manquante(s)`],['Valeurs aberrantes',nf(nAn),`dans ${(a.anomalies||[]).length} colonne(s)`]]
     .map(k=>`<div class="kpi"><span class="label">${k[0]}</span><span class="v">${k[1]}</span><span class="d">${k[2]}</span></div>`).join('');
   if(state.ai&&state.ai.length)renderInsights(state.ai,true);
@@ -937,6 +984,14 @@ function renderAnalyze(){
   drawAnalyzeCharts();
   const bv=a.bivariate||{},ns=Object.entries(a.numeric_stats||{}),f=v=>nf(+Number(v).toFixed(2));
   let h='';
+  if(state.applied){  // ce qui a été modifié avant l'analyse, correction par correction
+    const done=issuesOf().filter(isOn);
+    if(done.length)h+=`<details class="more"><summary>Corrections appliquées (${done.length})</summary><div>${done.map(x=>`<div class="issue"><span class="sev ${x.sev==='bad'?'':x.sev}" style="${x.sev==='bad'?'background:var(--red)':''}"></span><div><b>${esc(x.t)}</b><span>${esc(x.d)}</span>${corrDetail(x)?`<details class="corr" open><summary>Détail</summary>${corrDetail(x)}</details>`:''}</div></div>`).join('')}</div></details>`;
+  }
+  if(state.structView){
+    const p=state.arch?.proposition||{};
+    h+=`<details class="more"><summary>Structure utilisée</summary><div><p class="sub">Table <b>${esc(state.structView.table)}</b> jointe à ses tables de référence : ${nf(state.structView.lignes)} lignes, ${state.structView.colonnes} colonnes.</p>${(p.structure||[]).map(t=>`<div class="issue"><span class="sev info"></span><div><b>${esc(t.table)} <span class="tag type">${esc(t.role||'')}</span></b><span>${esc(t.description||'')}</span></div></div>`).join('')}</div></details>`;
+  }
   if(ns.length)h+=detailsBlock('Statistiques numériques',`<table><thead><tr><th>Variable</th><th class="r">Moyenne</th><th class="r">Écart-type</th><th class="r">Min</th><th class="r">Médiane</th><th class="r">Max</th><th class="r">Aberrantes</th></tr></thead><tbody>${ns.map(([k,v])=>`<tr><td>${esc(k)}</td><td class="r num">${f(v.mean)}</td><td class="r num">${f(v.std)}</td><td class="r num">${f(v.min)}</td><td class="r num">${f(v.median)}</td><td class="r num">${f(v.max)}</td><td class="r num">${v.outliers}</td></tr>`).join('')}</tbody></table>`);
   if((bv.correlations||[]).length)h+=detailsBlock('Corrélations',`<table><thead><tr><th>Variable A</th><th>Variable B</th><th class="r">r</th><th>Force</th></tr></thead><tbody>${bv.correlations.map(c=>`<tr><td>${esc(c.a)}</td><td>${esc(c.b)}</td><td class="r num">${c.r}</td><td>${esc(c.force||'')}</td></tr>`).join('')}</tbody></table>`);
   if((bv.cramer||[]).length)h+=detailsBlock('Associations entre catégories (V de Cramér)',`<table><thead><tr><th>Variable A</th><th>Variable B</th><th class="r">V</th></tr></thead><tbody>${bv.cramer.slice(0,15).map(c=>`<tr><td>${esc(c.a)}</td><td>${esc(c.b)}</td><td class="r num">${c.v}</td></tr>`).join('')}</tbody></table>`);
