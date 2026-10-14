@@ -537,6 +537,20 @@ def main(argv: list[str]) -> int:
     if len(argv) < 2 or argv[0] not in ("profile", "restructure", "restructure-multi"):
         print(__doc__)
         return 1
+    sys.stdout.reconfigure(encoding="utf-8")
+    flags = {"--sheet", "--out"}
+    if argv[0] == "profile":
+        inputs = [a for i, a in enumerate(argv[1:], 1) if a not in flags and argv[i - 1] not in flags]
+    elif argv[0] == "restructure":
+        inputs = argv[1:3]
+    else:
+        inputs = [argv[1]] + argv[3:]
+    missing = [a for a in inputs if not Path(a).is_file()]
+    if missing:
+        for m in missing:
+            print(f"Fichier introuvable : {m}")
+        print("Vérifiez le nom et le dossier (copiez le chemin complet depuis l'Explorateur : clic droit → Copier en tant que chemin d'accès).")
+        return 2
     if argv[0] == "restructure-multi":
         spec = json.loads(Path(argv[1]).read_text(encoding="utf-8"))
         tables = _load_named(argv[3:])
