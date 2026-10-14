@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Administration · KLDataViz</title>
+<link rel="icon" href="/logo.png">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@500;600&family=Fira+Sans:wght@400;500;600;700&display=swap">
+<script src="/config.js"></script>
+<script src="/chart.umd.min.js"></script>
+<style>
+/* Layout: barre latérale des sections | contenu (tableau de bord, clients, forfaits, annonces, administrateurs, site) */
+:root{--bg:#F3F6F4;--surface:#FFFFFF;--surface-2:#EBF1ED;--line:#D9E3DD;--fg:#11241A;--muted:#55685D;--brand:#1D7A4C;--brand-strong:#15633D;--brand-soft:#DCEFE4;--on-brand:#FFFFFF;
+  --amber:#A8580A;--amber-soft:#FCEFD9;--red:#B4372A;--red-soft:#FBE3DF;--deep:#0F3D27;--sans:'Fira Sans',system-ui,-apple-system,'Segoe UI',sans-serif;--mono:'Fira Code',ui-monospace,Consolas,monospace;--r:12px;color-scheme:light}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0D1411;--surface:#141D18;--surface-2:#1A2620;--line:#273730;--fg:#E4EEE8;--muted:#93A79B;--brand:#3FBF7E;--brand-strong:#5FD196;--brand-soft:#173826;--on-brand:#06140C;--amber:#F0A852;--amber-soft:#3A2A14;--red:#F2776A;--red-soft:#3C1D19;--deep:#0A2417;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#0D1411;--surface:#141D18;--surface-2:#1A2620;--line:#273730;--fg:#E4EEE8;--muted:#93A79B;--brand:#3FBF7E;--brand-strong:#5FD196;--brand-soft:#173826;--on-brand:#06140C;--amber:#F0A852;--amber-soft:#3A2A14;--red:#F2776A;--red-soft:#3C1D19;--deep:#0A2417;color-scheme:dark}
+*{box-sizing:border-box}html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--fg);font:15px/1.5 var(--sans)}
+button{font:inherit;color:inherit;cursor:pointer}
+:focus-visible{outline:2px solid var(--brand);outline-offset:2px;border-radius:6px}
+[hidden]{display:none!important}
+h1,h2{margin:0;text-wrap:balance}
+.num{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.app{display:grid;grid-template-columns:240px minmax(0,1fr);min-height:100%}
+aside{background:var(--deep);color:#CFE8DA;padding:20px 12px;display:flex;flex-direction:column;gap:18px}
+aside .brand{display:flex;gap:10px;align-items:center;padding:0 8px;font-weight:700;color:#fff}
+aside .brand img{width:28px;height:36px;object-fit:contain;background:#fff;border-radius:6px;padding:2px}
+aside .brand small{display:block;font-weight:500;color:#9FCBB3;font-size:12px}
+aside nav{display:grid;gap:2px}
+aside nav button{border:0;background:none;text-align:left;padding:10px 12px;border-radius:9px;color:#CFE8DA;font-size:14.5px;min-height:42px}
+aside nav button:hover{background:rgba(255,255,255,.07)}
+aside nav button[aria-current="page"]{background:rgba(255,255,255,.12);color:#fff;font-weight:600}
+aside .foot{margin-top:auto;font-size:12.5px;display:grid;gap:8px;padding:0 8px}
+aside .foot a{color:#9FE0BC}
+main{padding:28px clamp(16px,3vw,36px) 48px;min-width:0}
+.head{display:flex;align-items:flex-end;gap:16px;flex-wrap:wrap;margin-bottom:20px}
+.head h1{font-size:24px}.head p{margin:4px 0 0;color:var(--muted)}
+.spacer{flex:1}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:18px;min-width:0}
+.card h2{font-size:15px;margin-bottom:10px}
+.grid{display:grid;gap:16px}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px}
+.kpi{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:14px 16px;display:grid;gap:2px}
+.kpi .l{font-size:11.5px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;color:var(--muted)}
+.kpi .v{font:600 26px var(--mono)}.kpi .d{font-size:12.5px;color:var(--muted)}
+.two{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(0,1fr);gap:16px}
+.tablewrap{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th{font-size:11.5px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);white-space:nowrap}
+td{padding:10px;border-bottom:1px solid var(--line);vertical-align:middle}
+tr:last-child td{border-bottom:0}tbody tr:hover td{background:var(--surface-2)}
+td.r,th.r{text-align:right}
+.tag{display:inline-flex;gap:5px;font-size:12px;font-weight:600;padding:2px 9px;border-radius:99px;white-space:nowrap;background:var(--surface-2);color:var(--muted)}
+.tag.ok{background:var(--brand-soft);color:var(--brand-strong)}.tag.warn{background:var(--amber-soft);color:var(--amber)}.tag.bad{background:var(--red-soft);color:var(--red)}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:7px;border-radius:10px;padding:9px 14px;min-height:40px;font-weight:600;font-size:14px;border:1px solid transparent;background:var(--surface);transition:background .15s}
+.btn.primary{background:var(--brand);color:var(--on-brand)}.btn.primary:hover{background:var(--brand-strong)}
+.btn.ghost{border-color:var(--line)}.btn.ghost:hover{background:var(--surface-2)}
+.btn.sm{min-height:32px;padding:4px 10px;font-size:13px}.btn.danger{color:var(--red);border-color:var(--red)}
+input,select,textarea{font:inherit;font-size:14px;padding:9px 11px;border:1px solid var(--line);border-radius:10px;background:var(--surface);color:var(--fg);min-height:40px;width:100%}
+textarea{min-height:80px;resize:vertical}
+input:focus,select:focus,textarea:focus{border-color:var(--brand);outline:none}
+.form{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;align-items:end}
+.field{display:grid;gap:5px;font-size:13px;font-weight:600}
+.field small{font-weight:400;color:var(--muted)}
+.check{display:flex;align-items:center;gap:8px;font-size:14px;font-weight:500}.check input{width:auto;min-height:0}
+.rowbtns{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+.muted{color:var(--muted)}.sub{color:var(--muted);font-size:13px;margin:0}
+.empty{color:var(--muted);text-align:center;padding:22px 0}
+.planlist{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:14px}
+.planc{border:1px solid var(--line);border-radius:var(--r);padding:16px;display:grid;gap:8px;background:var(--surface)}
+.planc.hl{border:2px solid var(--brand)}
+.planc .price{font:600 22px var(--sans)}
+.drawer{position:fixed;inset:0;z-index:50;background:color-mix(in srgb,var(--bg) 60%,transparent);backdrop-filter:blur(3px);display:flex;justify-content:flex-end}
+.drawer .panel{width:min(560px,100%);height:100%;overflow:auto;background:var(--surface);border-left:1px solid var(--line);padding:22px;display:grid;gap:14px;align-content:start;box-shadow:-20px 0 50px rgba(0,0,0,.15)}
+.drawer .panel header{display:flex;align-items:center;gap:10px}
+.toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:var(--fg);color:var(--bg);padding:10px 16px;border-radius:10px;font-size:14px;z-index:60;max-width:calc(100% - 32px)}
+.gate{min-height:100%;display:grid;place-items:center;padding:24px;text-align:center}
+.gate .card{max-width:440px;display:grid;gap:12px}
+.ann-prev{border-radius:10px;padding:10px 12px;background:var(--deep);color:#E3F3EA;font-size:14px}
+.ann-prev.warning{background:#5A3A0B}
+@media (max-width:860px){.app{grid-template-columns:minmax(0,1fr)}aside{flex-direction:row;flex-wrap:wrap;align-items:center}aside nav{display:flex;flex-wrap:wrap}aside .foot{display:none}.two{grid-template-columns:minmax(0,1fr)}}
+</style>
+</head>
+<body>
+<div class="gate" id="gate"><div class="card"><h1 style="font-size:20px">Administration</h1><p class="sub" id="gateMsg">Vérification de vos droits…</p><div id="gateActs" hidden style="display:flex;gap:8px;justify-content:center"><a class="btn ghost" href="/app">Retour à l'application</a><a class="btn primary" href="/login">Se connecter</a></div></div></div>
+
+<div class="app" id="app" hidden>
+  <aside>
+    <div class="brand"><img src="/logo.png" alt=""><div>KLDataViz<small>Administration</small></div></div>
+    <nav id="nav">
+      <button data-tab="dash" aria-current="page">Tableau de bord</button>
+      <button data-tab="orgs">Clients</button>
+      <button data-tab="plans">Forfaits et prix</button>
+      <button data-tab="ann">Annonces</button>
+      <button data-tab="admins">Administrateurs</button>
+      <button data-tab="site">Page d'accueil</button>
+    </nav>
+    <div class="foot"><span id="meEmail"></span><a href="/app">Ouvrir l'application</a><a href="/" target="_blank" rel="noopener">Voir la page d'accueil</a><a href="#" id="logout">Déconnexion</a></div>
+  </aside>
+  <main>
+    <!-- TABLEAU DE BORD -->
+    <section data-view="dash">
+      <div class="head"><div><h1>Tableau de bord</h1><p id="dashLead">Activité de la plateforme</p></div></div>
+      <div class="grid">
+        <div class="kpis" id="kpis"></div>
+        <div class="two">
+          <div class="card"><h2>Nouveaux espaces, 30 derniers jours</h2><div style="position:relative;height:220px"><canvas id="signupChart" role="img" aria-label="Nouveaux espaces par jour"></canvas></div></div>
+          <div class="card"><h2>Espaces par forfait</h2><div id="byPlan"></div></div>
+        </div>
+        <div class="card"><h2>Dernières inscriptions</h2><div class="tablewrap" id="recent"></div></div>
+      </div>
+    </section>
+
+    <!-- CLIENTS -->
+    <section data-view="orgs" hidden>
+      <div class="head"><div><h1>Clients</h1><p>Tous les espaces de la plateforme. Changez un forfait, prolongez un essai ou suspendez un accès.</p></div><span class="spacer"></span><button class="btn primary" id="inviteBtn">Inviter un client</button></div>
+      <div class="grid">
+        <input type="search" id="orgSearch" placeholder="Rechercher un espace ou une adresse e-mail" aria-label="Rechercher un client" style="max-width:380px">
+        <div class="card"><div class="tablewrap" id="orgList"><div class="empty">Chargement…</div></div></div>
+      </div>
+    </section>
+
+    <!-- FORFAITS -->
+    <section data-view="plans" hidden>
+      <div class="head"><div><h1>Forfaits et prix</h1><p>Ce que vous définissez ici s'affiche sur la page d'accueil et fixe les quotas des espaces.</p></div><span class="spacer"></span><button class="btn primary" id="newPlan">Nouveau forfait</button></div>
+      <div class="planlist" id="planList"></div>
+    </section>
+
+    <!-- ANNONCES -->
+    <section data-view="ann" hidden>
+      <div class="head"><div><h1>Annonces</h1><p>Un bandeau en haut de la page d'accueil et/ou de l'application : nouveauté, maintenance, promotion.</p></div><span class="spacer"></span><button class="btn primary" id="newAnn">Nouvelle annonce</button></div>
+      <div class="card"><div class="tablewrap" id="annList"></div></div>
+    </section>
+
+    <!-- ADMINISTRATEURS -->
+    <section data-view="admins" hidden>
+      <div class="head"><div><h1>Administrateurs</h1><p>Les administrateurs voient tous les clients et peuvent modifier forfaits, annonces et page d'accueil.</p></div></div>
+      <div class="grid">
+        <div class="card"><div class="tablewrap" id="adminList"></div></div>
+        <div class="card"><h2>Ajouter un administrateur</h2>
+          <form class="form" id="adminForm"><label class="field" for="adEmail">Adresse e-mail<input type="email" id="adEmail" required placeholder="collegue@exemple.ci"></label><button class="btn primary" type="submit">Ajouter</button></form>
+          <p class="sub" style="margin-top:8px">La personne doit ensuite se connecter avec cette adresse. Elle n'a pas besoin d'espace client pour accéder à l'administration.</p></div>
+      </div>
+    </section>
+
+    <!-- SITE -->
+    <section data-view="site" hidden>
+      <div class="head"><div><h1>Page d'accueil</h1><p>Textes principaux et coordonnées de contact affichés sur la page publique.</p></div></div>
+      <form class="card grid" id="siteForm">
+        <label class="field" for="stTitle">Titre principal<input type="text" id="stTitle" maxlength="120"></label>
+        <label class="field" for="stSub">Sous-titre<textarea id="stSub" maxlength="400"></textarea></label>
+        <div class="form">
+          <label class="field" for="stMail">E-mail de contact <small>(bouton « Nous contacter »)</small><input type="email" id="stMail"></label>
+          <label class="field" for="stWa">WhatsApp <small>(numéro international, ex. +225 07…)</small><input type="text" id="stWa"></label>
+        </div>
+        <div class="rowbtns"><a class="btn ghost" href="/" target="_blank" rel="noopener">Voir la page</a><button class="btn primary" type="submit">Enregistrer</button></div>
+      </form>
+    </section>
+  </main>
+</div>
+
+<div class="drawer" id="drawer" hidden><div class="panel" id="panel"></div></div>
+<div class="toast" id="toast" hidden></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script>
+const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];
+const esc=s=>String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+const nf=n=>Number(n||0).toLocaleString('fr-FR').replace(/ /g,' ');
+const fmtDate=t=>t?new Date(t).toLocaleDateString('fr-FR',{day:'numeric',month:'short',year:'numeric'}):'—';
+const css=v=>getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+function toast(t){const el=$('#toast');el.textContent=t;el.hidden=false;clearTimeout(el._t);el._t=setTimeout(()=>el.hidden=true,3500)}
+const cfg=window.KLDV||{};
+const sb=cfg.cloud?window.supabase.createClient(cfg.supabaseUrl,cfg.supabaseAnonKey):null;
+async function api(url,body){
+  const {data}=await sb.auth.getSession();const t=data.session?.access_token;
+  const r=await fetch(url,{method:body===undefined?'GET':'POST',headers:{'Content-Type':'application/json',...(t?{Authorization:'Bearer '+t}:{})},body:body===undefined?undefined:JSON.stringify(body)});
+  let d;try{d=await r.json()}catch(e){d={error:'Réponse invalide du serveur.'}}
+  if(r.status===401){await sb.auth.signOut();location.replace('/login?expired=1');throw new Error('auth')}
+  if(r.status===503&&$('#gate').hidden===false){$('#gateMsg').textContent=d.error}
+  if(!r.ok&&!d.error)d.error='Erreur '+r.status;
+  return d;
+}
+let PLANS=[];
+
+/* ---- accès ---- */
+(async()=>{
+  if(!sb){$('#gateMsg').textContent='L\'administration n\'existe que dans la version en ligne.';return}
+  const {data}=await sb.auth.getSession();
+  if(!data.session){location.replace('/login');return}
+  const me=await api('/api/admin/me');
+  if(me.error){$('#gateMsg').textContent='Votre compte n\'a pas les droits d\'administration de la plateforme.';$('#gateActs').hidden=false;return}
+  $('#meEmail').textContent=me.email;$('#gate').hidden=true;$('#app').hidden=false;
+  await loadPlans();show('dash');
+})();
+$('#logout').onclick=async e=>{e.preventDefault();await sb.auth.signOut();location.replace('/login')};
+$('#nav').addEventListener('click',e=>{const b=e.target.closest('[data-tab]');if(b)show(b.dataset.tab)});
+function show(tab){
+  $$('#nav [data-tab]').forEach(b=>b.dataset.tab===tab?b.setAttribute('aria-current','page'):b.removeAttribute('aria-current'));
+  $$('[data-view]').forEach(v=>v.hidden=v.dataset.view!==tab);
+  ({dash:loadDash,orgs:loadOrgs,plans:renderPlans,ann:loadAnn,admins:loadAdmins,site:loadSite})[tab]();
+}
+function openDrawer(html){$('#panel').innerHTML=html;$('#drawer').hidden=false;$('#panel').querySelector('input,select,textarea,button')?.focus()}
+function closeDrawer(){$('#drawer').hidden=true}
+$('#drawer').addEventListener('click',e=>{if(e.target.id==='drawer'||e.target.closest('[data-close]'))closeDrawer()});
+document.addEventListener('keydown',e=>{if(e.key==='Escape')closeDrawer()});
+const planLabel=k=>(PLANS.find(p=>p.key===k)||{}).label||k;
+const planOptions=sel=>PLANS.map(p=>`<option value="${esc(p.key)}" ${p.key===sel?'selected':''}>${esc(p.label)}</option>`).join('');
+const priceText=p=>p.price==null?'Sur devis':(p.price===0||p.trial_days)?'Gratuit':`${nf(p.price)} ${esc(p.currency)} / ${esc(p.period)}`;
+
+/* ---- tableau de bord ---- */
+let chart=null;
+async function loadDash(){
+  const s=await api('/api/admin/stats');if(s.error){toast(s.error);return}
+  const paying=Object.entries(s.by_plan).filter(([k])=>!['essai','suspendu','expire'].includes(k)).reduce((a,[,n])=>a+n,0);
+  $('#dashLead').textContent=`Activité de la plateforme · ${new Date().toLocaleDateString('fr-FR',{month:'long',year:'numeric'})}`;
+  $('#kpis').innerHTML=[['Espaces',nf(s.orgs),`${nf(paying)} payant(s)`],['Utilisateurs',nf(s.users),'comptes créés'],
+    ['Revenu mensuel estimé',s.mrr?nf(s.mrr)+' '+esc(s.currency):'—','forfaits payants actifs'],['Espaces actifs ce mois',nf(s.usage.active_orgs),`${nf(s.usage.analyses)} analyses · ${nf(s.usage.ai)} questions IA`]]
+    .map(k=>`<div class="kpi"><span class="l">${k[0]}</span><span class="v">${k[1]}</span><span class="d">${k[2]}</span></div>`).join('');
+  const labels={essai:'En essai',expire:'Essai expiré',suspendu:'Suspendus'};
+  const total=Object.values(s.by_plan).reduce((a,b)=>a+b,0)||1;
+  $('#byPlan').innerHTML=Object.entries(s.by_plan).sort((a,b)=>b[1]-a[1]).map(([k,n])=>`<div style="display:grid;gap:4px;margin-bottom:10px"><div style="display:flex;justify-content:space-between"><span>${esc(labels[k]||planLabel(k))}</span><span class="num">${n}</span></div><div style="height:8px;background:var(--surface-2);border-radius:99px;overflow:hidden"><i style="display:block;height:100%;width:${n/total*100}%;background:${k==='suspendu'||k==='expire'?'var(--red)':k==='essai'?'var(--amber)':'var(--brand)'};border-radius:99px"></i></div></div>`).join('')||'<div class="empty">Aucun espace pour le moment.</div>';
+  $('#recent').innerHTML=s.recent.length?`<table><thead><tr><th>Utilisateur</th><th>Espace</th><th>Forfait</th><th>Inscrit le</th></tr></thead><tbody>${s.recent.map(r=>`<tr><td>${esc(r.email)}</td><td>${esc(r.org||'— (sans espace)')}</td><td>${r.plan?`<span class="tag">${esc(planLabel(r.plan))}</span>`:''}</td><td>${fmtDate(r.created_at)}</td></tr>`).join('')}</tbody></table>`:'<div class="empty">Aucune inscription.</div>';
+  if(chart)chart.destroy();
+  chart=new Chart($('#signupChart'),{type:'bar',data:{labels:s.signups.map(x=>new Date(x.day).toLocaleDateString('fr-FR',{day:'numeric',month:'short'})),datasets:[{data:s.signups.map(x=>x.n),backgroundColor:css('--brand'),borderRadius:4,maxBarThickness:14}]},
+    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{grid:{display:false},ticks:{color:css('--muted'),maxTicksLimit:8,maxRotation:0}},y:{beginAtZero:true,ticks:{precision:0,color:css('--muted')},grid:{color:css('--line')},border:{display:false}}}}});
+}
+
+/* ---- clients ---- */
+let searchT;
+$('#orgSearch').addEventListener('input',()=>{clearTimeout(searchT);searchT=setTimeout(loadOrgs,300)});
+async function loadOrgs(){
+  const rows=await api('/api/admin/orgs?q='+encodeURIComponent($('#orgSearch').value.trim()));
+  if(rows.error){$('#orgList').innerHTML=`<div class="empty">${esc(rows.error)}</div>`;return}
+  const now=Date.now();
+  $('#orgList').innerHTML=rows.length?`<table><thead><tr><th>Espace</th><th>Propriétaire</th><th>Forfait</th><th>Statut</th><th class="r">Membres</th><th class="r">Analyses</th><th class="r">IA</th><th>Créé le</th><th></th></tr></thead><tbody>${rows.map(o=>{
+    const trial=(PLANS.find(p=>p.key===o.plan)||{}).trial_days,exp=trial&&o.trial_end&&new Date(o.trial_end)<now;
+    const st=o.suspended?'<span class="tag bad">Suspendu</span>':exp?'<span class="tag bad">Essai expiré</span>':trial?`<span class="tag warn">Essai → ${fmtDate(o.trial_end)}</span>`:'<span class="tag ok">Actif</span>';
+    return `<tr><td><b>${esc(o.name)}</b></td><td>${esc(o.owner_email||'invitation en attente')}</td><td><select data-plan="${o.id}" aria-label="Forfait de ${esc(o.name)}" style="width:auto;min-height:32px;padding:3px 8px">${planOptions(o.plan)}</select></td><td>${st}</td>
+      <td class="r num">${o.members}</td><td class="r num">${o.analyses}</td><td class="r num">${o.ai}</td><td>${fmtDate(o.created_at)}</td><td><button class="btn ghost sm" data-detail="${o.id}" data-name="${esc(o.name)}" data-susp="${o.suspended}">Gérer</button></td></tr>`}).join('')}</tbody></table>`:'<div class="empty">Aucun espace ne correspond.</div>';
+}
+$('#orgList').addEventListener('change',async e=>{const s=e.target.closest('[data-plan]');if(!s)return;const d=await api('/api/admin/plan',{org_id:s.dataset.plan,plan:s.value});toast(d.error||'Forfait modifié');loadOrgs()});
+$('#orgList').addEventListener('click',async e=>{const b=e.target.closest('[data-detail]');if(!b)return;
+  const id=b.dataset.detail,susp=b.dataset.susp==='true',d=await api('/api/admin/org?id='+id);
+  openDrawer(`<header><h2 style="font-size:19px">${b.dataset.name}</h2><span class="spacer"></span><button class="btn ghost sm" data-close>Fermer</button></header>
+    <div class="card"><h2>Actions</h2><div class="form">
+      <label class="field" for="extDays">Prolonger l'essai de<select id="extDays"><option value="7">7 jours</option><option value="14" selected>14 jours</option><option value="30">30 jours</option></select></label>
+      <button class="btn ghost" id="extBtn">Prolonger</button>
+      <button class="btn ${susp?'primary':'danger'}" id="suspBtn">${susp?'Réactiver l\'espace':'Suspendre l\'espace'}</button></div>
+      <p class="sub" style="margin-top:8px">Un espace suspendu garde ses données mais ses membres ne peuvent plus analyser ni poser de questions.</p></div>
+    <div class="card"><h2>Membres</h2>${d.members?.length?`<table><tbody>${d.members.map(m=>`<tr><td>${esc(m.name||m.email)}<br><span class="sub">${esc(m.email)}</span></td><td><span class="tag">${esc({owner:'Propriétaire',analyst:'Analyste',viewer:'Lecteur'}[m.role])}</span></td><td class="sub">Dernière connexion<br>${fmtDate(m.last_sign_in_at)}</td></tr>`).join('')}</tbody></table>`:'<div class="empty">Aucun membre (invitation en attente).</div>'}</div>
+    <div class="card"><h2>Invitations</h2>${d.invitations?.length?`<table><tbody>${d.invitations.map(i=>`<tr><td>${esc(i.email)}</td><td>${i.accepted_at?'<span class="tag ok">Acceptée</span>':`<span class="tag warn">Expire le ${fmtDate(i.expires_at)}</span>`}</td></tr>`).join('')}</tbody></table>`:'<div class="empty">Aucune.</div>'}</div>
+    <div class="card"><h2>Usage des 6 derniers mois</h2>${d.usage?.length?`<table><thead><tr><th>Mois</th><th class="r">Analyses</th><th class="r">Questions IA</th></tr></thead><tbody>${d.usage.map(u=>`<tr><td>${esc(u.month)}</td><td class="r num">${u.analyses}</td><td class="r num">${u.ai}</td></tr>`).join('')}</tbody></table>`:'<div class="empty">Pas encore d\'usage.</div>'}</div>`);
+  $('#extBtn').onclick=async()=>{const r=await api('/api/admin/extend',{org_id:id,days:+$('#extDays').value});toast(r.error||'Essai prolongé');loadOrgs()};
+  $('#suspBtn').onclick=async ev=>{const btn=ev.currentTarget;if(!susp&&btn.dataset.ok!=='1'){btn.dataset.ok='1';btn.textContent='Confirmer la suspension';return}
+    const r=await api('/api/admin/suspend',{org_id:id,suspended:!susp});toast(r.error||(susp?'Espace réactivé':'Espace suspendu'));closeDrawer();loadOrgs()};
+});
+$('#inviteBtn').onclick=()=>{
+  openDrawer(`<header><h2 style="font-size:19px">Inviter un client</h2><span class="spacer"></span><button class="btn ghost sm" data-close>Fermer</button></header>
+    <p class="sub">Crée l'espace du client et envoie l'invitation à son responsable, qui en devient propriétaire en créant son compte.</p>
+    <form class="grid" id="invForm"><label class="field" for="ivOrg">Nom de l'organisation<input type="text" id="ivOrg" required minlength="2"></label>
+      <label class="field" for="ivMail">E-mail du responsable<input type="email" id="ivMail" required></label>
+      <label class="field" for="ivPlan">Forfait<select id="ivPlan">${planOptions('essai')}</select></label>
+      <button class="btn primary" type="submit">Créer l'espace et inviter</button></form><div id="ivOut"></div>`);
+  $('#invForm').onsubmit=async e=>{e.preventDefault();const r=await api('/api/admin/invite-client',{org:$('#ivOrg').value,email:$('#ivMail').value,plan:$('#ivPlan').value});
+    if(r.error){toast(r.error);return}
+    $('#ivOut').innerHTML=`<div class="card" style="margin-top:8px">${r.email_sent?'Invitation envoyée par e-mail.':'Espace créé. L\'e-mail n\'a pas pu partir : envoyez ce lien au client :'}<br><code style="word-break:break-all">${esc(r.link)}</code></div>`;loadOrgs()};
+};
+
+/* ---- forfaits ---- */
+async function loadPlans(){const p=await api('/api/admin/plans');if(Array.isArray(p))PLANS=p}
+async function renderPlans(){
+  await loadPlans();
+  $('#planList').innerHTML=PLANS.map(p=>`<div class="planc ${p.highlight?'hl':''}"><div style="display:flex;gap:8px;align-items:center"><b style="font-size:17px">${esc(p.label)}</b><span class="tag">${esc(p.key)}</span>${p.public?'':'<span class="tag warn">masqué</span>'}${p.highlight?'<span class="tag ok">mis en avant</span>':''}</div>
+    <div class="price">${priceText(p)}</div><p class="sub">${esc(p.description)}</p>
+    <div class="sub num">${nf(p.analyses)} analyses · ${nf(p.ai)} questions IA · ${nf(p.members)} membre(s)${p.trial_days?` · essai ${p.trial_days} j`:''}</div>
+    <div class="sub">${p.orgs} espace(s) sur ce forfait</div><div class="rowbtns"><button class="btn ghost sm" data-edit="${esc(p.key)}">Modifier</button></div></div>`).join('');
+}
+$('#planList').addEventListener('click',e=>{const b=e.target.closest('[data-edit]');if(b)planForm(PLANS.find(p=>p.key===b.dataset.edit))});
+$('#newPlan').onclick=()=>planForm(null);
+function planForm(p){
+  const n=!p;p=p||{key:'',label:'',price:null,currency:'FCFA',period:'mois',analyses:100,ai:1000,members:5,trial_days:null,description:'',features:[],highlight:false,public:true,sort:10};
+  openDrawer(`<header><h2 style="font-size:19px">${n?'Nouveau forfait':'Modifier « '+esc(p.label)+' »'}</h2><span class="spacer"></span><button class="btn ghost sm" data-close>Fermer</button></header>
+    <form class="grid" id="planForm">
+      <div class="form"><label class="field" for="pKey">Identifiant <small>(minuscules, sans espace)</small><input type="text" id="pKey" value="${esc(p.key)}" ${n?'':'readonly'} required pattern="[a-z0-9_-]{2,30}"></label>
+      <label class="field" for="pLabel">Nom affiché<input type="text" id="pLabel" value="${esc(p.label)}" required></label></div>
+      <div class="form"><label class="field" for="pPrice">Prix <small>(vide = « Sur devis »)</small><input type="number" id="pPrice" min="0" step="any" value="${p.price??''}"></label>
+      <label class="field" for="pCur">Devise<input type="text" id="pCur" value="${esc(p.currency)}"></label>
+      <label class="field" for="pPer">Par<select id="pPer">${['mois','an'].map(x=>`<option ${x===p.period?'selected':''}>${x}</option>`).join('')}</select></label></div>
+      <div class="form"><label class="field" for="pAn">Analyses / mois<input type="number" id="pAn" min="0" value="${p.analyses}"></label>
+      <label class="field" for="pAi">Questions IA / mois<input type="number" id="pAi" min="0" value="${p.ai}"></label>
+      <label class="field" for="pMem">Membres<input type="number" id="pMem" min="0" value="${p.members}"></label>
+      <label class="field" for="pTrial">Essai <small>(jours, vide = payant)</small><input type="number" id="pTrial" min="1" max="365" value="${p.trial_days??''}"></label></div>
+      <label class="field" for="pDesc">Description courte<input type="text" id="pDesc" maxlength="300" value="${esc(p.description)}"></label>
+      <label class="field" for="pFeat">Avantages affichés <small>(un par ligne)</small><textarea id="pFeat">${esc((p.features||[]).join('\n'))}</textarea></label>
+      <div class="form"><label class="check"><input type="checkbox" id="pPub" ${p.public?'checked':''}> Affiché sur la page d'accueil</label>
+      <label class="check"><input type="checkbox" id="pHl" ${p.highlight?'checked':''}> Mis en avant (« Le plus choisi »)</label>
+      <label class="field" for="pSort">Ordre d'affichage<input type="number" id="pSort" value="${p.sort}"></label></div>
+      <div class="rowbtns">${n||['essai','suspendu'].includes(p.key)?'':`<button type="button" class="btn danger" id="pDel">Supprimer</button>`}<button class="btn primary" type="submit">Enregistrer</button></div>
+    </form>`);
+  $('#planForm').onsubmit=async e=>{e.preventDefault();
+    const body={key:$('#pKey').value.trim(),label:$('#pLabel').value,price:$('#pPrice').value===''?null:+$('#pPrice').value,currency:$('#pCur').value,period:$('#pPer').value,
+      analyses:+$('#pAn').value,ai:+$('#pAi').value,members:+$('#pMem').value,trial_days:$('#pTrial').value===''?null:+$('#pTrial').value,description:$('#pDesc').value,
+      features:$('#pFeat').value.split('\n'),public:$('#pPub').checked,highlight:$('#pHl').checked,sort:+$('#pSort').value};
+    const r=await api('/api/admin/plans/save',body);if(r.error){toast(r.error);return}toast('Forfait enregistré');closeDrawer();renderPlans()};
+  const del=$('#pDel');if(del)del.onclick=async()=>{if(del.dataset.ok!=='1'){del.dataset.ok='1';del.textContent='Confirmer la suppression';return}
+    const r=await api('/api/admin/plans/delete',{key:p.key});toast(r.error||'Forfait supprimé');if(!r.error){closeDrawer();renderPlans()}};
+}
+
+/* ---- annonces ---- */
+let ANN=[];
+const AUD={all:'Accueil et application',public:'Page d\'accueil',app:'Application'},LVL={info:'Information',success:'Nouveauté',warning:'Important'};
+async function loadAnn(){
+  ANN=await api('/api/admin/announcements');if(ANN.error){toast(ANN.error);return}
+  const now=Date.now();
+  $('#annList').innerHTML=ANN.length?`<table><thead><tr><th>Annonce</th><th>Où</th><th>Type</th><th>Période</th><th>Statut</th><th></th></tr></thead><tbody>${ANN.map(a=>{
+    const live=a.active&&(!a.starts_at||new Date(a.starts_at)<=now)&&(!a.ends_at||new Date(a.ends_at)>now);
+    return `<tr><td><b>${esc(a.title)}</b><br><span class="sub">${esc(a.body)}</span></td><td>${AUD[a.audience]}</td><td>${LVL[a.level]}</td><td class="sub">${a.starts_at?fmtDate(a.starts_at):'maintenant'} → ${a.ends_at?fmtDate(a.ends_at):'sans fin'}</td>
+      <td>${live?'<span class="tag ok">En ligne</span>':a.active?'<span class="tag warn">Programmée</span>':'<span class="tag">Désactivée</span>'}</td><td><button class="btn ghost sm" data-ann="${a.id}">Modifier</button></td></tr>`}).join('')}</tbody></table>`:'<div class="empty">Aucune annonce. Créez-en une pour l\'afficher en haut des pages.</div>';
+}
+$('#annList').addEventListener('click',e=>{const b=e.target.closest('[data-ann]');if(b)annForm(ANN.find(a=>a.id===b.dataset.ann))});
+$('#newAnn').onclick=()=>annForm(null);
+const dl=v=>v?new Date(v).toISOString().slice(0,16):'';
+function annForm(a){
+  const n=!a;a=a||{title:'',body:'',level:'info',audience:'all',link_label:'',link_url:'',starts_at:null,ends_at:null,active:true};
+  openDrawer(`<header><h2 style="font-size:19px">${n?'Nouvelle annonce':'Modifier l\'annonce'}</h2><span class="spacer"></span><button class="btn ghost sm" data-close>Fermer</button></header>
+    <form class="grid" id="annForm">
+      <label class="field" for="aTitle">Titre<input type="text" id="aTitle" maxlength="120" required value="${esc(a.title)}"></label>
+      <label class="field" for="aBody">Texte <small>(facultatif)</small><textarea id="aBody" maxlength="600">${esc(a.body)}</textarea></label>
+      <div class="form"><label class="field" for="aAud">Afficher sur<select id="aAud">${Object.entries(AUD).map(([k,v])=>`<option value="${k}" ${k===a.audience?'selected':''}>${v}</option>`).join('')}</select></label>
+      <label class="field" for="aLvl">Type<select id="aLvl">${Object.entries(LVL).map(([k,v])=>`<option value="${k}" ${k===a.level?'selected':''}>${v}</option>`).join('')}</select></label></div>
+      <div class="form"><label class="field" for="aLinkL">Texte du lien<input type="text" id="aLinkL" maxlength="40" value="${esc(a.link_label||'')}" placeholder="En savoir plus"></label>
+      <label class="field" for="aLinkU">Adresse du lien<input type="text" id="aLinkU" value="${esc(a.link_url||'')}" placeholder="https://… ou /login"></label></div>
+      <div class="form"><label class="field" for="aStart">Début <small>(vide = maintenant)</small><input type="datetime-local" id="aStart" value="${dl(a.starts_at)}"></label>
+      <label class="field" for="aEnd">Fin <small>(vide = sans fin)</small><input type="datetime-local" id="aEnd" value="${dl(a.ends_at)}"></label></div>
+      <label class="check"><input type="checkbox" id="aAct" ${a.active?'checked':''}> Annonce active</label>
+      <div><div class="sub" style="margin-bottom:6px">Aperçu</div><div class="ann-prev" id="aPrev"></div></div>
+      <div class="rowbtns">${n?'':'<button type="button" class="btn danger" id="aDel">Supprimer</button>'}<button class="btn primary" type="submit">Enregistrer</button></div>
+    </form>`);
+  const prev=()=>{const lvl=$('#aLvl').value;$('#aPrev').className='ann-prev '+lvl;$('#aPrev').innerHTML=`<b>${esc($('#aTitle').value||'Titre')}</b> ${esc($('#aBody').value)} ${$('#aLinkU').value?`<u>${esc($('#aLinkL').value||'En savoir plus')} →</u>`:''}`};
+  $('#annForm').addEventListener('input',prev);prev();
+  $('#annForm').onsubmit=async e=>{e.preventDefault();
+    const iso=v=>v?new Date(v).toISOString():null;
+    const r=await api('/api/admin/announcements/save',{id:a.id,title:$('#aTitle').value,body:$('#aBody').value,audience:$('#aAud').value,level:$('#aLvl').value,
+      link_label:$('#aLinkL').value,link_url:$('#aLinkU').value,starts_at:iso($('#aStart').value),ends_at:iso($('#aEnd').value),active:$('#aAct').checked});
+    if(r.error){toast(r.error);return}toast('Annonce enregistrée');closeDrawer();loadAnn()};
+  const del=$('#aDel');if(del)del.onclick=async()=>{if(del.dataset.ok!=='1'){del.dataset.ok='1';del.textContent='Confirmer la suppression';return}
+    const r=await api('/api/admin/announcements/delete',{id:a.id});toast(r.error||'Annonce supprimée');closeDrawer();loadAnn()};
+}
+
+/* ---- administrateurs ---- */
+async function loadAdmins(){
+  const rows=await api('/api/admin/admins');if(rows.error){toast(rows.error);return}
+  $('#adminList').innerHTML=`<table><thead><tr><th>Adresse</th><th>Ajouté par</th><th>Depuis</th><th></th></tr></thead><tbody>${rows.map(a=>`<tr><td>${esc(a.email)}</td><td class="sub">${esc(a.added_by||'')}</td><td>${fmtDate(a.created_at)}</td>
+    <td class="r">${a.locked?'<span class="tag">Configuration serveur</span>':`<button class="btn ghost sm" data-rm="${esc(a.email)}">Retirer</button>`}</td></tr>`).join('')}</tbody></table>`;
+}
+$('#adminList').addEventListener('click',async e=>{const b=e.target.closest('[data-rm]');if(!b)return;if(b.dataset.ok!=='1'){b.dataset.ok='1';b.textContent='Confirmer';b.classList.add('danger');return}
+  const r=await api('/api/admin/admins/remove',{email:b.dataset.rm});toast(r.error||'Administrateur retiré');loadAdmins()});
+$('#adminForm').onsubmit=async e=>{e.preventDefault();const r=await api('/api/admin/admins/add',{email:$('#adEmail').value});if(r.error){toast(r.error);return}$('#adEmail').value='';toast('Administrateur ajouté');loadAdmins()};
+
+/* ---- page d'accueil ---- */
+async function loadSite(){const s=await api('/api/admin/site');if(s.error){toast(s.error);return}
+  $('#stTitle').value=s.hero_title||'';$('#stSub').value=s.hero_subtitle||'';$('#stMail').value=s.contact_email||'';$('#stWa').value=s.contact_whatsapp||''}
+$('#siteForm').onsubmit=async e=>{e.preventDefault();const r=await api('/api/admin/site',{hero_title:$('#stTitle').value,hero_subtitle:$('#stSub').value,contact_email:$('#stMail').value,contact_whatsapp:$('#stWa').value});toast(r.error||'Page d\'accueil mise à jour')};
+</script>
+</body>
+</html>

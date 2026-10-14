@@ -36,7 +36,7 @@ def _run_id() -> str:
 def ingest(source: str, *, kind: str = "auto", sheet: str | int | None = None, table: str | None = None,
            schema_name: str = "public", where: str | None = None, encoding: str | None = None,
            separator: str | None = None, header: int | None = None, limit: int | None = None,
-           dataset_name: str | None = None, registry_dsn: str | None = None,
+           dataset_name: str | None = None, registry_dsn: str | None = None, registry_schema: str = "ingestion",
            force_sqlite: bool = False, force: bool = False, prefer_work_format: str = "parquet",
            storage_root: str | Path | None = None) -> dict:
     """Ingère une source et renvoie le contrat de sortie complet."""
@@ -51,7 +51,7 @@ def ingest(source: str, *, kind: str = "auto", sheet: str | int | None = None, t
         audit.append({"step": label, "at": now_iso(), "detail": detail})
 
     versioner = Versioner(storage_root)
-    registry = Registry(dsn=registry_dsn, force_sqlite=force_sqlite)
+    registry = Registry(dsn=registry_dsn, force_sqlite=force_sqlite, schema=registry_schema)
 
     dataset_id = dataset_version_id = None
     source_metadata: dict[str, Any] = {}

@@ -7,6 +7,7 @@
 <link rel="icon" href="/logo.png">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&family=Fira+Sans:wght@400;500;600;700&display=swap">
 <script src="/chart.umd.min.js"></script>
+<script src="/config.js"></script>
 <style>
 /* Layout: nav rail | guided workspace (Importer → Vérifier → Analyser → Partager) | Hermes chat */
 :root{
@@ -39,7 +40,7 @@ a{color:var(--brand-strong)}
 svg.i{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;flex:none}
 .num{font-family:var(--mono);font-variant-numeric:tabular-nums}
 h1,h2,h3{margin:0;text-wrap:balance;letter-spacing:-.01em}
-code{font-family:var(--mono);font-size:.92em;background:var(--surface-2);padding:1px 5px;border-radius:5px}
+code{font-family:var(--mono);font-size:.92em;background:var(--surface-2);padding:1px 5px;border-radius:5px;overflow-wrap:anywhere}
 
 .app{--chat-w:372px;display:grid;grid-template-columns:232px minmax(0,1fr) var(--chat-w);height:100%}
 
@@ -213,6 +214,24 @@ tr.versions td{background:var(--surface-2);font-size:13px}
 .btn.danger{color:var(--red);border-color:var(--red)}
 @media (max-width:980px){.sources{grid-template-columns:repeat(2,minmax(0,1fr))}}
 
+/* version en ligne */
+.annbar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:14px 28px 0;padding:10px 14px;border-radius:10px;background:var(--brand-soft);color:var(--brand-strong);font-size:14px}
+.annbar.warning{background:var(--amber-soft);color:var(--amber)}
+.annbar a{color:inherit;font-weight:600}.annbar .iconbtn{margin-left:auto;width:32px;height:32px;font-size:18px;border:0;background:transparent;color:inherit}
+@media (max-width:760px){.annbar{margin-inline:16px}}
+.userbox{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--muted);min-width:0}
+.userbox span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:200px}
+.railfoot .row{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.railfoot .pill{display:inline-flex;font-size:11.5px;font-weight:600;padding:2px 9px;border-radius:99px;background:var(--brand-soft);color:var(--brand-strong)}
+.railfoot b{color:var(--fg);font-weight:600}
+.overlay{position:fixed;inset:0;z-index:60;background:color-mix(in srgb,var(--bg) 70%,transparent);backdrop-filter:blur(4px);display:grid;place-items:center;padding:16px}
+.overlay .card{width:min(440px,100%);display:grid;gap:14px;box-shadow:var(--shadow)}
+.member{display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--line);font-size:14px;flex-wrap:wrap}
+.member:last-child{border-bottom:0}
+.member .who{flex:1;min-width:180px}.member small{display:block;color:var(--muted);font-size:12px}
+.member select{width:auto;min-height:34px;padding:4px 8px}
+@media (max-width:760px){.userbox span{display:none}}
+
 /* chat */
 .chat{position:relative;background:var(--surface);border-left:1px solid var(--line);display:flex;flex-direction:column;min-height:0}
 .chat .grip{position:absolute;left:-5px;top:0;bottom:0;width:10px;cursor:col-resize;z-index:5;touch-action:none}
@@ -281,7 +300,7 @@ tr.versions td{background:var(--surface-2);font-size:13px}
       <button data-nav="tasks"><svg class="i" viewBox="0 0 24 24"><path d="M9 6h11M9 12h11M9 18h11M4 6l1 1 2-2M4 12l1 1 2-2M4 18l1 1 2-2"/></svg>Tâches<span class="count" id="cntTk"></span></button>
       <button data-nav="settings"><svg class="i" viewBox="0 0 24 24"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M14 4v4M8 10v4M16 16v4"/></svg>Réglages</button>
     </nav>
-    <div class="railfoot"><span>Console locale</span><span>Vos fichiers restent sur cet ordinateur.</span></div>
+    <div class="railfoot" id="railfoot"><span>Console locale</span><span>Vos fichiers restent sur cet ordinateur.</span></div>
   </aside>
 
   <main class="main">
@@ -289,11 +308,13 @@ tr.versions td{background:var(--surface-2);font-size:13px}
       <div class="crumb" id="crumb"><b>Nouvelle analyse</b></div>
       <span class="status hide-sm" id="status"><i></i>Connexion…</span>
       <span class="spacer"></span>
+      <div class="userbox" id="userbox" hidden><a class="btn ghost sm" id="adminLink" href="/admin" hidden>Administration</a><span id="userEmail"></span><button class="btn ghost sm" id="logoutBtn">Déconnexion</button></div>
       <button class="iconbtn" id="themeBtn" aria-label="Changer de thème" title="Changer de thème"><svg class="i" viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 0 1 9.5 4 8 8 0 1 0 20 14.5z"/></svg></button>
       <button class="btn ghost fab" id="chatOpen"><svg class="i" viewBox="0 0 24 24"><path d="M4 5h16v11H8l-4 4z"/></svg>Hermes</button>
       <button class="btn primary" id="newBtn"><svg class="i" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg><span class="hide-sm">Nouvelle analyse</span></button>
     </div>
 
+    <div id="annBar" hidden></div>
     <div class="stepper" id="stepper"></div>
 
     <div class="scroll" id="scroll">
@@ -381,6 +402,14 @@ tr.versions td{background:var(--surface-2);font-size:13px}
           <div id="issues" style="margin-top:6px"></div>
           <details style="margin-top:10px"><summary class="sub" style="cursor:pointer">Comment le score est calculé</summary>
             <div id="scoreHow" class="sub" style="margin-top:8px"></div></details>
+        </div>
+        <div class="card" id="archCard">
+          <div class="toolbar"><h2>Structure recommandée pour l'analyse</h2><span class="spacer"></span><span class="aibadge" id="archBadge"></span>
+            <button class="btn ghost sm" id="archRun">Proposer une structure</button></div>
+          <p class="sub" id="archLead">Hermes examine le fichier comme un architecte de données : ce que représente une ligne, les dimensions cachées dans les en-têtes, les lignes de total, les valeurs imputées. Il propose ensuite des tables prêtes pour Power BI ou un tableau croisé.</p>
+          <div class="chips" id="archFiles"></div>
+          <input type="file" id="archFileInput" accept=".csv,.xlsx,.xls,.xlsm,.json,.parquet" hidden>
+          <div id="archOut"></div>
         </div>
         <div class="card"><h2>Colonnes</h2>
           <div class="tablewrap"><table><thead><tr><th>Colonne</th><th>Type</th><th>Remplissage</th><th class="r">Valeurs distinctes</th></tr></thead><tbody id="cols"></tbody></table></div>
@@ -479,7 +508,7 @@ tr.versions td{background:var(--surface-2);font-size:13px}
                 <label class="field" for="stDetail">Niveau de détail<select id="stDetail"><option value="simple">Simple, pour la direction</option><option value="detaille">Détaillé, pour les analystes</option></select></label>
               </div></div>
           </div>
-          <div class="card"><h2>E-mail d'envoi des rapports <span class="tag" id="smtpTag"></span></h2>
+          <div class="card" id="smtpCard"><h2>E-mail d'envoi des rapports <span class="tag" id="smtpTag"></span></h2>
             <p class="sub">Le serveur d'envoi de votre messagerie (SMTP). Pour Gmail : smtp.gmail.com, port 587, avec un mot de passe d'application.</p>
             <div class="form" style="margin-top:12px">
               <label class="field" for="smHost">Serveur<input type="text" id="smHost" placeholder="smtp.gmail.com" autocomplete="off"></label>
@@ -494,8 +523,22 @@ tr.versions td{background:var(--surface-2);font-size:13px}
           <div class="setrow"><div><b>Thème</b><span>Suivre le système, ou forcer clair ou sombre</span></div>
             <select id="themeSel" style="width:auto"><option value="">Système</option><option value="light">Clair</option><option value="dark">Sombre</option></select></div>
         </div>
+        <div class="card" id="teamCard" hidden>
+          <h2>Équipe</h2>
+          <p class="sub">Les membres partagent les mêmes données et rapports. Lecteur : consulte et pose des questions ; Analyste : importe, analyse et exporte ; Propriétaire : gère l'équipe.</p>
+          <div id="teamList" style="margin-top:8px"></div>
+          <form class="form" id="inviteForm" style="margin-top:12px">
+            <label class="field" for="invEmail">Inviter par e-mail<input type="email" id="invEmail" placeholder="collegue@exemple.ci" required></label>
+            <label class="field" for="invRole">Rôle<select id="invRole"><option value="analyst">Analyste</option><option value="viewer">Lecteur</option><option value="owner">Propriétaire</option></select></label>
+            <button class="btn primary" type="submit">Inviter</button>
+          </form>
+          <p class="sub" id="inviteNote" style="margin-top:8px"></p>
+        </div>
+        <div class="card" id="adminCard" hidden>
+          <div class="setrow"><div><b>Administration de la plateforme</b><span>Clients, forfaits et prix, annonces, administrateurs, page d'accueil.</span></div><a class="btn primary sm" href="/admin">Ouvrir</a></div>
+        </div>
         <div class="card"><h2>Services</h2><div id="services"><div class="empty">Vérification…</div></div></div>
-        <div class="card"><h2>Ancienne console</h2>
+        <div class="card" id="classicCard"><h2>Ancienne console</h2>
           <div class="setrow"><div><b>Interface classique</b><span>Toutes les options techniques sur une seule page (ingestion avancée : feuille, table, nom logique).</span></div>
             <a class="btn ghost sm" href="/classic">Ouvrir</a></div>
         </div>
@@ -520,6 +563,24 @@ tr.versions td{background:var(--surface-2);font-size:13px}
     </form>
   </aside>
 </div>
+<div class="overlay" id="onboard" hidden>
+  <form class="card" id="onboardForm">
+    <h2 style="font-size:20px">Créez votre espace</h2>
+    <p class="sub" id="onboardSub">Votre espace regroupe vos données, vos rapports et votre équipe. Essai gratuit de 14 jours.</p>
+    <label class="field" for="obOrg">Nom de votre organisation<input type="text" id="obOrg" placeholder="Ministère, ONG, entreprise…" required minlength="2"></label>
+    <button class="btn primary" type="submit">Créer mon espace</button>
+    <button class="btn ghost" type="button" id="obLogout">Utiliser un autre compte</button>
+  </form>
+</div>
+<div class="overlay" id="down" hidden>
+  <div class="card">
+    <h2 style="font-size:20px">Service momentanément indisponible</h2>
+    <p class="sub" id="downMsg"></p>
+    <p class="sub">Vos données ne sont pas perdues. Réessayez dans quelques minutes.</p>
+    <button class="btn primary" type="button" onclick="location.reload()">Réessayer</button>
+    <button class="btn ghost" type="button" id="downLogout">Se déconnecter</button>
+  </div>
+</div>
 <div class="toast" id="toast" hidden></div>
 
 <script>
@@ -541,9 +602,25 @@ async function jparse(r){
   try{const t=await r.text();try{return JSON.parse(t)}catch(e){return {error:'Réponse serveur invalide (délai dépassé ou erreur interne). Réessayez avec un fichier plus petit.'}}}
   catch(e){return {error:'Connexion interrompue : '+e}}
 }
+const CLOUD=!!(window.KLDV&&window.KLDV.cloud);let sb=null;
+async function authHeaders(){if(!CLOUD||!sb)return {};const {data}=await sb.auth.getSession();const t=data.session?.access_token;return t?{Authorization:'Bearer '+t}:{}}
 async function api(url,body){
-  try{const r=await fetch(url,body===undefined?{}:{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});return await jparse(r)}
-  catch(e){return {error:'Serveur injoignable. Vérifiez que la console tourne (lancer_console.bat).'}}
+  try{
+    const h=await authHeaders();
+    let r=await fetch(url,body===undefined?{headers:h}:{method:'POST',headers:{'Content-Type':'application/json',...h},body:JSON.stringify(body)});
+    if(CLOUD&&r.status===401){
+      // Jeton peut-être expiré : on le renouvelle une fois avant de renvoyer vers la connexion.
+      const {data}=await sb.auth.refreshSession();
+      if(data?.session){const h2={Authorization:'Bearer '+data.session.access_token};
+        r=await fetch(url,body===undefined?{headers:h2}:{method:'POST',headers:{'Content-Type':'application/json',...h2},body:JSON.stringify(body)})}
+      if(r.status===401){await sb.auth.signOut();location.replace('/login?expired=1');return {error:'Session expirée. Reconnexion…'}}
+    }
+    if(CLOUD&&r.status===503){const d=await jparse(r);showDown(d.error);return d}
+    const d=await jparse(r);
+    if(CLOUD&&r.status===409&&d&&d.onboarding)showOnboarding();
+    if(CLOUD&&(r.status===402||url==='/api/analyze'||url==='/api/chat'||url==='/api/insights'))refreshMe();
+    return d;
+  }catch(e){return {error:CLOUD?'Connexion au serveur impossible. Vérifiez votre réseau.':'Serveur injoignable. Vérifiez que la console tourne (lancer_console.bat).'}}
 }
 const hours=sel=>{sel.innerHTML=Array.from({length:24},(_,h)=>`<option value="${h}" ${h===7?'selected':''}>${String(h).padStart(2,'0')} h 00</option>`).join('')};
 hours($('#ssHour'));hours($('#scHour'));
@@ -633,7 +710,7 @@ $('#dbForm').addEventListener('submit',async e=>{
 
 /* ================= pipeline ================= */
 async function startRun(path,name,size){
-  Object.assign(state,{path,name,original:null,analysis:null,clean:null,applied:false,showAll:false,ai:null});state.accept=new Set();
+  Object.assign(state,{path,name,original:null,analysis:null,clean:null,applied:false,showAll:false,ai:null,arch:null,archFile:null,archExtra:[]});state.accept=new Set();
   setNav('home');state.step=0;renderStepper();show('run');
   $('#runFile').textContent=name+(size?` · ${dec((size/1048576).toFixed(1))} Mo`:'');
   $('#runErr').hidden=true;
@@ -726,9 +803,84 @@ function renderVerify(){
   $('#applyClean').innerHTML=`Appliquer ${n} correction${n>1?'s':''} et analyser<svg class="i" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg>`;
   $('#skipClean').textContent=items.length?'Analyser sans corriger':'Lancer l\'analyse';
   $('#skipClean').className='btn '+(items.length?'ghost':'primary');
+  renderArch();
   $('#cols').innerHTML=cd.map(c=>{const f=100-c.missing_pct;return `<tr><td class="num">${esc(c.name)}</td><td><span class="tag type">${esc(typeName(c.dtype))}</span></td>
     <td><div class="fill"><div class="meter"><i class="${f<80?'bad':f<98?'warn':''}" style="width:${f}%"></i></div><span class="num" style="font-size:12.5px">${dec(+f.toFixed(1))} %</span></div></td><td class="r num">${nf(c.unique)}</td></tr>`}).join('');
 }
+/* ---- architecte de données : structure cible ---- */
+const archPaths=()=>[state.path,...(state.archExtra||[]).map(x=>x.path)];
+function renderArchFiles(){
+  const extra=state.archExtra||[];
+  $('#archFiles').innerHTML=`<span class="tag type">${esc(state.name)}</span>`+
+    extra.map((x,i)=>`<span class="tag type">${esc(x.name)} <button class="btn ghost sm" style="min-height:0;padding:0 4px" data-arch-rm="${i}" aria-label="Retirer ${esc(x.name)}">×</button></span>`).join('')+
+    (extra.length<5?`<button class="btn ghost sm" id="archAdd">+ Croiser avec un autre fichier</button>`:'');
+}
+function renderArch(){
+  renderArchFiles();
+  const r=state.arch,out=$('#archOut');
+  $('#archBadge').textContent=r?(r.ia?'✦ Analyse IA':'Analyse par règles'):'';
+  $('#archRun').hidden=!!r;$('#archLead').hidden=!!r;
+  if(!r){out.innerHTML='';return}
+  if(r.error){out.innerHTML=`<div class="alert">${esc(r.error)}</div>`;$('#archRun').hidden=false;return}
+  const p=r.proposition||{},c=p.comprehension||{};
+  const list=(t,xs)=>xs&&xs.length?`<div class="label" style="margin-top:14px">${t}</div>`:'';
+  const tables=Object.entries(r.apercu||{});
+  out.innerHTML=
+    `<p style="font-size:14px;margin:8px 0 0">${md(c.resume||'')}</p>
+     ${c.grain?`<p class="sub" style="margin-top:8px"><b>Grain :</b> ${esc(c.grain)}</p>`:''}
+     <div class="chips">${(c.dimensions||[]).map(d=>`<span class="tag ok" style="white-space:normal">${esc(d)}</span>`).join('')}</div>`+
+    (p.recommandation?`<div class="alert info" style="margin-top:12px;color:var(--fg)"><b>Priorité :</b> ${md(p.recommandation)}</div>`:'')+
+    list('Liens entre les fichiers',p.relations)+(p.relations||[]).map(x=>`<div class="issue"><span class="sev info"></span><div><b>${esc(x.de)} → ${esc(x.vers)} <span class="tag type">${esc(x.type||'')}</span></b><span>${esc(x.usage||'')}${x.correspondance?' · '+esc(x.correspondance):''}</span></div></div>`).join('')+
+    list('Problèmes détectés',p.problemes)+(p.problemes||[]).map(x=>`<div class="issue"><span class="sev ${x.severite==='info'?'info':''}" ${x.severite==='bad'?'style="background:var(--red)"':''}></span><div><b>${esc(x.titre)}</b><span>${esc(x.preuve)}${x.consequence?' — '+esc(x.consequence):''}</span></div></div>`).join('')+
+    list('Tables proposées',p.structure)+(p.structure||[]).map(t=>`<div class="issue"><span class="sev info"></span><div><b>${esc(t.table)} <span class="tag type">${esc(t.role||'')}</span></b><span>${esc(t.description||'')}${(t.colonnes||[]).length?' · '+t.colonnes.map(esc).join(', '):''}</span></div></div>`).join('')+
+    list('Ce que cette structure permet',p.analyses)+((p.analyses||[]).length?`<ul class="sub" style="margin:6px 0 0 18px">${p.analyses.map(a=>`<li>${md(a)}</li>`).join('')}</ul>`:'')+
+    (tables.length?`<div class="label" style="margin-top:14px">Aperçu du résultat</div>`+tables.map(([n,t])=>
+      `<p class="sub" style="margin-top:8px"><b>${esc(n)}</b> · ${nf(t.lignes)} ligne${t.lignes>1?'s':''}</p><div class="tablewrap"><table><thead><tr>${t.colonnes.map(h=>`<th>${esc(h)}</th>`).join('')}</tr></thead>
+       <tbody>${t.exemple.map(row=>`<tr>${row.map(v=>`<td class="num">${esc(v)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`).join(''):'')+
+    `<div class="actions" style="margin-top:14px">`+
+    (state.archFile?`<a class="btn primary" href="${esc(state.archFile.url)}" download>Télécharger ${esc(state.archFile.file)}</a>`
+      :p.spec?`<button class="btn primary" id="archApply">Générer le modèle Excel</button>`
+      :`<span class="sub">Aucune restructuration automatique n'a pu être validée pour ce fichier.</span>`)+`</div>`;
+}
+$('#archRun').onclick=async()=>{
+  const b=$('#archRun');b.disabled=true;b.innerHTML='<span class="spin"></span> Hermes étudie le fichier (environ 1 min)…';
+  const path=state.path,s=await api('/api/architect',{file_paths:archPaths()});
+  let r=s.error?s:null;
+  for(let i=0;!r&&i<100;i++){  // tâche de fond interrogée toutes les 3 s ; 5 min couvrent les 2 essais IA (2 min + 1 min 30)
+    await new Promise(ok=>setTimeout(ok,3000));
+    const j=await api('/api/architect/job?id='+encodeURIComponent(s.job));
+    if(j.error)r=j;else if(j.status==='done')r=j.result;
+  }
+  b.disabled=false;b.textContent='Proposer une structure';
+  if(state.path!==path)return;  // l'utilisateur a changé de fichier entre-temps
+  r=r||{error:'L\'analyse prend trop de temps. Réessayez plus tard.'};
+  state.arch=r;state.archFile=null;renderArch();
+  if(!r.error)say(`J'ai étudié la structure de **${state.name}**. ${r.proposition?.recommandation||''}`);
+};
+// Fichiers à croiser : envoyés comme une source, puis analysés avec le fichier courant.
+$('#archFiles').addEventListener('click',e=>{
+  if(e.target.closest('#archAdd'))return $('#archFileInput').click();
+  const rm=e.target.closest('[data-arch-rm]');
+  if(rm){state.archExtra.splice(+rm.dataset.archRm,1);state.arch=null;state.archFile=null;renderArch()}
+});
+$('#archFileInput').addEventListener('change',e=>{
+  const f=e.target.files[0];e.target.value='';if(!f)return;
+  const reader=new FileReader();
+  reader.onload=async()=>{
+    const d=await api('/api/upload-source',{name:f.name,data:String(reader.result).split(',')[1]||''});
+    if(!d.path)return toast('Envoi impossible : '+(d.error||'erreur inconnue'));
+    state.archExtra=[...(state.archExtra||[]),{path:d.path,name:f.name}];state.arch=null;state.archFile=null;renderArch();
+  };
+  reader.onerror=()=>toast('Lecture du fichier impossible.');
+  reader.readAsDataURL(f);
+});
+$('#archOut').addEventListener('click',async e=>{
+  if(!e.target.closest('#archApply'))return;
+  const b=$('#archApply');b.disabled=true;b.innerHTML='<span class="spin"></span> Génération…';
+  const r=await api('/api/architect/apply',{file_paths:archPaths(),spec:state.arch.proposition.spec});
+  if(r.error){toast(r.error);renderArch();return}
+  state.archFile=r;renderArch();toast('Modèle généré : '+r.file);
+});
 $('#issues').addEventListener('click',e=>{const b=e.target.closest('[data-acc]');if(!b)return;const x=issuesOf().find(i=>i.id===b.dataset.acc);if(!x)return;const on=isOn(x);idsOf(x).forEach(id=>on?state.accept.delete(id):state.accept.add(id));renderVerify()});
 $('#toggleAll').onclick=()=>{const items=issuesOf();state.accept=items.every(isOn)?new Set():new Set(items.flatMap(idsOf));renderVerify()};
 $('#skipClean').onclick=async()=>{
@@ -923,7 +1075,7 @@ function drawBoxplot(canvas,ch){
 function renderShare(){
   const ok=state.settings?.smtp_ready;
   $('#ssNote').innerHTML=`Source relue à chaque envoi : <code>${esc(baseName(state.path))}</code>${state.applied?' (les corrections choisies ne sont pas rejouées : le rapport porte sur les données d\'origine)':''}. `+
-    (ok?'':'L\'envoi par e-mail n\'est pas encore configuré : sans configuration, le rapport arrive seulement dans Rapports. <button class="btn ghost sm" data-goto="settings">Configurer</button>');
+    (ok?'':CLOUD?'L\'envoi par e-mail n\'est pas encore activé : le rapport arrivera dans Rapports.':'L\'envoi par e-mail n\'est pas encore configuré : sans configuration, le rapport arrive seulement dans Rapports. <button class="btn ghost sm" data-goto="settings">Configurer</button>');
 }
 $$('.exp[data-exp]').forEach(b=>b.onclick=async()=>{
   const kind=b.dataset.exp,s=b.querySelector('span:last-child'),old=s.textContent;
@@ -1010,7 +1162,7 @@ function renderReports(){
   const f=$('#rpSearch').value.trim().toLowerCase();
   const list=rpCache.filter(r=>(rpFilter==='Tous'||FMT[r.file.split('.').pop().toLowerCase()]===rpFilter)&&r.file.toLowerCase().includes(f));
   $('#rpList').innerHTML=list.length?list.map(r=>{const ext=r.file.split('.').pop().toLowerCase();return `<div class="li"><div><b>${esc(r.file)}</b><span><span class="tag type">${esc(FMT[ext]||ext)}</span> ${dec(r.size_kb)} Ko · ${fmtDate(r.modified)}</span></div>
-    <div class="rowbtns">${ext!=='xlsx'?`<a class="btn ghost sm" href="${esc(r.url)}?inline=1" target="_blank" rel="noopener">Ouvrir</a>`:''}<a class="btn ghost sm" href="${esc(r.url)}" download="${esc(r.file)}">Télécharger</a>
+    <div class="rowbtns">${ext!=='xlsx'?`<a class="btn ghost sm" href="${esc(r.url)}${r.url.includes('?')?'&':'?'}inline=1" target="_blank" rel="noopener">Ouvrir</a>`:''}<a class="btn ghost sm" href="${esc(r.url)}" download="${esc(r.file)}">Télécharger</a>
     <button class="btn ${rpConfirm===r.file?'danger':'ghost'} sm" data-del="${esc(r.file)}">${rpConfirm===r.file?'Confirmer la suppression':'Supprimer'}</button></div></div>`}).join('')
     :`<div class="empty">${rpCache.length?'Aucun rapport ne correspond.':'Aucun rapport pour le moment. Analysez un fichier puis exportez-le.'}</div>`;
 }
@@ -1066,20 +1218,22 @@ async function loadSettings(){
   const s=await loadSettingsData();
   if(!s.error){
     $('#stName').value=s.name||'';$('#stOrg').value=s.org||'';$('#stLang').value=s.langue||'Français';$('#stDetail').value=s.detail||'simple';
+    if(CLOUD){$('#stName').value=s.name||'';$('#stName').readOnly=true;$('#stOrg').readOnly=state.me?.role!=='owner'}
     const m=s.smtp||{};$('#smHost').value=m.host||'';$('#smPort').value=m.port||587;$('#smUser').value=m.user||'';$('#smFrom').value=m.sender||'';
     $('#smPass').value='';$('#smPass').placeholder=m.has_password?'Inchangé (déjà enregistré)':'';
     $('#smtpTag').className='tag '+(s.smtp_ready?'ok':'type');$('#smtpTag').textContent=s.smtp_ready?'Configuré':'Non configuré';
   }
+  if(CLOUD){loadTeam();loadAdmin()}
   const [st,reg]=await Promise.all([api('/api/status'),api('/api/ingest/list')]);
   const on=st&&!st.error&&String(st.status||'').toUpperCase()==='ONLINE';
   $('#services').innerHTML=`
-    <div class="setrow"><div><b>Orchestrateur CVLynk</b><span>${on?`${(st.capabilities||[]).length} capacité(s) déclarée(s), signal envoyé toutes les 45 s`:esc(st.error||st.detail||'Statut : '+(st.status||'inconnu'))}</span></div><span class="tag ${on?'ok':'bad'}">${on?'En ligne':'Hors ligne'}</span></div>
+    ${CLOUD?'':`<div class="setrow"><div><b>Orchestrateur CVLynk</b><span>${on?`${(st.capabilities||[]).length} capacité(s) déclarée(s), signal envoyé toutes les 45 s`:esc(st.error||st.detail||'Statut : '+(st.status||'inconnu'))}</span></div><span class="tag ${on?'ok':'bad'}">${on?'En ligne':'Hors ligne'}</span></div>`}
     <div class="setrow"><div><b>Registre des données</b><span>${reg.error?esc(reg.error):'Stockage : '+esc(reg.backend||'')}</span></div><span class="tag ${reg.error?'bad':'ok'}">${reg.error?'Indisponible':'Disponible'}</span></div>
-    <div class="setrow"><div><b>Envoi des e-mails</b><span>${s.smtp_ready?esc(s.smtp.host):'Renseignez le serveur SMTP ci-dessus'}</span></div><span class="tag ${s.smtp_ready?'ok':'type'}">${s.smtp_ready?'Prêt':'Non configuré'}</span></div>`;
+    <div class="setrow"><div><b>Envoi des e-mails</b><span>${CLOUD?(s.smtp_ready?'Envoi assuré par la plateforme':'Pas encore activé sur la plateforme'):(s.smtp_ready?esc(s.smtp.host):'Renseignez le serveur SMTP ci-dessus')}</span></div><span class="tag ${s.smtp_ready?'ok':'type'}">${s.smtp_ready?'Prêt':'Non configuré'}</span></div>`;
 }
 $('#settingsForm').addEventListener('submit',async e=>{
   e.preventDefault();
-  const body={name:$('#stName').value,org:$('#stOrg').value,langue:$('#stLang').value,detail:$('#stDetail').value,
+  const body=CLOUD?{org:$('#stOrg').value,langue:$('#stLang').value,detail:$('#stDetail').value}:{name:$('#stName').value,org:$('#stOrg').value,langue:$('#stLang').value,detail:$('#stDetail').value,
     smtp:{host:$('#smHost').value,port:$('#smPort').value||587,user:$('#smUser').value,sender:$('#smFrom').value,password:$('#smPass').value}};
   const d=await api('/api/settings',body);
   if(d.error){toast(d.error);return}
@@ -1095,6 +1249,7 @@ async function loadCounts(){
 
 /* ================= status ================= */
 async function loadStatus(){
+  if(CLOUD){$('#status').hidden=true;return}
   const d=await api('/api/status'),el=$('#status'),st=String(d.status||'').toUpperCase();
   el.className='status hide-sm '+(st==='ONLINE'?'on':'off');
   el.innerHTML=`<i></i>${st==='ONLINE'?'Hermes en ligne':'Orchestrateur hors ligne'}`;
@@ -1187,7 +1342,74 @@ matchMedia('(prefers-color-scheme: dark)').addEventListener('change',()=>{if(!$(
 
 /* ================= boot ================= */
 say('Bonjour, je suis **Hermes**. Déposez un fichier Excel, CSV ou JSON, ou connectez une base : je vérifie sa qualité, je l\'analyse et je prépare vos rapports. Ensuite, posez-moi vos questions en français.');
-go(0);loadStatus();loadCounts();loadSettingsData();setInterval(loadStatus,60000);
+/* ================= version en ligne : compte, espace, équipe ================= */
+async function loadAnnouncements(){
+  const list=await api('/api/announcements');if(!Array.isArray(list)||!list.length)return;
+  const a=list[0],key='kldv-ann-'+a.id;try{if(localStorage.getItem(key))return}catch(e){}
+  const bar=$('#annBar');bar.hidden=false;
+  bar.innerHTML=`<div class="annbar ${esc(a.level)}"><b>${esc(a.title)}</b>${a.body?`<span>${esc(a.body)}</span>`:''}${a.link_url?`<a href="${esc(a.link_url)}">${esc(a.link_label||'En savoir plus')} →</a>`:''}<button class="iconbtn" aria-label="Masquer l'annonce" id="annClose">×</button></div>`;
+  $('#annClose').onclick=()=>{bar.hidden=true;try{localStorage.setItem(key,'1')}catch(e){}};
+}
+const ROLE={owner:'Propriétaire',analyst:'Analyste',viewer:'Lecteur'};
+function loadScript(src){return new Promise((ok,ko)=>{const s=document.createElement('script');s.src=src;s.onload=ok;s.onerror=ko;document.head.append(s)})}
+function applyCloudUI(){
+  ['[data-src="path"]','[data-src="db"]','#taskSrcBtn','#classicCard','#smtpCard','nav.menu [data-nav="tasks"]','#dbCard'].forEach(sel=>$$(sel).forEach(el=>el.hidden=true));
+  $('#userbox').hidden=false;$('#pathTitle').textContent='Lien Google Sheets ou web';
+  $('#pathHint').textContent='Collez le lien d\'une feuille Google Sheets (partagée avec « Tous les utilisateurs disposant du lien ») ou l\'URL https d\'un fichier CSV, Excel ou JSON.';
+  $('#pathInput').placeholder='https://docs.google.com/spreadsheets/…';
+}
+function meter(label,used,max){const pct=max?Math.min(100,Math.round(used/max*100)):100;return `<div class="row"><span>${label}</span><span class="num">${nf(used)} / ${nf(max)}</span></div><div class="meter"><i class="${pct>=90?'bad':pct>=70?'warn':''}" style="width:${pct}%"></i></div>`}
+function renderMe(me){
+  state.me=me;$('#userEmail').textContent=me.email;$('#orgName').textContent=me.org||'';
+  const p=me.plan,u=me.usage,trial=p.key==='essai'&&p.trial_end?`<span>Essai jusqu'au ${new Date(p.trial_end).toLocaleDateString('fr-FR',{day:'numeric',month:'long'})}</span>`:'';
+  $('#railfoot').innerHTML=`<div class="row"><span class="pill">${esc(p.label)}</span><span>${esc(ROLE[me.role]||'')}</span></div>${meter('Analyses',u.analyses,p.analyses)}${meter('Questions IA',u.ai,p.ai)}${trial}`;
+  $('#teamCard').hidden=me.role!=='owner';$('#adminCard').hidden=!me.is_admin;$('#adminLink').hidden=!me.is_admin;
+}
+async function refreshMe(){if(!CLOUD||!state.me)return;const me=await fetch('/api/me',{headers:await authHeaders()}).then(r=>r.json()).catch(()=>null);if(me&&me.plan)renderMe(me)}
+function showDown(msg){
+  const o=$('#down');if(!o)return;$('#downMsg').textContent=msg||'Le service est momentanément indisponible.';o.hidden=false;
+}
+function showOnboarding(email){$('#onboard').hidden=false;if(email)$('#onboardSub').textContent=`Connecté en tant que ${email}. Votre espace regroupe vos données, vos rapports et votre équipe. Essai gratuit de 14 jours.`;$('#obOrg').focus()}
+$('#onboardForm').addEventListener('submit',async e=>{e.preventDefault();const b=e.submitter||$('#onboardForm .primary');b.disabled=true;
+  const d=await api('/api/onboarding',{org:$('#obOrg').value.trim()});b.disabled=false;if(d.error){toast(d.error);return}location.reload()});
+async function logout(){if(sb)await sb.auth.signOut();location.replace('/login')}
+$('#logoutBtn').onclick=logout;$('#obLogout').onclick=logout;$('#downLogout').onclick=logout;
+async function loadTeam(){
+  if(state.me?.role!=='owner')return;
+  const t=await api('/api/team');if(t.error){$('#teamList').innerHTML=`<div class="alert">${esc(t.error)}</div>`;return}
+  $('#teamList').innerHTML=t.members.map(m=>`<div class="member"><div class="who">${esc(m.name||m.email)}<small>${esc(m.email)}</small></div>
+    ${m.email===state.me.email?`<span class="tag ok">${ROLE[m.role]} (vous)</span>`:`<select data-role="${esc(m.user_id)}" aria-label="Rôle de ${esc(m.email)}">${Object.entries(ROLE).map(([k,v])=>`<option value="${k}" ${k===m.role?'selected':''}>${v}</option>`).join('')}</select>
+    <button class="btn ghost sm" data-rm="${esc(m.user_id)}">Retirer</button>`}</div>`).join('')+
+    t.invitations.map(i=>`<div class="member"><div class="who">${esc(i.email)}<small>Invitation en attente · ${ROLE[i.role]} · expire le ${new Date(i.expires_at).toLocaleDateString('fr-FR')}</small></div><button class="btn ghost sm" data-cancel="${esc(i.id)}">Annuler</button></div>`).join('')+
+    `<p class="sub" style="margin-top:6px">${t.members.length+t.invitations.length} / ${state.me.plan.members} membre(s) pour le plan ${esc(state.me.plan.label)}.</p>`;
+}
+$('#teamList').addEventListener('change',async e=>{const s=e.target.closest('[data-role]');if(!s)return;const d=await api('/api/team/role',{user_id:s.dataset.role,role:s.value});toast(d.error||'Rôle modifié');loadTeam()});
+$('#teamList').addEventListener('click',async e=>{
+  const rm=e.target.closest('[data-rm]'),c=e.target.closest('[data-cancel]');
+  if(rm){if(rm.dataset.confirm!=='1'){rm.dataset.confirm='1';rm.textContent='Confirmer';rm.classList.add('danger');return}const d=await api('/api/team/remove',{user_id:rm.dataset.rm});toast(d.error||'Membre retiré');loadTeam()}
+  if(c){const d=await api('/api/team/cancel',{id:c.dataset.cancel});toast(d.error||'Invitation annulée');loadTeam()}
+});
+$('#inviteForm').addEventListener('submit',async e=>{e.preventDefault();const d=await api('/api/team/invite',{email:$('#invEmail').value.trim(),role:$('#invRole').value});
+  if(d.error){toast(d.error);return}
+  $('#inviteNote').innerHTML=d.email_sent?`Invitation envoyée à ${esc($('#invEmail').value)}.`:`Invitation créée, mais l'e-mail n'a pas pu partir. Envoyez ce lien vous-même : <code>${esc(d.link)}</code>`;
+  $('#invEmail').value='';loadTeam()});
+async function loadAdmin(){} // l'administration complète est sur /admin
+
+async function boot(){
+  if(CLOUD){
+    try{await loadScript('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js')}catch(e){toast('Impossible de charger le module de connexion. Vérifiez votre réseau.');return}
+    sb=window.supabase.createClient(window.KLDV.supabaseUrl,window.KLDV.supabaseAnonKey);
+    const {data}=await sb.auth.getSession();if(!data.session){location.replace('/login');return}
+    applyCloudUI();
+    const me=await api('/api/me');
+    if(me.onboarding){showOnboarding(me.email);return}
+    if(me.error){toast(me.error);return}
+    renderMe(me);
+    loadAnnouncements();
+  }
+  go(0);loadStatus();loadCounts();loadSettingsData();setInterval(loadStatus,60000);
+}
+boot();
 </script>
 </body>
 </html>

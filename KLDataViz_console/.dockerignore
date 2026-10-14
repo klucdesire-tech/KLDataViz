@@ -1,0 +1,19 @@
+# Ne jamais envoyer dans l'image : secrets, données, environnements locaux
+.venv/
+__pycache__/
+*.pyc
+tests/
+agent_token.txt
+llm_config.json
+storage/
+exports/
+uploads/
+tmp/
+*.csv
+*.xlsx
+*.xls
+*.parquet
+*.db
+*.sqlite*
+lancer_console.bat
+run_ingestion.bat
