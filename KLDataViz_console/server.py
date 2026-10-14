@@ -777,10 +777,7 @@ def _chat_load_work(path):
 
 def chat_query(question):
     import re
-    from ingestion.store import Registry
-    reg = T.registry()
-    reg.ensure()
-    datasets = reg.latest_versions()
+    datasets = _registry_datasets()
     ql = (question or "").strip().lower()
     if not ql:
         return {"answer": "Posez une question sur les données (ex. « combien de lignes dans fact_district ? », « somme de value par district »).", "type": "text"}
@@ -797,6 +794,7 @@ def chat_query(question):
         return {"answer": "Aucun dataset ingéré pour le moment. Ingérez d'abord un fichier (panneau Ingestion).", "type": "text"}
 
     # --- dataset cible : par nom, sinon par recouvrement de colonnes, sinon le plus récent
+    reg = T.registry()  # joignable : il vient de fournir `datasets`
     dataset_cols = {}
     for d in datasets:
         try:
@@ -938,11 +936,20 @@ def _llm_call(messages, max_tokens=8000, temperature=0, timeout=120, model=None,
                 time.sleep(2)
     return None
 
-def _llm_context():
-    from ingestion.store import Registry
-    reg = T.registry()
-    reg.ensure()
-    datasets = reg.latest_versions()
+def _registry_datasets():
+    """Jeux de données du registre ; liste vide (et trace dans les journaux) s'il est injoignable,
+    pour que le chat réponde quand même sur le fichier en cours."""
+    try:
+        reg = T.registry()
+        reg.ensure()
+        return reg.latest_versions()
+    except Exception as e:
+        sys.stderr.write(f"[registre] indisponible pour le chat : {type(e).__name__} : {e}\n")
+        return []
+
+
+def _llm_context(datasets=None):
+    datasets = _registry_datasets() if datasets is None else datasets
     out = []
     for d in datasets[:12]:
         df = _chat_load_work(d.get("work_path"))
@@ -976,11 +983,8 @@ def _work_file(path):
 
 def llm_chat(question):
     import re
-    from ingestion.store import Registry
-    reg = T.registry()
-    reg.ensure()
-    datasets = reg.latest_versions()
-    context = _llm_context()
+    datasets = _registry_datasets()
+    context = _llm_context(datasets)
     current_df, current_name = None, None
     cur_path = T.state()["current_path"]
     if cur_path:
