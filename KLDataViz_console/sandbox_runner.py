@@ -2,6 +2,7 @@
 """Processus isolé lancé par sandbox.run() : lit le travail sur l'entrée standard,
 exécute le code avec des fonctions intégrées réduites et écrit le résultat en JSON."""
 import json
+import math
 import sys
 
 import numpy as np
@@ -69,7 +70,7 @@ def fmt(result):
 def main():
     job = json.loads(sys.stdin.read())
     data = LazyData(job.get("datasets") or {})
-    ns = {"__builtins__": SAFE_BUILTINS, "pd": pd, "np": np, "data": data,
+    ns = {"__builtins__": SAFE_BUILTINS, "pd": pd, "np": np, "math": math, "data": data,
           "load_dataset": lambda name: data[name]}
     try:
         exec(compile(job["code"], "<ia>", "exec"), ns)
