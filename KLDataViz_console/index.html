@@ -1310,16 +1310,7 @@ $('#inviteForm').addEventListener('submit',async e=>{e.preventDefault();const d=
   if(d.error){toast(d.error);return}
   $('#inviteNote').innerHTML=d.email_sent?`Invitation envoyée à ${esc($('#invEmail').value)}.`:`Invitation créée, mais l'e-mail n'a pas pu partir. Envoyez ce lien vous-même : <code>${esc(d.link)}</code>`;
   $('#invEmail').value='';loadTeam()});
-const PLANS={essai:'Essai',pro:'Pro',equipe:'Équipe',suspendu:'Suspendu'};
-async function loadAdmin(){
-  return; // l'administration complète est sur /admin
-  if(!state.me?.is_admin)return;
-  const rows=await api('/api/admin/orgs');if(!Array.isArray(rows)){$('#adminList').innerHTML=`<div class="alert">${esc(rows.error||'')}</div>`;return}
-  $('#adminList').innerHTML=`<table><thead><tr><th>Espace</th><th>Propriétaire</th><th>Plan</th><th class="r">Membres</th><th class="r">Analyses</th><th class="r">IA</th><th>Fin d'essai</th></tr></thead><tbody>${rows.map(o=>`<tr><td>${esc(o.name)}</td><td>${esc(o.owner_email||'')}</td>
-    <td><select data-plan="${esc(o.id)}" aria-label="Plan de ${esc(o.name)}">${Object.entries(PLANS).map(([k,v])=>`<option value="${k}" ${k===o.plan?'selected':''}>${v}</option>`).join('')}</select></td>
-    <td class="r num">${o.members}</td><td class="r num">${o.analyses}</td><td class="r num">${o.ai}</td><td>${o.plan==='essai'&&o.trial_end?new Date(o.trial_end).toLocaleDateString('fr-FR'):'—'}</td></tr>`).join('')}</tbody></table>`;
-}
-$('#adminList').addEventListener('change',async e=>{const s=e.target.closest('[data-plan]');if(!s)return;const d=await api('/api/admin/plan',{org_id:s.dataset.plan,plan:s.value,trial_days:s.value==='essai'?14:null});toast(d.error||'Plan modifié');loadAdmin();refreshMe()});
+async function loadAdmin(){} // l'administration complète est sur /admin
 
 async function boot(){
   if(CLOUD){
