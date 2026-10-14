@@ -981,6 +981,31 @@ def _work_file(path):
     return None
 
 
+def _parse_llm_json(content):
+    """Objet JSON renvoyé par l'IA (éventuellement entouré de ```), ou None."""
+    text = (content or "").strip()
+    if text.startswith("```"):
+        text = re.sub(r"^```[a-zA-Z]*\s*", "", text)
+        text = re.sub(r"\s*```$", "", text)
+    try:
+        return json.loads(text)
+    except Exception:
+        m = re.search(r"\{.*\}", text, re.S)
+        if m:
+            try:
+                return json.loads(m.group(0))
+            except Exception:
+                return None
+    return None
+
+
+def _run_ai_code(code, paths):
+    try:
+        return sandbox.run(code, paths)
+    except sandbox.UnsafeCode as e:
+        return {"error": f"calcul refusé par le contrôle de sécurité ({e})"}
+
+
 def llm_chat(question):
     import re
     datasets = _registry_datasets()
@@ -1007,7 +1032,9 @@ def llm_chat(question):
         "(somme, moyenne, corrélation, groupby, top N, comparaison, tendance, distribution...). "
         "Accède aux données via le dict `data` (clé = nom du dataset, valeur = DataFrame pandas). "
         "Exemple : df = data['fact_district']; result = df.groupby('district')['value'].sum(). "
-        "Assigne le résultat final à la variable `result` (DataFrame, Series ou scalaire).\n"
+        "Assigne le résultat final à la variable `result` (DataFrame, Series ou scalaire). "
+        "Écris les noms de colonnes ENTRE GUILLEMETS DOUBLES, exactement comme listés : "
+        "df[\"Nom d'utilisateur\"] (une apostrophe dans un nom casse les guillemets simples).\n"
         "- \"chart\" (OPTIONNEL) : si une visualisation est utile ou demandée, calcule les valeurs avec pandas puis "
         "assigne DANS `code` une variable `chart` = {\"type\":\"...\",\"title\":\"...\",\"labels\":[...],\"values\":[[...]],\"seriesNames\":[...]}. "
         "Types disponibles : bar, line, area, pie, doughnut, scatter, histogram, box.\n"
@@ -1025,24 +1052,11 @@ def llm_chat(question):
         "Si les données ne permettent pas de répondre, dis-le clairement.\n"
         "- Pour une corrélation : df.corr(numeric_only=True). Pour une tendance temporelle, trie par période."
     )
-    content = _llm_call([{"role": "system", "content": system},
-                         {"role": "user", "content": question}])
+    messages = [{"role": "system", "content": system}, {"role": "user", "content": question}]
+    content = _llm_call(messages)
     if not content:
         return None
-    text = content.strip()
-    if text.startswith("```"):
-        text = re.sub(r"^```[a-zA-Z]*\s*", "", text)
-        text = re.sub(r"\s*```$", "", text)
-    data = None
-    try:
-        data = json.loads(text)
-    except Exception:
-        m = re.search(r"\{.*\}", text, re.S)
-        if m:
-            try:
-                data = json.loads(m.group(0))
-            except Exception:
-                data = None
+    data = _parse_llm_json(content)
     if data is None:
         return {"answer": content, "type": "text"}
     answer = data.get("answer", "") or ""
@@ -1063,10 +1077,17 @@ def llm_chat(question):
             except Exception:
                 current_df.astype(str).to_parquet(_cur)
             paths[current_name] = _cur
-        try:
-            out = sandbox.run(code, paths)
-        except sandbox.UnsafeCode as e:
-            out = {"error": f"calcul refusé par le contrôle de sécurité ({e})"}
+        out = _run_ai_code(code, paths)
+        if out.get("error"):
+            # Seconde chance : l'IA reçoit l'erreur (code invalide, colonne inconnue…) et corrige son code.
+            fixed = _parse_llm_json(_llm_call(messages + [
+                {"role": "assistant", "content": content},
+                {"role": "user", "content": f"Ton code a échoué : {out['error']}\nCorrige-le (noms de colonnes "
+                                            "exacts, entre guillemets doubles) et renvoie le même objet JSON complet."}]))
+            if isinstance(fixed, dict) and fixed.get("code"):
+                out2 = _run_ai_code(fixed["code"], paths)
+                if not out2.get("error"):
+                    out, answer, chart = out2, fixed.get("answer") or answer, fixed.get("chart") or chart
         if out.get("error"):
             answer += "\n(" + out["error"] + ")"
         else:
