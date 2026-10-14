@@ -175,3 +175,22 @@ def test_architecte_plusieurs_fichiers(base, tmp_path, monkeypatch):
     a = call(base, "/api/architect/apply", {"file_paths": paths, "spec": r["proposition"]["spec"]})[1]
     assert a.get("url") and len(a["tables"]) == 2, a
     assert call(base, "/api/exports/delete", {"file": a["file"]})[0] == 200
+
+
+def test_chat_seconde_chance_code_ia(base, tmp_path, monkeypatch):
+    """Code de l'IA invalide (apostrophe dans un nom de colonne) → erreur renvoyée à l'IA, code corrigé exécuté."""
+    import json as _json
+    p = tmp_path / "utilisateurs.csv"
+    pd.DataFrame({"Nom d'utilisateur": ["awa", "koffi", "awa"], "Age (ans)": [30, 40, 50]}).to_csv(p, index=False)
+    assert call(base, "/api/analyze", {"file_path": str(p)})[0] == 200
+    broken = "df = data['utilisateurs']\nresult = df.groupby('Nom d'utilisateur')['Age (ans)'].mean()"
+    fixed = "df = data['utilisateurs']\nresult = df.groupby(\"Nom d'utilisateur\")[\"Age (ans)\"].mean()"
+    answers = iter([_json.dumps({"answer": "Âge moyen", "code": broken}),
+                    _json.dumps({"answer": "Âge moyen par utilisateur", "code": fixed})])
+    seen = []
+    monkeypatch.setattr(server, "_llm_config", lambda: {"api_key": "test"})
+    monkeypatch.setattr(server, "_llm_call", lambda messages, *a, **k: (seen.append(messages), next(answers))[1])
+    code, r = call(base, "/api/chat", {"question": "âge moyen par Nom d'utilisateur"})
+    assert code == 200 and r["type"] == "table", r
+    assert r["table"]["rows"] == [["awa", "40.0"], ["koffi", "40.0"]]
+    assert "unterminated string" in seen[1][-1]["content"]  # l'erreur a bien été transmise à l'IA
