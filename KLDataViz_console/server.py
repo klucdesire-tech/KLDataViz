@@ -4,7 +4,7 @@ KLDataViz — Console d'utilisation de l'agent (serveur local).
 Backend : proxy orchestrateUR CVLynk + moteur d'analyse (pandas) + exports PDF/Excel/HTML.
 Sert l'interface web sur http://localhost:8642
 """
-import http.server, socketserver, json, os, io, threading, time, tempfile, urllib.request, urllib.error, base64, sys, subprocess
+import http.server, socketserver, json, os, io, threading, time, tempfile, urllib.request, urllib.error, base64, sys, subprocess, traceback
 import pandas as pd
 import numpy as np
 import openpyxl
@@ -215,6 +215,15 @@ def source_label(file_path):
     return re.sub(r'[\\/:*?"<>|]+', "_", name).strip("._ ") or "source"
 
 
+def _csv_options(file_path):
+    """Séparateur et encodage d'un CSV ; options par défaut de pandas si la détection échoue."""
+    try:
+        enc, sep = data_architect._sniff_text(data_architect.Path(file_path))
+        return {"sep": sep, "encoding": enc}
+    except Exception:
+        return {}
+
+
 def _header_row(sample):
     """Indice de la vraie ligne d'en-têtes dans un tableau « rapport » (titres, totaux au-dessus).
 
@@ -295,8 +304,10 @@ def _read_df(file_path):
     ext = os.path.splitext(file_path)[1].lower()
     try:
         if ext == ".csv":
-            h = _header_row(pd.read_csv(file_path, header=None, nrows=20, dtype=str, on_bad_lines="skip"))
-            df = _tidy(pd.read_csv(file_path, skiprows=h)) if h else pd.read_csv(file_path)
+            # Séparateur et encodage détectés : les exports français et DHIS2 utilisent « ; » (et parfois cp1252)
+            opts = _csv_options(file_path)
+            h = _header_row(pd.read_csv(file_path, header=None, nrows=20, dtype=str, on_bad_lines="skip", **opts))
+            df = _tidy(pd.read_csv(file_path, skiprows=h, **opts)) if h else pd.read_csv(file_path, **opts)
         elif ext in (".xlsx", ".xls", ".xlsm"):
             h = _header_row(pd.read_excel(file_path, header=None, nrows=20, dtype=str))
             df = _tidy(pd.read_excel(file_path, header=h)) if h else pd.read_excel(file_path)
@@ -1370,8 +1381,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
         except (ValueError, KeyError, FileNotFoundError, netguard.BlockedURL) as e:
             self._send(400, {"error": str(e).strip("'")})
         except Exception as e:
-            sys.stderr.write(f"[erreur] {method} {path} : {type(e).__name__} : {e}\n")
-            self._send(500, {"error": "Erreur interne. Réessayez." if T.CLOUD else f"{type(e).__name__} : {e}"})
+            # En ligne, le détail reste dans les journaux ; la référence permet de l'y retrouver.
+            ref = secrets.token_hex(3)
+            sys.stderr.write(f"[erreur {ref}] {method} {path} : {type(e).__name__} : {e}\n"
+                             + "".join(traceback.format_exception(e)[-4:]))
+            self._send(500, {"error": f"Erreur interne (réf. {ref}). Réessayez." if T.CLOUD else f"{type(e).__name__} : {e}"})
 
     def _download(self):
         u = urlparse(self.path)

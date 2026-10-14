@@ -119,6 +119,15 @@ def test_architecte_ia_corrige_sa_recette():
     assert set(r["apercu"]) == {"fait", "dim_site"}
 
 
+def test_csv_point_virgule(base, tmp_path):
+    """Exports français / DHIS2 : séparateur « ; » et encodage Windows détectés à l'analyse."""
+    p = tmp_path / "export_fr.csv"
+    pd.DataFrame({"établissement": ["CSR Buyo", "CSU Méagui"] * 10, "consultations": range(20)}) \
+        .to_csv(p, sep=";", index=False, encoding="cp1252")
+    code, a = call(base, "/api/analyze", {"file_path": str(p)})
+    assert code == 200 and a["columns"] == 2, a
+
+
 def test_pas_de_fausse_correction_trim():
     """Une colonne texte avec des cases vides mais sans espaces superflus n'est pas « à corriger »."""
     import modeling
