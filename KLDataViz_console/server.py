@@ -1194,9 +1194,9 @@ def architect_apply(paths, spec):
     try:
         if len(tables) == 1:
             (name, (df, _)), = tables.items()
-            r = architect.apply(df, spec, T.exports_dir(), name)
+            r = architect.apply(df, spec, T.exports_dir(), name, views_dir=T.cleaned_dir())
         else:
-            r = architect.apply_many(tables, spec, T.exports_dir())
+            r = architect.apply_many(tables, spec, T.exports_dir(), views_dir=T.cleaned_dir())
     except Exception as e:
         return {"error": f"Restructuration impossible : {e}"}
     return {**r, "url": download_url(r["file"])}

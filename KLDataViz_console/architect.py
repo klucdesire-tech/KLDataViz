@@ -210,14 +210,51 @@ def propose(df: pd.DataFrame, info: dict, llm_call) -> dict:
     }
 
 
-def apply(df: pd.DataFrame, spec: dict, out_dir: str, source_name: str) -> dict:
-    tables = A.restructure(df, spec)
-    stem = re.sub(r"[^\w\-]+", "_", os.path.splitext(os.path.basename(source_name))[0])[:40] or "donnees"
-    fn = f"modele_{stem}_{time.strftime('%Y%m%d_%H%M%S')}.xlsx"
+def flat_views(tables: dict) -> dict:
+    """Chaque table de faits jointe à ses dimensions (clé = 1re colonne de la dimension), en
+    cascade (établissement → district) : la table « à plat » que l'analyse sait exploiter."""
+    dims = {n: t for n, t in tables.items() if n.startswith("dim_") and len(t.columns) > 1}
+    views = {}
+    for name, fact in tables.items():
+        if name.startswith(("_", "dim_")):
+            continue
+        flat, used = fact, set()
+        for _ in range(3):  # 3 niveaux de hiérarchie suffisent largement
+            added = False
+            for dn, d in dims.items():
+                key = d.columns[0]
+                if dn in used or key not in flat.columns:
+                    continue
+                extra = [c for c in d.columns[1:] if c not in flat.columns]
+                if extra:
+                    flat = flat.merge(d[[key] + extra], on=key, how="left")
+                used.add(dn)
+                added = True
+            if not added:
+                break
+        views[name] = flat
+    return views
+
+
+def _save(tables: dict, out_dir: str, stem: str, views_dir: str | None) -> dict:
+    stamp = time.strftime("%Y%m%d_%H%M%S")
+    fn = f"modele_{stem}_{stamp}.xlsx"
     with pd.ExcelWriter(os.path.join(out_dir, fn)) as xw:
         for name, t in tables.items():
             t.to_excel(xw, sheet_name=name[:31], index=False)
-    return {"file": fn, "tables": {n: int(len(t)) for n, t in tables.items() if not n.startswith("_")}}
+    result = {"file": fn, "tables": {n: int(len(t)) for n, t in tables.items() if not n.startswith("_")}}
+    if views_dir:  # vues à plat, prêtes pour l'étape Analyser
+        result["vues"] = []
+        for name, v in flat_views(tables).items():
+            p = os.path.join(views_dir, f"structure_{stem}_{name}_{stamp}.csv")
+            v.to_csv(p, index=False, encoding="utf-8-sig")
+            result["vues"].append({"table": name, "path": p, "lignes": int(len(v)), "colonnes": int(len(v.columns))})
+    return result
+
+
+def apply(df: pd.DataFrame, spec: dict, out_dir: str, source_name: str, views_dir: str | None = None) -> dict:
+    stem = re.sub(r"[^\w\-]+", "_", os.path.splitext(os.path.basename(source_name))[0])[:40] or "donnees"
+    return _save(A.restructure(df, spec), out_dir, stem, views_dir)
 
 
 # --------------------------------------------------------------------------- #
@@ -311,10 +348,6 @@ def propose_many(tables_in: dict, llm_call) -> dict:
             "apercu": _preview(tables) if tables is not None else None}
 
 
-def apply_many(tables_in: dict, spec: dict, out_dir: str) -> dict:
+def apply_many(tables_in: dict, spec: dict, out_dir: str, views_dir: str | None = None) -> dict:
     tables = A.restructure_many({n: df for n, (df, _) in tables_in.items()}, spec)
-    fn = f"modele_{len(tables_in)}_fichiers_{time.strftime('%Y%m%d_%H%M%S')}.xlsx"
-    with pd.ExcelWriter(os.path.join(out_dir, fn)) as xw:
-        for name, t in tables.items():
-            t.to_excel(xw, sheet_name=name[:31], index=False)
-    return {"file": fn, "tables": {n: int(len(t)) for n, t in tables.items() if not n.startswith("_")}}
+    return _save(tables, out_dir, f"{len(tables_in)}_fichiers", views_dir)
