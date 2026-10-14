@@ -194,3 +194,18 @@ def test_chat_seconde_chance_code_ia(base, tmp_path, monkeypatch):
     assert code == 200 and r["type"] == "table", r
     assert r["table"]["rows"] == [["awa", "40.0"], ["koffi", "40.0"]]
     assert "unterminated string" in seen[1][-1]["content"]  # l'erreur a bien été transmise à l'IA
+
+
+def test_chat_apres_redemarrage(base, tmp_path, monkeypatch):
+    """Mémoire du serveur effacée (déploiement) : le fichier envoyé par le navigateur est quand même utilisé."""
+    import json as _json
+    p = tmp_path / "apres_redemarrage.csv"
+    pd.DataFrame({"district": ["Buyo", "Méagui"], "cas": [3, 5]}).to_csv(p, index=False)
+    server.T._states.clear()  # comme après un redémarrage
+    prompts = []
+    monkeypatch.setattr(server, "_llm_config", lambda: {"api_key": "test"})
+    monkeypatch.setattr(server, "_llm_call", lambda messages, *a, **k: (prompts.append(messages[0]["content"]),
+                                                                        _json.dumps({"answer": "ok"}))[1])
+    code, r = call(base, "/api/chat", {"question": "résume", "file_path": str(p)})
+    assert code == 200 and r["answer"] == "ok", r
+    assert "apres_redemarrage" in prompts[0] and "fichier_en_cours_d_analyse" in prompts[0]

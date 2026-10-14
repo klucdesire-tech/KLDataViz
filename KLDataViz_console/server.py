@@ -1533,6 +1533,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return self._send(200, {"path": dest, "name": name, "size": len(data)})
         if path == "/api/chat":
             question = str(p.get("question") or "")[:2000]
+            # Fichier en cours envoyé par le navigateur : le chat ne dépend plus de la mémoire du
+            # serveur, effacée à chaque redémarrage/déploiement. _read_df vérifie qu'il appartient à l'organisation.
+            if p.get("file_path"):
+                st["current_path"] = str(p["file_path"])
             if T.CLOUD and _llm_config():
                 cloud.consume(ctx, "ai")
             resp = llm_chat(question)
