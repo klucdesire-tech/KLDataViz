@@ -1341,10 +1341,12 @@ async function typeOut(el,text){
   const words=String(text).split(/(\s+)/);let acc='';
   for(let i=0;i<words.length;i++){acc+=words[i];if(i%6===0||i===words.length-1){el.innerHTML=md(acc);$('#msgs').scrollTop=$('#msgs').scrollHeight;await new Promise(r=>setTimeout(r,16))}}
 }
+// Fichier sur lequel portent les questions : la vue analysée (structure, copie corrigée) sinon la source.
+const currentDataPath=()=>state.structView?.path||(state.applied&&state.cleanedPath)||state.path||'';
 async function ask(q){
   openChat();addMsg('user',q);
   const w=addMsg('agent','');w.innerHTML='<span class="spin"></span> Hermes analyse…';
-  const d=await api('/api/chat',{question:q});
+  const d=await api('/api/chat',{question:q,file_path:currentDataPath()||undefined});
   w.remove();
   const text=d.answer||d.error||'(pas de réponse)';
   const m=addMsg('agent','',d.table,d.charts);
