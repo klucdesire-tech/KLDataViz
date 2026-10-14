@@ -218,3 +218,103 @@ def apply(df: pd.DataFrame, spec: dict, out_dir: str, source_name: str) -> dict:
         for name, t in tables.items():
             t.to_excel(xw, sheet_name=name[:31], index=False)
     return {"file": fn, "tables": {n: int(len(t)) for n, t in tables.items() if not n.startswith("_")}}
+
+
+# --------------------------------------------------------------------------- #
+# Plusieurs fichiers : un modèle commun
+# --------------------------------------------------------------------------- #
+
+SYSTEM_MULTI = SYSTEM.split("Réponds avec")[0] + """
+PLUSIEURS FICHIERS : tu reçois le profil de chaque fichier et les relations MESURÉES entre eux
+(colonnes dont les valeurs se recoupent, avec cardinalité et taux de correspondance).
+- Construis UN modèle commun : une table de faits par sujet, des dimensions PARTAGÉES entre fichiers.
+- Une dimension partagée porte le MÊME nom de table et la MÊME colonne clé dans le spec de chaque fichier :
+  utilise recode/derive ou choisis la colonne de clé adaptée ; les lignes sont fusionnées sur la clé.
+  Si les clés n'ont pas le même nom de colonne, garde dans chaque fichier sa propre colonne clé mais
+  décris la jointure dans "relations".
+- Signale les correspondances incomplètes (ex. 81 % des établissements trouvés) : c'est un problème de qualité.
+- Propose des indicateurs croisés (taux, ratios) rendus possibles par la jointure.
+
+Réponds avec un objet JSON valide et rien d'autre :
+{"comprehension":{"source":"les fichiers et leur rôle","grain":"grain de chaque fichier en une phrase","dimensions":["…"],"mesures":["…"],"resume":"2 phrases"},
+ "relations":[{"de":"<fichier> :: <colonne>","vers":"<fichier> :: <colonne>","type":"1:1|N:1|1:N|N:N","usage":"à quoi sert la jointure","correspondance":"x % trouvés"}],
+ "problemes":[{"titre":"…","preuve":"chiffre du profil","consequence":"…","severite":"bad|warn|info"}],
+ "structure":[{"table":"…","role":"faits|dimension","colonnes":["…"],"description":"…"}],
+ "analyses":["indicateur croisé concret"],
+ "recommandation":"la priorité n°1 en une phrase",
+ "spec":{"fichiers":{"<nom exact du fichier>":{…spec d'un fichier…}}}}"""
+
+
+def _try_spec_many(dfs, spec):
+    if not isinstance(spec, dict) or not spec.get("fichiers"):
+        return None, "spec vide"
+    try:
+        tables = A.restructure_many(dfs, spec)
+    except Exception as e:
+        return None, f"{type(e).__name__}: {e}"
+    facts = [t for n, t in tables.items() if not n.startswith(("_", "dim_"))]
+    if not facts or all(t.empty for t in facts):
+        return None, "aucune table de faits"
+    return tables, None
+
+
+def _fallback_many(profs, tables_in, relations):
+    per = {n: _fallback(profs[n], df) for n, (df, _) in tables_in.items()}
+    problemes = [{**p, "titre": f"{n} — {p['titre']}"} for n, fb in per.items() for p in fb["problemes"]]
+    rels = [{"de": r["gauche"], "vers": r["droite"], "type": r["cardinalite"],
+             "usage": "jointure candidate (valeurs communes)",
+             "correspondance": f"{r['pct_gauche_trouvees']} % / {r['pct_droite_trouvees']} %"} for r in relations[:6]]
+    specs = {n: fb["spec"] for n, fb in per.items() if fb.get("spec")}
+    for n, (df, _) in tables_in.items():  # fichier déjà « long » : on le garde tel quel comme table de faits
+        specs.setdefault(n, {"fact_name": "fait_" + A._norm_name(os.path.splitext(n)[0])[:20]})
+    return {
+        "comprehension": {"source": ", ".join(tables_in), "grain": " ; ".join(f"{n} : {fb['comprehension']['grain']}" for n, fb in per.items()),
+                          "dimensions": sorted({d for fb in per.values() for d in fb["comprehension"]["dimensions"]}),
+                          "mesures": [], "resume": f"{len(tables_in)} fichiers, {len(relations)} jointure(s) candidate(s) détectée(s)."},
+        "relations": rels,
+        "problemes": problemes,
+        "structure": [s for fb in per.values() for s in fb["structure"]],
+        "analyses": [],
+        "recommandation": (f"Relier les fichiers par {rels[0]['de']} = {rels[0]['vers']}." if rels
+                           else "Aucune colonne commune trouvée : vérifiez les identifiants avant de croiser ces fichiers."),
+        "spec": {"fichiers": specs, "relations": rels},
+    }
+
+
+def propose_many(tables_in: dict, llm_call) -> dict:
+    """tables_in = {nom de fichier: (DataFrame, info)}."""
+    dfs = {n: df for n, (df, _) in tables_in.items()}
+    profs = {n: A.profile(df, info) for n, (df, info) in tables_in.items()}
+    relations = A.find_relations(dfs)
+    payload = {"fichiers": {n: _compact_profile(profs[n], dfs[n]) for n in dfs}, "relations_mesurees": relations}
+    text = json.dumps(payload, ensure_ascii=False, default=str)
+    if len(text) > MAX_PROMPT_CHARS * 2:  # beaucoup de fichiers : on ne garde que les colonnes en alerte
+        for p in payload["fichiers"].values():
+            p["colonnes"] = {k: v for k, v in p["colonnes"].items() if v.get("alerte") or v.get("identifiant_potentiel")}
+        text = json.dumps(payload, ensure_ascii=False, default=str)
+    content = llm_call([{"role": "system", "content": SYSTEM_MULTI}, {"role": "user", "content": text}],
+                       max_tokens=32000) if llm_call else None
+    data = _parse_json(content)
+    ia = isinstance(data, dict) and bool(data.get("comprehension"))
+    proposal = data if ia else _fallback_many(profs, tables_in, relations)
+    if ia and isinstance(proposal.get("spec"), dict) and proposal.get("relations"):
+        proposal["spec"]["relations"] = proposal["relations"]
+    tables, spec_error = _try_spec_many(dfs, proposal.get("spec"))
+    if tables is None and ia:
+        fb = _fallback_many(profs, tables_in, relations)
+        tables, _ = _try_spec_many(dfs, fb["spec"])
+        if tables is not None:
+            proposal["spec"] = fb["spec"]
+    if tables is None:
+        proposal["spec"] = None
+    return {"ia": ia, "proposition": proposal, "spec_error": spec_error, "relations_mesurees": relations,
+            "apercu": _preview(tables) if tables is not None else None}
+
+
+def apply_many(tables_in: dict, spec: dict, out_dir: str) -> dict:
+    tables = A.restructure_many({n: df for n, (df, _) in tables_in.items()}, spec)
+    fn = f"modele_{len(tables_in)}_fichiers_{time.strftime('%Y%m%d_%H%M%S')}.xlsx"
+    with pd.ExcelWriter(os.path.join(out_dir, fn)) as xw:
+        for name, t in tables.items():
+            t.to_excel(xw, sheet_name=name[:31], index=False)
+    return {"file": fn, "tables": {n: int(len(t)) for n, t in tables.items() if not n.startswith("_")}}
