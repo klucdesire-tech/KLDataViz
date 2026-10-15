@@ -410,3 +410,27 @@ def test_chat_calcule_sur_les_feuilles_liees(base, tmp_path, monkeypatch):
     assert '"Référentiel"' in seen[0][0]["content"] and '"web"' not in seen[0][0]["content"]
     for v in x:
         os.remove(v["path"])
+
+
+def test_feuille_de_rapport_reconnue(tmp_path):
+    """Formulaire de rapportage : indicateurs en lignes, sites en colonnes, cases vides non rapportées."""
+    from openpyxl import Workbook
+    import data_architect as da
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Page de Garde"
+    ws.append(["Rapport trimestriel"])
+    ws = wb.create_sheet("Traitement")
+    ws.append([])
+    ws.append([None, "LIEN AU TRAITEMENT", "Trimestre 4 2025"])
+    ws.append([None, None] + list(range(3, 23)))                       # numéros de colonnes
+    ws.append([None, None] + [f"CSR SITE {i}" for i in range(8)])      # 8 sites sur 20 colonnes
+    for ind in ("Nombre de clients", "Masculin", "<1 an", "1-4 ans", "Féminin", "<1 an", "1-4 ans"):
+        ws.append([None, ind] + ([0] * 8 if ind in ("Nombre de clients", "Masculin", "Féminin") else [None] * 8))
+    p = tmp_path / "rapport_tamoh.xlsx"
+    wb.save(p)
+    f = {x["nom"]: x for x in da.excel_sheets(p)}
+    assert f["Traitement"]["exploitable"] and f["Traitement"]["rapport"] and f["Traitement"]["recommandee"], f
+    assert not f["Page de Garde"]["vide"]  # cochable dans l'interface (seules les feuilles vides ne le sont pas)
+    df, lue = da.read_sheet(p)
+    assert lue == "Traitement" and "CSR SITE 0" in [str(c) for c in df.columns], list(df.columns)

@@ -742,7 +742,7 @@ async function openSource(path,name,size){
   importMsg(`<span class="spin"></span> Lecture des feuilles de ${esc(name)}…`,'alert info');
   const d=await api('/api/sheets',{file_path:path});
   const fs=d.feuilles||[],ok=fs.filter(f=>f.exploitable);
-  if(d.error||ok.length<2){importMsg('');return startRun(path,name,size)}  // une seule feuille utile : lue automatiquement
+  if(d.error||fs.filter(f=>!f.vide).length<2||!ok.length){importMsg('');return startRun(path,name,size)}  // une seule feuille non vide : lue automatiquement
   // Groupes de feuilles à empiler, du plus grand au plus petit (2 au plus affichés)
   const groups=Object.values(fs.reduce((m,f)=>(f.groupe&&(m[f.groupe]=m[f.groupe]||[]).push(f),m),{})).sort((a,b)=>b.length-a.length).slice(0,2);
   const rec=fs.find(f=>f.recommandee)||ok[0],dim=f=>`${f.lignes_approx?'plus de ':''}${nf(f.lignes)} ligne${f.lignes>1?'s':''} × ${f.colonnes} colonne${f.colonnes>1?'s':''}`;
@@ -751,9 +751,9 @@ async function openSource(path,name,size){
     <p class="sub" style="margin:6px 0 4px">Cochez une ou plusieurs feuilles. Hermes recommande <b>${esc(rec.nom)}</b> (le plus grand tableau de données).</p>
     <div class="actions" style="justify-content:flex-start;margin:6px 0 2px"><button class="btn ghost sm" id="sheetToggle">Tout cocher</button>
       ${groups.map((g,i)=>`<button class="btn ghost sm" data-group="${i}">Cocher les ${g.length} feuilles de même structure (${esc(g[0].nom)}…)</button>`).join('')}</div>
-    <div role="group" aria-label="Feuilles à analyser">${fs.map((f,i)=>`<label class="issue" style="grid-template-columns:auto minmax(0,1fr);cursor:${f.exploitable?'pointer':'default'}">
-      <input type="checkbox" class="sheetChk" value="${i}" ${f===rec?'checked':''} ${f.exploitable?'':'disabled'} style="width:18px;height:18px;margin-top:2px">
-      <div><b>${esc(f.nom)} ${f===rec?'<span class="tag ok">Recommandée</span>':''}${f.groupe?' <span class="tag type">même structure que '+esc(f.groupe)+'</span>':''}</b><span>${f.exploitable?dim(f):'Non analysable'}${f.notes.length?' · '+esc(f.notes.join(', ')):''}</span></div></label>`).join('')}</div>
+    <div role="group" aria-label="Feuilles à analyser">${fs.map((f,i)=>`<label class="issue" style="grid-template-columns:auto minmax(0,1fr);cursor:${f.vide?'default':'pointer'}">
+      <input type="checkbox" class="sheetChk" value="${i}" ${f===rec?'checked':''} ${f.vide?'disabled':''} style="width:18px;height:18px;margin-top:2px">
+      <div><b>${esc(f.nom)} ${f===rec?'<span class="tag ok">Recommandée</span>':''}${f.groupe?' <span class="tag type">même structure que '+esc(f.groupe)+'</span>':''}</b><span>${f.vide?'Feuille vide':f.exploitable?dim(f):'Pas un tableau classique (calculs, mise en page)'}${f.notes.length?' · '+esc(f.notes.join(', ')):''}</span></div></label>`).join('')}</div>
     <p class="sub" id="sheetHint" style="margin:10px 0 0"></p>
     <div class="actions" style="margin-top:10px"><button class="btn ghost" id="sheetCancel">Annuler</button>
       <button class="btn ghost" id="sheetStack"></button><button class="btn ghost" id="sheetCross"></button>
@@ -768,7 +768,7 @@ async function openSource(path,name,size){
     $('#sheetUnderstand').textContent=n>MAXC?`Comprendre (${MAXC} feuilles au plus)`:'Comprendre les liens et proposer des analyses';$('#sheetUnderstand').disabled=n>MAXC;
     $('#sheetStack').textContent=`Empiler les ${n} feuilles`;
     $('#sheetCross').textContent=n>MAXC?`Croiser (${MAXC} feuilles au plus)`:`Croiser les ${n} feuilles (structure)`;$('#sheetCross').disabled=n>MAXC;
-    $('#sheetToggle').textContent=n===ok.length?'Tout décocher':'Tout cocher';
+    $('#sheetToggle').textContent=n===fs.filter(f=>!f.vide).length?'Tout décocher':'Tout cocher';
     $('#sheetHint').textContent=!n?'Cochez au moins une feuille.':n===1?'':same
       ?'Ces feuilles ont les mêmes colonnes : empilez-les en un seul tableau (une colonne « feuille » garde l\'onglet d\'origine).'
       :'Feuilles de structures différentes : « Comprendre » explique le rôle de chaque feuille et leurs liens (formules, colonnes communes) puis propose des analyses ; « Croiser » propose un schéma de tables commun ; « Empiler » les met bout à bout.'};
@@ -777,7 +777,7 @@ async function openSource(path,name,size){
     if(x.error||!x.fichiers){importMsg('Lecture impossible : '+esc(x.error||'erreur inconnue'));return null}
     importMsg('');return x.fichiers};
   $('#importMsg').onchange=e=>{if(e.target.classList.contains('sheetChk'))refresh()};
-  $('#sheetToggle').onclick=()=>{const all=chosen().length!==ok.length;$$('.sheetChk:not(:disabled)').forEach(c=>c.checked=all);refresh()};
+  $('#sheetToggle').onclick=()=>{const all=chosen().length!==fs.filter(f=>!f.vide).length;$$('.sheetChk:not(:disabled)').forEach(c=>c.checked=all);refresh()};
   $$('[data-group]').forEach(b=>b.onclick=()=>{const g=groups[+b.dataset.group];$$('.sheetChk').forEach(c=>c.checked=g.includes(fs[+c.value]));refresh()});
   $('#sheetCancel').onclick=()=>importMsg('');
   $('#sheetGo').onclick=async e=>{const x=await extract([chosen()[0].nom],e.currentTarget);if(x)startRun(x[0].path,x[0].name)};
