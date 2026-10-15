@@ -65,11 +65,16 @@ def header_row(sample: pd.DataFrame) -> int:
                     n += 1
         return n
 
-    scores = [labels(r) for r in sample.head(20).itertuples(index=False, name=None)]
+    rows = list(sample.head(20).itertuples(index=False, name=None))
+    scores = [labels(r) for r in rows]
     if len(scores) < 2:
         return 0
     best = max(range(len(scores)), key=lambda i: (scores[i], -i))
-    if best and scores[best] >= 1.5 * scores[0] + 1 and scores[best] >= 0.5 * sample.shape[1]:
+    remplies = sum(1 for v in rows[best] if isinstance(v, str) and v.strip())
+    # Ligne d'en-têtes : nettement plus de libellés que la 1re ligne, et couvrant la moitié des colonnes…
+    # …ou faite presque uniquement de libellés (formulaire de rapport : noms de sites sur une partie des colonnes).
+    if best and scores[best] >= 1.5 * scores[0] + 1 and (
+            scores[best] >= 0.5 * sample.shape[1] or (scores[best] >= 5 and scores[best] >= 0.8 * remplies)):
         return best
     return 0
 
@@ -166,8 +171,18 @@ def excel_sheets(path: str | Path) -> list[dict]:
             part_entetes = len(entetes) / remplies if remplies else 0.0
             score = math.log10(lignes + 1) * remplies * (0.5 + densite) * (0.2 + 0.8 * part_entetes)
             notes = []
-            exploitable = remplies >= 2 and len(body) >= 2 and len(entetes) >= 2
-            if not exploitable:
+            # Tableau de rapport (formulaire DHIS2/TA-MOH…) : indicateurs en lignes (libellés en 1re colonne),
+            # sites ou périodes en colonnes, beaucoup de cases vides (non rapportées).
+            hdr = s.loc[s.index[h]] if len(s) else pd.Series(dtype=object)
+            entetes_tous = [str(v).strip() for v in hdr if _is_label(v)]
+            lib_lignes = max((int(body[c].map(_is_label).sum()) for c in body.columns[:3]), default=0) if len(body) else 0
+            classique = remplies >= 2 and len(entetes) >= 2
+            rapport = not classique and len(entetes_tous) >= 3 and lib_lignes >= 3
+            exploitable = len(body) >= 2 and (classique or rapport)
+            if rapport:
+                score = math.log10(len(body) + 1) * min(len(entetes_tous), 60) * (0.5 + densite) * 0.5
+                notes.append("tableau de rapport : indicateurs en lignes, sites ou périodes en colonnes")
+            elif not exploitable:
                 score *= 0.1
                 notes.append("vide" if s.empty else "pas un tableau de données")
             if hidden:
@@ -181,9 +196,10 @@ def excel_sheets(path: str | Path) -> list[dict]:
                 score *= 1.3
             f = {"nom": name, "lignes": int(lignes), "lignes_approx": bool(approx),
                  "colonnes": int(s.shape[1]), "masquee": bool(hidden), "exploitable": exploitable,
+                 "vide": bool(s.empty), "rapport": bool(rapport),
                  "score": round(score, 2), "notes": notes, "recommandee": False}
             if exploitable:  # même structure = au moins 80 % d'en-têtes communs (Jaccard)
-                sig = {e.lower() for e in entetes}
+                sig = {e.lower() for e in (entetes_tous if rapport else entetes)}
                 g = next((g for g in groupes if len(sig & g[0]) >= 0.8 * len(sig | g[0])), None)
                 if g:
                     g[1].append(f)
