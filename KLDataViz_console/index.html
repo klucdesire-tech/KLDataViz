@@ -1361,10 +1361,20 @@ async function typeOut(el,text){
 }
 // Fichier sur lequel portent les questions : la vue analysée (structure, copie corrigée) sinon la source.
 const currentDataPath=()=>state.structView?.path||(state.applied&&state.cleanedPath)||state.path||'';
+// Ce que l'utilisateur voit et que le serveur ne connaît pas : corrections appliquées, structure, points clés.
+function screenContext(){
+  if(!state.analysis)return undefined;
+  const c={};
+  if(state.applied)c.corrections_appliquees=issuesOf().filter(isOn).map(x=>`${x.t} — ${x.d}`).slice(0,15);
+  if(state.structView)c.structure_analysee={table:state.structView.table,lignes:state.structView.lignes,
+    tables:(state.arch?.proposition?.structure||[]).map(t=>`${t.table} (${t.role||''}) : ${t.description||''}`).slice(0,8)};
+  if(Array.isArray(state.ai)&&state.ai.length)c.points_cles_affiches=state.ai.map(i=>i.text);
+  return Object.keys(c).length?c:undefined;
+}
 async function ask(q){
   openChat();addMsg('user',q);
   const w=addMsg('agent','');w.innerHTML='<span class="spin"></span> Hermes analyse…';
-  const d=await api('/api/chat',{question:q,file_path:currentDataPath()||undefined});
+  const d=await api('/api/chat',{question:q,file_path:currentDataPath()||undefined,contexte:screenContext()});
   w.remove();
   const text=d.answer||d.error||'(pas de réponse)';
   const m=addMsg('agent','',d.table,d.charts);
@@ -1376,8 +1386,10 @@ function renderSugs(){
   else{
     const skipCol=/(^|_)(id|code|key|ref|uid|period|periode|annee|year)|(id|code)$/i;
     const nums=Object.keys(a.numeric_stats||{}).filter(n=>!skipCol.test(n)),cats=(a.columns_detail||[]).filter(c=>!(c.name in (a.numeric_stats||{}))&&!skipCol.test(c.name)&&c.unique>1&&c.unique<=50).sort((x,y)=>x.unique-y.unique).map(c=>c.name);
-    list=['Résume ce fichier en 3 points'];
-    if(nums[0]&&cats[0])list.push(`Top 5 ${cats[0]} par ${nums[0]}`,`Fais un graphique de ${nums[0]} par ${cats[0]}`);
+    // Interroger le résultat de l'analyse, puis explorer les données
+    list=['Résume l\'analyse en 5 points','Qu\'est-ce qu\'on retient de cette analyse ?'];
+    if((a.anomalies||[]).length)list.push('Interprète les anomalies détectées');
+    if(nums[0]&&cats[0])list.push(`Fais un graphique de ${nums[0]} par ${cats[0]}`);
     if(nums.length>1)list.push(`Corrélation entre ${nums[0]} et ${nums[1]}`);
   }
   $('#sugs').innerHTML=list.slice(0,4).map(s=>`<button class="sug">${esc(s)}</button>`).join('');

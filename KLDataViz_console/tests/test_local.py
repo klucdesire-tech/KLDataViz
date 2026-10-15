@@ -230,3 +230,21 @@ def test_pas_de_tableau_croise_geant_sur_les_identifiants():
     r = modeling.bivariate_stats(df)
     assert _t.time() - t0 < 5
     assert [(c["a"], c["b"]) for c in r["cramer"]] == [("district", "sexe")]
+
+
+def test_chat_interprete_l_analyse(base, tmp_path, monkeypatch):
+    """Le chat reçoit le résultat de l'analyse (recalculé après redémarrage) et le contexte de l'écran."""
+    import json as _json
+    p = tmp_path / "analyse_chat.csv"
+    pd.DataFrame({"district": ["Buyo", "Soubré"] * 30, "age_ans": list(range(58)) + [300, 400]}).to_csv(p, index=False)
+    server.T._states.clear()  # comme après un redémarrage : plus de résultat en mémoire
+    prompts = []
+    monkeypatch.setattr(server, "_llm_config", lambda: {"api_key": "test"})
+    monkeypatch.setattr(server, "_llm_call", lambda messages, *a, **k: (prompts.append(messages[0]["content"]),
+                                                                        _json.dumps({"answer": "synthèse"}))[1])
+    code, r = call(base, "/api/chat", {"question": "Qu'est-ce qu'on retient de cette analyse ?", "file_path": str(p),
+                                       "contexte": {"corrections_appliquees": ["2 doublons retirés"]}})
+    assert code == 200 and r["answer"] == "synthèse", r
+    prompt = prompts[0]
+    assert "RÉSULTAT DE L'ANALYSE" in prompt and "INTERPRÉTATION" in prompt
+    assert "age_ans" in prompt and "anomalies" in prompt and "2 doublons retirés" in prompt

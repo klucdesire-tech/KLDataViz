@@ -1006,12 +1006,54 @@ def _run_ai_code(code, paths):
         return {"error": f"calcul refusé par le contrôle de sécurité ({e})"}
 
 
-def llm_chat(question):
+INTERPRETATION_RULES = (
+    "INTERPRÉTATION. Si la question demande un résumé, une interprétation, une explication ou « ce qu'on retient » "
+    "de l'analyse, réponds DIRECTEMENT dans \"answer\" à partir du RÉSULTAT DE L'ANALYSE ci-dessus, sans \"code\" :\n"
+    "- langage simple pour un responsable non technique ; 4 à 8 puces courtes (« - ») ou 2-3 paragraphes ;\n"
+    "- chaque constat appuyé sur un chiffre du résultat (arrondi simplement) ;\n"
+    "- lecture CRITIQUE : une « valeur aberrante » sur un identifiant ou un code (code_site, id, numéro…) n'a pas de "
+    "sens statistique, dis-le ; des bornes négatives pour une grandeur positive signalent une distribution très "
+    "asymétrique ; en santé, une valeur extrême peut être un vrai cas clinique et non une erreur ;\n"
+    "- sépare les faits (chiffres) des hypothèses (« probablement », « à vérifier ») ;\n"
+    "- termine par 1 à 3 suites concrètes (vérifier, croiser, approfondir).\n"
+)
+
+
+def _analysis_for_chat(cur_path):
+    """Résultat de l'analyse du fichier en cours, recalculé s'il n'est plus en mémoire (redémarrage)."""
+    if not cur_path:
+        return None
+    st = T.state()
+    if st.get("last_result") and st.get("result_path") == cur_path:
+        return st["last_result"]
+    res = analyze(cur_path)
+    if "error" in res:
+        return None
+    st["last_result"], st["result_path"] = res, cur_path
+    return res
+
+
+def _analysis_context(res, ui_context):
+    summary = studio._summary(res)
+    summary["associations_categories"] = ((res.get("bivariate") or {}).get("cramer") or [])[:6]
+    out = {"resultat_analyse": summary}
+    if isinstance(ui_context, dict):  # ce que seul l'écran connaît : corrections appliquées, structure, points clés
+        text = json.dumps(ui_context, ensure_ascii=False, default=str)
+        out["ecran"] = ui_context if len(text) <= 4000 else text[:4000]
+    return json.dumps(out, ensure_ascii=False, default=str)
+
+
+def llm_chat(question, ui_context=None):
     import re
     datasets = _registry_datasets()
     context = _llm_context(datasets)
     current_df, current_name = None, None
     cur_path = T.state()["current_path"]
+    try:
+        analysis = _analysis_for_chat(cur_path)
+    except Exception as e:  # l'interprétation est un plus : le chat répond quand même sans elle
+        sys.stderr.write(f"[chat] analyse indisponible : {type(e).__name__} : {e}\n")
+        analysis = None
     if cur_path:
         current_df, _err = _read_df(cur_path)
         if current_df is not None:
@@ -1026,8 +1068,10 @@ def llm_chat(question):
         "Sauf mention contraire, la question porte sur le fichier en cours d'analyse (premier dataset de la liste).\n"
         "Datasets disponibles (nom, nombre de lignes, colonnes avec type et exemples) :\n"
         + json.dumps(context, ensure_ascii=False, default=str) + "\n\n"
+        + ("RÉSULTAT DE L'ANALYSE affichée à l'utilisateur (statistiques déjà calculées sur le fichier en cours) :\n"
+           + _analysis_context(analysis, ui_context) + "\n\n" + INTERPRETATION_RULES + "\n" if analysis else "") +
         "Réponds en renvoyant UNIQUEMENT un objet JSON valide (aucun texte avant/après), avec ces champs :\n"
-        '{"answer":"réponse courte en français","code":"...","chart":{...}}\n'
+        '{"answer":"réponse en français (courte, sauf résumé/interprétation)","code":"...","chart":{...}}\n'
         "- \"code\" (OPTIONNEL) : du code Python (pandas/numpy UNIQUEMENT) qui répond précisément à la question "
         "(somme, moyenne, corrélation, groupby, top N, comparaison, tendance, distribution...). "
         "Accède aux données via le dict `data` (clé = nom du dataset, valeur = DataFrame pandas). "
@@ -1504,7 +1548,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 cloud.consume(ctx, "analyses")  # la réanalyse d'une copie corrigée n'est pas décomptée
             result = analyze(file_path)
             if "error" not in result:
-                st["last_result"], st["current_path"] = result, file_path
+                st["last_result"], st["current_path"], st["result_path"] = result, file_path, file_path
             return self._send(200, result)
         if path == "/api/clean":
             return self._send(200, clean(str(p.get("file_path") or ""), p.get("skip") or None))
@@ -1540,7 +1584,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 st["current_path"] = str(p["file_path"])
             if T.CLOUD and _llm_config():
                 cloud.consume(ctx, "ai")
-            resp = llm_chat(question)
+            resp = llm_chat(question, p.get("contexte"))
             if resp is None:
                 resp = chat_query(question)  # repli par règles si l'IA est indisponible
             return self._send(200, resp)
