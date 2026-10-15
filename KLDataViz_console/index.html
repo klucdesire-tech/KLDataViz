@@ -678,7 +678,7 @@ function nav(key){
 $('#stepper').addEventListener('click',e=>{const b=e.target.closest('[data-go]');if(b&&!b.disabled)go(+b.dataset.go)});
 $$('nav.menu button').forEach(b=>b.onclick=()=>nav(b.dataset.nav));
 document.addEventListener('click',e=>{const b=e.target.closest('[data-goto]');if(b){if(b.dataset.goto==='home')resetAnalysis();nav(b.dataset.goto)}});
-function resetAnalysis(){Object.assign(state,{step:0,path:'',name:'',original:null,analysis:null,clean:null,applied:false,ai:null});state.accept=new Set();$('#pathInput').value=''}
+function resetAnalysis(){Object.assign(state,{step:0,path:'',name:'',original:null,analysis:null,clean:null,applied:false,ai:null});state.accept=new Set();$('#pathInput').value='';resetChat(GREETING)}
 $('#newBtn').onclick=()=>{resetAnalysis();go(0)};
 
 /* ================= import ================= */
@@ -734,7 +734,7 @@ $('#dbForm').addEventListener('submit',async e=>{
 
 /* ================= pipeline ================= */
 async function startRun(path,name,size){
-  Object.assign(state,{path,name,original:null,analysis:null,clean:null,applied:false,showAll:false,ai:null,arch:null,archFile:null,archExtra:[],structView:null});state.accept=new Set();chatHistory.length=0;  // nouveau fichier : nouvelle conversation
+  Object.assign(state,{path,name,original:null,analysis:null,clean:null,applied:false,showAll:false,ai:null,arch:null,archFile:null,archExtra:[],structView:null});state.accept=new Set();resetChat();  // nouveau fichier : nouvelle conversation
   setNav('home');state.step=0;renderStepper();show('run');
   $('#runFile').textContent=name+(size?` · ${dec((size/1048576).toFixed(1))} Mo`:'');
   $('#runErr').hidden=true;
@@ -1374,18 +1374,28 @@ function screenContext(){
 }
 // Mémoire courte de la conversation, envoyée avec chaque question (« et pour Buyo ? »).
 const chatHistory=[];
+const GREETING='Bonjour, je suis **Hermes**. Déposez un fichier Excel, CSV ou JSON, ou connectez une base : je vérifie sa qualité, je l\'analyse et je prépare vos rapports. Ensuite, posez-moi vos questions en français.';
+let chatSession=0;  // change à chaque nouvelle conversation : une réponse en retard de l'ancienne est ignorée
+// Nouveau fichier (ou nouvelle analyse) : messages, mémoire et suggestions repartent de zéro.
+function resetChat(greeting){
+  chatSession++;chatHistory.length=0;$('#msgs').innerHTML='';
+  if(greeting)say(greeting);
+  renderSugs();
+}
 async function ask(q){
   openChat();addMsg('user',q);
   const w=addMsg('agent','');const setStep=t=>{w.innerHTML=`<span class="spin"></span> ${esc(t||'Hermes analyse…')}`};setStep();
   // L'agent enchaîne plusieurs calculs : tâche de fond dont on affiche l'étape en cours.
+  const session=chatSession;
   const s=await api('/api/chat/start',{question:q,file_path:currentDataPath()||undefined,contexte:screenContext(),
     historique:chatHistory.slice(-6)});
   let d=s.error?s:null;
-  for(let i=0;!d&&i<200;i++){  // 1,5 s × 200 = 5 min au plus
+  for(let i=0;!d&&i<200&&session===chatSession;i++){  // 1,5 s × 200 = 5 min au plus
     await pause(1500);
     const j=await api('/api/chat/job?id='+encodeURIComponent(s.job));
     if(j.error)d=j;else if(j.status==='done')d=j.result;else if(j.etape)setStep(j.etape);
   }
+  if(session!==chatSession)return;  // un autre fichier a été chargé entre-temps : réponse périmée
   d=d||{error:'La réponse prend trop de temps. Reformulez ou découpez la question.'};
   w.remove();
   const text=d.answer||d.error||'(pas de réponse)';
@@ -1451,7 +1461,7 @@ $('#themeSel').onchange=e=>applyTheme(e.target.value);
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change',()=>{if(!$('[data-view="analyze"]').hidden)drawAnalyzeCharts()});
 
 /* ================= boot ================= */
-say('Bonjour, je suis **Hermes**. Déposez un fichier Excel, CSV ou JSON, ou connectez une base : je vérifie sa qualité, je l\'analyse et je prépare vos rapports. Ensuite, posez-moi vos questions en français.');
+say(GREETING);
 /* ================= version en ligne : compte, espace, équipe ================= */
 async function loadAnnouncements(){
   const list=await api('/api/announcements');if(!Array.isArray(list)||!list.length)return;
