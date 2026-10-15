@@ -74,7 +74,7 @@ def header_row(sample: pd.DataFrame) -> int:
     # Ligne d'en-têtes : nettement plus de libellés que la 1re ligne, et couvrant la moitié des colonnes…
     # …ou faite presque uniquement de libellés (formulaire de rapport : noms de sites sur une partie des colonnes).
     if best and scores[best] >= 1.5 * scores[0] + 1 and (
-            scores[best] >= 0.5 * sample.shape[1] or (scores[best] >= 5 and scores[best] >= 0.8 * remplies)):
+            scores[best] >= 0.5 * sample.shape[1] or (scores[best] >= 5 and scores[best] >= 0.6 * remplies)):
         return best
     return 0
 
@@ -175,13 +175,22 @@ def excel_sheets(path: str | Path) -> list[dict]:
             # sites ou périodes en colonnes, beaucoup de cases vides (non rapportées).
             hdr = s.loc[s.index[h]] if len(s) else pd.Series(dtype=object)
             entetes_tous = [str(v).strip() for v in hdr if _is_label(v)]
-            lib_lignes = max((int(body[c].map(_is_label).sum()) for c in body.columns[:3]), default=0) if len(body) else 0
+            lib_lignes, dims = 0, 0
+            for c in body.columns[:3] if len(body) else []:
+                labs = [" ".join(str(v).split()) for v in body[c] if _is_label(v)]
+                if len(labs) > lib_lignes:  # colonne des libellés : désagrégations sexe / âge ?
+                    lib_lignes, dims = len(labs), sum(1 for x in labs if _SEXE.match(x) or _is_age(x))
             classique = remplies >= 2 and len(entetes) >= 2
-            rapport = not classique and len(entetes_tous) >= 3 and lib_lignes >= 3
-            exploitable = len(body) >= 2 and (classique or rapport)
-            if rapport:
+            # Rapport : libellés en 1re colonne et noms (sites, périodes) en en-tête ; reconnu même bien rempli
+            # quand la colonne des libellés porte des désagrégations (Masculin, 1-4 ans…).
+            libelles = len(entetes_tous) >= 3 and lib_lignes >= 3
+            rapport = libelles and dims >= 2  # désagrégé : remis à plat à la lecture (indicateur × sexe × âge × site)
+            peu_rempli = libelles and not classique and not rapport
+            exploitable = len(body) >= 2 and (classique or rapport or peu_rempli)
+            if rapport or peu_rempli:
                 score = math.log10(len(body) + 1) * min(len(entetes_tous), 60) * (0.5 + densite) * 0.5
-                notes.append("tableau de rapport : indicateurs en lignes, sites ou périodes en colonnes")
+                notes.append("tableau de rapport : indicateurs par sexe et âge en lignes, sites ou périodes en colonnes"
+                             if rapport else "tableau peu rempli (libellés en lignes, nombreuses cases vides)")
             elif not exploitable:
                 score *= 0.1
                 notes.append("vide" if s.empty else "pas un tableau de données")
@@ -288,6 +297,58 @@ def workbook_links(path: str | Path, sheets: list[str] | None = None) -> dict:
                        "fonctions": [f for f, _ in l["fonctions"].most_common(5)], "exemple": l["exemple"]}
                       for (a, b), l in sorted(links.items(), key=lambda kv: -kv[1]["nb"])],
             "calculs_internes": dict(internes), "analyse_partielle": partiel}
+
+
+_SEXE = re.compile(r"(?i)^(masculin|f[ée]minin|hommes?|femmes?|males?|females?|gar[cç]ons?|filles?|sexe? ?[mf])$")
+_AGE = re.compile(r"(?i)^(<|>|≤|≥|moins de|plus de)?\s*\d{1,3}\s*(\+|[-–à]\s*\d{1,3})?\s*(an|ans|mois|years?)?\s*(et plus|and over|\+)?$")
+_PERIODE = re.compile(r"(?i)(fy\d{2}|q[1-4]|trimestre|semestre|20\d{2}|19\d{2})")
+
+
+def _is_age(label: str) -> bool:
+    return bool(_AGE.match(label)) and bool(re.search(r"(?i)an|mois|year|\+|<|>|[-–]", label))
+
+
+def age_order(label: str) -> float:
+    """Clé de tri d'une tranche d'âge : « <1 an » avant « 1-4 ans » avant « 50+ ans »."""
+    m = re.search(r"\d+", str(label))
+    return (float(m.group()) - (0.5 if "<" in str(label) or "moins" in str(label).lower() else 0)) if m else 1e9
+
+
+def tidy_report(df: pd.DataFrame) -> pd.DataFrame:
+    """Formulaire de rapport (indicateur → sexe → tranches d'âge en lignes, un site par colonne) remis à plat :
+    une ligne = indicateur × niveau × sexe × tranche d'âge × site, avec sa valeur.
+
+    `niveau` vaut total, sexe ou age : on ne somme jamais deux niveaux ensemble (double comptage).
+    Les cases vides (non rapportées) sont écartées."""
+    labels = {c: int(df[c].map(_is_label).sum()) for c in list(df.columns)[:3]}
+    lab = max(labels, key=labels.get)
+    sites = list(df.columns[list(df.columns).index(lab) + 1:])
+    nommes = [c for c in sites if _is_label(str(c)) and not str(c).startswith(("Unnamed", "colonne_"))]
+    sites = nommes or sites  # colonnes sans nom de site (« 0 », vides) écartées quand il y a de vrais noms
+    values = df[sites].apply(pd.to_numeric, errors="coerce")
+    head = str(lab).strip()
+    periode = head if _PERIODE.search(head) and not head.startswith(("Unnamed", "colonne_")) else None
+    rows, indicateur, sexe = [], None, None
+    for i, raw in df[lab].items():
+        label = " ".join(str(raw).split()) if pd.notna(raw) else ""
+        if not label:
+            continue
+        if _SEXE.match(label):
+            niveau, sexe, age = "sexe", label, "Total"
+        elif _is_age(label):
+            niveau, age = "age", label
+        else:
+            niveau, indicateur, sexe, age = "total", label, None, "Total"
+        if indicateur is None:
+            continue
+        for site in sites:
+            v = values.at[i, site]
+            if pd.notna(v):
+                rows.append((indicateur, niveau, sexe or "Total", age, str(site), float(v)))
+    out = pd.DataFrame(rows, columns=["indicateur", "niveau", "sexe", "tranche_age", "site", "valeur"])
+    if periode:
+        out.insert(0, "periode", periode)
+    return out
 
 
 def read_sheet(path: str | Path, sheet: str | int | None = None) -> tuple[pd.DataFrame, str | int]:

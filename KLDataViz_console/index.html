@@ -1069,6 +1069,7 @@ $('#applyClean').onclick=async()=>{
 const css=v=>getComputedStyle(document.documentElement).getPropertyValue(v).trim();
 function ruleInsights(a){
   const ins=[],bv=a.bivariate||{};
+  if((a.controles||[]).length){const c=a.controles[0];ins.push({severity:'bad',tag:'Cohérence',text:`**${a.controles.length}** écart(s) entre les totaux et leurs désagrégations (sexe, âge).`,detail:`Ex. ${c.indicateur} — ${c.site} : ${c.controle}, attendu ${nf(c.attendu)}, trouvé ${nf(c.trouve)}. Détail sous les graphiques.`,question:'Explique les écarts de cohérence entre totaux et désagrégations, par site et par indicateur'})}
   const cor=(bv.correlations||a.correlations||[]).find(c=>Math.abs(c.r)>=0.4);
   if(cor)ins.push({severity:'ok',tag:'Relation',text:`**${cor.a}** et **${cor.b}** ${cor.r>0?'évoluent ensemble':'évoluent en sens inverse'} (r = ${dec(cor.r)}).`,detail:`Corrélation ${cor.force||(Math.abs(cor.r)>=0.7?'forte':'modérée')}. Une corrélation n'est pas une cause.`,question:`corrélation entre ${cor.a} et ${cor.b}`});
   const an=[...(a.anomalies||[])].sort((x,y)=>y.count-x.count)[0];
@@ -1118,6 +1119,7 @@ function renderAnalyze(){
   if((bv.correlations||[]).length)h+=detailsBlock('Corrélations',`<table><thead><tr><th>Variable A</th><th>Variable B</th><th class="r">r</th><th>Force</th></tr></thead><tbody>${bv.correlations.map(c=>`<tr><td>${esc(c.a)}</td><td>${esc(c.b)}</td><td class="r num">${c.r}</td><td>${esc(c.force||'')}</td></tr>`).join('')}</tbody></table>`);
   if((bv.cramer||[]).length)h+=detailsBlock('Associations entre catégories (V de Cramér)',`<table><thead><tr><th>Variable A</th><th>Variable B</th><th class="r">V</th></tr></thead><tbody>${bv.cramer.slice(0,15).map(c=>`<tr><td>${esc(c.a)}</td><td>${esc(c.b)}</td><td class="r num">${c.v}</td></tr>`).join('')}</tbody></table>`);
   if((a.anomalies||[]).length)h+=detailsBlock('Anomalies',`<table><thead><tr><th>Colonne</th><th>Type</th><th class="r">Nombre</th><th>Détail</th></tr></thead><tbody>${a.anomalies.map(x=>`<tr><td>${esc(x.column)}</td><td>${esc(x.type)}</td><td class="r num">${x.count}</td><td>${esc(x.detail)}</td></tr>`).join('')}</tbody></table>`);
+  if((a.controles||[]).length)h=`<details class="more" open><summary>Contrôles de cohérence : ${a.controles.length} écart(s) entre totaux et désagrégations</summary><div class="tablewrap"><table><thead><tr><th>Indicateur</th><th>Site</th><th>Contrôle</th><th class="r">Attendu</th><th class="r">Trouvé</th></tr></thead><tbody>${a.controles.map(x=>`<tr><td>${esc(x.indicateur)}</td><td>${esc(x.site)}</td><td>${esc(x.controle)}</td><td class="r num">${nf(x.attendu)}</td><td class="r num">${nf(x.trouve)}</td></tr>`).join('')}</tbody></table></div></details>`+h;
   $('#details').innerHTML=h;
 }
 const detailsBlock=(t,html)=>`<details class="more"><summary>${t}</summary><div class="tablewrap">${html}</div></details>`;

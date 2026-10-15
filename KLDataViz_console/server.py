@@ -291,6 +291,12 @@ def _read_df(file_path, sheet=None):
         elif ext in (".xlsx", ".xls", ".xlsm"):
             raw, lue = data_architect.read_sheet(file_path, sheet)
             df = _tidy(raw)
+            try:
+                meta = {f["nom"]: f for f in data_architect.excel_sheets(file_path)}
+            except Exception:
+                meta = {}
+            if meta.get(lue, {}).get("rapport"):
+                df = data_architect.tidy_report(df)
             names = pd.ExcelFile(file_path).sheet_names
             if len(names) > 1:
                 df.attrs.update(feuille=lue if isinstance(lue, str) else names[lue], feuilles=names)
@@ -317,6 +323,78 @@ _PERIOD_HINT = None
 def _pretty(name):
     s = str(name).replace("_", " ").strip()
     return s[:1].upper() + s[1:]
+
+
+REPORT_COLS = {"indicateur", "niveau", "sexe", "tranche_age", "site", "valeur"}
+
+
+def _is_report(df):
+    return REPORT_COLS <= set(map(str, df.columns))
+
+
+def _short(label, n=60):
+    label = " ".join(str(label).split())
+    return label if len(label) <= n else label[:n - 1] + "…"
+
+
+def _report_charts(df):
+    """Rapport remis à plat : chaque graphique reste à un seul niveau (total, sexe ou âge), jamais additionnés."""
+    charts = []
+    rnd = lambda xs: [round(float(x), 4) for x in xs]
+    tot = df[df["niveau"] == "total"].groupby("indicateur", sort=False)["valeur"].sum()
+    if len(tot) > 1:
+        charts.append({"kind": "ranking", "type": "bar", "title": "Total par indicateur",
+                       "subtitle": "Somme sur tous les sites", "labels": [_short(i) for i in tot.index],
+                       "values": [rnd(tot.values)], "seriesNames": ["Total"], "horizontal": True})
+    detail = [i for i in tot.sort_values(ascending=False).index
+              if (df[(df["indicateur"] == i) & (df["niveau"] != "total")]["valeur"].sum() > 0)]
+    for ind in detail[:2]:
+        g = df[df["indicateur"] == ind]
+        sx = g[g["niveau"] == "sexe"].groupby("sexe")["valeur"].sum()
+        if len(sx) >= 2:
+            charts.append({"kind": "report", "type": "bar", "title": f"{_short(ind, 45)} — par sexe",
+                           "subtitle": f"Somme sur {g['site'].nunique()} site(s)", "labels": [str(x) for x in sx.index],
+                           "values": [rnd(sx.values)], "seriesNames": ["Valeur"]})
+        ag = g[g["niveau"] == "age"].pivot_table(index="tranche_age", columns="sexe", values="valeur", aggfunc="sum").fillna(0)
+        if len(ag) >= 2:
+            ag = ag.loc[sorted(ag.index, key=data_architect.age_order)]
+            charts.append({"kind": "trend", "type": "bar", "title": f"{_short(ind, 45)} — par âge et sexe",
+                           "subtitle": "Somme sur tous les sites", "labels": [str(x) for x in ag.index],
+                           "values": [rnd(ag[c].values) for c in ag.columns], "seriesNames": [str(c) for c in ag.columns]})
+    if len(tot):
+        ind = tot.idxmax()
+        st = df[(df["indicateur"] == ind) & (df["niveau"] == "total")].groupby("site")["valeur"].sum().sort_values(ascending=False)
+        if len(st) >= 2:
+            top = st.head(15)
+            charts.append({"kind": "ranking", "type": "bar", "title": f"{_short(ind, 45)} — par site",
+                           "subtitle": f"{len(top)} premiers sites sur {len(st)} · ligne : moyenne",
+                           "labels": [str(x) for x in top.index], "values": [rnd(top.values)], "seriesNames": ["Valeur"],
+                           "ref": {"value": round(float(st.mean()), 4), "label": "Moyenne"}, "horizontal": True})
+    return charts
+
+
+def report_checks(df):
+    """Contrôle qualité d'un rapport : le total d'un indicateur doit égaler la somme par sexe et par âge,
+    site par site. Renvoie les écarts trouvés."""
+    out = []
+    for (ind, site), g in df.groupby(["indicateur", "site"], sort=False):
+        tot = g[g["niveau"] == "total"]["valeur"].sum()
+        for niveau, nom in (("sexe", "par sexe"), ("age", "par âge")):
+            part = g[g["niveau"] == niveau]
+            if part.empty:
+                continue
+            if niveau == "age":  # chaque sexe doit égaler la somme de ses tranches d'âge
+                sx = g[g["niveau"] == "sexe"].groupby("sexe")["valeur"].sum()
+                ages = part.groupby("sexe")["valeur"].sum()
+                for sexe in sx.index.intersection(ages.index):
+                    if abs(sx[sexe] - ages[sexe]) > 1e-9:
+                        out.append({"indicateur": ind, "site": site, "controle": f"{sexe} = somme des âges",
+                                    "attendu": float(sx[sexe]), "trouve": float(ages[sexe])})
+                continue
+            if abs(tot - part["valeur"].sum()) > 1e-9:
+                out.append({"indicateur": ind, "site": site, "controle": f"Total = somme {nom}",
+                            "attendu": float(tot), "trouve": float(part["valeur"].sum())})
+    return out
 
 
 def _smart_charts(df, max_charts=6):
@@ -579,8 +657,9 @@ def analyze(file_path):
         "correlations": [{"a": a, "b": b, "r": round(r, 3)} for a, b, r in corr_pairs],
         "anomalies": anomalies,
         "bivariate": bivariate_stats(df),
-        "charts": _auto_charts(df),
-        "smart_charts": _smart_charts(df),
+        "charts": [] if _is_report(df) else _auto_charts(df),
+        "smart_charts": _report_charts(df) if _is_report(df) else _smart_charts(df),
+        **({"controles": report_checks(df)[:200]} if _is_report(df) else {}),
         **({"feuille": {"lue": lu["feuille"], "autres": [n for n in lu["feuilles"] if n != lu["feuille"]]}}
            if lu.get("feuilles") else {}),
     }
@@ -1026,6 +1105,8 @@ def _analysis_for_chat(cur_path):
 def _analysis_context(res, ui_context):
     summary = studio._summary(res)
     summary["associations_categories"] = ((res.get("bivariate") or {}).get("cramer") or [])[:6]
+    if res.get("controles") is not None:  # rapport remis à plat : écarts total / sexe / âge
+        summary["controles_coherence"] = {"nombre_d_ecarts": len(res["controles"]), "exemples": res["controles"][:15]}
     out = {"resultat_analyse": summary}
     if isinstance(ui_context, dict):  # ce que seul l'écran connaît : corrections appliquées, structure, points clés
         text = json.dumps(ui_context, ensure_ascii=False, default=str)
@@ -1124,6 +1205,11 @@ def llm_chat(question, ui_context=None, history=None, progress=None, linked=None
                                "colonnes": [{"name": str(c), "dtype": str(current_df[c].dtype),
                                              "exemples": [str(v) for v in current_df[c].dropna().head(3).tolist()]}
                                             for c in current_df.columns]})
+        if current_df is not None and _is_report(current_df):
+            context[0]["regle_rapport"] = (
+                "Rapport remis à plat : une ligne = indicateur × niveau × sexe × tranche_age × site. La colonne niveau "
+                "vaut total, sexe ou age. Ne JAMAIS additionner deux niveaux : total d'un indicateur → niveau == 'total' ; "
+                "par sexe → niveau == 'sexe' ; par âge (et sexe) → niveau == 'age'. Ne pas additionner des indicateurs différents.")
     linked_paths = {}
     for item in (linked or [])[:MAX_ARCHITECT_FILES]:  # autres feuilles / fichiers croisés, aussi calculables
         lp = str((item or {}).get("path") or "")
@@ -1312,7 +1398,17 @@ def sheets_extract(file_path, sheets, stack=False):
     stem = os.path.splitext(os.path.basename(file_path))[0]
     if stack:
         try:
-            df = _tidy(data_architect.stack_sheets(file_path, wanted))
+            meta = {f["nom"]: f for f in data_architect.excel_sheets(file_path)}
+            if all(meta.get(n, {}).get("rapport") for n in wanted):  # rapports : chacun remis à plat, puis empilés
+                frames = []
+                for n in wanted:
+                    one, err = _read_df(file_path, sheet=n)
+                    if err:
+                        return {"error": f"Feuille « {n} » : {err}"}
+                    frames.append(one.assign(feuille=n)[["feuille"] + list(one.columns)])
+                df = pd.concat(frames, ignore_index=True)
+            else:
+                df = _tidy(data_architect.stack_sheets(file_path, wanted))
         except Exception as e:
             return {"error": f"Empilement impossible : {e}"}
         dest = os.path.join(T.uploads_dir(), _safe_name(f"{stem} - {len(wanted)} feuilles empilees.parquet"))
