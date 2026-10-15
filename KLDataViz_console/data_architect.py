@@ -4,6 +4,9 @@ Usage :
     python -I data_architect.py profile <fichier> [--sheet NOM] [--out rapport.json]
     python -I data_architect.py restructure <fichier> <spec.json> <dossier_sortie>
     python -I data_architect.py profile <fichier1> <fichier2> ...       (relations entre fichiers)
+    python -I data_architect.py profile <classeur.xlsx> --all-sheets    (chaque feuille = une table)
+    python -I data_architect.py sheets <classeur.xlsx>                  (feuilles + feuille recommandée)
+    Une feuille précise s'écrit « classeur.xlsx#Feuille » partout où un fichier est attendu.
     python -I data_architect.py restructure-multi <spec.json> <dossier_sortie> <fichier1> <fichier2> ...
 
 Le profilage est déterministe : il mesure, il ne devine pas. L'interprétation
@@ -46,6 +49,196 @@ def _sniff_text(path: Path) -> tuple[str, str]:
     return enc, sep
 
 
+def header_row(sample: pd.DataFrame) -> int:
+    """Indice de la vraie ligne d'en-têtes dans un tableau « rapport » (titres, totaux au-dessus).
+
+    `sample` : les premières lignes lues sans en-tête. On garde la ligne 0 sauf si une
+    ligne suivante porte nettement plus de libellés texte et couvre au moins la moitié des colonnes.
+    """
+    def labels(row):
+        n = 0
+        for v in row:
+            if isinstance(v, str) and v.strip():
+                try:
+                    float(v.replace(",", ".").replace(" ", ""))
+                except ValueError:
+                    n += 1
+        return n
+
+    scores = [labels(r) for r in sample.head(20).itertuples(index=False, name=None)]
+    if len(scores) < 2:
+        return 0
+    best = max(range(len(scores)), key=lambda i: (scores[i], -i))
+    if best and scores[best] >= 1.5 * scores[0] + 1 and scores[best] >= 0.5 * sample.shape[1]:
+        return best
+    return 0
+
+
+# --------------------------------------------------------------------------- #
+# Classeurs à plusieurs feuilles : quelle feuille contient les données ?
+# --------------------------------------------------------------------------- #
+
+EXCEL_EXT = (".xlsx", ".xlsm", ".xls")
+SHEET_SAMPLE = 60
+# Feuilles d'habillage : page de garde, sommaire, notes, paramètres, graphiques…
+SHEET_NOTES = re.compile(
+    r"(?i)(^|[^a-zà-ü])(notes?|lisez|readme|read ?me|sommaire|contents?|toc|instructions?|aide|help|"
+    r"param[eè]tres?|settings|config|l[ée]gende|legend|accueil|garde|cover|menu|[àa] propos|about|"
+    r"m[ée]thodo\w*|graph\w*|charts?|tcd|pivot|synth[eè]se|dashboard|tableau de bord)([^a-zà-ü]|$)")
+SHEET_DATA = re.compile(r"(?i)(donn[ée]es|data|base|bdd|saisie|export|brut|raw|d[ée]tail|registre|liste)")
+_SHEETS_CACHE: dict = {}
+
+
+def _sheet_meta(path: Path) -> dict:
+    """{feuille: (masquée, lignes, colonnes)} lu sans charger les cellules (lignes à 0 si inconnues)."""
+    meta = {}
+    try:
+        if path.suffix.lower() == ".xls":
+            import xlrd
+            book = xlrd.open_workbook(str(path), on_demand=True)
+            for i, name in enumerate(book.sheet_names()):
+                sh = book.sheet_by_index(i)
+                meta[name] = (bool(getattr(sh, "visibility", 0)), sh.nrows, sh.ncols)
+            book.release_resources()
+        else:
+            from openpyxl import load_workbook
+            wb = load_workbook(path, read_only=True, data_only=True)
+            for ws in wb.worksheets:
+                try:
+                    dims = (ws.max_row or 0, ws.max_column or 0)
+                except Exception:
+                    dims = (0, 0)
+                meta[ws.title] = (ws.sheet_state != "visible", *dims)
+            wb.close()
+    except Exception:
+        pass
+    return meta
+
+
+SHEET_TITLE_NOTES = re.compile(r"(?i)tableau de bord|dashboard|sommaire|page de garde|lisez[- ]moi|read ?me|instructions")
+
+
+def _is_label(v) -> bool:
+    if not isinstance(v, str) or not v.strip():
+        return False
+    try:
+        float(v.replace(",", ".").replace(" ", ""))
+        return False
+    except ValueError:
+        return True
+
+
+def excel_sheets(path: str | Path) -> list[dict]:
+    """Décrit chaque feuille d'un classeur et recommande celle qui porte les données.
+
+    Score = taille du tableau (lignes en log × colonnes réellement remplies × densité × part des
+    colonnes qui ont un vrai en-tête), pénalisé pour les feuilles masquées, sans vrai tableau, ou
+    dont le nom ou le titre évoque des notes / un tableau de bord. Les feuilles de même structure
+    (un onglet par mois, par site…) reçoivent le même `groupe` : elles peuvent être empilées."""
+    path = Path(path)
+    st = path.stat()
+    key = (str(path.resolve()), st.st_mtime_ns, st.st_size)
+    if key in _SHEETS_CACHE:
+        return _SHEETS_CACHE[key]
+    import math
+    meta = _sheet_meta(path)
+    out, groupes = [], []  # [(en-têtes du 1er membre, [feuilles])]
+    xl = pd.ExcelFile(path)
+    try:
+        for name in xl.sheet_names:
+            hidden, nrows, _ = meta.get(name, (False, 0, 0))
+            try:
+                raw = xl.parse(name, header=None, nrows=SHEET_SAMPLE, dtype=str)
+            except Exception:  # feuille graphique, protégée…
+                raw = pd.DataFrame()
+            s = raw.dropna(how="all").dropna(axis=1, how="all")
+            h = header_row(s) if len(s) else 0
+            body = s.iloc[h + 1:]
+            pleines = body.columns[body.notna().mean() >= 0.5] if len(body) else []
+            remplies = len(pleines)
+            densite = float(body.notna().to_numpy().mean()) if body.size else 0.0
+            en_tete = int(s.index[h]) + 1 if len(s) else 0  # lignes jusqu'à l'en-tête, vides comprises
+            if len(raw) < SHEET_SAMPLE:  # la feuille s'arrête dans l'échantillon : compte exact
+                lignes, approx = len(body), False
+            else:  # dimensions déclarées par le fichier (parfois gonflées par la mise en forme)
+                lignes, approx = max(len(body), nrows - en_tete if nrows else 0), nrows <= SHEET_SAMPLE
+            entetes = [str(s.at[s.index[h], c]).strip() for c in pleines if _is_label(s.at[s.index[h], c])]                 if len(s) else []
+            part_entetes = len(entetes) / remplies if remplies else 0.0
+            score = math.log10(lignes + 1) * remplies * (0.5 + densite) * (0.2 + 0.8 * part_entetes)
+            notes = []
+            exploitable = remplies >= 2 and len(body) >= 2 and len(entetes) >= 2
+            if not exploitable:
+                score *= 0.1
+                notes.append("vide" if s.empty else "pas un tableau de données")
+            if hidden:
+                score *= 0.05
+                notes.append("feuille masquée")
+            titre = " ".join(str(v) for v in s.head(h + 1).to_numpy().ravel()[:40] if isinstance(v, str))
+            if SHEET_NOTES.search(name) or (h and SHEET_TITLE_NOTES.search(titre)):
+                score *= 0.3
+                notes.append("tableau de bord, notes ou synthèse")
+            elif SHEET_DATA.search(name):
+                score *= 1.3
+            f = {"nom": name, "lignes": int(lignes), "lignes_approx": bool(approx),
+                 "colonnes": int(s.shape[1]), "masquee": bool(hidden), "exploitable": exploitable,
+                 "score": round(score, 2), "notes": notes, "recommandee": False}
+            if exploitable:  # même structure = au moins 80 % d'en-têtes communs (Jaccard)
+                sig = {e.lower() for e in entetes}
+                g = next((g for g in groupes if len(sig & g[0]) >= 0.8 * len(sig | g[0])), None)
+                if g:
+                    g[1].append(f)
+                else:
+                    groupes.append((sig, [f]))
+            out.append(f)
+    finally:
+        xl.close()
+    if out:
+        max(out, key=lambda f: f["score"])["recommandee"] = True
+    for _, fs in groupes:  # feuilles à empiler
+        if len(fs) > 1:
+            for f in fs:
+                f.update(groupe=fs[0]["nom"], groupe_taille=len(fs))
+    if len(_SHEETS_CACHE) > 64:
+        _SHEETS_CACHE.clear()
+    _SHEETS_CACHE[key] = out
+    return out
+
+
+def stack_sheets(path: str | Path, names: list[str]) -> pd.DataFrame:
+    """Empile des feuilles de même structure (un onglet par mois, par site…) en un seul tableau,
+    avec une colonne « feuille » qui garde l'origine de chaque ligne. Classeur lu une seule fois."""
+    raws = pd.read_excel(path, sheet_name=list(names), header=None)
+    frames = []
+    for name in names:
+        raw = raws[name].dropna(how="all").dropna(axis=1, how="all")
+        if raw.empty:
+            continue
+        txt = raw.head(20).map(lambda v: v if isinstance(v, str) else (None if pd.isna(v) else str(v)))
+        h = header_row(txt)
+        cols = [str(c).strip() if pd.notna(c) else f"colonne_{j + 1}" for j, c in enumerate(raw.iloc[h])]
+        df = raw.iloc[h + 1:].set_axis(cols, axis=1).infer_objects()
+        df.insert(0, "feuille", name)
+        frames.append(df)
+    if not frames:
+        raise ValueError("aucune donnée dans les feuilles demandées")
+    return pd.concat(frames, ignore_index=True)
+
+
+def best_sheet(path: str | Path) -> str | int:
+    """Nom de la feuille recommandée (la première si l'analyse du classeur échoue)."""
+    try:
+        return next(f["nom"] for f in excel_sheets(path) if f["recommandee"])
+    except Exception:
+        return 0
+
+
+def read_sheet(path: str | Path, sheet: str | int | None = None) -> tuple[pd.DataFrame, str | int]:
+    """Lit une feuille (la recommandée par défaut) en sautant les lignes de titre au-dessus des en-têtes."""
+    sheet = best_sheet(path) if sheet is None else sheet
+    h = header_row(pd.read_excel(path, sheet_name=sheet, header=None, nrows=20, dtype=str))
+    return pd.read_excel(path, sheet_name=sheet, header=h), sheet
+
+
 def load_table(path: str | Path, sheet: str | None = None) -> tuple[pd.DataFrame, dict]:
     path = Path(path)
     ext = path.suffix.lower()
@@ -54,11 +247,17 @@ def load_table(path: str | Path, sheet: str | None = None) -> tuple[pd.DataFrame
         enc, sep = _sniff_text(path)
         df = pd.read_csv(path, sep=sep, encoding=enc, low_memory=False)
         info.update(encodage=enc, separateur=sep)
-    elif ext in (".xlsx", ".xlsm", ".xls"):
-        sheets = pd.ExcelFile(path).sheet_names
-        info["feuilles"] = sheets
-        df = pd.read_excel(path, sheet_name=sheet or sheets[0])
-        info["feuille_lue"] = sheet or sheets[0]
+    elif ext in EXCEL_EXT:
+        df, lue = read_sheet(path, sheet)
+        try:
+            detail = excel_sheets(path)
+        except Exception:
+            detail = [{"nom": n} for n in pd.ExcelFile(path).sheet_names]
+        info["feuilles"] = [f["nom"] for f in detail]
+        info["feuille_lue"] = lue
+        if len(detail) > 1:
+            info["feuilles_detail"] = [{k: f.get(k) for k in ("nom", "lignes", "colonnes", "exploitable", "notes")}
+                                       for f in detail]
     elif ext == ".json":
         df = pd.json_normalize(json.loads(path.read_text(encoding="utf-8")))
     elif ext == ".parquet":
@@ -522,11 +721,33 @@ def _write_tables(tables: dict[str, pd.DataFrame], out: Path) -> None:
     print(f"Sorties dans {out}")
 
 
+def _split_sheet(arg: str) -> tuple[str, str | None]:
+    """« classeur.xlsx#Feuille » → (classeur.xlsx, Feuille) ; sinon (arg, None)."""
+    if not Path(arg).is_file() and "#" in arg and Path(arg.rsplit("#", 1)[0]).is_file():
+        p, s = arg.rsplit("#", 1)
+        return p, s
+    return arg, None
+
+
+def _expand_sheets(paths: list[str]) -> list[str]:
+    """--all-sheets : chaque feuille exploitable d'un classeur devient une table « classeur.xlsx#Feuille »."""
+    out = []
+    for p in paths:
+        if Path(p).suffix.lower() in EXCEL_EXT and Path(p).is_file():
+            useful = [f["nom"] for f in excel_sheets(p) if f["exploitable"]]
+            if len(useful) > 1:
+                out += [f"{p}#{s}" for s in useful]
+                continue
+        out.append(p)
+    return out
+
+
 def _load_named(paths: list[str]) -> dict[str, tuple[pd.DataFrame, dict]]:
     tables = {}
     for p in paths:
-        df, info = load_table(p)
-        name = Path(p).name
+        p, sheet = _split_sheet(p)
+        df, info = load_table(p, sheet)
+        name = f"{Path(p).stem}_{sheet}" if sheet else Path(p).name
         while name in tables:
             name = "_" + name
         tables[name] = (df, info)
@@ -534,23 +755,29 @@ def _load_named(paths: list[str]) -> dict[str, tuple[pd.DataFrame, dict]]:
 
 
 def main(argv: list[str]) -> int:
-    if len(argv) < 2 or argv[0] not in ("profile", "restructure", "restructure-multi"):
+    if len(argv) < 2 or argv[0] not in ("profile", "restructure", "restructure-multi", "sheets"):
         print(__doc__)
         return 1
     sys.stdout.reconfigure(encoding="utf-8")
     flags = {"--sheet", "--out"}
-    if argv[0] == "profile":
-        inputs = [a for i, a in enumerate(argv[1:], 1) if a not in flags and argv[i - 1] not in flags]
+    if argv[0] == "sheets":
+        inputs = argv[1:2]
+    elif argv[0] == "profile":
+        inputs = [a for i, a in enumerate(argv[1:], 1)
+                  if a not in flags | {"--all-sheets"} and argv[i - 1] not in flags]
     elif argv[0] == "restructure":
         inputs = argv[1:3]
     else:
         inputs = [argv[1]] + argv[3:]
-    missing = [a for a in inputs if not Path(a).is_file()]
+    missing = [a for a in inputs if not Path(_split_sheet(a)[0]).is_file()]
     if missing:
         for m in missing:
             print(f"Fichier introuvable : {m}")
         print("Vérifiez le nom et le dossier (copiez le chemin complet depuis l'Explorateur : clic droit → Copier en tant que chemin d'accès).")
         return 2
+    if argv[0] == "sheets":
+        print(json.dumps(excel_sheets(argv[1]), ensure_ascii=False, indent=1))
+        return 0
     if argv[0] == "restructure-multi":
         spec = json.loads(Path(argv[1]).read_text(encoding="utf-8"))
         tables = _load_named(argv[3:])
@@ -559,11 +786,15 @@ def main(argv: list[str]) -> int:
     if argv[0] == "profile":
         sheet = argv[argv.index("--sheet") + 1] if "--sheet" in argv else None
         flags = {"--sheet", "--out"}
-        files = [a for i, a in enumerate(argv[1:], 1) if a not in flags and argv[i - 1] not in flags]
+        files = [a for i, a in enumerate(argv[1:], 1)
+                 if a not in flags | {"--all-sheets"} and argv[i - 1] not in flags]
+        if "--all-sheets" in argv:
+            files = _expand_sheets(files)
         if len(files) > 1:
             rep = profile_many(_load_named(files))
         else:
-            df, info = load_table(files[0], sheet)
+            path, sheet = _split_sheet(files[0]) if sheet is None else (files[0], sheet)
+            df, info = load_table(path, sheet)
             rep = profile(df, info)
         text = json.dumps(rep, ensure_ascii=False, indent=1, default=_json_default)
         if "--out" in argv:
@@ -573,7 +804,7 @@ def main(argv: list[str]) -> int:
             sys.stdout.reconfigure(encoding="utf-8")
             print(text)
         return 0
-    df, _ = load_table(argv[1])
+    df, _ = load_table(*_split_sheet(argv[1]))
     spec = json.loads(Path(argv[2]).read_text(encoding="utf-8"))
     _write_tables(restructure(df, spec), Path(argv[3]))
     return 0

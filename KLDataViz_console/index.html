@@ -696,7 +696,7 @@ function upload(f){
   reader.onload=async()=>{
     const data=String(reader.result).split(',')[1]||'';
     const d=await api('/api/upload-source',{name:f.name,data});
-    if(d.path){importMsg('');startRun(d.path,f.name,f.size)}
+    if(d.path){importMsg('');openSource(d.path,f.name,f.size)}
     else importMsg('Envoi impossible : '+esc(d.error||'erreur inconnue'));
   };
   reader.onerror=()=>importMsg('Lecture du fichier impossible.');
@@ -712,10 +712,10 @@ $$('.src').forEach(b=>b.onclick=()=>{
 });
 $('#pathForm').addEventListener('submit',e=>{e.preventDefault();const p=$('#pathInput').value.trim().replace(/^"|"$/g,'');
   if(!p){importMsg('Indiquez un chemin de fichier ou une URL.');$('#pathInput').focus();return}
-  startRun(p,baseName(p))});
+  openSource(p,baseName(p))});
 $('#taskSrcBtn').onclick=async()=>{
   const d=await api('/api/fetch-source');
-  if(d.source){$('#pathInput').value=d.source;startRun(d.source,baseName(d.source))}
+  if(d.source){$('#pathInput').value=d.source;openSource(d.source,baseName(d.source))}
   else importMsg(esc(d.message||d.error||'Aucune tâche assignée pour le moment.'),'alert info');
 };
 $('#dbForm').addEventListener('submit',async e=>{
@@ -732,9 +732,45 @@ $('#dbForm').addEventListener('submit',async e=>{
   importMsg('');startRun(wp,table);
 });
 
+/* ---- classeur à plusieurs feuilles : choisir la feuille (ou les croiser toutes) ---- */
+async function openSource(path,name,size){
+  if(!/\.(xlsx|xls|xlsm)$/i.test(path)||/^https?:/i.test(path))return startRun(path,name,size);
+  importMsg(`<span class="spin"></span> Lecture des feuilles de ${esc(name)}…`,'alert info');
+  const d=await api('/api/sheets',{file_path:path});
+  const fs=d.feuilles||[],ok=fs.filter(f=>f.exploitable);
+  if(d.error||ok.length<2){importMsg('');return startRun(path,name,size)}  // une seule feuille utile : lue automatiquement
+  // Groupes de feuilles à empiler, du plus grand au plus petit (2 au plus affichés)
+  const groups=Object.values(fs.reduce((m,f)=>(f.groupe&&(m[f.groupe]=m[f.groupe]||[]).push(f),m),{})).sort((a,b)=>b.length-a.length).slice(0,2);
+  const rec=fs.find(f=>f.recommandee)||ok[0],dim=f=>`${f.lignes_approx?'plus de ':''}${nf(f.lignes)} ligne${f.lignes>1?'s':''} × ${f.colonnes} colonne${f.colonnes>1?'s':''}`;
+  importMsg(`<div class="card"><h2 style="margin:0">Ce classeur contient ${fs.length} feuilles</h2>
+    <p class="sub" style="margin:6px 0 4px">Hermes recommande <b>${esc(rec.nom)}</b> : c'est le plus grand tableau de données. Choisissez la feuille à analyser, ou croisez les feuilles entre elles.</p>
+    <div role="radiogroup" aria-label="Feuille à analyser">${fs.map((f,i)=>`<label class="issue sheetopt" style="grid-template-columns:auto minmax(0,1fr);cursor:${f.exploitable?'pointer':'default'}">
+      <input type="radio" name="sheetPick" value="${i}" ${f===rec?'checked':''} ${f.exploitable?'':'disabled'}>
+      <div><b>${esc(f.nom)} ${f===rec?'<span class="tag ok">Recommandée</span>':''}</b><span>${f.exploitable?dim(f):'Non analysable'}${f.notes.length?' · '+esc(f.notes.join(', ')):''}</span></div></label>`).join('')}</div>
+    ${groups.length?`<div class="label" style="margin-top:14px">Feuilles de même structure</div>`+groups.map((g,i)=>`<div class="issue" style="grid-template-columns:4px minmax(0,1fr) auto;align-items:center"><span class="sev info"></span>
+      <div><b>${g.length} feuilles : ${esc(g[0].nom)} … ${esc(g[g.length-1].nom)}</b><span>Mêmes colonnes (un onglet par période, par site…). Empilées, elles forment un seul tableau avec une colonne « feuille » : c'est la meilleure base pour comparer et suivre l'évolution.</span></div>
+      <button class="btn ghost sm" data-stack="${i}">Empiler et analyser</button></div>`).join(''):''}
+    <div class="actions" style="margin-top:12px"><button class="btn ghost" id="sheetCancel">Annuler</button>
+      <button class="btn ghost" id="sheetAll">Croiser les ${Math.min(ok.length,6)} feuilles (structure)</button>
+      <button class="btn primary" id="sheetGo">Analyser cette feuille</button></div></div>`,'');
+  const extract=async(names,b,empiler)=>{b.disabled=true;b.innerHTML='<span class="spin"></span> Préparation…';
+    const x=await api('/api/sheets/extract',{file_path:path,sheets:names,empiler:!!empiler});
+    if(x.error||!x.fichiers){importMsg('Lecture impossible : '+esc(x.error||'erreur inconnue'));return null}
+    importMsg('');return x.fichiers};
+  $('#sheetCancel').onclick=()=>importMsg('');
+  $$('[data-stack]').forEach(b=>b.onclick=async()=>{const g=groups[+b.dataset.stack];
+    const x=await extract(g.map(f=>f.nom),b,true);
+    if(x){await startRun(x[0].path,x[0].name);say(`J'ai empilé **${g.length} feuilles** de même structure en un seul tableau ; la colonne **feuille** indique l'onglet d'origine de chaque ligne.`)}});
+  $('#sheetGo').onclick=async e=>{const f=fs[+($('input[name=sheetPick]:checked')?.value??fs.indexOf(rec))];
+    const x=await extract([f.nom],e.currentTarget);if(x)startRun(x[0].path,x[0].name)};
+  // Toutes les feuilles : la recommandée est analysée, les autres sont croisées avec elle par l'architecte.
+  $('#sheetAll').onclick=async e=>{const names=[rec,...ok.filter(f=>f!==rec).sort((a,b)=>b.score-a.score)].slice(0,6).map(f=>f.nom);
+    const x=await extract(names,e.currentTarget);if(x)startRun(x[0].path,x[0].name,0,{archExtra:x.slice(1).map(f=>({path:f.path,name:f.name})),autoArch:true})};
+}
+
 /* ================= pipeline ================= */
-async function startRun(path,name,size){
-  Object.assign(state,{path,name,original:null,analysis:null,clean:null,applied:false,showAll:false,ai:null,arch:null,archFile:null,archExtra:[],structView:null});state.accept=new Set();resetChat();  // nouveau fichier : nouvelle conversation
+async function startRun(path,name,size,opts={}){
+  Object.assign(state,{path,name,original:null,analysis:null,clean:null,applied:false,showAll:false,ai:null,arch:null,archFile:null,archExtra:opts.archExtra||[],structView:null});state.accept=new Set();resetChat();  // nouveau fichier : nouvelle conversation
   setNav('home');state.step=0;renderStepper();show('run');
   $('#runFile').textContent=name+(size?` · ${dec((size/1048576).toFixed(1))} Mo`:'');
   $('#runErr').hidden=true;
@@ -758,10 +794,12 @@ async function startRun(path,name,size){
   set(2,'done',`${(a.anomalies||[]).length} colonne(s) avec anomalies, ${(a.charts||[]).length} graphique(s)`,'');prog(100);
   await new Promise(r=>setTimeout(r,reduce?0:350));
   go(1);
-  say(`J'ai lu **${name}** : ${nf(a.rows)} lignes et ${a.columns} colonnes. Le score de qualité est de **${quality(new Set()).score} / 100**. Choisissez les corrections à appliquer, puis lancez l'analyse. Vous pouvez aussi me poser une question dès maintenant.`);
+  const fl=a.feuille?` J'ai lu la feuille **${a.feuille.lue}** (la plus riche en données)${a.feuille.autres.length?` ; non analysée${a.feuille.autres.length>1?'s':''} : ${a.feuille.autres.join(', ')}`:''}.`:'';
+  say(`J'ai lu **${name}** : ${nf(a.rows)} lignes et ${a.columns} colonnes.${fl} Le score de qualité est de **${quality(new Set()).score} / 100**. Choisissez les corrections à appliquer, puis lancez l'analyse. Vous pouvez aussi me poser une question dès maintenant.`);
+  if(opts.autoArch){say(`J'étudie maintenant les liens entre les ${archPaths().length} feuilles pour proposer une structure commune.`);$('#archRun').click()}
 }
 const secs=t=>dec(((performance.now()-t)/1000).toFixed(1))+' s';
-$('#runRetry').onclick=()=>startRun(state.path,state.name);
+$('#runRetry').onclick=()=>startRun(state.path,state.name,0,{archExtra:state.archExtra});
 $('#runBack').onclick=()=>go(0);
 
 /* ================= verify ================= */

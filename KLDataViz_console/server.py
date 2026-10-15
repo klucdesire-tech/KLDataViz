@@ -224,29 +224,7 @@ def _csv_options(file_path):
         return {}
 
 
-def _header_row(sample):
-    """Indice de la vraie ligne d'en-têtes dans un tableau « rapport » (titres, totaux au-dessus).
-
-    `sample` : les 20 premières lignes lues sans en-tête. On garde la ligne 0 sauf si une
-    ligne suivante porte nettement plus de libellés texte et couvre au moins la moitié des colonnes.
-    """
-    def labels(row):
-        n = 0
-        for v in row:
-            if isinstance(v, str) and v.strip():
-                try:
-                    float(v.replace(",", ".").replace(" ", ""))
-                except ValueError:
-                    n += 1
-        return n
-
-    scores = [labels(r) for r in sample.itertuples(index=False, name=None)]
-    if len(scores) < 2:
-        return 0
-    best = max(range(len(scores)), key=lambda i: (scores[i], -i))
-    if best and scores[best] >= 1.5 * scores[0] + 1 and scores[best] >= 0.5 * sample.shape[1]:
-        return best
-    return 0
+_header_row = data_architect.header_row  # partagé avec l'architecte et le skill
 
 
 def _tidy(df):
@@ -266,9 +244,11 @@ def _tidy(df):
     return df.dropna(how="all").reset_index(drop=True)
 
 
-def _read_df(file_path):
+def _read_df(file_path, sheet=None):
     """Lit un fichier local ou une URL en DataFrame (csv/xlsx/xls/xlsm/json/parquet).
 
+    Classeur Excel : la feuille `sheet`, sinon celle qui porte les données (pas forcément la
+    première : page de garde, sommaire…). df.attrs["feuille"] / ["feuilles"] disent laquelle.
     En ligne : seuls les fichiers de l'organisation et les liens https publics sont acceptés."""
     tmp_to_delete = None
     is_url = file_path.startswith(("http://", "https://"))
@@ -309,8 +289,11 @@ def _read_df(file_path):
             h = _header_row(pd.read_csv(file_path, header=None, nrows=20, dtype=str, on_bad_lines="skip", **opts))
             df = _tidy(pd.read_csv(file_path, skiprows=h, **opts)) if h else pd.read_csv(file_path, **opts)
         elif ext in (".xlsx", ".xls", ".xlsm"):
-            h = _header_row(pd.read_excel(file_path, header=None, nrows=20, dtype=str))
-            df = _tidy(pd.read_excel(file_path, header=h)) if h else pd.read_excel(file_path)
+            raw, lue = data_architect.read_sheet(file_path, sheet)
+            df = _tidy(raw)
+            names = pd.ExcelFile(file_path).sheet_names
+            if len(names) > 1:
+                df.attrs.update(feuille=lue if isinstance(lue, str) else names[lue], feuilles=names)
         elif ext == ".json":
             df = pd.read_json(file_path)
         elif ext == ".parquet":
@@ -520,6 +503,7 @@ def analyze(file_path):
     df, err = _read_df(file_path)
     if err:
         return {"error": err}
+    lu = dict(df.attrs)  # feuille lue dans un classeur
 
     size = os.path.getsize(file_path) if os.path.exists(file_path) else 0
     rows, cols = df.shape
@@ -597,6 +581,8 @@ def analyze(file_path):
         "bivariate": bivariate_stats(df),
         "charts": _auto_charts(df),
         "smart_charts": _smart_charts(df),
+        **({"feuille": {"lue": lu["feuille"], "autres": [n for n in lu["feuilles"] if n != lu["feuille"]]}}
+           if lu.get("feuilles") else {}),
     }
 
 
@@ -1254,6 +1240,78 @@ def _architect_df(file_path):
 MAX_ARCHITECT_FILES = 6
 
 
+def _own_excel(file_path):
+    """Erreur si `file_path` n'est pas un classeur Excel local de l'organisation, sinon None."""
+    if T.CLOUD and not T.current().owns(file_path):
+        return "Fichier introuvable."
+    if not os.path.isfile(file_path):
+        return f"Fichier introuvable : {file_path}"
+    if os.path.splitext(file_path)[1].lower() not in data_architect.EXCEL_EXT:
+        return "Ce fichier n'est pas un classeur Excel."
+    return None
+
+
+def sheets_info(file_path):
+    """Feuilles d'un classeur, avec leurs dimensions et la feuille recommandée pour l'analyse."""
+    err = _own_excel(file_path)
+    if err:
+        return {"error": err}
+    try:
+        return {"feuilles": data_architect.excel_sheets(file_path)}
+    except Exception as e:
+        return {"error": f"Lecture du classeur impossible : {e}"}
+
+
+def _save_table(df, dest):
+    """Parquet (types conservés) ; colonnes de types mélangés converties en texte si nécessaire."""
+    df = df.copy()
+    df.attrs = {}  # pandas les enregistre dans le parquet : la feuille d'origine ne doit pas suivre le fichier
+    df.columns = [str(c) for c in df.columns]
+    try:
+        df.to_parquet(dest, index=False)
+    except Exception:
+        for c in df.columns[df.dtypes == object]:
+            df[c] = df[c].map(lambda v: v if v is None or (isinstance(v, float) and v != v) else str(v))
+        df.to_parquet(dest, index=False)
+
+
+MAX_STACK_SHEETS = 300
+
+
+def sheets_extract(file_path, sheets, stack=False):
+    """Une feuille → un fichier de travail : toutes les étapes (analyse, nettoyage, architecte, chat)
+    s'appliquent ensuite à elle seule, sans ambiguïté sur la feuille lue.
+    `stack` : les feuilles (même structure) sont empilées en un seul fichier, colonne « feuille » en tête."""
+    err = _own_excel(file_path)
+    if err:
+        return {"error": err}
+    names = pd.ExcelFile(file_path).sheet_names
+    wanted = [str(x) for x in (sheets or []) if str(x) in names]
+    wanted = wanted[:MAX_STACK_SHEETS if stack else MAX_ARCHITECT_FILES]
+    if not wanted:
+        return {"error": "Aucune feuille valide demandée."}
+    stem = os.path.splitext(os.path.basename(file_path))[0]
+    if stack:
+        try:
+            df = _tidy(data_architect.stack_sheets(file_path, wanted))
+        except Exception as e:
+            return {"error": f"Empilement impossible : {e}"}
+        dest = os.path.join(T.uploads_dir(), _safe_name(f"{stem} - {len(wanted)} feuilles empilees.parquet"))
+        _save_table(df, dest)
+        return {"fichiers": [{"path": dest, "name": f"{stem} — {len(wanted)} feuilles empilées", "feuille": None,
+                              "feuilles": wanted, "lignes": int(len(df)), "colonnes": int(df.shape[1])}]}
+    out = []
+    for name in wanted:
+        df, err = _read_df(file_path, sheet=name)
+        if err:
+            return {"error": f"Feuille « {name} » : {err}"}
+        dest = os.path.join(T.uploads_dir(), _safe_name(f"{stem} - {name}.parquet"))
+        _save_table(df, dest)
+        out.append({"path": dest, "name": f"{stem} — {name}", "feuille": name,
+                    "lignes": int(len(df)), "colonnes": int(df.shape[1])})
+    return {"fichiers": out}
+
+
 def _architect_paths(p):
     """Chemins envoyés par l'interface : `file_paths` (plusieurs fichiers) ou `file_path` (un seul)."""
     paths = p.get("file_paths")
@@ -1640,6 +1698,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return self._send(200, architect_start(_architect_paths(p)))
         if path == "/api/architect/apply":
             return self._send(200, architect_apply(_architect_paths(p), p.get("spec")))
+        if path == "/api/sheets":
+            return self._send(200, sheets_info(str(p.get("file_path") or "")))
+        if path == "/api/sheets/extract":
+            sheets = p.get("sheets") if isinstance(p.get("sheets"), list) else []
+            return self._send(200, sheets_extract(str(p.get("file_path") or ""), sheets, bool(p.get("empiler"))))
         if path == "/api/ingest":
             return self._ingest(p)
         if path in ("/api/export/pdf", "/api/export/excel", "/api/export/html"):

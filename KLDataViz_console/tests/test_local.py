@@ -292,3 +292,77 @@ def test_chat_ignore_une_conclusion_ecrite_avant_le_resultat(base, tmp_path, mon
     monkeypatch.setattr(server, "_llm_call", lambda messages, *a, **k: next(answers))
     code, r = call(base, "/api/chat", {"question": "taux par sexe ?", "file_path": str(p)})
     assert r["answer"] == "Femmes 100 %, hommes 0 %." and len(r["etapes"]) == 1, r
+
+
+def _classeur(path):
+    """Page de garde en 1re position, données (avec titre au-dessus) en 2e, feuille vide, référentiel masqué."""
+    from openpyxl import Workbook
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Sommaire"
+    for t in ("Rapport mensuel", "Source : DHIS2", "Contact : equipe data"):
+        ws.append([t])
+    ws = wb.create_sheet("Données")
+    ws.append(["Consultations par district — 2026"])
+    ws.append([])
+    ws.append(["district", "mois", "consultations", "deces"])
+    for i in range(120):
+        ws.append([f"D{i % 6}", f"2026-{i % 12 + 1:02d}", 100 + i, i % 3])
+    wb.create_sheet("Feuil3")
+    ws = wb.create_sheet("Districts")
+    ws.append(["district", "region"])
+    for i in range(6):
+        ws.append([f"D{i}", "Nord" if i < 3 else "Sud"])
+    ws.sheet_state = "hidden"
+    for mois in ("Janv", "Fevr"):  # un onglet par mois, même structure : à empiler
+        ws = wb.create_sheet(mois)
+        ws.append(["site", "cas", "date"])
+        for i in range(5):
+            ws.append([f"S{i}", i * 2, f"2026-0{1 if mois == 'Janv' else 2}-1{i}"])
+    wb.save(path)
+    return str(path)
+
+
+def test_classeur_plusieurs_feuilles(base, tmp_path, monkeypatch):
+    """La feuille de données est choisie (pas la page de garde), et chaque feuille peut être extraite."""
+    xl = _classeur(tmp_path / "rapport.xlsx")
+    code, s = call(base, "/api/sheets", {"file_path": xl})
+    assert code == 200, s
+    f = {x["nom"]: x for x in s["feuilles"]}
+    assert f["Données"]["recommandee"] and f["Données"]["lignes"] == 120 and f["Données"]["colonnes"] == 4
+    assert not f["Sommaire"]["exploitable"] and not f["Feuil3"]["exploitable"]
+    assert f["Districts"]["masquee"] and f["Districts"]["exploitable"]
+    # Sans choix explicite : la feuille recommandée, en-tête trouvé sous le titre
+    code, a = call(base, "/api/analyze", {"file_path": xl})
+    assert code == 200 and a["rows"] == 120 and a["columns"] == 4, a
+    assert a["feuille"]["lue"] == "Données" and "Sommaire" in a["feuille"]["autres"]
+    # Extraction : une feuille = un fichier de travail, utilisable par toutes les étapes
+    code, x = call(base, "/api/sheets/extract", {"file_path": xl, "sheets": ["Données", "Districts", "Inconnue"]})
+    assert code == 200 and [v["feuille"] for v in x["fichiers"]] == ["Données", "Districts"], x
+    code, a = call(base, "/api/analyze", {"file_path": x["fichiers"][1]["path"]})
+    assert a["rows"] == 6 and "feuille" not in a
+    monkeypatch.setattr(server, "_llm_config", lambda: None)
+    rel = server.architect_propose([v["path"] for v in x["fichiers"]])
+    assert any("district" in str(r).lower() for r in rel["proposition"].get("relations") or []), rel
+    for v in x["fichiers"]:
+        os.remove(v["path"])
+    assert f["Janv"]["groupe"] == f["Fevr"]["groupe"] == "Janv" and "groupe" not in f["Données"]
+    code, x = call(base, "/api/sheets/extract", {"file_path": xl, "sheets": ["Janv", "Fevr"], "empiler": True})
+    assert code == 200 and x["fichiers"][0]["lignes"] == 10, x
+    code, a = call(base, "/api/analyze", {"file_path": x["fichiers"][0]["path"]})
+    assert a["rows"] == 10 and a["columns_detail"][0]["name"] == "feuille", a
+    os.remove(x["fichiers"][0]["path"])
+    assert call(base, "/api/sheets", {"file_path": str(tmp_path / "absent.xlsx")})[1].get("error")
+
+
+def test_architecte_cli_toutes_les_feuilles(tmp_path, capsys):
+    import data_architect as da
+    xl = _classeur(tmp_path / "rapport.xlsx")
+    assert da.best_sheet(xl) == "Données"
+    df, info = da.load_table(xl)
+    assert info["feuille_lue"] == "Données" and len(df) == 120 and list(df.columns)[0] == "district"
+    assert da.main(["profile", xl, "--all-sheets", "--out", str(tmp_path / "r.json")]) == 0
+    import json
+    rep = json.loads((tmp_path / "r.json").read_text(encoding="utf-8"))
+    assert set(rep["fichiers"]) == {"rapport_Données", "rapport_Districts", "rapport_Janv", "rapport_Fevr"}
+    assert da.main(["profile", xl + "#Districts", "--out", str(tmp_path / "d.json")]) == 0
