@@ -314,6 +314,10 @@ def _classeur(path):
     for i in range(6):
         ws.append([f"D{i}", "Nord" if i < 3 else "Sud"])
     ws.sheet_state = "hidden"
+    ws = wb.create_sheet("Synthese")  # calculée par formules à partir de « Données »
+    ws.append(["district", "total"])
+    for i in range(6):
+        ws.append([f"D{i}", f"=SUMIF('Données'!A:A,A{i + 2},'Données'!C:C)"])
     for mois in ("Janv", "Fevr"):  # un onglet par mois, même structure : à empiler
         ws = wb.create_sheet(mois)
         ws.append(["site", "cas", "date"])
@@ -366,3 +370,43 @@ def test_architecte_cli_toutes_les_feuilles(tmp_path, capsys):
     rep = json.loads((tmp_path / "r.json").read_text(encoding="utf-8"))
     assert set(rep["fichiers"]) == {"rapport_Données", "rapport_Districts", "rapport_Janv", "rapport_Fevr"}
     assert da.main(["profile", xl + "#Districts", "--out", str(tmp_path / "d.json")]) == 0
+
+
+def test_logique_du_classeur_sans_ia(base, tmp_path, monkeypatch):
+    """Formules entre feuilles et colonnes communes : rôles, liens et analyses proposées (repli par règles)."""
+    import data_architect as da
+    xl = _classeur(tmp_path / "rapport.xlsx")
+    f = da.workbook_links(xl)
+    lien = next(l for l in f["liens"] if l["feuille"] == "Synthese")
+    assert lien["utilise"] == "Données" and lien["formules"] == 6 and lien["fonctions"] == ["SUMIF"], f
+    monkeypatch.setattr(server, "_llm_config", lambda: None)
+    job = call(base, "/api/sheets/understand", {"file_path": xl, "sheets": ["Données", "Districts", "Synthese"]})[1]
+    r = _wait_job(base, job)
+    c = r["comprehension"]
+    roles = {x["feuille"]: x["role"] for x in c["roles"]}
+    assert roles["Données"] == "données brutes" and roles["Synthese"] == "synthèse", c
+    assert any(x["nature"] == "formule" and x["vers"] == "Synthese" for x in c["liens"])
+    assert any(x["nature"] == "clé commune" for x in c["liens"]) and c["analyses"], c
+    assert call(base, "/api/sheets/understand", {"file_path": xl, "sheets": ["Données"]})[1].get("job")
+
+
+def test_chat_calcule_sur_les_feuilles_liees(base, tmp_path, monkeypatch):
+    """Les autres feuilles cochées sont disponibles pour les calculs de l'agent."""
+    import json as _json
+    xl = _classeur(tmp_path / "rapport.xlsx")
+    x = call(base, "/api/sheets/extract", {"file_path": xl, "sheets": ["Données", "Districts"]})[1]["fichiers"]
+    answers = iter([
+        _json.dumps({"action": "calcul", "pourquoi": "régions", "code": "result = data['Référentiel']['region'].value_counts()"}),
+        _json.dumps({"action": "reponse", "answer": "Deux régions."}),
+    ])
+    seen = []
+    monkeypatch.setattr(server, "_llm_config", lambda: {"api_key": "test"})
+    monkeypatch.setattr(server, "_llm_call", lambda messages, *a, **k: (seen.append(list(messages)), next(answers))[1])
+    job = call(base, "/api/chat/start", {"question": "Combien de régions ?", "file_path": x[0]["path"],
+                                         "fichiers_lies": [{"path": x[1]["path"], "name": "Référentiel"},
+                                                           {"path": "https://exemple.org/x.csv", "name": "web"}]})[1]
+    r = _wait_job(base, job)
+    assert r["etapes"][0]["ok"] and "Nord | 3" in seen[1][-1]["content"], (r, seen[1][-1]["content"][:300])
+    assert '"Référentiel"' in seen[0][0]["content"] and '"web"' not in seen[0][0]["content"]
+    for v in x:
+        os.remove(v["path"])

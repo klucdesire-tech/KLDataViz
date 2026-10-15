@@ -409,6 +409,10 @@ tr.versions td{background:var(--surface-2);font-size:13px}
           <details style="margin-top:10px"><summary class="sub" style="cursor:pointer">Comment le score est calculé</summary>
             <div id="scoreHow" class="sub" style="margin-top:8px"></div></details>
         </div>
+        <div class="card" id="wbCard" hidden>
+          <div class="toolbar"><h2>Logique du classeur</h2><span class="spacer"></span><span class="aibadge" id="wbBadge"></span></div>
+          <div id="wbOut"></div>
+        </div>
         <div class="card" id="archCard">
           <div class="toolbar"><h2>Structure recommandée pour l'analyse</h2><span class="spacer"></span><span class="aibadge" id="archBadge"></span>
             <button class="btn ghost sm" id="archRun">Proposer une structure</button></div>
@@ -753,18 +757,21 @@ async function openSource(path,name,size){
     <p class="sub" id="sheetHint" style="margin:10px 0 0"></p>
     <div class="actions" style="margin-top:10px"><button class="btn ghost" id="sheetCancel">Annuler</button>
       <button class="btn ghost" id="sheetStack"></button><button class="btn ghost" id="sheetCross"></button>
+      <button class="btn ghost" id="sheetUnderstand"></button>
       <button class="btn primary" id="sheetGo">Analyser cette feuille</button></div></div>`,'');
   const chosen=()=>$$('.sheetChk:checked').map(c=>fs[+c.value]);
   // Les boutons suivent la sélection : 1 feuille → analyser ; plusieurs → croiser (structure) ou empiler.
   const refresh=()=>{const c=chosen(),n=c.length,same=n>1&&c.every(f=>f.groupe&&f.groupe===c[0].groupe);
-    $('#sheetGo').hidden=n!==1;$('#sheetStack').hidden=$('#sheetCross').hidden=n<2;
-    $('#sheetStack').className='btn '+(same?'primary':'ghost');$('#sheetCross').className='btn '+(same?'ghost':'primary');
+    $('#sheetGo').hidden=n!==1;$('#sheetStack').hidden=$('#sheetCross').hidden=$('#sheetUnderstand').hidden=n<2;
+    $('#sheetStack').className='btn '+(same?'primary':'ghost');$('#sheetCross').className='btn ghost';
+    $('#sheetUnderstand').className='btn '+(same?'ghost':'primary');
+    $('#sheetUnderstand').textContent=n>MAXC?`Comprendre (${MAXC} feuilles au plus)`:'Comprendre les liens et proposer des analyses';$('#sheetUnderstand').disabled=n>MAXC;
     $('#sheetStack').textContent=`Empiler les ${n} feuilles`;
     $('#sheetCross').textContent=n>MAXC?`Croiser (${MAXC} feuilles au plus)`:`Croiser les ${n} feuilles (structure)`;$('#sheetCross').disabled=n>MAXC;
     $('#sheetToggle').textContent=n===ok.length?'Tout décocher':'Tout cocher';
     $('#sheetHint').textContent=!n?'Cochez au moins une feuille.':n===1?'':same
       ?'Ces feuilles ont les mêmes colonnes : empilez-les en un seul tableau (une colonne « feuille » garde l\'onglet d\'origine).'
-      :'Feuilles de structures différentes : « Croiser » cherche les liens entre elles et propose un schéma commun. « Empiler » les met bout à bout (colonnes réunies).'};
+      :'Feuilles de structures différentes : « Comprendre » explique le rôle de chaque feuille et leurs liens (formules, colonnes communes) puis propose des analyses ; « Croiser » propose un schéma de tables commun ; « Empiler » les met bout à bout.'};
   const extract=async(names,b,empiler)=>{b.disabled=true;b.innerHTML='<span class="spin"></span> Préparation…';
     const x=await api('/api/sheets/extract',{file_path:path,sheets:names,empiler:!!empiler});
     if(x.error||!x.fichiers){importMsg('Lecture impossible : '+esc(x.error||'erreur inconnue'));return null}
@@ -779,12 +786,16 @@ async function openSource(path,name,size){
   // Croiser : la feuille la plus riche est analysée, les autres sont croisées avec elle par l'architecte.
   $('#sheetCross').onclick=async e=>{const names=chosen().sort((a,b)=>b.score-a.score).map(f=>f.nom);
     const x=await extract(names,e.currentTarget);if(x)startRun(x[0].path,x[0].name,0,{archExtra:x.slice(1).map(f=>({path:f.path,name:f.name})),autoArch:true})};
+  // Comprendre : rôle de chaque feuille, liens (formules, clés communes) et analyses proposées.
+  $('#sheetUnderstand').onclick=async e=>{const names=chosen().sort((a,b)=>b.score-a.score).map(f=>f.nom);
+    const x=await extract(names,e.currentTarget);
+    if(x)startRun(x[0].path,x[0].name,0,{archExtra:x.slice(1).map(f=>({path:f.path,name:f.name})),understand:{file_path:path,sheets:names,classeur:name}})};
   refresh();
 }
 
 /* ================= pipeline ================= */
 async function startRun(path,name,size,opts={}){
-  Object.assign(state,{path,name,original:null,analysis:null,clean:null,applied:false,showAll:false,ai:null,arch:null,archFile:null,archExtra:opts.archExtra||[],structView:null});state.accept=new Set();resetChat();  // nouveau fichier : nouvelle conversation
+  Object.assign(state,{path,name,original:null,analysis:null,clean:null,applied:false,showAll:false,ai:null,arch:null,archFile:null,archExtra:opts.archExtra||[],structView:null,wb:opts.understand?{...opts.understand,res:null}:null});state.accept=new Set();resetChat();  // nouveau fichier : nouvelle conversation
   setNav('home');state.step=0;renderStepper();show('run');
   $('#runFile').textContent=name+(size?` · ${dec((size/1048576).toFixed(1))} Mo`:'');
   $('#runErr').hidden=true;
@@ -810,6 +821,7 @@ async function startRun(path,name,size,opts={}){
   go(1);
   const fl=a.feuille?` J'ai lu la feuille **${a.feuille.lue}** (la plus riche en données)${a.feuille.autres.length?` ; non analysée${a.feuille.autres.length>1?'s':''} : ${a.feuille.autres.join(', ')}`:''}.`:'';
   say(`J'ai lu **${name}** : ${nf(a.rows)} lignes et ${a.columns} colonnes.${fl} Le score de qualité est de **${quality(new Set()).score} / 100**. Choisissez les corrections à appliquer, puis lancez l'analyse. Vous pouvez aussi me poser une question dès maintenant.`);
+  if(state.wb)runWorkbook();
   if(opts.autoArch){say(`J'étudie maintenant les liens entre les ${archPaths().length} feuilles pour proposer une structure commune.`);$('#archRun').click()}
 }
 const secs=t=>dec(((performance.now()-t)/1000).toFixed(1))+' s';
@@ -885,6 +897,42 @@ function renderVerify(){
   $('#cols').innerHTML=cd.map(c=>{const f=100-c.missing_pct;return `<tr><td class="num">${esc(c.name)}</td><td><span class="tag type">${esc(typeName(c.dtype))}</span></td>
     <td><div class="fill"><div class="meter"><i class="${f<80?'bad':f<98?'warn':''}" style="width:${f}%"></i></div><span class="num" style="font-size:12.5px">${dec(+f.toFixed(1))} %</span></div></td><td class="r num">${nf(c.unique)}</td></tr>`}).join('');
 }
+/* ---- logique d'un classeur : rôles des feuilles, liens, analyses proposées ---- */
+async function runWorkbook(){
+  const wb=state.wb,path=state.path;renderWb();
+  say(`J'étudie la logique du classeur **${wb.classeur}** : le rôle de chaque feuille et leurs liens (${wb.sheets.length} feuilles).`);
+  const s=await api('/api/sheets/understand',{file_path:wb.file_path,sheets:wb.sheets});
+  let r=s.error?s:null;
+  for(let i=0;!r&&i<120;i++){
+    await pause(2500);
+    const j=await api('/api/architect/job?id='+encodeURIComponent(s.job));
+    if(j.error)r=j;else if(j.status==='done')r=j.result;else if(j.etape&&state.wb===wb){wb.etape=j.etape;renderWb()}
+  }
+  if(state.path!==path||state.wb!==wb)return;  // autre fichier chargé entre-temps
+  wb.res=r||{error:'L\'étude prend trop de temps. Réessayez plus tard.'};renderWb();
+  const c=wb.res.comprehension;
+  if(c)say(`${c.resume||''}${c.flux?`\n\n**Enchaînement :** ${c.flux}`:''}\n\nJ'ai proposé ${(c.analyses||[]).length} analyse(s) dans la carte **Logique du classeur** : cliquez sur l'une d'elles pour que je la calcule.`);
+}
+function renderWb(){
+  const wb=state.wb,card=$('#wbCard');card.hidden=!wb;if(!wb)return;
+  const r=wb.res,out=$('#wbOut');
+  $('#wbBadge').textContent=r&&!r.error?(r.ia?'✦ Analyse IA':'Analyse par règles'):'';
+  if(!r){out.innerHTML=`<p class="sub"><span class="spin"></span> ${esc(wb.etape||'Hermes étudie les feuilles')}… (environ 1 min)</p>`;return}
+  if(r.error){out.innerHTML=`<div class="alert">${esc(r.error)}</div>`;return}
+  const c=r.comprehension||{},ROLE={'données brutes':'ok','référentiel':'type','paramètres':'type','synthèse':'warn','tableau de bord':'warn'};
+  out.innerHTML=(!r.ia?`<div class="alert info" style="margin-top:8px">${r.ia_disponible===false?'Analyse IA non configurée':'L\'IA n\'a pas répondu à temps'} : lecture par règles.</div>`:'')+
+    `<p style="font-size:14px;margin:8px 0 0">${md(c.resume||'')}</p>`+
+    (c.flux?`<div class="alert info" style="margin-top:10px;color:var(--fg)"><b>Enchaînement :</b> ${esc(c.flux)}</div>`:'')+
+    ((c.roles||[]).length?`<div class="label" style="margin-top:14px">Rôle de chaque feuille</div>`+c.roles.map(x=>`<div class="issue"><span class="sev info"></span><div><b>${esc(x.feuille)} <span class="tag ${ROLE[x.role]||'type'}">${esc(x.role||'')}</span></b><span>${esc(x.explication||'')}</span></div></div>`).join(''):'')+
+    ((c.liens||[]).length?`<div class="label" style="margin-top:14px">Liens entre les feuilles</div>`+c.liens.map(x=>`<div class="issue"><span class="sev info"></span><div><b>${esc(x.de)} → ${esc(x.vers)} <span class="tag type">${esc(x.nature||'')}</span></b><span>${esc(x.explication||'')}${x.preuve?' · <i>'+esc(x.preuve)+'</i>':''}</span></div></div>`).join(''):'')+
+    ((c.points_attention||[]).length?`<div class="label" style="margin-top:14px">Points d'attention</div>`+c.points_attention.map(x=>`<div class="issue"><span class="sev"></span><div><span style="color:var(--fg)">${md(String(x))}</span></div></div>`).join(''):'')+
+    ((c.analyses||[]).length?`<div class="label" style="margin-top:14px">Analyses proposées</div>`+c.analyses.map((a,i)=>`<div class="issue" style="grid-template-columns:4px minmax(0,1fr) auto;align-items:center"><span class="sev info"></span>
+      <div><b>${esc(a.titre||'')}</b><span>${esc(a.objectif||'')}${(a.feuilles||[]).length?' · '+a.feuilles.map(esc).join(', '):''}</span></div>
+      <button class="btn primary sm" data-wb-run="${i}">Lancer</button></div>`).join(''):'');
+}
+$('#wbOut').addEventListener('click',e=>{const b=e.target.closest('[data-wb-run]');if(!b)return;
+  const a=state.wb?.res?.comprehension?.analyses?.[+b.dataset.wbRun];if(a)ask(a.question||a.titre)});
+
 /* ---- architecte de données : structure cible ---- */
 const archPaths=()=>[state.path,...(state.archExtra||[]).map(x=>x.path)];
 function renderArchFiles(){
@@ -1440,6 +1488,7 @@ async function ask(q){
   // L'agent enchaîne plusieurs calculs : tâche de fond dont on affiche l'étape en cours.
   const session=chatSession;
   const s=await api('/api/chat/start',{question:q,file_path:currentDataPath()||undefined,contexte:screenContext(),
+    fichiers_lies:(state.archExtra||[]).map(x=>({path:x.path,name:x.name})),
     historique:chatHistory.slice(-6)});
   let d=s.error?s:null;
   for(let i=0;!d&&i<200&&session===chatSession;i++){  // 1,5 s × 200 = 5 min au plus
