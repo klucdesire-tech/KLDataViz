@@ -185,15 +185,45 @@ def test_chat_seconde_chance_code_ia(base, tmp_path, monkeypatch):
     assert call(base, "/api/analyze", {"file_path": str(p)})[0] == 200
     broken = "df = data['utilisateurs']\nresult = df.groupby('Nom d'utilisateur')['Age (ans)'].mean()"
     fixed = "df = data['utilisateurs']\nresult = df.groupby(\"Nom d'utilisateur\")[\"Age (ans)\"].mean()"
-    answers = iter([_json.dumps({"answer": "Âge moyen", "code": broken}),
-                    _json.dumps({"answer": "Âge moyen par utilisateur", "code": fixed})])
+    answers = iter([_json.dumps({"action": "calcul", "pourquoi": "âge moyen", "code": broken}),
+                    _json.dumps({"action": "calcul", "pourquoi": "âge moyen (corrigé)", "code": fixed}),
+                    _json.dumps({"action": "reponse", "answer": "Âge moyen : 40 ans pour awa et koffi."})])
     seen = []
     monkeypatch.setattr(server, "_llm_config", lambda: {"api_key": "test"})
-    monkeypatch.setattr(server, "_llm_call", lambda messages, *a, **k: (seen.append(messages), next(answers))[1])
-    code, r = call(base, "/api/chat", {"question": "âge moyen par Nom d'utilisateur"})
+    monkeypatch.setattr(server, "_llm_call", lambda messages, *a, **k: (seen.append(list(messages)), next(answers))[1])
+    code, r = call(base, "/api/chat", {"question": "âge moyen par Nom d'utilisateur", "file_path": str(p)})
     assert code == 200 and r["type"] == "table", r
     assert r["table"]["rows"] == [["awa", "40.0"], ["koffi", "40.0"]]
     assert "unterminated string" in seen[1][-1]["content"]  # l'erreur a bien été transmise à l'IA
+    assert [e["ok"] for e in r["etapes"]] == [False, True]
+
+
+def test_chat_agent_plusieurs_etapes_et_historique(base, tmp_path, monkeypatch):
+    """L'agent lit le résultat réel de chaque calcul avant de répondre ; l'historique et la progression circulent."""
+    import json as _json
+    p = tmp_path / "cv.csv"
+    pd.DataFrame({"district": ["Buyo", "Soubré"] * 20, "cv": [100, 5000] * 20}).to_csv(p, index=False)
+    answers = iter([
+        _json.dumps({"action": "calcul", "pourquoi": "moyenne par district",
+                     "code": "df = data['cv']\nresult = df.groupby(\"district\")[\"cv\"].mean()\n"
+                             "chart = {'type':'bar','title':'CV','labels':list(result.index),'values':[result.tolist()]}"}),
+        _json.dumps({"action": "calcul", "pourquoi": "test de Student",
+                     "code": "df = data['cv']\nr = stats.ttest_ind(df[df.district==\"Buyo\"].cv, df[df.district==\"Soubré\"].cv)\n"
+                             "print('p', r.pvalue)"}),
+        _json.dumps({"action": "reponse", "answer": "Soubré est nettement plus élevé (test de Student)."}),
+    ])
+    seen = []
+    monkeypatch.setattr(server, "_llm_config", lambda: {"api_key": "test"})
+    monkeypatch.setattr(server, "_llm_call", lambda messages, *a, **k: (seen.append(list(messages)), next(answers))[1])
+    job = call(base, "/api/chat/start", {"question": "Et entre districts ?", "file_path": str(p),
+                                         "historique": [{"role": "user", "text": "Parle-moi de la charge virale"},
+                                                        {"role": "assistant", "text": "Elle varie selon le district."}]})[1]
+    r = _wait_job(base, job)
+    assert r["answer"].startswith("Soubré") and len(r["etapes"]) == 2 and all(e["ok"] for e in r["etapes"]), r
+    assert r["charts"][0]["labels"] == ["Buyo", "Soubré"]
+    assert "Buyo | 100.0" in seen[1][-1]["content"]          # le résultat réel du calcul 1 est relu
+    assert "Sortie de print()" in seen[2][-1]["content"]      # la sortie du test statistique aussi
+    assert seen[0][1]["content"] == "Parle-moi de la charge virale"  # mémoire de la conversation
 
 
 def test_chat_apres_redemarrage(base, tmp_path, monkeypatch):
@@ -248,3 +278,17 @@ def test_chat_interprete_l_analyse(base, tmp_path, monkeypatch):
     prompt = prompts[0]
     assert "RÉSULTAT DE L'ANALYSE" in prompt and "INTERPRÉTATION" in prompt
     assert "age_ans" in prompt and "anomalies" in prompt and "2 doublons retirés" in prompt
+
+
+def test_chat_ignore_une_conclusion_ecrite_avant_le_resultat(base, tmp_path, monkeypatch):
+    """L'IA renvoie un calcul ET une conclusion inventée dans le même tour : seul le calcul compte."""
+    import json as _json
+    p = tmp_path / "invente.csv"
+    pd.DataFrame({"sexe": ["F", "M"] * 10, "ok": [1, 0] * 10}).to_csv(p, index=False)
+    two = (_json.dumps({"action": "calcul", "pourquoi": "taux", "code": "result = data['invente'].groupby(\"sexe\")[\"ok\"].mean()"})
+           + "\n" + _json.dumps({"action": "reponse", "answer": "97,0 % contre 97,5 % (inventé)"}))
+    answers = iter([two, _json.dumps({"action": "reponse", "answer": "Femmes 100 %, hommes 0 %."})])
+    monkeypatch.setattr(server, "_llm_config", lambda: {"api_key": "test"})
+    monkeypatch.setattr(server, "_llm_call", lambda messages, *a, **k: next(answers))
+    code, r = call(base, "/api/chat", {"question": "taux par sexe ?", "file_path": str(p)})
+    assert r["answer"] == "Femmes 100 %, hommes 0 %." and len(r["etapes"]) == 1, r

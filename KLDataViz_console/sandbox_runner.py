@@ -67,11 +67,30 @@ def fmt(result):
         return {"kind": "scalar", "value": str(result)}
 
 
+MAX_SORTIE = 4000
+STAT_FUNCS = ("ttest_ind", "ttest_rel", "mannwhitneyu", "chi2_contingency", "fisher_exact", "pearsonr",
+              "spearmanr", "linregress", "f_oneway", "kruskal", "shapiro", "wilcoxon")
+
+
 def main():
+    sys.stdout.reconfigure(encoding="utf-8")  # le parent relit en UTF-8 (« Soubré », pas « Soubr� »)
+    sys.stdin.reconfigure(encoding="utf-8")
     job = json.loads(sys.stdin.read())
     data = LazyData(job.get("datasets") or {})
-    ns = {"__builtins__": SAFE_BUILTINS, "pd": pd, "np": np, "math": math, "data": data,
+    printed = []
+
+    def _print(*args, sep=" ", end="\n", **_):  # la sortie de print() est renvoyée à l'IA
+        if sum(len(p) for p in printed) < MAX_SORTIE:
+            printed.append(sep.join(str(a) for a in args) + end)
+
+    builtins = dict(SAFE_BUILTINS, print=_print)
+    ns = {"__builtins__": builtins, "pd": pd, "np": np, "math": math, "data": data,
           "load_dataset": lambda name: data[name]}
+    code = job["code"]
+    if "stats" in code or any(f in code for f in STAT_FUNCS):  # scipy.stats, chargé seulement s'il sert
+        from scipy import stats
+        ns["stats"] = stats
+        ns.update({f: getattr(stats, f) for f in STAT_FUNCS})  # aussi utilisables sans « stats. »
     try:
         exec(compile(job["code"], "<ia>", "exec"), ns)
         chart = ns.get("chart")
@@ -79,6 +98,8 @@ def main():
         out = {"result": fmt(ns.get("result")), "chart": chart}
     except Exception as exc:  # erreur du code de l'IA : renvoyée telle quelle
         out = {"error": f"{type(exc).__name__} : {exc}"[:300]}
+    if printed:
+        out["sortie"] = "".join(printed)[:MAX_SORTIE]
     sys.stdout.write(json.dumps(out, ensure_ascii=False, default=str) + "\n")
 
 
