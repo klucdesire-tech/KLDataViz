@@ -83,7 +83,7 @@ SHEET_SAMPLE = 60
 # Feuilles d'habillage : page de garde, sommaire, notes, paramètres, graphiques…
 SHEET_NOTES = re.compile(
     r"(?i)(^|[^a-zà-ü])(notes?|lisez|readme|read ?me|sommaire|contents?|toc|instructions?|aide|help|"
-    r"param[eè]tres?|settings|config|l[ée]gende|legend|accueil|garde|cover|menu|[àa] propos|about|"
+    r"param(?:[eè]tres?)?|settings|config|l[ée]gende|legend|accueil|garde|cover|menu|[àa] propos|about|"
     r"m[ée]thodo\w*|graph\w*|charts?|tcd|pivot|synth[eè]se|dashboard|tableau de bord)([^a-zà-ü]|$)")
 SHEET_DATA = re.compile(r"(?i)(donn[ée]es|data|base|bdd|saisie|export|brut|raw|d[ée]tail|registre|liste)")
 _SHEETS_CACHE: dict = {}

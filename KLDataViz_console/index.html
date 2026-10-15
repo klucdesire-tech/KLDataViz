@@ -742,30 +742,44 @@ async function openSource(path,name,size){
   // Groupes de feuilles à empiler, du plus grand au plus petit (2 au plus affichés)
   const groups=Object.values(fs.reduce((m,f)=>(f.groupe&&(m[f.groupe]=m[f.groupe]||[]).push(f),m),{})).sort((a,b)=>b.length-a.length).slice(0,2);
   const rec=fs.find(f=>f.recommandee)||ok[0],dim=f=>`${f.lignes_approx?'plus de ':''}${nf(f.lignes)} ligne${f.lignes>1?'s':''} × ${f.colonnes} colonne${f.colonnes>1?'s':''}`;
+  const MAXC=6;  // croisement par l'architecte : 6 tables au plus ; l'empilement n'a pas cette limite
   importMsg(`<div class="card"><h2 style="margin:0">Ce classeur contient ${fs.length} feuilles</h2>
-    <p class="sub" style="margin:6px 0 4px">Hermes recommande <b>${esc(rec.nom)}</b> : c'est le plus grand tableau de données. Choisissez la feuille à analyser, ou croisez les feuilles entre elles.</p>
-    <div role="radiogroup" aria-label="Feuille à analyser">${fs.map((f,i)=>`<label class="issue sheetopt" style="grid-template-columns:auto minmax(0,1fr);cursor:${f.exploitable?'pointer':'default'}">
-      <input type="radio" name="sheetPick" value="${i}" ${f===rec?'checked':''} ${f.exploitable?'':'disabled'}>
-      <div><b>${esc(f.nom)} ${f===rec?'<span class="tag ok">Recommandée</span>':''}</b><span>${f.exploitable?dim(f):'Non analysable'}${f.notes.length?' · '+esc(f.notes.join(', ')):''}</span></div></label>`).join('')}</div>
-    ${groups.length?`<div class="label" style="margin-top:14px">Feuilles de même structure</div>`+groups.map((g,i)=>`<div class="issue" style="grid-template-columns:4px minmax(0,1fr) auto;align-items:center"><span class="sev info"></span>
-      <div><b>${g.length} feuilles : ${esc(g[0].nom)} … ${esc(g[g.length-1].nom)}</b><span>Mêmes colonnes (un onglet par période, par site…). Empilées, elles forment un seul tableau avec une colonne « feuille » : c'est la meilleure base pour comparer et suivre l'évolution.</span></div>
-      <button class="btn ghost sm" data-stack="${i}">Empiler et analyser</button></div>`).join(''):''}
-    <div class="actions" style="margin-top:12px"><button class="btn ghost" id="sheetCancel">Annuler</button>
-      <button class="btn ghost" id="sheetAll">Croiser les ${Math.min(ok.length,6)} feuilles (structure)</button>
+    <p class="sub" style="margin:6px 0 4px">Cochez une ou plusieurs feuilles. Hermes recommande <b>${esc(rec.nom)}</b> (le plus grand tableau de données).</p>
+    <div class="actions" style="justify-content:flex-start;margin:6px 0 2px"><button class="btn ghost sm" id="sheetToggle">Tout cocher</button>
+      ${groups.map((g,i)=>`<button class="btn ghost sm" data-group="${i}">Cocher les ${g.length} feuilles de même structure (${esc(g[0].nom)}…)</button>`).join('')}</div>
+    <div role="group" aria-label="Feuilles à analyser">${fs.map((f,i)=>`<label class="issue" style="grid-template-columns:auto minmax(0,1fr);cursor:${f.exploitable?'pointer':'default'}">
+      <input type="checkbox" class="sheetChk" value="${i}" ${f===rec?'checked':''} ${f.exploitable?'':'disabled'} style="width:18px;height:18px;margin-top:2px">
+      <div><b>${esc(f.nom)} ${f===rec?'<span class="tag ok">Recommandée</span>':''}${f.groupe?' <span class="tag type">même structure que '+esc(f.groupe)+'</span>':''}</b><span>${f.exploitable?dim(f):'Non analysable'}${f.notes.length?' · '+esc(f.notes.join(', ')):''}</span></div></label>`).join('')}</div>
+    <p class="sub" id="sheetHint" style="margin:10px 0 0"></p>
+    <div class="actions" style="margin-top:10px"><button class="btn ghost" id="sheetCancel">Annuler</button>
+      <button class="btn ghost" id="sheetStack"></button><button class="btn ghost" id="sheetCross"></button>
       <button class="btn primary" id="sheetGo">Analyser cette feuille</button></div></div>`,'');
+  const chosen=()=>$$('.sheetChk:checked').map(c=>fs[+c.value]);
+  // Les boutons suivent la sélection : 1 feuille → analyser ; plusieurs → croiser (structure) ou empiler.
+  const refresh=()=>{const c=chosen(),n=c.length,same=n>1&&c.every(f=>f.groupe&&f.groupe===c[0].groupe);
+    $('#sheetGo').hidden=n!==1;$('#sheetStack').hidden=$('#sheetCross').hidden=n<2;
+    $('#sheetStack').className='btn '+(same?'primary':'ghost');$('#sheetCross').className='btn '+(same?'ghost':'primary');
+    $('#sheetStack').textContent=`Empiler les ${n} feuilles`;
+    $('#sheetCross').textContent=n>MAXC?`Croiser (${MAXC} feuilles au plus)`:`Croiser les ${n} feuilles (structure)`;$('#sheetCross').disabled=n>MAXC;
+    $('#sheetToggle').textContent=n===ok.length?'Tout décocher':'Tout cocher';
+    $('#sheetHint').textContent=!n?'Cochez au moins une feuille.':n===1?'':same
+      ?'Ces feuilles ont les mêmes colonnes : empilez-les en un seul tableau (une colonne « feuille » garde l\'onglet d\'origine).'
+      :'Feuilles de structures différentes : « Croiser » cherche les liens entre elles et propose un schéma commun. « Empiler » les met bout à bout (colonnes réunies).'};
   const extract=async(names,b,empiler)=>{b.disabled=true;b.innerHTML='<span class="spin"></span> Préparation…';
     const x=await api('/api/sheets/extract',{file_path:path,sheets:names,empiler:!!empiler});
     if(x.error||!x.fichiers){importMsg('Lecture impossible : '+esc(x.error||'erreur inconnue'));return null}
     importMsg('');return x.fichiers};
+  $('#importMsg').onchange=e=>{if(e.target.classList.contains('sheetChk'))refresh()};
+  $('#sheetToggle').onclick=()=>{const all=chosen().length!==ok.length;$$('.sheetChk:not(:disabled)').forEach(c=>c.checked=all);refresh()};
+  $$('[data-group]').forEach(b=>b.onclick=()=>{const g=groups[+b.dataset.group];$$('.sheetChk').forEach(c=>c.checked=g.includes(fs[+c.value]));refresh()});
   $('#sheetCancel').onclick=()=>importMsg('');
-  $$('[data-stack]').forEach(b=>b.onclick=async()=>{const g=groups[+b.dataset.stack];
-    const x=await extract(g.map(f=>f.nom),b,true);
-    if(x){await startRun(x[0].path,x[0].name);say(`J'ai empilé **${g.length} feuilles** de même structure en un seul tableau ; la colonne **feuille** indique l'onglet d'origine de chaque ligne.`)}});
-  $('#sheetGo').onclick=async e=>{const f=fs[+($('input[name=sheetPick]:checked')?.value??fs.indexOf(rec))];
-    const x=await extract([f.nom],e.currentTarget);if(x)startRun(x[0].path,x[0].name)};
-  // Toutes les feuilles : la recommandée est analysée, les autres sont croisées avec elle par l'architecte.
-  $('#sheetAll').onclick=async e=>{const names=[rec,...ok.filter(f=>f!==rec).sort((a,b)=>b.score-a.score)].slice(0,6).map(f=>f.nom);
+  $('#sheetGo').onclick=async e=>{const x=await extract([chosen()[0].nom],e.currentTarget);if(x)startRun(x[0].path,x[0].name)};
+  $('#sheetStack').onclick=async e=>{const c=chosen(),x=await extract(c.map(f=>f.nom),e.currentTarget,true);
+    if(x){await startRun(x[0].path,x[0].name);say(`J'ai empilé **${c.length} feuilles** en un seul tableau ; la colonne **feuille** indique l'onglet d'origine de chaque ligne.`)}};
+  // Croiser : la feuille la plus riche est analysée, les autres sont croisées avec elle par l'architecte.
+  $('#sheetCross').onclick=async e=>{const names=chosen().sort((a,b)=>b.score-a.score).map(f=>f.nom);
     const x=await extract(names,e.currentTarget);if(x)startRun(x[0].path,x[0].name,0,{archExtra:x.slice(1).map(f=>({path:f.path,name:f.name})),autoArch:true})};
+  refresh();
 }
 
 /* ================= pipeline ================= */
