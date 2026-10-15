@@ -434,3 +434,33 @@ def test_feuille_de_rapport_reconnue(tmp_path):
     assert not f["Page de Garde"]["vide"]  # cochable dans l'interface (seules les feuilles vides ne le sont pas)
     df, lue = da.read_sheet(p)
     assert lue == "Traitement" and "CSR SITE 0" in [str(c) for c in df.columns], list(df.columns)
+
+
+def test_rapport_remis_a_plat_graphiques_et_controles(base, tmp_path):
+    """Indicateur → sexe → âge en lignes, sites en colonnes : format long, graphiques par sexe / âge, écarts détectés."""
+    from openpyxl import Workbook
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Traitement"
+    ws.append([None, "TRAITEMENT"])
+    ws.append([])
+    ws.append([None, None, "CSR A", "CSR B", "CSR C", "CSR D", "CSR E"])
+    rows = [("Nombre de clients", [5, 3, 0, 1, 2]),
+            ("Masculin", [2, 1, 0, 1, 1]), ("<1 an", [1, 1, 0, 0, 0]), ("1-4 ans", [1, 0, 0, 1, 1]),
+            ("Féminin", [3, 1, 0, 0, 1]), ("<1 an", [2, 1, 0, 0, 1]), ("1-4 ans", [1, 0, 0, 0, 0]),
+            ("Nombre de décès", [1, 0, 0, 0, 1])]
+    for lab, vals in rows:
+        ws.append([None, lab] + vals)
+    p = tmp_path / "rapport_rempli.xlsx"
+    wb.save(p)
+    df, err = server._read_df(str(p))
+    assert err is None and set(server.REPORT_COLS) <= set(df.columns), list(df.columns)
+    assert df[(df.niveau == "age") & (df.sexe == "Féminin") & (df.tranche_age == "<1 an")].valeur.sum() == 4
+    code, a = call(base, "/api/analyze", {"file_path": str(p)})
+    titres = [c["title"] for c in a["smart_charts"]]
+    assert any(t.endswith("par sexe") for t in titres) and any("par âge et sexe" in t for t in titres), titres
+    assert not a["charts"]  # plus de « vue par variable » (fréquence des valeurs 0, 1, 2…)
+    age = next(c for c in a["smart_charts"] if "par âge et sexe" in c["title"])
+    assert age["labels"] == ["<1 an", "1-4 ans"] and sorted(age["seriesNames"]) == ["Féminin", "Masculin"]
+    # CSR B : total 3 mais 1 homme + 1 femme → écart signalé
+    assert any(x["site"] == "CSR B" and x["controle"] == "Total = somme par sexe" for x in a["controles"]), a["controles"]
