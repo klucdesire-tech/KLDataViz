@@ -1152,12 +1152,33 @@ function renderAnalyze(){
   $('#details').innerHTML=h;
 }
 const detailsBlock=(t,html)=>`<details class="more"><summary>${t}</summary><div class="tablewrap">${html}</div></details>`;
+const perVarCharts=a=>[...(a.bivariate?.groupes||[]).map(g=>({title:`${g.num} moyen par ${g.cat}`,subtitle:'Moyenne par groupe',type:'bar',labels:g.labels,values:[g.moyennes]})),...(a.charts||[]).map(c=>({...c,subtitle:c.subtitle||'Vue par variable'}))];
+const baseCharts=a=>(a.smart_charts||[]).length?a.smart_charts:perVarCharts(a).slice(0,6);
+// Graphiques du rapport PDF : les mêmes que l'écran Analyser, redessinés hors écran en thème clair (2×) puis envoyés en JPEG.
+async function chartImages(){
+  const a=state.analysis;if(!a||!window.Chart)return [];
+  const root=document.documentElement,prev=root.dataset.theme;root.dataset.theme='light';
+  const host=document.createElement('div');host.style.cssText='position:fixed;left:-12000px;top:0;width:900px';document.body.append(host);
+  const out=[];
+  try{
+    for(const c of baseCharts(a)){
+      const h=c.kind==='ranking'||(c.type==='bar'&&(c.labels||[]).length>6)?Math.max(300,(c.labels||[]).length*30+70):340;
+      const cv=document.createElement('canvas');cv.width=900;cv.height=h;cv.style.width='900px';cv.style.height=h+'px';host.append(cv);
+      const ch=drawChart(cv,c,{static:true});if(!ch){cv.remove();continue}
+      const white=document.createElement('canvas');white.width=cv.width;white.height=cv.height;
+      const g=white.getContext('2d');g.fillStyle='#fff';g.fillRect(0,0,white.width,white.height);g.drawImage(cv,0,0);
+      out.push({chart:c,image:white.toDataURL('image/jpeg',.92).split(',')[1]});
+      ch.destroy();cv.remove();
+    }
+  }finally{host.remove();if(prev)root.dataset.theme=prev;else delete root.dataset.theme}
+  return out;
+}
 function drawAnalyzeCharts(){
   const a=state.analysis;if(!a)return;
   state.charts.forEach(c=>c.destroy&&c.destroy());state.charts=[];
   const smart=a.smart_charts||[];
-  const perVar=[...(a.bivariate?.groupes||[]).map(g=>({title:`${g.num} moyen par ${g.cat}`,subtitle:'Moyenne par groupe',type:'bar',labels:g.labels,values:[g.moyennes]})),...(a.charts||[]).map(c=>({...c,subtitle:c.subtitle||'Vue par variable'}))];
-  const base=smart.length?smart:perVar.slice(0,6);
+  const perVar=perVarCharts(a);
+  const base=baseCharts(a);
   const shown=state.showAll?[...base,...(smart.length?perVar:perVar.slice(6))]:base;
   const wide=c=>c.kind==='trend'||(c.kind==='ranking'&&c.labels.length>8);
   $('#charts').innerHTML=shown.length?shown.map((c,i)=>`<div class="card${wide(c)?' wide':''}"><h2 style="font-size:14.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(c.title)}">${esc(c.title)}</h2>${c.subtitle?`<p class="sub">${esc(c.subtitle)}</p>`:''}<div class="cbox" style="${c.kind==='ranking'?`height:${Math.max(220,c.labels.length*30+50)}px`:''}"><canvas id="ac${i}" role="img" aria-label="${esc(c.title)}"></canvas></div></div>`).join('')
@@ -1206,7 +1227,7 @@ const studioPlugin={id:'studio',
       ctx.fillStyle=css('--muted');ctx.font=`500 11px ${css('--sans')}`;ctx.fillText('total',m.x,m.y+13)}}
     ctx.restore();
   }};
-function drawChart(canvas,ch){
+function drawChart(canvas,ch,opt={}){
   if(!window.Chart||!ch)return null;
   const t=(ch.type||'bar').toLowerCase();
   if(t==='box'){drawBoxplot(canvas,ch);return null}
@@ -1250,7 +1271,8 @@ function drawChart(canvas,ch){
     :{x:catAxis,y:{...valueAxis,beginAtZero:!isLine,grace:isLine?'8%':'12%'},...(ch.axis2?{y1:{...valueAxis,position:'right',grid:{display:false},beginAtZero:false}}:{})};
   const showValues=type==='bar'&&!isHist&&single&&labels.length<=15;
   return new Chart(canvas,{type,data:{labels:isScatter?undefined:labels,datasets},plugins:[studioPlugin],options:{
-    responsive:true,maintainAspectRatio:false,animation:reduce?false:{duration:600,easing:'easeOutQuart'},
+    responsive:!opt.static,maintainAspectRatio:false,animation:reduce||opt.static?false:{duration:600,easing:'easeOutQuart'},
+    devicePixelRatio:opt.static?2:undefined,
     indexAxis:horizontal?'y':'x',interaction:isLine?{mode:'index',intersect:false}:{mode:'nearest',intersect:true},
     layout:{padding:{top:showValues&&!horizontal?16:ch.ref&&horizontal?14:4,right:showValues&&horizontal?8:4}},
     cutout:isPie?'64%':undefined,
@@ -1288,7 +1310,9 @@ function renderShare(){
 $$('.exp[data-exp]').forEach(b=>b.onclick=async()=>{
   const kind=b.dataset.exp,s=b.querySelector('span:last-child'),old=s.textContent;
   s.innerHTML='<span class="spin"></span> Génération…';
-  const d=await api('/api/export/'+kind,{});
+  let body={};
+  if(kind==='pdf')try{body={charts:await chartImages()}}catch(e){console.warn('Graphiques du PDF : '+e)}
+  const d=await api('/api/export/'+kind,body);
   if(d.url){s.innerHTML=`Prêt : <a href="${esc(d.url)}" download="${esc(d.file)}">${esc(d.file)}</a>`;const a=document.createElement('a');a.href=d.url;a.download=d.file||'';document.body.append(a);a.click();a.remove();toast(`Export ${kind.toUpperCase()} téléchargé`);loadCounts()}
   else{s.textContent=old;toast(d.error||'Export impossible')}
 });

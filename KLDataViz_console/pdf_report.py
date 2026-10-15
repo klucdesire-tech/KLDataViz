@@ -16,7 +16,7 @@ from reportlab.graphics.charts.doughnut import Doughnut
 from reportlab.graphics.charts.legends import Legend
 from reportlab.graphics.charts.linecharts import HorizontalLineChart
 from reportlab.graphics.charts.lineplots import ScatterPlot
-from reportlab.graphics.shapes import Drawing, Line, String
+from reportlab.graphics.shapes import Circle, Drawing, Line, Path, String
 from reportlab.graphics.widgets.markers import makeMarker
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_CENTER
@@ -41,7 +41,8 @@ AMBER = colors.HexColor("#B45309")
 AMBER_L = colors.HexColor("#FEF3E2")
 RED = colors.HexColor("#B42318")
 RED_L = colors.HexColor("#FDECEA")
-SERIES = [colors.HexColor(c) for c in ("#1D7A4C", "#2563EB", "#D97706", "#7C3AED", "#0891B2", "#DB2777", "#65A30D", "#64748B")]
+# Palette de l'écran Analyser (--brand, --blue, --amber puis compléments)
+SERIES = [colors.HexColor(c) for c in ("#1D7A4C", "#2F62C9", "#A8580A", "#8E6CC0", "#2A9D8F", "#C06C84", "#6C8EAD", "#B7A14A")]
 
 PAGE_W, PAGE_H = A4
 MARGIN = 18 * mm
@@ -50,35 +51,67 @@ CONTENT_W = PAGE_W - 2 * MARGIN
 _FONTS = False
 
 
+# Police du rapport : Arial Narrow si elle est installée (Windows), sinon un équivalent condensé libre
+# (Liberation Sans Narrow, aux mêmes métriques, puis DejaVu Sans Condensed), sinon Vera fournie avec reportlab.
+FONT_DIRS = [os.environ.get("KLDV_PDF_FONT_DIR", ""), r"C:\Windows\Fonts", os.path.expanduser("~/.fonts"),
+             "/usr/share/fonts/truetype/liberation", "/usr/share/fonts/truetype/liberation2", "/usr/share/fonts/truetype/dejavu",
+             "/usr/share/fonts/truetype", "/usr/local/share/fonts", "/Library/Fonts"]
+FONT_SETS = [("Arial Narrow", ("ARIALN.TTF", "ARIALNB.TTF", "ARIALNI.TTF", "ARIALNBI.TTF")),
+             ("Arial Narrow", ("Arial Narrow.ttf", "Arial Narrow Bold.ttf", "Arial Narrow Italic.ttf", "Arial Narrow Bold Italic.ttf")),
+             ("Liberation Sans Narrow", ("LiberationSansNarrow-Regular.ttf", "LiberationSansNarrow-Bold.ttf",
+                                         "LiberationSansNarrow-Italic.ttf", "LiberationSansNarrow-BoldItalic.ttf")),
+             ("DejaVu Sans Condensed", ("DejaVuSansCondensed.ttf", "DejaVuSansCondensed-Bold.ttf",
+                                        "DejaVuSansCondensed-Oblique.ttf", "DejaVuSansCondensed-BoldOblique.ttf"))]
+FONT_NAME = "Vera"
+
+
+def _find(fname):
+    for d in FONT_DIRS:
+        if d:
+            p = os.path.join(d, fname)
+            if os.path.isfile(p):
+                return p
+            low = os.path.join(d, fname.lower())
+            if os.path.isfile(low):
+                return low
+    return None
+
+
 def _fonts():
-    """Vera (fournie avec reportlab) couvre les accents, « », —, … : plus de caractères manquants."""
-    global _FONTS
+    global _FONTS, FONT_NAME
     if _FONTS:
         return
-    pdfmetrics.registerFont(TTFont("Vera", "Vera.ttf"))
-    pdfmetrics.registerFont(TTFont("Vera-Bold", "VeraBd.ttf"))
-    pdfmetrics.registerFont(TTFont("Vera-Italic", "VeraIt.ttf"))
-    pdfmetrics.registerFont(TTFont("Vera-BoldItalic", "VeraBI.ttf"))
-    pdfmetrics.registerFontFamily("Vera", normal="Vera", bold="Vera-Bold", italic="Vera-Italic", boldItalic="Vera-BoldItalic")
+    files, FONT_NAME = ("Vera.ttf", "VeraBd.ttf", "VeraIt.ttf", "VeraBI.ttf"), "Vera"
+    for name, cand in FONT_SETS:
+        found = [_find(f) for f in cand]
+        if found[0] and found[1]:
+            files = tuple(f or found[0] for f in found)
+            FONT_NAME = name
+            break
+    for alias, f in zip(("Body", "Body-Bold", "Body-Italic", "Body-BoldItalic"), files):
+        pdfmetrics.registerFont(TTFont(alias, f))
+    pdfmetrics.registerFontFamily("Body", normal="Body", bold="Body-Bold", italic="Body-Italic", boldItalic="Body-BoldItalic")
     _FONTS = True
 
 
 def _styles():
-    base = dict(fontName="Vera", textColor=INK, leading=13, fontSize=9.2)
+    base = dict(fontName="Body", textColor=INK, leading=13.5, fontSize=10)
     return {
-        "title": ParagraphStyle("title", fontName="Vera-Bold", fontSize=20, leading=25, textColor=colors.white),
-        "cover_sub": ParagraphStyle("cover_sub", fontName="Vera", fontSize=10.5, leading=15, textColor=colors.white),
-        "h1": ParagraphStyle("h1", fontName="Vera-Bold", fontSize=13.5, leading=18, textColor=GREEN, spaceBefore=10, spaceAfter=6),
-        "h2": ParagraphStyle("h2", fontName="Vera-Bold", fontSize=10.5, leading=14, textColor=INK, spaceBefore=8, spaceAfter=3),
+        "title": ParagraphStyle("title", fontName="Body-Bold", fontSize=20, leading=25, textColor=colors.white),
+        "cover_sub": ParagraphStyle("cover_sub", fontName="Body", fontSize=10.5, leading=15, textColor=colors.white),
+        "h1": ParagraphStyle("h1", fontName="Body-Bold", fontSize=15, leading=19, textColor=GREEN, spaceBefore=12, spaceAfter=6,
+                             keepWithNext=1),
+        "h2": ParagraphStyle("h2", fontName="Body-Bold", fontSize=11.5, leading=15, textColor=INK, spaceBefore=8, spaceAfter=3,
+                             keepWithNext=1),
         "body": ParagraphStyle("body", spaceAfter=4, **base),
-        "small": ParagraphStyle("small", fontName="Vera", fontSize=7.8, leading=10, textColor=MUTED),
-        "cell": ParagraphStyle("cell", fontName="Vera", fontSize=7.8, leading=9.6, textColor=INK),
-        "cellb": ParagraphStyle("cellb", fontName="Vera-Bold", fontSize=7.8, leading=9.6, textColor=colors.white),
-        "bullet": ParagraphStyle("bullet", leftIndent=11, bulletIndent=2, spaceAfter=3, **base),
-        "interp": ParagraphStyle("interp", fontName="Vera", fontSize=8.8, leading=12.4, textColor=INK,
+        "small": ParagraphStyle("small", fontName="Body", fontSize=8.6, leading=11, textColor=MUTED),
+        "cell": ParagraphStyle("cell", fontName="Body", fontSize=8.8, leading=10.8, textColor=INK),
+        "cellb": ParagraphStyle("cellb", fontName="Body-Bold", fontSize=8.8, leading=10.8, textColor=colors.white),
+        "bullet": ParagraphStyle("bullet", leftIndent=11, bulletIndent=2, spaceAfter=3, bulletFontName="Body", **base),
+        "interp": ParagraphStyle("interp", fontName="Body", fontSize=9.6, leading=13, textColor=INK,
                                  backColor=GREEN_L, borderPadding=(5, 6, 5, 6), spaceBefore=4, spaceAfter=10),
-        "kpi_v": ParagraphStyle("kpi_v", fontName="Vera-Bold", fontSize=15, leading=18, textColor=GREEN, alignment=TA_CENTER),
-        "kpi_l": ParagraphStyle("kpi_l", fontName="Vera", fontSize=7.5, leading=9.5, textColor=MUTED, alignment=TA_CENTER),
+        "kpi_v": ParagraphStyle("kpi_v", fontName="Body-Bold", fontSize=15, leading=18, textColor=GREEN, alignment=TA_CENTER),
+        "kpi_l": ParagraphStyle("kpi_l", fontName="Body", fontSize=7.5, leading=9.5, textColor=MUTED, alignment=TA_CENTER),
     }
 
 
@@ -152,7 +185,7 @@ def _vals(chart, i=0):
 
 def interpret_chart(c):
     kind, typ = c.get("kind"), c.get("type")
-    labels = [_period_label(x) for x in c.get("labels") or []]
+    labels = _app_labels(c.get("labels") or [])
     names = c.get("seriesNames") or []
     out = []
     if kind == "trend" and typ == "line":
@@ -322,7 +355,7 @@ def _axis_fmt(x):
 def _legend(d, names, x, y, cols=4):
     lg = Legend()
     lg.x, lg.y = x, y
-    lg.fontName, lg.fontSize = "Vera", 7
+    lg.fontName, lg.fontSize = "Body", 7
     lg.alignment = "right"
     lg.columnMaximum = len(names)
     lg.dxTextSpace, lg.dx, lg.dy = 4, 7, 7
@@ -331,68 +364,166 @@ def _legend(d, names, x, y, cols=4):
     d.add(lg)
 
 
-def draw_line(c, w=CONTENT_W, h=200):
-    labels = [str(x) for x in c.get("labels") or []]
+MOIS_COURTS = ["janv.", "févr.", "mars", "avr.", "mai", "juin", "juil.", "août", "sept.", "oct.", "nov.", "déc."]
+
+
+def _app_labels(labels):
+    """Comme l'écran Analyser : « 2026-04 » devient « avr. 26 » (année ajoutée si plusieurs années)."""
+    labels = [_period_label(l) for l in labels]
+    if labels and all(re.match(r"^\d{4}-\d{2}$", l) for l in labels):
+        multi = len({l[:4] for l in labels}) > 1
+        return [MOIS_COURTS[int(l[5:]) - 1] + (" " + l[2:4] if multi else "") for l in labels]
+    return labels
+
+
+def _app_fmt(v):
+    """Format des valeurs de l'écran Analyser (fmtNum) : 12,5 k ; 1,2 M ; 347."""
+    if v is None:
+        return ""
+    a = abs(v)
+    if a >= 1e6:
+        s = nf(v / 1e6, 0 if a >= 1e7 else 1) + " M"
+    elif a >= 1e4:
+        s = nf(v / 1e3, 0 if a >= 1e5 else 1) + " k"
+    else:
+        s = nf(v, 0 if a >= 100 or v == int(v) else 1 if a >= 10 else 2)
+    return s.replace(",0 ", " ")
+
+
+def _smooth_path(pts, close_to=None, **kw):
+    """Courbe lissée (Catmull-Rom vers Bézier), comme la tension 0,4 de Chart.js ; fermée vers close_to pour l'aire."""
+    path = Path(**kw)
+    if not pts:
+        return path
+    if close_to is not None:
+        path.moveTo(pts[0][0], close_to)
+        path.lineTo(*pts[0])
+    else:
+        path.moveTo(*pts[0])
+    t = 0.2
+    for i in range(len(pts) - 1):
+        p0, p1, p2 = pts[i - 1] if i else pts[i], pts[i], pts[i + 1]
+        p3 = pts[i + 2] if i + 2 < len(pts) else p2
+        c1 = (p1[0] + (p2[0] - p0[0]) * t, p1[1] + (p2[1] - p0[1]) * t)
+        c2 = (p2[0] - (p3[0] - p1[0]) * t, p2[1] - (p3[1] - p1[1]) * t)
+        path.curveTo(c1[0], c1[1], c2[0], c2[1], p2[0], p2[1])
+    if close_to is not None:
+        path.lineTo(pts[-1][0], close_to)
+        path.closePath()
+    return path
+
+
+def _ticks(lo, hi, n=5):
+    span = (hi - lo) or abs(hi) or 1
+    raw = span / n
+    mag = 10 ** math.floor(math.log10(raw))
+    step = next(m * mag for m in (1, 2, 2.5, 5, 10) if m * mag >= raw)
+    out, x = [], math.floor(lo / step) * step
+    while x <= hi + step * 0.999:
+        out.append(round(x, 10))
+        x += step
+    return out
+
+
+def _series_color(k):
+    return SERIES[0] if k == 0 else SERIES[2] if k == 1 else SERIES[k % len(SERIES)]
+
+
+def draw_line(c, w=CONTENT_W, h=210):
+    """Évolution façon écran Analyser : 1re série en aire verte lissée, 2e en pointillés ambre (axe droit si échelles éloignées)."""
+    labels = _app_labels(c.get("labels") or [])
     names = c.get("seriesNames") or [""]
     series = [_vals(c, i) for i in range(len(names))]
-    # Deux échelles très différentes : chaque série est ramenée à son propre maximum pour rester lisible.
-    rescale = bool(c.get("axis2")) and len(series) > 1
+    series = [s for s in series if s] or [[0.0]]
+    two_axes = bool(c.get("axis2")) and len(series) > 1
     d = Drawing(w, h)
-    ch = HorizontalLineChart()
-    ch.x, ch.y, ch.width, ch.height = 42, 46, w - 60, h - 70
-    data = [[x / (max(s) or 1) * 100 for x in s] for s in series] if rescale else series
-    ch.data = data
-    ch.joinedLines = 1
-    top = _nice_max(max(max(s) for s in data if s) if any(data) else 1)
-    ch.valueAxis.valueMin, ch.valueAxis.valueMax, ch.valueAxis.valueStep = 0, top, top / 4
-    ch.valueAxis.labels.fontName, ch.valueAxis.labels.fontSize = "Vera", 7
-    ch.valueAxis.labelTextFormat = (lambda x: f"{x:.0f} %") if rescale else _axis_fmt
-    ch.valueAxis.gridStrokeColor, ch.valueAxis.visibleGrid = LINE, 1
-    ch.categoryAxis.categoryNames = [_short(_period_label(l), 14) for l in labels]
-    ch.categoryAxis.labels.fontName, ch.categoryAxis.labels.fontSize = "Vera", 6.5
-    if len(labels) > 6:
-        ch.categoryAxis.labels.angle, ch.categoryAxis.labels.boxAnchor = 30, "ne"
-    ch.categoryAxis.strokeColor = ch.valueAxis.strokeColor = LINE
-    for i in range(len(data)):
-        ch.lines[i].strokeColor = SERIES[i % len(SERIES)]
-        ch.lines[i].strokeWidth = 1.8
-        ch.lines[i].symbol = makeMarker("FilledCircle", size=3.2, fillColor=SERIES[i % len(SERIES)])
-    d.add(ch)
-    _legend(d, names, w - 10, h - 8)
-    if rescale:
-        d.add(String(42, h - 12, "Échelle : % du maximum de chaque série", fontName="Vera-Italic", fontSize=6.5, fillColor=MUTED))
+    left, right, bottom, top = 46, (46 if two_axes else 14), (40 if len(series) > 1 else 26), 10
+    pw, ph = w - left - right, h - bottom - top
+
+    def scale_for(vals):
+        lo, hi = min(vals), max(vals)
+        g = (hi - lo) * 0.08 or abs(hi) * 0.08 or 1  # marge de 8 % sans partir de zéro, comme Chart.js
+        tk = _ticks(lo - g, hi + g)
+        return tk[0], tk[-1], tk
+
+    if two_axes:
+        sc = [scale_for(series[0]), scale_for(series[1])]
+    else:
+        sc = [scale_for([x for s in series for x in s])]
+    n = max(len(s) for s in series)
+    xs = [left + (pw * i / (n - 1) if n > 1 else pw / 2) for i in range(n)]
+
+    def y(v, k=0):
+        lo, hi, _ = sc[k]
+        return bottom + (v - lo) / ((hi - lo) or 1) * ph
+
+    for t in sc[0][2]:  # grille et graduations
+        d.add(Line(left, y(t), left + pw, y(t), strokeColor=LINE, strokeWidth=0.5))
+        d.add(String(left - 5, y(t) - 2.5, _app_fmt(t), fontName="Body", fontSize=7.5, fillColor=MUTED, textAnchor="end"))
+    if two_axes:
+        for t in sc[1][2]:
+            d.add(String(left + pw + 5, y(t, 1) - 2.5, _app_fmt(t), fontName="Body", fontSize=7.5, fillColor=MUTED))
+    step = max(1, math.ceil(n / 8))  # 8 étiquettes au plus, comme maxTicksLimit
+    for i in range(0, n, step):
+        if i < len(labels):
+            d.add(String(xs[i], bottom - 12, _short(labels[i], 16), fontName="Body", fontSize=7.5, fillColor=INK, textAnchor="middle"))
+    for k, vals in enumerate(series):
+        axis = 1 if two_axes and k == 1 else 0
+        pts = [(xs[i], y(v, axis)) for i, v in enumerate(vals)]
+        col = _series_color(k)
+        if k == 0:
+            d.add(_smooth_path(pts, close_to=bottom, fillColor=colors.Color(col.red, col.green, col.blue, alpha=0.16),
+                               strokeColor=None))
+        d.add(_smooth_path(pts, fillColor=None, strokeColor=col, strokeWidth=2 if k == 0 else 1.6,
+                           strokeDashArray=None if k == 0 else [4, 3]))
+    if len(series) > 1:
+        x = left
+        for k, nm in enumerate(names):
+            d.add(Circle(x + 3, 8, 3, fillColor=_series_color(k), strokeColor=None))
+            d.add(String(x + 10, 5.5, _short(nm, 30), fontName="Body", fontSize=8, fillColor=MUTED))
+            x += 22 + 4.6 * len(_short(nm, 30))
     return d
 
 
 def draw_hbar(c, w=CONTENT_W):
+    """Classement façon écran Analyser : valeurs au bout des barres, barres sous la moyenne en vert clair, moyenne en pointillés."""
     labels = [str(x) for x in c.get("labels") or []][:15]
     v = _vals(c)[:15]
     n = len(v)
-    h = max(110, 22 * n + 50)
+    h = max(100, 18 * n + 40)
     d = Drawing(w, h)
     ch = HorizontalBarChart()
-    left = min(150, 6 + 5.2 * max(len(_short(l, 30)) for l in labels)) if labels else 60
-    ch.x, ch.y, ch.width, ch.height = left, 24, w - left - 40, h - 36
+    left = min(170, 8 + 4.6 * max(len(_short(l, 34)) for l in labels)) if labels else 60
+    ch.x, ch.y, ch.width, ch.height = left, 22, w - left - 46, h - 40
     ch.data = [list(reversed(v))]  # reportlab dessine de bas en haut : le premier en haut
-    top = _nice_max(max(v) if v else 1)
+    top = _nice_max((max(v) if v else 1) * 1.12)  # marge de 12 %
     ch.valueAxis.valueMin, ch.valueAxis.valueMax, ch.valueAxis.valueStep = 0, top, top / 4
-    ch.valueAxis.labels.fontName, ch.valueAxis.labels.fontSize = "Vera", 7
-    ch.valueAxis.labelTextFormat = _axis_fmt
-    ch.valueAxis.visibleGrid, ch.valueAxis.gridStrokeColor = 1, LINE
-    ch.categoryAxis.categoryNames = [_short(l, 30) for l in reversed(labels)]
-    ch.categoryAxis.labels.fontName, ch.categoryAxis.labels.fontSize = "Vera", 7
-    ch.categoryAxis.strokeColor = ch.valueAxis.strokeColor = LINE
-    ch.bars[0].fillColor, ch.bars[0].strokeColor = GREEN, None
-    ch.barLabelFormat = _axis_fmt
-    ch.barLabels.fontName, ch.barLabels.fontSize, ch.barLabels.nudge = "Vera", 6.8, 10
+    ch.valueAxis.labels.fontName, ch.valueAxis.labels.fontSize = "Body", 7.5
+    ch.valueAxis.labels.fillColor = MUTED
+    ch.valueAxis.labelTextFormat = _app_fmt
+    ch.valueAxis.visibleGrid, ch.valueAxis.gridStrokeColor, ch.valueAxis.gridStrokeWidth = 1, LINE, 0.5
+    ch.valueAxis.visibleAxis = 0
+    ch.categoryAxis.categoryNames = [_short(l, 34) for l in reversed(labels)]
+    ch.categoryAxis.labels.fontName, ch.categoryAxis.labels.fontSize = "Body", 8
+    ch.categoryAxis.visibleAxis, ch.categoryAxis.visibleTicks = 0, 0
+    ch.barWidth, ch.groupSpacing = 9, 4
+    ref = (c.get("ref") or {}).get("value")
+    pale = colors.Color(GREEN.red, GREEN.green, GREEN.blue, alpha=0.42)
+    ch.bars[0].strokeColor = None
+    ch.bars[0].fillColor = GREEN
+    for j, x in enumerate(reversed(v)):
+        ch.bars[(0, j)].fillColor = GREEN if ref is None or x >= ref else pale
+    ch.barLabelFormat = _app_fmt
+    ch.barLabels.fontName, ch.barLabels.fontSize, ch.barLabels.nudge = "Body-Bold", 8, 8
     ch.barLabels.boxAnchor = "w"
     d.add(ch)
-    ref = (c.get("ref") or {}).get("value")
     if ref and top:
         x = ch.x + ch.width * ref / top
-        d.add(Line(x, ch.y - 2, x, ch.y + ch.height + 2, strokeColor=AMBER, strokeWidth=1.2, strokeDashArray=[3, 2]))
-        d.add(String(x + 3, ch.y + ch.height + 3, f"{c['ref'].get('label', 'Moyenne')} : {_axis_fmt(ref)}",
-                     fontName="Vera", fontSize=6.8, fillColor=AMBER))
+        d.add(Line(x, ch.y, x, ch.y + ch.height, strokeColor=MUTED, strokeWidth=1, strokeDashArray=[3, 3]))
+        lab = f"{c['ref'].get('label', 'Moyenne')} {_app_fmt(ref)}"
+        far = x > ch.x + ch.width - 90
+        d.add(String(x + (-4 if far else 4), ch.y + ch.height + 4, lab, fontName="Body", fontSize=8, fillColor=MUTED,
+                     textAnchor="end" if far else "start"))
     return d
 
 
@@ -406,11 +537,11 @@ def draw_vbar(c, w=CONTENT_W, h=200):
     ch.data = data
     top = _nice_max(max((max(s) for s in data if s), default=1))
     ch.valueAxis.valueMin, ch.valueAxis.valueMax, ch.valueAxis.valueStep = 0, top, top / 4
-    ch.valueAxis.labels.fontName, ch.valueAxis.labels.fontSize = "Vera", 7
+    ch.valueAxis.labels.fontName, ch.valueAxis.labels.fontSize = "Body", 7
     ch.valueAxis.labelTextFormat = _axis_fmt
     ch.valueAxis.visibleGrid, ch.valueAxis.gridStrokeColor = 1, LINE
     ch.categoryAxis.categoryNames = [_short(l, 14) for l in labels]
-    ch.categoryAxis.labels.fontName, ch.categoryAxis.labels.fontSize = "Vera", 6.5
+    ch.categoryAxis.labels.fontName, ch.categoryAxis.labels.fontSize = "Body", 6.5
     if len(labels) > 7:
         ch.categoryAxis.labels.angle, ch.categoryAxis.labels.boxAnchor = 30, "ne"
     ch.categoryAxis.strokeColor = ch.valueAxis.strokeColor = LINE
@@ -419,7 +550,7 @@ def draw_vbar(c, w=CONTENT_W, h=200):
         ch.bars[i].fillColor, ch.bars[i].strokeColor = SERIES[i % len(SERIES)], None
     if len(data) == 1 and len(labels) <= 12:
         ch.barLabelFormat = _axis_fmt
-        ch.barLabels.fontName, ch.barLabels.fontSize, ch.barLabels.nudge = "Vera", 6.5, 6
+        ch.barLabels.fontName, ch.barLabels.fontSize, ch.barLabels.nudge = "Body", 6.5, 6
     d.add(ch)
     if len(names) > 1:
         _legend(d, names, w - 10, h - 8)
@@ -443,7 +574,7 @@ def draw_doughnut(c, w=CONTENT_W, h=180):
     d.add(dn)
     lg = Legend()
     lg.x, lg.y = h + 40, h - 20
-    lg.fontName, lg.fontSize = "Vera", 8
+    lg.fontName, lg.fontSize = "Body", 8
     lg.columnMaximum, lg.dy, lg.deltay = 8, 8, 16
     lg.colorNamePairs = [(SERIES[i % len(SERIES)], f"{_short(l, 32)} — {nf(x)} ({nf(x / tot * 100, 1)} %)") for i, (l, x) in enumerate(zip(labels, v))]
     d.add(lg)
@@ -461,7 +592,7 @@ def draw_scatter(c, w=CONTENT_W, h=210):
     sp.lines[0].strokeColor = None
     sp.lines[0].symbol = makeMarker("FilledCircle", size=3, fillColor=colors.Color(0.11, 0.48, 0.30, alpha=0.55))
     for ax in (sp.xValueAxis, sp.yValueAxis):
-        ax.labels.fontName, ax.labels.fontSize = "Vera", 7
+        ax.labels.fontName, ax.labels.fontSize = "Body", 7
         ax.labelTextFormat = _axis_fmt
         ax.strokeColor = LINE
     sp.xLabel, sp.yLabel = "", ""
@@ -479,9 +610,29 @@ def draw_scatter(c, w=CONTENT_W, h=210):
             sp.lines[1].strokeColor, sp.lines[1].strokeWidth = AMBER, 1.3
             sp.lines[1].symbol = None
     d.add(sp)
-    d.add(String(sp.x + sp.width / 2, 8, _short(c.get("xTitle", ""), 50), fontName="Vera", fontSize=7.5, fillColor=MUTED, textAnchor="middle"))
-    d.add(String(8, sp.y + sp.height + 8, _short(c.get("yTitle", ""), 50), fontName="Vera", fontSize=7.5, fillColor=MUTED))
+    d.add(String(sp.x + sp.width / 2, 8, _short(c.get("xTitle", ""), 50), fontName="Body", fontSize=7.5, fillColor=MUTED, textAnchor="middle"))
+    d.add(String(8, sp.y + sp.height + 8, _short(c.get("yTitle", ""), 50), fontName="Body", fontSize=7.5, fillColor=MUTED))
     return d
+
+
+def _image(b64, max_h=125 * mm):
+    """Image JPEG/PNG envoyée par l'interface, à la largeur du texte (hauteur bornée, proportions gardées)."""
+    import base64
+    import io
+    from reportlab.lib.utils import ImageReader
+    from reportlab.platypus import Image
+    try:
+        raw = base64.b64decode(b64 or "", validate=False)
+        if not raw:
+            return None
+        iw, ih = ImageReader(io.BytesIO(raw)).getSize()
+        w = CONTENT_W
+        h = w * ih / iw
+        if h > max_h:
+            w, h = w * max_h / h, max_h
+        return Image(io.BytesIO(raw), width=w, height=h)
+    except Exception:
+        return None
 
 
 def draw_chart(c):
@@ -489,7 +640,8 @@ def draw_chart(c):
     try:
         if typ == "line":
             return draw_line(c)
-        if typ == "bar" and c.get("horizontal"):
+        # Comme l'écran : plus de 6 catégories ou classement → barres horizontales
+        if typ == "bar" and (c.get("horizontal") or len(c.get("labels") or []) > 6) and len(c.get("values") or []) <= 1:
             return draw_hbar(c)
         if typ in ("bar", "histogram"):
             return draw_vbar(c)
@@ -559,7 +711,7 @@ class _NumberedCanvas(rl_canvas.Canvas):
         for p in self._pages:
             self.__dict__.update(p)
             if self._pageNumber > 1:
-                self.setFont("Vera", 7.5)
+                self.setFont("Body", 7.5)
                 self.setFillColor(MUTED)
                 self.drawRightString(PAGE_W - MARGIN, 10 * mm, f"Page {self._pageNumber} / {n}")
             super().showPage()
@@ -575,10 +727,10 @@ def _decor(file_name, stamp):
 
     def later(cv, doc):
         cv.saveState()
-        cv.setFont("Vera-Bold", 7.5)
+        cv.setFont("Body-Bold", 7.5)
         cv.setFillColor(GREEN)
         cv.drawString(MARGIN, PAGE_H - 11 * mm, "KLDataViz · Rapport d'analyse")
-        cv.setFont("Vera", 7.5)
+        cv.setFont("Body", 7.5)
         cv.setFillColor(MUTED)
         cv.drawRightString(PAGE_W - MARGIN, PAGE_H - 11 * mm, _short(file_name, 70))
         cv.setStrokeColor(LINE)
@@ -603,6 +755,14 @@ def build(result, path):
     anomalies = r.get("anomalies") or []
     charts = [c for c in (r.get("smart_charts") or []) if c.get("type") in ("line", "bar", "histogram", "doughnut", "pie", "scatter")]
     charts, totals = drop_totals(charts)
+    cumul = r.get("lignes_cumul") or {}
+    totals = sorted(set(totals) | set(cumul.get("libelles") or []))
+    # Moyennes par groupe : un groupe « Total » n'est pas une catégorie
+    groupes = []
+    for g in bv.get("groupes") or []:
+        kept = [(l, m) for l, m in zip(g.get("labels", []), g.get("moyennes", [])) if not TOTAL_RE.match(str(l))]
+        groupes.append(dict(g, labels=[l for l, _ in kept], moyennes=[m for _, m in kept]))
+    bv = dict(bv, groupes=groupes)
     n_num = sum(1 for c in cols if dtype_fr(c.get("dtype")) in ("Nombre entier", "Nombre décimal"))
     n_date = sum(1 for c in cols if dtype_fr(c.get("dtype")) == "Date")
     n_txt = len(cols) - n_num - n_date
@@ -670,7 +830,9 @@ def build(result, path):
             pts.append(f"En moyenne, <b>{esc(pretty(g['num']))}</b> varie de {nf(pairs[-1][1])} ({esc(pairs[-1][0])}) à "
                        f"{nf(pairs[0][1])} ({esc(pairs[0][0])}) selon {esc(pretty(g['cat']))}, soit un rapport de 1 à {nf(pairs[0][1] / pairs[-1][1], 1)}.")
     if totals:
-        pts.insert(1, f"Le fichier contient une ou plusieurs <b>lignes de cumul</b> ({', '.join('« ' + esc(t) + ' »' for t in totals)}) "
+        n_cumul = cumul.get("lignes")
+        pts.insert(1, f"Le fichier contient {('<b>' + nf(n_cumul) + ' ligne(s) de cumul</b>') if n_cumul else 'une ou plusieurs <b>lignes de cumul</b>'} "
+                      f"({', '.join('« ' + esc(t) + ' »' for t in totals)}) "
                       "mêlées aux lignes de détail. Elles ont été écartées des graphiques, mais elles faussent les totaux, moyennes, "
                       "corrélations et valeurs hors norme calculés sur l'ensemble des lignes : retirez-les du fichier pour une analyse exacte.")
     for p in pts:
@@ -683,12 +845,12 @@ def build(result, path):
         story.append(Paragraph("Constats de l'IA (Hermes)", st["h2"]))
         for it in insights:
             lvl = it.get("severity") if it.get("severity") in ("warn", "bad") else "info"
-            story.append(callout(f"<b>{esc(it.get('tag', 'Constat'))}</b> — {md(it.get('text'))}"
-                                 + (f"<br/><font color='#5B6B63' size='8'>{md(it.get('detail'))}</font>" if it.get("detail") else ""), st, lvl))
-            story.append(Spacer(1, 4))
+            story.append(KeepTogether([callout(f"<b>{esc(it.get('tag', 'Constat'))}</b> — {md(it.get('text'))}"
+                                 + (f"<br/><font color='#5B6B63' size='9'>{md(it.get('detail'))}</font>" if it.get("detail") else ""), st, lvl),
+                                       Spacer(1, 4)]))
 
     # ---- 3. Qualité des données
-    story.append(PageBreak())
+    story.append(CondPageBreak(160))
     story.append(Paragraph("3. Qualité et structure des données", st["h1"]))
     missing_cols = [c for c in cols if c.get("missing")]
     const_cols = [c for c in cols if c.get("unique", 2) <= 1]
@@ -722,25 +884,28 @@ def build(result, path):
         story.append(table(["Colonne", "Principales valeurs (effectif ; part des lignes)"], rows, [40 * mm, CONTENT_W - 40 * mm]))
 
     # ---- 4. Graphiques et interprétation
-    if charts:
-        story.append(PageBreak())
+    # Priorité aux images de l'écran Analyser (identiques à ce que voit l'utilisateur) ; sinon dessin reportlab.
+    figures = []
+    for item in r.get("_chart_images") or []:
+        img = _image(item.get("image"))
+        if img is not None:
+            figures.append((item.get("chart") or {}, img))
+    if not figures:
+        figures = [(c, dr) for c in charts for dr in [draw_chart(c)] if dr is not None]
+    if figures:
+        story.append(CondPageBreak(220))
         story.append(Paragraph("4. Graphiques et interprétation", st["h1"]))
-        story.append(Paragraph("Les graphiques ci-dessous sont choisis automatiquement selon la nature des colonnes. "
-                               "Chacun est suivi d'une lecture des chiffres qu'il montre.", st["small"]))
-        k = 0
-        for c in charts:
-            dr = draw_chart(c)
-            if dr is None:
-                continue
-            k += 1
+        story.append(Paragraph("Les graphiques sont ceux de l'écran Analyser de KLDataViz, choisis automatiquement selon la nature "
+                               "des colonnes. Chacun est suivi d'une lecture des chiffres qu'il montre.", st["small"]))
+        for k, (c, fig) in enumerate(figures, 1):
             block = [Paragraph(f"Figure {k} — {esc(c.get('title', ''))}", st["h2"])]
             if c.get("subtitle"):
                 block.append(Paragraph(esc(c["subtitle"]), st["small"]))
-            block.append(dr)
+            block.append(Spacer(1, 3))
+            block.append(fig)
             txt = interpret_chart(c)
             if txt:
                 block.append(Paragraph(f"<b>Lecture :</b> {txt}", st["interp"]))
-            story.append(CondPageBreak(dr.height + 90))
             story.append(KeepTogether(block))
 
     # ---- 5. Statistiques descriptives
@@ -794,7 +959,7 @@ def build(result, path):
                                [32 * mm, 30 * mm, 46 * mm, 46 * mm, CONTENT_W - 154 * mm]))
 
     # ---- 7. Anomalies
-    story.append(CondPageBreak(140))
+    story.append(CondPageBreak(90))
     story.append(Paragraph("7. Valeurs hors norme et contrôles", st["h1"]))
     if anomalies:
         story.append(Paragraph("Une valeur est signalée lorsqu'elle sort de l'intervalle [Q1 − 1,5 × IQR ; Q3 + 1,5 × IQR], "
@@ -823,7 +988,7 @@ def build(result, path):
                            [52 * mm, 34 * mm, 40 * mm, 22 * mm, CONTENT_W - 148 * mm]))
 
     # ---- 8. Méthodologie
-    story.append(CondPageBreak(150))
+    story.append(CondPageBreak(80))
     story.append(Paragraph("8. Méthodologie et définitions", st["h1"]))
     for term, d in [("Complétude", "part des cellules renseignées sur l'ensemble des cellules du fichier."),
                     ("Médiane", "valeur qui partage les lignes en deux moitiés ; moins sensible aux valeurs extrêmes que la moyenne."),

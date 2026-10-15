@@ -397,11 +397,53 @@ def report_checks(df):
     return out
 
 
+TOTAL_LABEL = re.compile(r"^\s*(sous[-\s]?)?total(e|s|aux)?(\s+g[ée]n[ée]ral)?\s*$|^\s*(ensemble|grand total)\s*$", re.I)
+_MOIS = {"janv": 1, "jan": 1, "fev": 2, "fevr": 2, "feb": 2, "mars": 3, "mar": 3, "avr": 4, "apr": 4, "mai": 5, "may": 5,
+         "juin": 6, "jun": 6, "juil": 7, "jul": 7, "aout": 8, "aug": 8, "sept": 9, "sep": 9, "oct": 10, "nov": 11,
+         "dec": 12}
+
+
+def _fr_period(label):
+    """« Avril 2025 », « avr.-25 », « T1 2025 », « 2025 T3 » → date du début de période (NaT sinon)."""
+    s = str(label).strip().lower()
+    s = (s.replace("é", "e").replace("è", "e").replace("û", "u").replace("ô", "o"))
+    m = re.match(r"^(?:t|q|trim(?:estre)?\s*)([1-4])[\s\-_/]*(\d{4})$|^(\d{4})[\s\-_/]*(?:t|q)([1-4])$", s)
+    if m:
+        q, y = (m.group(1), m.group(2)) if m.group(1) else (m.group(4), m.group(3))
+        return pd.Timestamp(int(y), 3 * int(q) - 2, 1)
+    m = re.match(r"^([a-z]+)\.?[\s\-_/']*(\d{2}|\d{4})$", s)
+    if m:
+        word, y = m.group(1), int(m.group(2))
+        mo = _MOIS.get(word) or _MOIS.get(word[:4]) or _MOIS.get(word[:3])
+        if mo:
+            return pd.Timestamp(y + 2000 if y < 100 else y, mo, 1)
+    return pd.NaT
+
+
+def _cumul_rows(df):
+    """Lignes de cumul (« Total »…) mêlées aux lignes de détail : nombre et libellés, pour avertir l'utilisateur."""
+    txt = [c for c in df.columns if not pd.api.types.is_numeric_dtype(df[c])]
+    if not txt:
+        return {"lignes": 0, "libelles": []}
+    hits = df[txt].astype(str).apply(lambda s: s.str.match(TOTAL_LABEL))
+    mask = hits.any(axis=1)
+    if not mask.any() or (~mask).sum() < 2:
+        return {"lignes": 0, "libelles": []}
+    labels = sorted({str(v).strip() for c in txt for v in df.loc[hits[c], c]})
+    return {"lignes": int(mask.sum()), "libelles": labels[:5]}
+
+
 def _smart_charts(df, max_charts=6):
     """Graphiques « décisionnels » choisis automatiquement : évolution dans le temps, classement par
     groupe (avec ligne de moyenne), répartition, distribution et relation. Chaque graphique porte
     son agrégation (somme ou moyenne) pour que l'interface puisse l'expliquer."""
     import re
+    # Les lignes de cumul (« Total », « Ensemble ») ne sont pas des catégories : elles doubleraient les sommes.
+    txt = [c for c in df.columns if not pd.api.types.is_numeric_dtype(df[c])]
+    if txt:
+        cumul = df[txt].astype(str).apply(lambda s: s.str.match(TOTAL_LABEL)).any(axis=1)
+        if cumul.any() and (~cumul).sum() >= 2:
+            df = df[~cumul]
     n = len(df)
     if n == 0:
         return []
@@ -445,6 +487,11 @@ def _smart_charts(df, max_charts=6):
                     break
             except Exception:
                 pass
+            # Libellés en toutes lettres (« Avril 2025 », « T1 2025 ») : triés dans l'ordre du temps, pas de l'alphabet.
+            fr = sample.map(_fr_period)
+            if fr.notna().mean() >= 0.9:
+                period, period_dt = c, pd.to_datetime(s.map(_fr_period))
+                break
     if period is None:
         for c in df.columns:
             if c not in numeric_all and period_hint.search(str(c)) and 3 <= df[c].nunique() <= 60:
@@ -666,6 +713,7 @@ def analyze(file_path):
         "correlations": [{"a": a, "b": b, "r": round(r, 3)} for a, b, r in corr_pairs],
         "anomalies": anomalies,
         "bivariate": bivariate_stats(df),
+        "lignes_cumul": _cumul_rows(df),
         "charts": [] if _is_report(df) else _auto_charts(df),
         "smart_charts": _report_charts(df) if _is_report(df) else _smart_charts(df),
         **({"controles": report_checks(df)[:200]} if _is_report(df) else {}),
@@ -1922,7 +1970,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if path in ("/api/export/pdf", "/api/export/excel", "/api/export/html"):
             if st["last_result"] is None:
                 return self._send(400, {"error": "Lancez d'abord une analyse."})
-            fn = EXPORTERS[path.rsplit("/", 1)[-1]](st["last_result"])
+            result = st["last_result"]
+            if path.endswith("/pdf") and isinstance(p.get("charts"), list):
+                # Graphiques dessinés par l'interface (identiques à l'écran Analyser), 12 au plus
+                result = dict(result, _chart_images=[c for c in p["charts"][:12]
+                                                     if isinstance(c, dict) and isinstance(c.get("image"), str)])
+            fn = EXPORTERS[path.rsplit("/", 1)[-1]](result)
             return self._send(200, {"url": download_url(fn), "file": fn})
         if path == "/api/upload-source":
             name = _safe_name(p.get("name"))
