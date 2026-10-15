@@ -609,23 +609,41 @@ async function jparse(r){
 }
 const CLOUD=!!(window.KLDV&&window.KLDV.cloud);let sb=null;
 async function authHeaders(){if(!CLOUD||!sb)return {};const {data}=await sb.auth.getSession();const t=data.session?.access_token;return t?{Authorization:'Bearer '+t}:{}}
+// Réponse de la passerelle d'hébergement (page HTML 502/503/504) : l'application redémarre et
+// n'a pas traité la requête, on peut donc la renvoyer sans risque de la faire deux fois.
+const isGateway=r=>[502,503,504].includes(r.status)&&!(r.headers.get('content-type')||'').includes('json');
+const pause=ms=>new Promise(ok=>setTimeout(ok,ms));
+async function send(url,body,h){
+  const opts=body===undefined?{headers:h}:{method:'POST',headers:{'Content-Type':'application/json',...h},body:JSON.stringify(body)};
+  for(let i=0;;i++){
+    try{
+      const r=await fetch(url,opts);
+      if(isGateway(r)&&i<2){toast('Le serveur redémarre, nouvel essai dans quelques secondes…');await pause(5000*(i+1));continue}
+      return r;
+    }catch(e){
+      // Coupure réseau : on ne renvoie que les lectures (GET) ; un envoi (POST) a pu être traité.
+      if(body===undefined&&i<2){await pause(3000*(i+1));continue}
+      throw e;
+    }
+  }
+}
 async function api(url,body){
   try{
     const h=await authHeaders();
-    let r=await fetch(url,body===undefined?{headers:h}:{method:'POST',headers:{'Content-Type':'application/json',...h},body:JSON.stringify(body)});
+    let r=await send(url,body,h);
     if(CLOUD&&r.status===401){
       // Jeton peut-être expiré : on le renouvelle une fois avant de renvoyer vers la connexion.
       const {data}=await sb.auth.refreshSession();
-      if(data?.session){const h2={Authorization:'Bearer '+data.session.access_token};
-        r=await fetch(url,body===undefined?{headers:h2}:{method:'POST',headers:{'Content-Type':'application/json',...h2},body:JSON.stringify(body)})}
+      if(data?.session){const h2={Authorization:'Bearer '+data.session.access_token};r=await send(url,body,h2)}
       if(r.status===401){await sb.auth.signOut();location.replace('/login?expired=1');return {error:'Session expirée. Reconnexion…'}}
     }
+    if(isGateway(r))return {error:'Le serveur redémarre ou est momentanément indisponible. Réessayez dans une minute.'};
     if(CLOUD&&r.status===503){const d=await jparse(r);showDown(d.error);return d}
     const d=await jparse(r);
     if(CLOUD&&r.status===409&&d&&d.onboarding)showOnboarding();
     if(CLOUD&&(r.status===402||url==='/api/analyze'||url==='/api/chat'||url==='/api/insights'))refreshMe();
     return d;
-  }catch(e){return {error:CLOUD?'Connexion au serveur impossible. Vérifiez votre réseau.':'Serveur injoignable. Vérifiez que la console tourne (lancer_console.bat).'}}
+  }catch(e){return {error:CLOUD?'La connexion au serveur a été coupée (réseau, ou redémarrage du serveur). Réessayez dans un instant.':'Serveur injoignable. Vérifiez que la console tourne (lancer_console.bat).'}}
 }
 const hours=sel=>{sel.innerHTML=Array.from({length:24},(_,h)=>`<option value="${h}" ${h===7?'selected':''}>${String(h).padStart(2,'0')} h 00</option>`).join('')};
 hours($('#ssHour'));hours($('#scHour'));
