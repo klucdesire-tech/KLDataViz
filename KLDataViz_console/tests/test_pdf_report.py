@@ -28,9 +28,12 @@ def test_rapport_pdf_detaille():
         trend = [c for c in r["smart_charts"] if c["kind"] == "trend"]
         assert trend and trend[0]["labels"][0] == "2026-01"  # mois, pas semaines
 
-        charts, totals = pdf_report.drop_totals(r["smart_charts"])
-        assert totals == ["Total"]
-        assert all("Total" not in c.get("labels", []) for c in charts if c["kind"] in ("ranking", "share"))
+        # La ligne « Total » est repérée par l'analyse et absente des graphiques
+        assert r["lignes_cumul"] == {"lignes": 1, "libelles": ["Total"]}
+        assert all("Total" not in c.get("labels", []) for c in r["smart_charts"])
+        charts, totals = pdf_report.drop_totals([{"kind": "ranking", "type": "bar", "labels": ["A", "B", "Total"],
+                                                  "values": [[1, 2, 3]], "ref": {"value": 2}}])
+        assert totals == ["Total"] and charts[0]["labels"] == ["A", "B"] and charts[0]["ref"]["value"] == 1.5
 
         out = os.path.join(d, "rapport.pdf")
         pdf_report.build(dict(r, _insights=[{"tag": "Tendance", "severity": "ok", "text": "Hausse de **20 %**."}]), out)
