@@ -223,20 +223,20 @@ footer a{color:var(--muted)}
       <div class="stage" id="stage" data-act="0" role="img" aria-label="Animation : un fichier est importé, Hermes corrige les erreurs, les données deviennent un graphique puis un point clé rédigé.">
         <div class="bar"><i></i><i></i><i></i><span>kldataviz · analyse</span><span class="tag">Exemple</span></div>
         <div class="scene">
-          <div class="file"><span class="ic">XLSX</span>consultations_2026.xlsx</div>
+          <div class="file"><span class="ic">XLSX</span>ventes_exemple.xlsx</div>
           <div class="table" id="table">
-            <div class="trow head"><span>District</span><span>Mois</span><span>Consult.</span><span>Taux</span></div>
-            <div class="trow"><span>Bouaké-Nord</span><span>2026-03</span><span>4 812</span><span>84 %</span></div>
-            <div class="trow"><span>Daloa</span><span class="bad" data-fix="2026-03">03/2026</span><span>3 950</span><span>79 %</span></div>
-            <div class="trow"><span>Korhogo</span><span>2026-03</span><span class="bad" data-fix="3 120">—</span><span>68 %</span></div>
-            <div class="trow"><span>Man</span><span>2026-03</span><span>2 704</span><span class="bad" data-fix="61 %">6100 %</span></div>
-            <div class="trow"><span>Abobo-Est</span><span>2026-03</span><span>5 391</span><span>91 %</span></div>
-            <div class="trow"><span class="bad" data-fix="San-Pédro">san pedro</span><span>2026-03</span><span>3 288</span><span>72 %</span></div>
+            <div class="trow head"><span>Zone</span><span>Mois</span><span>Ventes</span><span>Marge</span></div>
+            <div class="trow"><span>Zone Alpha</span><span>2026-03</span><span>4 812</span><span>34 %</span></div>
+            <div class="trow"><span>Zone Bêta</span><span class="bad" data-fix="2026-03">03/2026</span><span>3 950</span><span>29 %</span></div>
+            <div class="trow"><span>Zone Gamma</span><span>2026-03</span><span class="bad" data-fix="3 120">—</span><span>27 %</span></div>
+            <div class="trow"><span>Zone Delta</span><span>2026-03</span><span>2 704</span><span class="bad" data-fix="21 %">2100 %</span></div>
+            <div class="trow"><span>Zone Epsilon</span><span>2026-03</span><span>5 391</span><span>38 %</span></div>
+            <div class="trow"><span class="bad" data-fix="Zone Oméga">zone omega</span><span>2026-03</span><span>3 288</span><span>25 %</span></div>
           </div>
           <div class="scan"></div>
           <div class="score" id="score"><div class="ring" id="ring"><b class="num" id="scoreV">62</b></div><div><small>Qualité des données</small><strong id="scoreT">4 corrections</strong></div></div>
           <div class="chart">
-            <h4>Consultations par district</h4><p>Somme · ligne : tendance mensuelle</p>
+            <h4>Ventes par zone</h4><p>Somme · ligne : tendance mensuelle</p>
             <div class="bars"><i style="--h:92%;transition-delay:.0s"></i><i style="--h:80%;transition-delay:.08s"></i><i style="--h:71%;transition-delay:.16s"></i><i class="low" style="--h:57%;transition-delay:.24s"></i><i class="low" style="--h:50%;transition-delay:.32s"></i><i class="low" style="--h:41%;transition-delay:.4s"></i></div>
             <svg viewBox="0 0 400 200" preserveAspectRatio="none" aria-hidden="true"><line class="avg" x1="0" x2="400" y1="80" y2="80"/><path class="line" d="M10 150 C 70 140, 100 120, 150 112 S 240 70, 290 58 S 360 30, 392 24"/></svg>
           </div>
@@ -265,7 +265,7 @@ footer a{color:var(--muted)}
       <div class="features">
         <div class="feat"><svg viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 4.5-3.4 8.3-8 9-4.6-.7-8-4.5-8-9V6zM9 12l2 2 4-4"/></svg><h3>Qualité des données</h3><p>Hermes repère les erreurs et explique chaque correction. Votre fichier d'origine n'est jamais modifié.</p></div>
         <div class="feat"><svg viewBox="0 0 24 24"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"/></svg><h3>Points clés rédigés</h3><p>Les constats importants en phrases simples, à partir des seuls chiffres de vos données.</p></div>
-        <div class="feat"><svg viewBox="0 0 24 24"><path d="M4 5h16v11H8l-4 4z"/></svg><h3>Questions en français</h3><p>« Quels districts sont sous l'objectif ? » Hermes calcule et répond avec un tableau ou un graphique.</p></div>
+        <div class="feat"><svg viewBox="0 0 24 24"><path d="M4 5h16v11H8l-4 4z"/></svg><h3>Questions en français</h3><p>« Quelles zones sont sous l'objectif ? » Hermes calcule et répond avec un tableau ou un graphique.</p></div>
         <div class="feat"><svg viewBox="0 0 24 24"><path d="M6 20V10M12 20V4M18 20v-7"/></svg><h3>Graphiques décisionnels</h3><p>Évolutions, classements avec moyenne, répartitions : les vues utiles, sans réglage.</p></div>
         <div class="feat"><svg viewBox="0 0 24 24"><path d="M5 5h14v15H5zM5 10h14M9 3v4M15 3v4"/></svg><h3>Rapports planifiés</h3><p>Hermes relit la source, refait l'analyse et envoie le rapport à jour à vos destinataires.</p></div>
         <div class="feat"><svg viewBox="0 0 24 24"><path d="M16 11a4 4 0 1 0-8 0M4 20a8 8 0 0 1 16 0"/></svg><h3>Travail en équipe</h3><p>Invitez vos collègues comme propriétaire, analyste ou lecteur. Chaque espace est séparé des autres.</p></div>
@@ -361,7 +361,7 @@ async function loadPlans(){
 
 /* ---- motion design : boucle de 4 actes ---- */
 const stage=$('#stage'),rows=[...document.querySelectorAll('#table .trow')],steps=[...document.querySelectorAll('#stepsUi div')];
-const INSIGHT='Les consultations ont augmenté de <b>24 %</b> depuis mars. <b>Bouaké-Nord</b> est en tête, <b>Man</b> reste sous la moyenne.';
+const INSIGHT='Les ventes ont augmenté de <b>24 %</b> depuis mars. La <b>Zone Epsilon</b> est en tête, la <b>Zone Delta</b> reste sous la moyenne.';
 const ACTS=[3200,3400,3200,4600];
 let timers=[],running=false,gen=0;
 const CELLS=[...document.querySelectorAll('[data-fix]')].map(el=>({el,orig:el.textContent,fix:el.dataset.fix}));
