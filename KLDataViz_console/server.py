@@ -990,12 +990,16 @@ def _parse_llm_json(content):
     try:
         return json.loads(text)
     except Exception:
-        m = re.search(r"\{.*\}", text, re.S)
-        if m:
-            try:
-                return json.loads(m.group(0))
-            except Exception:
-                return None
+        pass
+    # Plusieurs objets à la suite (ex. un calcul ET une conclusion écrite sans en connaître le résultat) :
+    # seul le PREMIER compte ; la suite, rédigée à l'aveugle, est ignorée.
+    start = text.find("{")
+    if start >= 0:
+        try:
+            obj, _end = json.JSONDecoder().raw_decode(text[start:])
+            return obj
+        except Exception:
+            return None
     return None
 
 
@@ -1043,8 +1047,79 @@ def _analysis_context(res, ui_context):
     return json.dumps(out, ensure_ascii=False, default=str)
 
 
-def llm_chat(question, ui_context=None):
-    import re
+CHAT_MAX_CALCULS = 4
+
+CHAT_METHODE = (
+    "MÉTHODE DE TRAVAIL — tu es un agent d'analyse. Tu réponds à TOUTE question sur les données : description, "
+    "filtres, comparaisons entre groupes, tendances, répartitions, croisements, tests statistiques, modèles simples, "
+    "qualité des données, interprétation de l'analyse.\n"
+    "À chaque tour, réponds UNIQUEMENT par UN SEUL objet JSON valide, sans texte autour. Ne mets JAMAIS un calcul "
+    "et une réponse dans le même tour : tant que tu n'as pas reçu le résultat, tu ne le connais pas.\n"
+    '- pour calculer : {"action":"calcul","pourquoi":"ce que ce calcul vérifie, en une phrase","code":"..."}\n'
+    '- pour conclure : {"action":"reponse","answer":"ta réponse finale","montrer_tableau":true}\n'
+    f"Après chaque calcul tu reçois son résultat RÉEL. Enchaîne d'autres calculs si nécessaire (au plus {CHAT_MAX_CALCULS}), "
+    "puis conclus. Si la question porte seulement sur l'analyse déjà affichée (résumé, interprétation), conclus sans calcul.\n"
+    "CODE : Python avec pandas/numpy. Les données sont dans le dict `data` (clé = nom du dataset, valeur = DataFrame). "
+    "pd, np, math et stats (= scipy.stats : ttest_ind, mannwhitneyu, chi2_contingency, pearsonr, spearmanr, linregress, "
+    "f_oneway, kruskal, shapiro…) sont DÉJÀ disponibles : n'écris aucune ligne import. "
+    "Mets ce que tu veux lire dans la variable `result` (DataFrame, Series ou valeur) et/ou affiche-le avec print(). "
+    "Un tableau renvoyé est limité à 50 lignes : agrège ou trie avant. "
+    "Écris les noms de colonnes ENTRE GUILLEMETS DOUBLES, exactement comme listés : df[\"Nom d'utilisateur\"].\n"
+    "GRAPHIQUE : dans le code, assigne une variable `chart` = {\"type\":\"...\",\"title\":\"...\",\"labels\":[...],"
+    "\"values\":[[...]],\"seriesNames\":[...]} (liste de dicts pour plusieurs graphiques). Types : bar (catégories), "
+    "line ou area (évolution dans le temps, trie par période), pie/doughnut (parts), scatter (labels = x, values = [y]), "
+    "histogram (labels = intervalles, values = effectifs), box (values[i] = [min, Q1, médiane, Q3, max] par catégorie). "
+    "Aucune bibliothèque de graphique (pas de matplotlib). Le graphique du dernier calcul qui en définit un est affiché.\n"
+    "RÉPONSE FINALE : commence par la réponse directe à la question. Chiffres UNIQUEMENT issus des résultats reçus ou "
+    "de l'analyse fournie, jamais inventés. Cite la méthode quand c'est un test (ex. « test de Student, p = 0,03 ») et "
+    "les limites (petits effectifs, valeurs manquantes, corrélation ≠ causalité). Court pour une question simple, "
+    "structuré en puces pour une analyse. montrer_tableau = true si le dernier tableau calculé aide à répondre. "
+    "Si un calcul échoue, corrige-le au tour suivant. Si les données ne permettent pas de répondre, dis-le.\n"
+)
+
+
+def _chat_llm(messages, max_tokens=8000):
+    """Modèle rapide pour l'agent (plusieurs allers-retours par question), réflexion réduite en secours."""
+    cfg = _llm_config()
+    model = os.environ.get("KLDV_CHAT_MODEL") or (cfg or {}).get("chat_model") or "deepseek-flash"
+    return (_llm_call(messages, max_tokens, model=model, effort="high", timeout=90, attempts=1)
+            or _llm_call(messages, max_tokens, model=model, effort="low", timeout=60, attempts=1))
+
+
+def _format_calc(out):
+    """Résultat d'un calcul, tel que l'IA le relit (texte compact)."""
+    if out.get("error"):
+        text = f"ERREUR : {out['error']}"
+    else:
+        res = out.get("result") or {}
+        if res.get("kind") == "table":
+            rows = [" | ".join(res["columns"])] + [" | ".join(r) for r in res["rows"][:50]]
+            text = f"Tableau ({len(res['rows'])} lignes affichées) :\n" + "\n".join(rows)
+        elif res.get("kind") == "scalar":
+            text = "Valeur : " + str(res.get("value"))
+        else:
+            text = "(aucune variable result)"
+        ch = out.get("chart")
+        if ch:
+            titles = [c.get("title", "") for c in (ch if isinstance(ch, list) else [ch]) if isinstance(c, dict)]
+            text += "\nGraphique préparé : " + ", ".join(titles)
+    if out.get("sortie"):
+        text += "\nSortie de print() :\n" + out["sortie"]
+    return text[:6000]
+
+
+def _charts_list(chart):
+    if isinstance(chart, list):
+        return [c for c in chart if isinstance(c, dict) and c.get("labels") and c.get("values")]
+    if isinstance(chart, dict) and chart.get("labels") and chart.get("values"):
+        return [chart]
+    return []
+
+
+def llm_chat(question, ui_context=None, history=None, progress=None):
+    """Agent d'analyse : l'IA enchaîne des calculs (exécutés dans le bac à sable), lit leurs résultats
+    réels, puis rédige sa réponse. `progress(texte)` reçoit l'étape en cours (affichage en direct)."""
+    progress = progress or (lambda _t: None)
     datasets = _registry_datasets()
     context = _llm_context(datasets)
     current_df, current_name = None, None
@@ -1063,92 +1138,85 @@ def llm_chat(question, ui_context=None):
                                              "exemples": [str(v) for v in current_df[c].dropna().head(3).tolist()]}
                                             for c in current_df.columns]})
     system = (
-        "Tu es KLDataViz, assistant d'analyse de données. Réponds en français, de façon concise et fiable.\n"
+        "Tu es Hermes, l'analyste de données de KLDataViz. Réponds en français, de façon fiable.\n"
         + studio.chat_preamble() +
         "Sauf mention contraire, la question porte sur le fichier en cours d'analyse (premier dataset de la liste).\n"
         "Datasets disponibles (nom, nombre de lignes, colonnes avec type et exemples) :\n"
         + json.dumps(context, ensure_ascii=False, default=str) + "\n\n"
         + ("RÉSULTAT DE L'ANALYSE affichée à l'utilisateur (statistiques déjà calculées sur le fichier en cours) :\n"
-           + _analysis_context(analysis, ui_context) + "\n\n" + INTERPRETATION_RULES + "\n" if analysis else "") +
-        "Réponds en renvoyant UNIQUEMENT un objet JSON valide (aucun texte avant/après), avec ces champs :\n"
-        '{"answer":"réponse en français (courte, sauf résumé/interprétation)","code":"...","chart":{...}}\n'
-        "- \"code\" (OPTIONNEL) : du code Python (pandas/numpy UNIQUEMENT) qui répond précisément à la question "
-        "(somme, moyenne, corrélation, groupby, top N, comparaison, tendance, distribution...). "
-        "Accède aux données via le dict `data` (clé = nom du dataset, valeur = DataFrame pandas). "
-        "Exemple : df = data['fact_district']; result = df.groupby('district')['value'].sum(). "
-        "Assigne le résultat final à la variable `result` (DataFrame, Series ou scalaire). "
-        "Écris les noms de colonnes ENTRE GUILLEMETS DOUBLES, exactement comme listés : "
-        "df[\"Nom d'utilisateur\"] (une apostrophe dans un nom casse les guillemets simples). "
-        "pd, np et math sont DÉJÀ disponibles : n'écris aucune ligne import.\n"
-        "- \"chart\" (OPTIONNEL) : si une visualisation est utile ou demandée, calcule les valeurs avec pandas puis "
-        "assigne DANS `code` une variable `chart` = {\"type\":\"...\",\"title\":\"...\",\"labels\":[...],\"values\":[[...]],\"seriesNames\":[...]}. "
-        "Types disponibles : bar, line, area, pie, doughnut, scatter, histogram, box.\n"
-        "- Choisis le type de graphique ADAPTÉ aux données : catégories/comparaison → bar ; évolution temporelle (trimestre, mois, année) → line ou area ; "
-        "proportions/parts → pie ; relation entre deux variables numériques → scatter (labels = valeurs x, values = [valeurs y]) ; "
-        "distribution d'une variable numérique → histogram (labels = intervalles, values = effectifs par intervalle) ; "
-        "dispersion/outliers d'une variable numérique par groupe → box (values[i] = [min, Q1, médiane, Q3, max] pour chaque catégorie).\n"
-        "- SI l'utilisateur demande « un graphique par variable/catégorie/indicateur » (chaque variable a sa propre "
-        "représentation), alors `chart` doit être une LISTE de ces dicts : chart = [{...}, {...}, ...], un graphique "
-        "par variable.\n"
-        "- N'utilise AUCUNE bibliothèque de graphique (pas de matplotlib, plotly, seaborn). Le graphique se décrit "
-        "UNIQUEMENT par le dict `chart`, jamais par du code de traçage.\n"
-        "- N'invente JAMAIS de données ni de chiffres : tout nombre vient de `code` (réellement calculé). "
-        "Dans \"answer\", résume le résultat de façon qualitative (ex. « les districts les plus élevés sont A, B et C »). "
-        "Si les données ne permettent pas de répondre, dis-le clairement.\n"
-        "- Pour une corrélation : df.corr(numeric_only=True). Pour une tendance temporelle, trie par période."
+           + _analysis_context(analysis, ui_context) + "\n\n" + INTERPRETATION_RULES + "\n" if analysis else "")
+        + CHAT_METHODE
     )
-    messages = [{"role": "system", "content": system}, {"role": "user", "content": question}]
-    content = _llm_call(messages)
-    if not content:
-        return None
-    data = _parse_llm_json(content)
-    if data is None:
-        return {"answer": content, "type": "text"}
-    answer = data.get("answer", "") or ""
-    code = data.get("code")
-    chart = data.get("chart")
-    table = None
-    if code:
-        # Le code de l'IA s'exécute dans un processus isolé (sandbox.py), sans secrets ni accès fichiers.
-        paths = {}
-        for _d in datasets:
-            _p = _work_file(_d.get("work_path"))
-            if _p and T.current().owns(_p):
-                paths[_d.get("dataset_name") or _d.get("dataset_id")] = _p
-        if current_df is not None:
-            _cur = os.path.join(T.current().dir("tmp"), f"courant_{T.current().key[:12]}.parquet")
-            try:
-                current_df.to_parquet(_cur)
-            except Exception:
-                current_df.astype(str).to_parquet(_cur)
-            paths[current_name] = _cur
-        out = _run_ai_code(code, paths)
-        if out.get("error"):
-            # Seconde chance : l'IA reçoit l'erreur (code invalide, colonne inconnue…) et corrige son code.
-            fixed = _parse_llm_json(_llm_call(messages + [
-                {"role": "assistant", "content": content},
-                {"role": "user", "content": f"Ton code a échoué : {out['error']}\nCorrige-le (noms de colonnes "
-                                            "exacts, entre guillemets doubles) et renvoie le même objet JSON complet."}]))
-            if isinstance(fixed, dict) and fixed.get("code"):
-                out2 = _run_ai_code(fixed["code"], paths)
-                if not out2.get("error"):
-                    out, answer, chart = out2, fixed.get("answer") or answer, fixed.get("chart") or chart
-        if out.get("error"):
-            answer += "\n(" + out["error"] + ")"
-        else:
-            chart = out.get("chart") or chart
-            res = out.get("result") or {}
-            if res.get("kind") == "table":
-                table = {"columns": res["columns"], "rows": res["rows"]}
-            elif res.get("kind") == "scalar":
-                answer = (answer + "\n" + res["value"]).strip()
-    # normaliser chart(s) en liste (un ou plusieurs graphiques)
-    charts = []
-    if isinstance(chart, list):
-        charts = [c for c in chart if isinstance(c, dict) and c.get("labels") and c.get("values")]
-    elif isinstance(chart, dict) and chart.get("labels") and chart.get("values"):
-        charts = [chart]
-    return {"answer": answer, "type": "table" if table else "text", "table": table, "charts": charts}
+    messages = [{"role": "system", "content": system}]
+    for h in (history or [])[-6:]:  # mémoire courte de la conversation
+        if isinstance(h, dict) and h.get("role") in ("user", "assistant") and h.get("text"):
+            messages.append({"role": h["role"], "content": str(h["text"])[:1500]})
+    messages.append({"role": "user", "content": question})
+
+    paths = None
+
+    def data_paths():  # préparés une seule fois, au premier calcul
+        nonlocal paths
+        if paths is None:
+            paths = {}
+            for _d in datasets:
+                _p = _work_file(_d.get("work_path"))
+                if _p and T.current().owns(_p):
+                    paths[_d.get("dataset_name") or _d.get("dataset_id")] = _p
+            if current_df is not None:
+                _cur = os.path.join(T.current().dir("tmp"), f"courant_{T.current().key[:12]}.parquet")
+                try:
+                    current_df.to_parquet(_cur)
+                except Exception:
+                    current_df.astype(str).to_parquet(_cur)
+                paths[current_name] = _cur
+        return paths
+
+    etapes, last_table, last_chart = [], None, None
+    progress("Hermes réfléchit à la question…")
+    for _tour in range(CHAT_MAX_CALCULS + 2):
+        content = _chat_llm(messages)
+        if not content:
+            if not etapes:
+                return None  # IA indisponible : repli par règles côté route
+            break
+        data = _parse_llm_json(content)
+        if not isinstance(data, dict):
+            return {"answer": content, "type": "text", "table": None, "charts": _charts_list(last_chart), "etapes": etapes}
+        action = data.get("action") or ("calcul" if data.get("code") else "reponse")
+        if action == "calcul" and data.get("code") and len(etapes) < CHAT_MAX_CALCULS:
+            n = len(etapes) + 1
+            pourquoi = str(data.get("pourquoi") or "calcul")[:200]
+            progress(f"Calcul {n} : {pourquoi}")
+            out = _run_ai_code(str(data["code"]), data_paths())
+            feedback = _format_calc(out)
+            etapes.append({"pourquoi": pourquoi, "code": str(data["code"])[:4000], "ok": not out.get("error"),
+                           "resultat": feedback[:1500]})
+            if not out.get("error"):
+                last_chart = out.get("chart") or last_chart
+                res = out.get("result") or {}
+                if res.get("kind") == "table":
+                    last_table = {"columns": res["columns"], "rows": res["rows"]}
+            suite = ("Limite de calculs atteinte : conclus maintenant avec action \"reponse\"."
+                     if len(etapes) >= CHAT_MAX_CALCULS else
+                     "Fais un autre calcul si c'est nécessaire, sinon conclus avec action \"reponse\".")
+            messages += [{"role": "assistant", "content": content},
+                         {"role": "user", "content": f"Résultat réel du calcul {n} :\n{feedback}\n\n{suite}"}]
+            progress("Hermes lit le résultat…")
+            continue
+        answer = str(data.get("answer") or data.get("reponse") or "").strip()
+        if action == "calcul" and not answer:  # limite atteinte mais l'IA voulait encore calculer
+            messages += [{"role": "assistant", "content": content},
+                         {"role": "user", "content": "Plus de calcul possible : conclus avec action \"reponse\"."}]
+            continue
+        show = data.get("montrer_tableau", True) is not False
+        return {"answer": answer or "(réponse vide)", "type": "table" if (last_table and show) else "text",
+                "table": last_table if show else None, "charts": _charts_list(last_chart), "etapes": etapes}
+    last = etapes[-1]["resultat"] if etapes else ""
+    return {"answer": "Je n'ai pas pu conclure dans le temps imparti. Dernier résultat obtenu :\n" + last,
+            "type": "table" if last_table else "text", "table": last_table, "charts": _charts_list(last_chart),
+            "etapes": etapes}
+
 
 def _json_safe(obj):
     import math
@@ -1235,33 +1303,47 @@ def architect_propose(paths):
 _arch_jobs, _arch_lock = {}, threading.Lock()
 
 
-def architect_start(paths):
+def start_job(fn):
+    """Lance fn(progress) en tâche de fond pour l'utilisateur courant ; progress(texte) publie l'étape en cours."""
     ctx = T.current()
     job_id = secrets.token_hex(8)
+
+    def progress(text):
+        with _arch_lock:
+            if job_id in _arch_jobs:
+                _arch_jobs[job_id]["etape"] = str(text)[:200]
 
     def run():
         with T.use(ctx):
             try:
-                result = architect_propose(paths)
+                result = _json_safe(fn(progress))
             except Exception as e:
-                result = {"error": f"Analyse impossible : {e}"}
+                sys.stderr.write(f"[tâche] {type(e).__name__} : {e}\n" + "".join(traceback.format_exception(e)[-4:]))
+                result = {"error": f"Traitement impossible : {e}"}
         with _arch_lock:
             _arch_jobs[job_id].update(status="done", result=result)
 
     with _arch_lock:
         for k in [k for k, j in _arch_jobs.items() if time.time() - j["t"] > 3600]:
             del _arch_jobs[k]
-        _arch_jobs[job_id] = {"key": ctx.key, "status": "running", "result": None, "t": time.time()}
+        _arch_jobs[job_id] = {"key": ctx.key, "status": "running", "result": None, "etape": "", "t": time.time()}
     threading.Thread(target=run, daemon=True).start()
     return {"job": job_id}
 
 
-def architect_job(job_id):
+def job_status(job_id):
     with _arch_lock:
         j = _arch_jobs.get(job_id)
         if not j or j["key"] != T.current().key:  # une tâche n'est visible que par son auteur
             return {"error": "Tâche introuvable ou expirée."}
-        return {"status": j["status"], "result": j["result"]}
+        return {"status": j["status"], "result": j["result"], "etape": j.get("etape", "")}
+
+
+def architect_start(paths):
+    return start_job(lambda progress: architect_propose(paths))
+
+
+architect_job = job_status
 
 
 def architect_apply(paths, spec):
@@ -1297,7 +1379,7 @@ if T.CLOUD:  # en ligne : page d'accueil publique, application sur /app, adminis
                    "/admin": ("admin.html", "text/html")})
 else:
     STATIC.update({"/classic": ("index_classic.html", "text/html"), "/index_classic.html": ("index_classic.html", "text/html")})
-VIEWER_POST = {"/api/chat", "/api/insights"}  # seules actions permises au rôle « lecteur »
+VIEWER_POST = {"/api/chat", "/api/chat/start", "/api/insights"}  # seules actions permises au rôle « lecteur »
 CSP = ("default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; "
        "img-src 'self' data: blob:; connect-src 'self' " + (os.environ.get("SUPABASE_URL", "") or "") +
@@ -1510,8 +1592,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 return self._send(code if code else 502, r)
             if path == "/api/exports":
                 return self._send(200, _list_exports())
-            if path == "/api/architect/job":
-                return self._send(200, architect_job((parse_qs(urlparse(self.path).query).get("id") or [""])[0]))
+            if path in ("/api/architect/job", "/api/chat/job"):
+                return self._send(200, job_status((parse_qs(urlparse(self.path).query).get("id") or [""])[0]))
             if path == "/api/settings":
                 return self._send(200, studio.public_settings())
             if path == "/api/schedules":
@@ -1539,7 +1621,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return self._send(404, {"error": "not found"})
 
         # ---- POST
-        if path in ("/api/analyze", "/api/chat", "/api/insights", "/api/clean", "/api/architect",
+        if path in ("/api/analyze", "/api/chat", "/api/chat/start", "/api/insights", "/api/clean", "/api/architect",
                     "/api/architect/apply") and not _rate_ok(f"{ctx.key}:{path}"):
             return self._send(429, {"error": "Trop de demandes en peu de temps. Patientez une minute."})
         if path == "/api/analyze":
@@ -1576,7 +1658,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             with open(dest, "wb") as f:
                 f.write(data)
             return self._send(200, {"path": dest, "name": name, "size": len(data)})
-        if path == "/api/chat":
+        if path in ("/api/chat", "/api/chat/start"):
             question = str(p.get("question") or "")[:2000]
             # Fichier en cours envoyé par le navigateur : le chat ne dépend plus de la mémoire du
             # serveur, effacée à chaque redémarrage/déploiement. _read_df vérifie qu'il appartient à l'organisation.
@@ -1584,10 +1666,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 st["current_path"] = str(p["file_path"])
             if T.CLOUD and _llm_config():
                 cloud.consume(ctx, "ai")
-            resp = llm_chat(question, p.get("contexte"))
-            if resp is None:
-                resp = chat_query(question)  # repli par règles si l'IA est indisponible
-            return self._send(200, resp)
+            history = p.get("historique") if isinstance(p.get("historique"), list) else None
+
+            def answer(progress=None):
+                resp = llm_chat(question, p.get("contexte"), history, progress)
+                return resp if resp is not None else chat_query(question)  # repli par règles sans IA
+            if path == "/api/chat/start":  # plusieurs allers-retours avec l'IA : tâche de fond suivie en direct
+                return self._send(200, start_job(answer))
+            return self._send(200, answer())
         if path == "/api/insights":
             if st["last_result"] is not None and T.CLOUD and _llm_config():
                 cloud.consume(ctx, "ai")

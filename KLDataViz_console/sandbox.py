@@ -46,7 +46,7 @@ class UnsafeCode(ValueError):
 
 # Modules déjà fournis au calcul, sous ce nom : leurs imports sont réécrits en simples
 # affectations au lieu d'être refusés (l'IA écrit souvent « import numpy as np »).
-PROVIDED_MODULES = {"pandas": "pd", "numpy": "np", "math": "math"}
+PROVIDED_MODULES = {"pandas": "pd", "numpy": "np", "math": "math", "scipy.stats": "stats"}
 
 
 def strip_provided_imports(code: str) -> str:
@@ -59,7 +59,13 @@ def strip_provided_imports(code: str) -> str:
     changed = False
     body = []
     for node in tree.body:
-        if isinstance(node, ast.Import) and all(a.name in PROVIDED_MODULES for a in node.names):
+        if isinstance(node, ast.ImportFrom) and node.module == "scipy" and node.level == 0 \
+                and all(a.name == "stats" for a in node.names):  # from scipy import stats
+            body += [ast.parse(f"{a.asname or 'stats'} = stats").body[0] for a in node.names if a.asname]
+            changed = True
+            continue
+        if isinstance(node, ast.Import) and all(a.name in PROVIDED_MODULES and (a.asname or "." not in a.name)
+                                                for a in node.names):
             for a in node.names:
                 name, provided = a.asname or a.name, PROVIDED_MODULES[a.name]
                 if name != provided:
@@ -151,7 +157,7 @@ def run(code: str, datasets: dict) -> dict:
     """
     code = strip_provided_imports(code)
     validate(code)
-    env = dict(THREAD_ENV)  # aucune autre variable : ni clés ni mots de passe
+    env = dict(THREAD_ENV, PYTHONIOENCODING="utf-8")  # aucune autre variable : ni clés ni mots de passe
     if os.name == "nt":  # Python a besoin de ces variables pour démarrer sous Windows
         for k in ("SYSTEMROOT", "TEMP", "TMP"):
             if os.environ.get(k):
