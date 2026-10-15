@@ -811,6 +811,7 @@ async function startRun(path,name,size,opts={}){
   if(a.error){set(0,'err',a.error);$('#runErr').hidden=false;return}
   set(0,'done',`${nf(a.rows)} lignes, ${a.columns} colonnes, ${a.size_kb?dec(a.size_kb)+' Ko':'source en ligne'}`,secs(t0));prog(45);
   state.original=a;state.analysis=a;
+  if(!opts.fromRegistry)autoRegister(path,name);  // en tâche de fond, sans retarder l'analyse
   t0=performance.now();set(1,'doing');
   const c=await api('/api/clean',{file_path:path});
   if(c.error){set(1,'warn','Nettoyage indisponible : '+c.error,secs(t0));state.clean=null}
@@ -825,6 +826,13 @@ async function startRun(path,name,size,opts={}){
   if(opts.autoArch){say(`J'étudie maintenant les liens entre les ${archPaths().length} feuilles pour proposer une structure commune.`);$('#archRun').click()}
 }
 const secs=t=>dec(((performance.now()-t)/1000).toFixed(1))+' s';
+// Chaque fichier analysé entre dans le registre (page Données) ; un contenu identique ne crée pas de nouvelle version.
+async function autoRegister(path,name){
+  const d=await api('/api/ingest',{file_path:path,name});
+  if(d.error){console.warn('Registre : '+d.error);return}
+  await fetchRegistry();
+  if(!$('[data-view="datasets"]').hidden)renderDatasets();
+}
 $('#runRetry').onclick=()=>startRun(state.path,state.name,0,{archExtra:state.archExtra});
 $('#runBack').onclick=()=>go(0);
 
@@ -1333,7 +1341,7 @@ function renderDatasets(d){
   const el=$('#dsBody'),f=$('#dsSearch').value.trim().toLowerCase(),list=state.registry.filter(x=>String(x.dataset_name).toLowerCase().includes(f));
   const s=(d?.summary||{}).counts||state.counts||{};if(d?.summary)state.counts=s;
   el.className='';el.innerHTML=`<p class="sub" style="margin-bottom:8px">${s.datasets??state.registry.length} jeu(x) de données · ${s.versions??'—'} version(s) · ${s.executions??'—'} exécution(s)</p>`+
-    (list.length?dsRows(list,'full'):`<div class="empty">${state.registry.length?'Aucun jeu de données ne correspond.':'Le registre est vide. Analysez un fichier puis choisissez « Enregistrer dans le registre ».'}</div>`);
+    (list.length?dsRows(list,'full'):`<div class="empty">${state.registry.length?'Aucun jeu de données ne correspond.':'Le registre est vide. Les fichiers que vous importez apparaissent ici automatiquement, avec l\'historique de leurs versions.'}</div>`);
   if(openDs)loadVersions(openDs);
 }
 async function loadVersions(id){
@@ -1346,7 +1354,7 @@ $('#dsSearch').addEventListener('input',()=>renderDatasets());
 document.addEventListener('click',e=>{
   const v=e.target.closest('[data-ver]'),a=e.target.closest('[data-an]');
   if(v){openDs=openDs===v.dataset.ver?null:v.dataset.ver;if(!$('[data-view="datasets"]').hidden)renderDatasets();else{loadRecent().then(()=>openDs&&loadVersions(openDs))}}
-  if(a)startRun(a.dataset.an,a.dataset.nm||baseName(a.dataset.an));
+  if(a)startRun(a.dataset.an,a.dataset.nm||baseName(a.dataset.an),0,{fromRegistry:true});
 });
 
 /* ================= rapports ================= */
