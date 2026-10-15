@@ -1102,9 +1102,10 @@ def _charts_list(chart):
     return []
 
 
-def llm_chat(question, ui_context=None, history=None, progress=None):
+def llm_chat(question, ui_context=None, history=None, progress=None, linked=None):
     """Agent d'analyse : l'IA enchaîne des calculs (exécutés dans le bac à sable), lit leurs résultats
-    réels, puis rédige sa réponse. `progress(texte)` reçoit l'étape en cours (affichage en direct)."""
+    réels, puis rédige sa réponse. `progress(texte)` reçoit l'étape en cours (affichage en direct).
+    `linked` : [{path, name}] fichiers liés au fichier en cours (autres feuilles du classeur, fichiers croisés)."""
     progress = progress or (lambda _t: None)
     datasets = _registry_datasets()
     context = _llm_context(datasets)
@@ -1123,6 +1124,23 @@ def llm_chat(question, ui_context=None, history=None, progress=None):
                                "colonnes": [{"name": str(c), "dtype": str(current_df[c].dtype),
                                              "exemples": [str(v) for v in current_df[c].dropna().head(3).tolist()]}
                                             for c in current_df.columns]})
+    linked_paths = {}
+    for item in (linked or [])[:MAX_ARCHITECT_FILES]:  # autres feuilles / fichiers croisés, aussi calculables
+        lp = str((item or {}).get("path") or "")
+        if not lp or lp == cur_path or lp.startswith(("http://", "https://")):
+            continue
+        ldf, _err = _read_df(lp)  # vérifie aussi que le fichier appartient à l'organisation
+        if ldf is None:
+            continue
+        lname = str(item.get("name") or source_label(lp))
+        # Copie parquet pour le bac à sable (qui ne lit que parquet/CSV), comme le fichier en cours
+        tmp = os.path.join(T.current().dir("tmp"), f"lie_{T.current().key[:12]}_{len(linked_paths)}.parquet")
+        _save_table(ldf, tmp)
+        linked_paths[lname] = tmp
+        context.insert(1, {"name": lname, "fichier_lie_au_fichier_en_cours": True, "lignes": int(len(ldf)),
+                           "colonnes": [{"name": str(c), "dtype": str(ldf[c].dtype),
+                                         "exemples": [str(v) for v in ldf[c].dropna().head(3).tolist()]}
+                                        for c in ldf.columns[:80]]})
     system = (
         "Tu es Hermes, l'analyste de données de KLDataViz. Réponds en français, de façon fiable.\n"
         + studio.chat_preamble() +
@@ -1156,6 +1174,7 @@ def llm_chat(question, ui_context=None, history=None, progress=None):
                 except Exception:
                     current_df.astype(str).to_parquet(_cur)
                 paths[current_name] = _cur
+            paths.update(linked_paths)
         return paths
 
     etapes, last_table, last_chart = [], None, None
@@ -1310,6 +1329,124 @@ def sheets_extract(file_path, sheets, stack=False):
         out.append({"path": dest, "name": f"{stem} — {name}", "feuille": name,
                     "lignes": int(len(df)), "colonnes": int(df.shape[1])})
     return {"fichiers": out}
+
+
+SYSTEM_CLASSEUR = """Tu es Hermes, analyste de données. On te donne plusieurs feuilles d'un même classeur Excel avec
+des FAITS MESURÉS : le profil de chaque feuille, les formules qui relient les feuilles (qui calcule à partir de qui,
+avec quelles fonctions), les valeurs communes entre colonnes (jointures possibles) et les feuilles de même structure.
+Explique la logique du classeur puis propose des analyses. Appuie-toi uniquement sur ces faits ; un lien supposé
+est marqué « hypothèse ». Écris en français clair, pour un responsable métier.
+Réponds par UN SEUL objet JSON :
+{"resume": "2 à 4 phrases : à quoi sert ce classeur et comment les feuilles s'enchaînent",
+ "flux": "chaîne lisible, ex. « CD-IST, PEC, PTME → Nbre de problèmes par site → Feuil2 → DASHBOARD »",
+ "roles": [{"feuille": "nom exact", "role": "données brutes|référentiel|paramètres|calcul intermédiaire|synthèse|tableau de bord|autre",
+            "explication": "ce que contient la feuille et à quoi elle sert"}],
+ "liens": [{"de": "feuille", "vers": "feuille", "nature": "formule|clé commune|même structure|hypothèse",
+            "explication": "ce que fait le lien, en clair", "preuve": "le fait mesuré qui le montre"}],
+ "points_attention": ["incohérence, risque de double comptage, plage de formule trop courte, feuille isolée…"],
+ "analyses": [{"titre": "titre court", "objectif": "ce qu'on apprend", "feuilles": ["noms exacts"],
+               "question": "question précise et autonome pour l'agent d'analyse, qui calculera lui-même sur les feuilles : cite les feuilles et les colonnes exactes"}]}
+Propose 3 à 6 analyses concrètes et utiles au métier (comparaisons, évolutions, rapprochements et contrôles de
+cohérence entre feuilles), de la plus utile à la moins utile."""
+
+
+def _classeur_fallback(names, links, rels, groups):
+    """Lecture par règles quand l'IA ne répond pas : rôles déduits du sens des formules."""
+    uses = {n: {l["utilise"] for l in links if l["feuille"] == n} for n in names}
+    used = {n: {l["feuille"] for l in links if l["utilise"] == n} for n in names}
+    roles = []
+    for n in names:
+        role = ("données brutes" if used[n] and not uses[n] else "synthèse" if uses[n] and not used[n]
+                else "calcul intermédiaire" if uses[n] else "autre")
+        roles.append({"feuille": n, "role": role, "explication":
+                      (f"Utilisée par {', '.join(sorted(used[n]))}. " if used[n] else "")
+                      + (f"Calcule à partir de {', '.join(sorted(uses[n]))}." if uses[n] else "")})
+    liens = [{"de": l["utilise"], "vers": l["feuille"], "nature": "formule",
+              "explication": f"{l['feuille']} reprend ou calcule des valeurs de {l['utilise']}",
+              "preuve": f"{l['formules']} formule(s), ex. {l['exemple']}"} for l in links]
+    liens += [{"de": r["gauche"].split(" :: ")[0], "vers": r["droite"].split(" :: ")[0], "nature": "clé commune",
+               "explication": f"{r['gauche']} et {r['droite']} partagent des valeurs ({r['cardinalite']})",
+               "preuve": f"{r['valeurs_communes']} valeurs communes"} for r in rels[:6]]
+    analyses = [{"titre": f"Rapprocher {r['gauche'].split(' :: ')[0]} et {r['droite'].split(' :: ')[0]}",
+                 "objectif": "Vérifier que les deux feuilles concordent et repérer les écarts",
+                 "feuilles": [r["gauche"].split(" :: ")[0], r["droite"].split(" :: ")[0]],
+                 "question": f"Rapproche {r['gauche']} et {r['droite']} : combien de valeurs sont présentes "
+                             f"dans une feuille et absentes de l'autre, et lesquelles ?"} for r in rels[:3]]
+    for g in groups[:2]:
+        analyses.append({"titre": f"Comparer les {len(g)} feuilles de même structure",
+                         "objectif": "Voir l'évolution ou les écarts d'une feuille à l'autre", "feuilles": g,
+                         "question": f"Compare les feuilles {', '.join(g)} (mêmes colonnes) : totaux par feuille "
+                                     "et principales différences."})
+    ordre = list(dict.fromkeys([l["utilise"] for l in reversed(links)] + [l["feuille"] for l in reversed(links)]))
+    return {"resume": "Lecture par règles : l'interprétation par l'IA n'est pas disponible.",
+            "flux": " → ".join(ordre), "roles": roles, "liens": liens, "points_attention": [], "analyses": analyses}
+
+
+def workbook_understand(file_path, sheets, progress=lambda _t: None):
+    """Logique d'un classeur : rôle de chaque feuille cochée, liens entre elles (formules, clés communes,
+    même structure) et analyses proposées. Faits mesurés par le moteur, interprétation par l'IA."""
+    err = _own_excel(file_path)
+    if err:
+        return {"error": err}
+    wanted = {str(x) for x in sheets or []}
+    names = [n for n in pd.ExcelFile(file_path).sheet_names if n in wanted][:MAX_ARCHITECT_FILES]
+    if len(names) < 2:
+        return {"error": "Cochez au moins deux feuilles."}
+    progress("Lecture des feuilles")
+    frames, profils = {}, {}
+    for n in names:
+        df, e = _read_df(file_path, sheet=n)
+        if e:
+            return {"error": f"Feuille « {n} » : {e}"}
+        frames[n] = df
+        try:
+            prof = architect._compact_profile(data_architect.profile(df, {"fichier": n}), df) if architect else {}
+        except Exception:
+            prof = {}
+        if len(json.dumps(prof, ensure_ascii=False, default=str)) > 8000:  # trop de colonnes : l'essentiel
+            prof = {"lignes": int(len(df)),
+                    "colonnes": {str(c): [str(df[c].dtype)] + [str(v) for v in df[c].dropna().head(2)]
+                                 for c in df.columns[:60]}}
+        profils[n] = prof
+    progress("Recherche des formules entre feuilles")
+    try:
+        f = data_architect.workbook_links(file_path)
+    except Exception as e:
+        f = {"disponible": False, "liens": [], "erreur": str(e)}
+    links = [l for l in f.get("liens", []) if l["feuille"] in names or l["utilise"] in names]
+    progress("Recherche des colonnes communes")
+    rels = data_architect.find_relations(frames)
+    meta = {x["nom"]: x for x in data_architect.excel_sheets(file_path)}
+    groups = {}
+    for n in names:
+        if meta.get(n, {}).get("groupe"):
+            groups.setdefault(meta[n]["groupe"], []).append(n)
+    groups = [g for g in groups.values() if len(g) > 1]
+    faits = {"feuilles": {n: {"masquee": meta.get(n, {}).get("masquee"), "remarques": meta.get(n, {}).get("notes"),
+                              "profil": profils[n]} for n in names},
+             "formules_entre_feuilles": links[:30],
+             "formules_internes": {n: f.get("calculs_internes", {}).get(n, 0) for n in names},
+             "formules_lisibles": f.get("disponible", False),
+             "colonnes_communes": rels[:15], "feuilles_meme_structure": groups}
+    result, ia, cfg = None, False, _llm_config()
+    if cfg:
+        progress("Hermes interprète la logique du classeur")
+        model = os.environ.get("KLDV_ARCHITECT_MODEL") or cfg.get("architect_model") or "deepseek-flash"
+        msgs = [{"role": "system", "content": SYSTEM_CLASSEUR},
+                {"role": "user", "content": "Classeur : " + os.path.basename(file_path) + "\nFAITS :\n"
+                 + json.dumps(faits, ensure_ascii=False, default=str)[:60000]}]
+        for effort, timeout in (("high", 120), ("low", 90)):
+            result = _parse_llm_json(_llm_call(msgs, 6000, model=model, effort=effort, timeout=timeout, attempts=1))
+            if isinstance(result, dict) and result.get("analyses"):
+                ia = True
+                break
+    if not ia:
+        result = _classeur_fallback(names, links, rels, groups)
+    for a in result.get("analyses") or []:  # feuilles citées : seulement celles qui ont été étudiées
+        a["feuilles"] = [x for x in a.get("feuilles") or [] if x in names] or names
+    return {"comprehension": result, "ia": ia, "ia_disponible": bool(cfg), "feuilles": names,
+            "faits": {"formules_entre_feuilles": links[:30], "colonnes_communes": rels[:15],
+                      "feuilles_meme_structure": groups, "formules_lisibles": f.get("disponible", False)}}
 
 
 def _architect_paths(p):
@@ -1680,7 +1817,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
         # ---- POST
         if path in ("/api/analyze", "/api/chat", "/api/chat/start", "/api/insights", "/api/clean", "/api/architect",
-                    "/api/architect/apply") and not _rate_ok(f"{ctx.key}:{path}"):
+                    "/api/architect/apply", "/api/sheets/understand") and not _rate_ok(f"{ctx.key}:{path}"):
             return self._send(429, {"error": "Trop de demandes en peu de temps. Patientez une minute."})
         if path == "/api/analyze":
             file_path = str(p.get("file_path") or "")
@@ -1700,6 +1837,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return self._send(200, architect_apply(_architect_paths(p), p.get("spec")))
         if path == "/api/sheets":
             return self._send(200, sheets_info(str(p.get("file_path") or "")))
+        if path == "/api/sheets/understand":
+            if T.CLOUD and _llm_config():
+                cloud.consume(ctx, "ai")
+            fp = str(p.get("file_path") or "")
+            names = p.get("sheets") if isinstance(p.get("sheets"), list) else []
+            return self._send(200, start_job(lambda progress: workbook_understand(fp, names, progress)))
         if path == "/api/sheets/extract":
             sheets = p.get("sheets") if isinstance(p.get("sheets"), list) else []
             return self._send(200, sheets_extract(str(p.get("file_path") or ""), sheets, bool(p.get("empiler"))))
@@ -1732,7 +1875,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             history = p.get("historique") if isinstance(p.get("historique"), list) else None
 
             def answer(progress=None):
-                resp = llm_chat(question, p.get("contexte"), history, progress)
+                linked = p.get("fichiers_lies") if isinstance(p.get("fichiers_lies"), list) else None
+                resp = llm_chat(question, p.get("contexte"), history, progress, linked)
                 return resp if resp is not None else chat_query(question)  # repli par règles sans IA
             if path == "/api/chat/start":  # plusieurs allers-retours avec l'IA : tâche de fond suivie en direct
                 return self._send(200, start_job(answer))

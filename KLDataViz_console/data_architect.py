@@ -232,6 +232,48 @@ def best_sheet(path: str | Path) -> str | int:
         return 0
 
 
+_REF = re.compile(r"(?:'((?:[^']|'')+)'|([^\s'!=(),;:+\-*/&<>^\[\]{}\"]+))!")
+_FUNC = re.compile(r"\b([A-Z][A-Z0-9.]*)\(")
+MAX_FORMULA_ROWS = 2000  # par feuille : les formules se répètent d'une ligne à l'autre
+
+
+def workbook_links(path: str | Path, sheets: list[str] | None = None) -> dict:
+    """Liens écrits dans les formules : quelle feuille calcule à partir de quelle autre, avec quelles
+    fonctions (RECHERCHEV, SOMME.SI, NB.SI…). C'est la meilleure trace de la logique d'un classeur.
+    Classeurs .xlsx/.xlsm seulement (les .xls ne donnent pas accès aux formules)."""
+    path = Path(path)
+    if path.suffix.lower() not in (".xlsx", ".xlsm"):
+        return {"disponible": False, "liens": [], "calculs_internes": {}}
+    from openpyxl import load_workbook
+    wb = load_workbook(path, read_only=True, data_only=False)
+    names = {n.lower(): n for n in wb.sheetnames}
+    wanted = set(sheets or wb.sheetnames)
+    links, internes, partiel = {}, Counter(), False
+    try:
+        for ws in wb.worksheets:
+            if ws.title not in wanted:
+                continue
+            partiel = partiel or (ws.max_row or 0) > MAX_FORMULA_ROWS
+            for row in ws.iter_rows(max_row=MAX_FORMULA_ROWS, values_only=True):
+                for v in row:
+                    if not (isinstance(v, str) and v.startswith("=")):
+                        continue
+                    refs = {names.get((q or u).replace("''", "'").lower()) for q, u in _REF.findall(v)} - {None, ws.title}
+                    if not refs:
+                        internes[ws.title] += 1
+                    for ref in refs:
+                        l = links.setdefault((ws.title, ref), {"nb": 0, "fonctions": Counter(), "exemple": v[:160]})
+                        l["nb"] += 1
+                        l["fonctions"].update(_FUNC.findall(v.upper()))
+    finally:
+        wb.close()
+    return {"disponible": True,
+            "liens": [{"feuille": a, "utilise": b, "formules": l["nb"],
+                       "fonctions": [f for f, _ in l["fonctions"].most_common(5)], "exemple": l["exemple"]}
+                      for (a, b), l in sorted(links.items(), key=lambda kv: -kv[1]["nb"])],
+            "calculs_internes": dict(internes), "analyse_partielle": partiel}
+
+
 def read_sheet(path: str | Path, sheet: str | int | None = None) -> tuple[pd.DataFrame, str | int]:
     """Lit une feuille (la recommandée par défaut) en sautant les lignes de titre au-dessus des en-têtes."""
     sheet = best_sheet(path) if sheet is None else sheet
