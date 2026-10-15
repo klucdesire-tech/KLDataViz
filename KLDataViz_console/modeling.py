@@ -102,10 +102,16 @@ def _coerce_series(s: pd.Series):
             full = full.astype("Int64")  # entier nullable
         return full, "numérique"
 
-    # Date : format mixte (jj/mm/aaaa, aaaa-mm-jj, etc.).
-    dt = pd.to_datetime(vals, errors="coerce", format="mixed", dayfirst=True)
-    if dt.notna().mean() >= 0.9:
-        return pd.to_datetime(s, errors="coerce", format="mixed", dayfirst=True), "date"
+    # Date : format mixte (jj/mm/aaaa, aaaa-mm-jj, etc.). L'analyse de dates « mixte » est lente
+    # (valeur par valeur) : test sur un échantillon, puis conversion des seules valeurs distinctes
+    # (17 s → moins d'1 s sur 33 000 lignes).
+    uniq = pd.Series(vals.unique())
+    sample = uniq.sample(min(len(uniq), 300), random_state=0) if len(uniq) > 300 else uniq
+    if pd.to_datetime(sample, errors="coerce", format="mixed", dayfirst=True).notna().mean() >= 0.9:
+        conv = pd.to_datetime(uniq, errors="coerce", format="mixed", dayfirst=True)
+        if conv.notna().mean() >= 0.9:
+            mapping = dict(zip(uniq, conv))
+            return pd.to_datetime(s.map(lambda x: mapping.get(str(x).strip()) if pd.notna(x) else pd.NaT)), "date"
 
     # Texte : on trime au minimum. Comparaison sur les seules valeurs remplies : une case vide
     # n'est jamais égale à elle-même et faisait signaler à tort toute colonne avec des vides.
@@ -280,10 +286,17 @@ def clean_dataframe(df: pd.DataFrame, skip=None):
     return df, rapport
 
 
+MAX_MODALITES = 50        # au-delà, une colonne texte est un identifiant ou du texte libre
+MAX_COLONNES_CRAMER = 25  # 300 paires au plus
+MAX_LIGNES_BIVARIE = 50_000
+
+
 def bivariate_stats(df: pd.DataFrame):
     """Statistiques bivariées : corrélation numérique-numérique et association
     catégoriel-catégoriel (V de Cramér) + numérique vs catégoriel (moyennes)."""
     out = {"correlations": [], "cramer": [], "groupes": []}
+    if len(df) > MAX_LIGNES_BIVARIE:  # échantillon : mêmes tendances, mémoire et temps bornés
+        df = df.sample(MAX_LIGNES_BIVARIE, random_state=0)
     numeric = df.select_dtypes(include=[np.number])
     cat = df.select_dtypes(exclude=[np.number])
 
@@ -302,11 +315,16 @@ def bivariate_stats(df: pd.DataFrame):
                     })
         out["correlations"].sort(key=lambda x: -abs(x["r"]))
 
-    # Catégoriel × catégoriel : V de Cramér (top 15 par force)
-    if cat.shape[1] >= 2:
-        for i in range(len(cat.columns)):
+    # Catégoriel × catégoriel : V de Cramér (top 15 par force).
+    # Seulement les vraies catégories (2 à MAX_MODALITES valeurs) : sur des identifiants
+    # (codes patients…), le tableau croisé fait des milliards de cases (8 Go mesurés sur
+    # 33 000 lignes) et tuait le serveur en ligne (512 Mo). Le V n'y a de toute façon aucun sens.
+    nun = cat.nunique(dropna=True)
+    cat_ok = [c for c in cat.columns if 2 <= nun[c] <= MAX_MODALITES][:MAX_COLONNES_CRAMER]
+    if len(cat_ok) >= 2:
+        for i in range(len(cat_ok)):
             for j in range(i):
-                a, b = cat.columns[i], cat.columns[j]
+                a, b = cat_ok[i], cat_ok[j]
                 try:
                     ct = pd.crosstab(cat[a], cat[b])
                     obs = ct.values.astype(float)
