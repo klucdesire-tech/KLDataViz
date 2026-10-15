@@ -209,3 +209,24 @@ def test_chat_apres_redemarrage(base, tmp_path, monkeypatch):
     code, r = call(base, "/api/chat", {"question": "résume", "file_path": str(p)})
     assert code == 200 and r["answer"] == "ok", r
     assert "apres_redemarrage" in prompts[0] and "fichier_en_cours_d_analyse" in prompts[0]
+
+
+def test_dates_converties_rapidement():
+    import modeling
+    s = pd.Series(["01/02/2025", " 15/03/2025", None, "2025-04-30"] * 500)
+    out, t = modeling._coerce_series(s)
+    assert t == "date" and out.iloc[0] == pd.Timestamp("2025-02-01") and out.iloc[1] == pd.Timestamp("2025-03-15")
+    assert pd.isna(out.iloc[2])
+
+
+def test_pas_de_tableau_croise_geant_sur_les_identifiants():
+    """Colonnes identifiants (une valeur par ligne) : pas de V de Cramér (8 Go mesurés sur 33 000 lignes)."""
+    import time as _t
+    import modeling
+    n = 20000
+    df = pd.DataFrame({"code_patient": [f"P{i}" for i in range(n)], "code_echantillon": [f"E{i}" for i in range(n)],
+                       "sexe": ["M", "F"] * (n // 2), "district": ["Buyo", "Soubré", "Méagui", "Nawa"] * (n // 4)})
+    t0 = _t.time()
+    r = modeling.bivariate_stats(df)
+    assert _t.time() - t0 < 5
+    assert [(c["a"], c["b"]) for c in r["cramer"]] == [("district", "sexe")]
