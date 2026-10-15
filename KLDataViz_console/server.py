@@ -477,6 +477,15 @@ def _smart_charts(df, max_charts=6):
         if period_dt is not None:
             span = (period_dt.max() - period_dt.min()).days if period_dt.notna().any() else 0
             freq = "D" if span <= 62 else "W" if span <= 200 else "M"
+            # Le pas des données prime : des mois (« 2026-01 ») ne doivent pas être éclatés en semaines.
+            u = period_dt.dropna().drop_duplicates().sort_values()
+            gap = float(u.diff().dt.days.median()) if len(u) > 1 else 0
+            if gap >= 85:
+                freq = "Q"
+            elif gap >= 28:
+                freq = "M"
+            elif gap >= 7 and freq == "D":
+                freq = "W"
             key = period_dt.dt.to_period(freq)
         else:
             key = df[period].astype(str)
@@ -777,44 +786,10 @@ th,td{{border:1px solid #cbd5e0;padding:6px 9px;text-align:left;}} th{{backgroun
     return fn
 
 def export_pdf(result):
-    from reportlab.lib.pagesizes import A4
-    from reportlab.lib import colors
-    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
-    from reportlab.lib.styles import getSampleStyleSheet
+    """Rapport détaillé : fiche du fichier, synthèse, qualité, graphiques interprétés, statistiques, relations."""
+    import pdf_report
     fn = f"analyse_{time.strftime('%Y%m%d_%H%M%S')}.pdf"
-    path = os.path.join(T.exports_dir(), fn)
-    doc = SimpleDocTemplate(path, pagesize=A4)
-    styles = getSampleStyleSheet()
-    blue = colors.HexColor("#1286b4")
-    story = []
-    story.append(Paragraph(f"Analyse — {result.get('file','')}", styles["Title"]))
-    story.append(Paragraph(f"Lignes : {result.get('rows',0):,} &nbsp;|&nbsp; Colonnes : {result.get('columns',0)} &nbsp;|&nbsp; "
-                          f"Complétude : {result.get('completeness_pct',0)}% &nbsp;|&nbsp; Anomalies : {len(result.get('anomalies',[]))}", styles["Normal"]))
-    story.append(Spacer(1, 12))
-    def table(headers, rows):
-        t = Table([headers] + rows)
-        t.setStyle(TableStyle([
-            ("BACKGROUND", (0,0), (-1,0), blue),
-            ("TEXTCOLOR", (0,0), (-1,0), colors.white),
-            ("GRID", (0,0), (-1,-1), 0.4, colors.HexColor("#cbd5e0")),
-            ("FONTSIZE", (0,0), (-1,-1), 8),
-        ]))
-        return t
-    story.append(Paragraph("Colonnes", styles["Heading2"]))
-    story.append(table(["Variable", "Type", "Uniques", "Manquantes", "%"],
-                       [[c["name"], c["dtype"], c["unique"], c["missing"], c["missing_pct"]] for c in result.get("columns_detail", [])]))
-    if result.get("numeric_stats"):
-        story.append(Paragraph("Statistiques numériques", styles["Heading2"]))
-        story.append(table(["Variable", "Moyenne", "Écart-type", "Min", "Médiane", "Max"],
-                           [[k, v["mean"], v["std"], v["min"], v["median"], v["max"]] for k, v in result.get("numeric_stats", {}).items()]))
-    if result.get("correlations"):
-        story.append(Paragraph("Corrélations", styles["Heading2"]))
-        story.append(table(["A", "B", "r"], [[c["a"], c["b"], c["r"]] for c in result.get("correlations", [])]))
-    if result.get("anomalies"):
-        story.append(Paragraph("Anomalies", styles["Heading2"]))
-        for a in result.get("anomalies", []):
-            story.append(Paragraph(f"<b>{a['column']}</b> — {a['type']} ({a['count']}) : {a['detail']}", styles["Normal"]))
-    doc.build(story)
+    pdf_report.build(result, os.path.join(T.exports_dir(), fn))
     return fn
 
 # ---------- Chat / interrogation des données en langage naturel ----------
@@ -1980,7 +1955,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if path == "/api/insights":
             if st["last_result"] is not None and T.CLOUD and _llm_config():
                 cloud.consume(ctx, "ai")
-            return self._send(200, {"insights": studio.insights(st["last_result"], _llm_call)})
+            ins = studio.insights(st["last_result"], _llm_call)
+            if ins and st["last_result"] is not None:
+                st["last_result"]["_insights"] = ins  # repris dans le rapport PDF ; remplacé à la prochaine analyse
+            return self._send(200, {"insights": ins})
         if path == "/api/settings":
             return self._send(200, studio.save_settings(p))
         if path == "/api/schedules":
