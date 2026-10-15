@@ -969,9 +969,12 @@ function renderArch(){
       `<p class="sub" style="margin-top:8px"><b>${esc(n)}</b> · ${nf(t.lignes)} ligne${t.lignes>1?'s':''}</p><div class="tablewrap"><table><thead><tr>${t.colonnes.map(h=>`<th>${esc(h)}</th>`).join('')}</tr></thead>
        <tbody>${t.exemple.map(row=>`<tr>${row.map(v=>`<td class="num">${esc(v)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`).join(''):'')+
     `<div class="actions" style="margin-top:14px">`+
-    (state.archFile?(state.archFile.vues||[]).map((v,i)=>`<button class="btn primary" data-arch-view="${i}">Analyser ${esc(v.table)} (${nf(v.lignes)} ligne${v.lignes>1?'s':''})<svg class="i" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button>`).join('')+
+    (state.archFile?(state.archFile.vues||[]).map((v,i)=>{
+        const on=state.structView?.path===v.path;
+        return `<button class="btn ${on?'ghost':'primary'}" data-arch-view="${i}" ${on?'disabled':''}>${on?'✓ Analyse en cours sur':'Analyser'} ${esc(v.table)} (${nf(v.lignes)} ligne${v.lignes>1?'s':''})${on?'':'<svg class="i" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg>'}</button>`}).join('')+
       `<a class="btn ghost" href="${esc(state.archFile.url)}" download>Télécharger ${esc(state.archFile.file)}</a>`
-      :p.spec?`<button class="btn primary" id="archApply">Générer le modèle Excel</button>`
+      :p.spec?`<button class="btn primary" id="archUse">Utiliser cette structure pour l'analyse<svg class="i" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button>
+        <button class="btn ghost" id="archApply">Générer le modèle Excel</button>`
       :`<span class="sub">Aucune structure n'a pu être exécutée${r.spec_error?` (erreur : ${esc(r.spec_error)})`:''}. Relancez l'analyse ; si le problème persiste, vérifiez que le fichier contient bien un en-tête de colonnes.</span> <button class="btn ghost sm" id="archRetry">Relancer</button>`)+`</div>`;
 }
 $('#archRun').onclick=async()=>{
@@ -1008,21 +1011,39 @@ $('#archFileInput').addEventListener('change',e=>{
 });
 $('#archOut').addEventListener('click',e=>{if(e.target.closest('#archRetry')){state.arch=null;renderArch();$('#archRun').click()}});
 // Analyse à partir de la structure : la table de faits jointe à ses dimensions part dans l'étape Analyser.
-$('#archOut').addEventListener('click',async e=>{
-  const b=e.target.closest('[data-arch-view]');if(!b)return;
-  const v=state.archFile.vues[+b.dataset.archView];
-  b.disabled=true;b.innerHTML='<span class="spin"></span> Analyse de la structure…';
+async function useStructView(v,b){
+  if(b){b.disabled=true;b.innerHTML='<span class="spin"></span> Analyse de la structure…'}
   const a=await api('/api/analyze',{file_path:v.path});
   if(a.error){toast('Échec : '+a.error);renderArch();return}
-  Object.assign(state,{analysis:a,applied:false,ai:null,structView:v});go(2);
-  say(`J'analyse la structure proposée : table **${v.table}** (${nf(v.lignes)} lignes, ${v.colonnes} colonnes), jointe à ses tables de référence.`);
+  Object.assign(state,{analysis:a,applied:false,ai:null,structView:v});renderArch();go(2);
+  const autres=(state.archFile?.vues||[]).filter(x=>x.path!==v.path).map(x=>`**${x.table}**`);
+  say(`J'analyse la structure proposée : table **${v.table}** (${nf(v.lignes)} lignes, ${v.colonnes} colonnes), jointe à ses tables de référence. Mes réponses et calculs portent désormais sur cette table.`+
+    (autres.length?` Autre${autres.length>1?'s':''} table${autres.length>1?'s':''} disponible${autres.length>1?'s':''} dans l'étape Vérifier : ${autres.join(', ')}.`:''));
+}
+async function generateArch(){
+  const r=await api('/api/architect/apply',{file_paths:archPaths(),spec:state.arch.proposition.spec});
+  if(r.error){toast(r.error);renderArch();return null}
+  state.archFile=r;return r;
+}
+$('#archOut').addEventListener('click',e=>{
+  const b=e.target.closest('[data-arch-view]');if(!b)return;
+  useStructView(state.archFile.vues[+b.dataset.archView],b);
 });
 $('#archOut').addEventListener('click',async e=>{
   if(!e.target.closest('#archApply'))return;
   const b=$('#archApply');b.disabled=true;b.innerHTML='<span class="spin"></span> Génération…';
-  const r=await api('/api/architect/apply',{file_paths:archPaths(),spec:state.arch.proposition.spec});
-  if(r.error){toast(r.error);renderArch();return}
-  state.archFile=r;renderArch();toast('Modèle généré : '+r.file);
+  const r=await generateArch();if(!r)return;
+  renderArch();toast('Modèle généré : '+r.file);
+});
+// En un clic : générer le modèle puis analyser la table principale (la vue de faits la plus fournie).
+$('#archOut').addEventListener('click',async e=>{
+  if(!e.target.closest('#archUse'))return;
+  const b=$('#archUse');b.disabled=true;b.innerHTML='<span class="spin"></span> Construction des tables…';
+  const r=await generateArch();if(!r)return;
+  const vues=r.vues||[];
+  if(!vues.length){renderArch();toast('Aucune table d\'analyse n\'a pu être construite à partir de cette structure.');return}
+  const main=vues.reduce((m,v)=>v.lignes>m.lignes?v:m,vues[0]);
+  await useStructView(main,b);
 });
 /* Détail d'une correction (lignes touchées, avant → après), à partir de rapport.details du nettoyage */
 const lignes=ls=>ls.length?`ligne${ls.length>1?'s':''} ${ls.slice(0,15).join(', ')}${ls.length>15?' …':''}`:'';
