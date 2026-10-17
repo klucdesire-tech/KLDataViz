@@ -816,7 +816,7 @@ async function startRun(path,name,size,opts={}){
   t0=performance.now();set(1,'doing');
   const c=await api('/api/clean',{file_path:path});
   if(c.error){set(1,'warn','Nettoyage indisponible : '+c.error,secs(t0));state.clean=null}
-  else{state.clean=c;const n=issuesOf().length;state.accept=new Set(issuesOf().flatMap(idsOf));set(1,n?'warn':'done',n?`${n} correction${n>1?'s':''} proposée${n>1?'s':''}`:'Aucune correction nécessaire',secs(t0))}
+  else{state.clean=c;const n=issuesOf().length;state.accept=new Set(issuesOf().flatMap(idsOf));set(1,n?'warn':'done',n?`${n} correction${n>1?'s':''} proposée${n>1?'s':''}`:'Aucune correction nécessaire',secs(t0));loadHermesClean(path)}
   prog(85);
   set(2,'done',`${(a.anomalies||[]).length} colonne(s) avec anomalies, ${(a.charts||[]).length} graphique(s)`,'');prog(100);
   await new Promise(r=>setTimeout(r,reduce?0:350));
@@ -856,8 +856,40 @@ function issuesOf(){
   else imps.forEach(im=>out.push({id:'imput:'+im.colonne,sev:'warn',n:im.n,t:`${nf(im.n)} valeur(s) manquante(s) dans « ${im.colonne} »`,d:`Complétées par la ${im.methode}${im.valeur!=null?' ('+im.valeur+')':''}. Laissez désactivé si un vide a un sens.`}));
   const ren=Object.entries(r.colonnes_renommees||{});
   if(ren.length)out.push({id:'noms',sev:'info',t:`${ren.length} nom(s) de colonne normalisé(s)`,d:ren.slice(0,6).map(([x,y])=>`${x} → ${y}`).join(' · ')+(ren.length>6?' …':'')});
+  if(state.hclean?.for===state.clean)(state.hclean.corrections||[]).forEach(c=>out.push({id:c.id,sev:'info',hermes:c,t:'✦ '+(c.titre||c.type),d:hermesCorrText(c)}));
   return out;
 }
+// Hermes relit les corrections des règles et en propose d'autres (recettes vérifiées par le moteur).
+async function loadHermesClean(path){
+  const cl=state.clean;if(!cl)return;
+  state.hclean={for:cl,status:'running',etape:'Hermes relit les corrections…'};if(state.step===1)renderVerify();
+  const s=await api('/api/hermes/clean',{file_path:path});
+  let r=s.error?s:null;
+  for(let i=0;!r&&i<60;i++){
+    await new Promise(ok=>setTimeout(ok,3000));
+    if(state.clean!==cl)return;
+    const j=await api('/api/hermes/job?id='+encodeURIComponent(s.job));
+    if(j.error)r=j;else if(j.status==='done')r=j.result;
+  }
+  if(state.clean!==cl)return;
+  r=r||{error:'Hermes met trop de temps à répondre.'};
+  state.hclean={for:cl,status:'done',...r};
+  // Accord par défaut sur les corrections de Hermes ; celles des règles qu'il déconseille sont décochées
+  (r.corrections||[]).forEach(c=>state.accept.add(c.id));
+  (r.avis||[]).filter(a=>a.verdict==='deconseille').forEach(a=>state.accept.delete(a.id));
+  if(state.step===1)renderVerify();
+  const n=(r.corrections||[]).length,d=(r.avis||[]).filter(a=>a.verdict==='deconseille').length;
+  if(r.ia&&(n||d))say(`J'ai relu les corrections : ${n?`**${n}** correction(s) supplémentaire(s) proposée(s)`:''}${n&&d?' et ':''}${d?`**${d}** correction(s) automatique(s) déconseillée(s), désactivée(s)`:''}. Vous gardez la main sur chacune.`);
+}
+function hermesCorrText(c){
+  const imp=c.type==='exclure_lignes'?`${nf(c.impact)} ligne(s) retirée(s)`:c.type==='texte'?'codes gardés en texte':`${nf(c.impact)} valeur(s) concernée(s)`;
+  const what=c.type==='harmoniser'?Object.entries(c.correspondances||{}).slice(0,4).map(([a,b])=>`« ${a} » → « ${b} »`).join(' · ')
+    :c.type==='remplacer'?`${(c.valeurs||[]).map(v=>`« ${v} »`).join(', ')} → ${c.par==null?'vide':`« ${c.par} »`}`
+    :c.type==='exclure_lignes'?`${c.colonne} = ${(c.valeurs||[]).map(v=>`« ${v} »`).join(', ')}`
+    :c.type==='plage'?`${c.colonne} hors de [${c.min??'−∞'} ; ${c.max??'+∞'}] → vide`:c.colonne;
+  return `${c.raison?c.raison+' ':''}(${what} — ${imp})`;
+}
+const hermesAvis=x=>state.hclean?.for===state.clean?(state.hclean.avis||[]).find(a=>idsOf(x).includes(a.id)):null;
 // Score sur 100 : 100 moins des pénalités plafonnées, recalculées selon les corrections acceptées.
 function quality(acc){
   const a=state.original,r=state.clean?.rapport||{};if(!a)return {score:0,parts:[]};
@@ -891,11 +923,13 @@ function renderVerify(){
     (ids.length?` Identifiant probable : <code>${esc(ids[0])}</code>.`:'')+(cor?` Relation la plus forte : <code>${esc(cor.a)}</code> et <code>${esc(cor.b)}</code>.`:'');
   const items=issuesOf();
   $('#issues').innerHTML=!state.clean?`<div class="alert info">Le module de nettoyage n'est pas disponible. Vous pouvez analyser le fichier tel quel.</div>`
-    :items.length?items.map(x=>{const on=isOn(x),det=corrDetail(x);return `<div class="issue toggle ${on?'':'off'}"><span class="sev ${x.sev==='bad'?'':x.sev}" style="${x.sev==='bad'?'background:var(--red)':''}"></span><div><b>${esc(x.t)}</b><span>${esc(x.d)}</span>${det?`<details class="corr"><summary>Voir le détail</summary>${det}</details>`:''}</div>
+    :items.length?items.map(x=>{const on=isOn(x),det=corrDetail(x);return `<div class="issue toggle ${on?'':'off'}"><span class="sev ${x.sev==='bad'?'':x.sev}" style="${x.sev==='bad'?'background:var(--red)':''}"></span><div><b>${esc(x.t)}</b><span>${esc(x.d)}</span>${(av=>av?`<span style="display:block;margin-top:4px;color:${av.verdict==='deconseille'?'var(--amber)':'var(--brand)'}">✦ Hermes : ${av.verdict==='deconseille'?'déconseillé':'recommandé'}${av.raison?' — '+esc(av.raison):''}</span>`:'')(hermesAvis(x))}${det?`<details class="corr"><summary>Voir le détail</summary>${det}</details>`:''}</div>
       <button class="switch" role="switch" aria-checked="${on}" aria-label="Appliquer : ${esc(x.t)}" data-acc="${esc(x.id)}"></button></div>`}).join('')
     :`<div class="empty">${IC.check} Aucune correction nécessaire. Les données sont propres.</div>`;
   const n=items.filter(isOn).length;
-  $('#verifyLead').textContent=!state.clean?'Hermes a profilé le fichier.':items.length?`Hermes propose ${items.length} correction(s). Rien n'est appliqué sans votre accord.`:'Le fichier est déjà propre.';
+  const hc=state.hclean?.for===state.clean?state.hclean:null;
+  $('#verifyLead').innerHTML=(!state.clean?'Hermes a profilé le fichier.':items.length?`${items.length} correction(s) proposée(s). Rien n'est appliqué sans votre accord.`:'Le fichier est déjà propre.')+
+    (hc?.status==='running'?` <span class="aibadge"><span class="spin"></span> ${esc(hc.etape||'Hermes relit les corrections…')}</span>`:hc?.ia?' <span class="aibadge">✦ Relu par Hermes</span>':hc?.status==='done'&&hc.raison?` <span class="aibadge">${esc(hc.raison)}</span>`:'');
   $('#toggleAll').hidden=items.length<2;$('#toggleAll').textContent=n===items.length?'Tout désactiver':'Tout activer';
   $('#applyClean').hidden=!items.length;
   $('#applyClean').disabled=!n;
@@ -1085,9 +1119,10 @@ $('#skipClean').onclick=async()=>{
   if(state.applied){const a=await api('/api/analyze',{file_path:state.path});if(!a.error)state.original=a}
   state.analysis=state.original;state.applied=false;state.ai=null;state.structView=null;go(2)};
 $('#applyClean').onclick=async()=>{
-  const b=$('#applyClean'),skip=issuesOf().flatMap(idsOf).filter(id=>!state.accept.has(id));
+  const b=$('#applyClean'),skip=issuesOf().flatMap(idsOf).filter(id=>!id.startsWith('h:')&&!state.accept.has(id));
+  const hermes=(state.hclean?.for===state.clean?state.hclean.corrections||[]:[]).filter(c=>state.accept.has(c.id));
   b.disabled=true;b.innerHTML='<span class="spin"></span> Application des corrections…';
-  const c=await api('/api/clean',{file_path:state.path,skip});
+  const c=await api('/api/clean',{file_path:state.path,skip,hermes});
   if(c.error){renderVerify();toast('Échec du nettoyage : '+c.error);return}
   const a=await api('/api/analyze',{file_path:c.cleaned_path});
   if(a.error){renderVerify();toast('Échec : '+a.error);return}

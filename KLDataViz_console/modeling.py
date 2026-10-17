@@ -252,6 +252,8 @@ def clean_dataframe(df: pd.DataFrame, skip=None):
             })
         elif pd.api.types.is_numeric_dtype(df[c]):
             med = df[c].median()
+            if pd.api.types.is_integer_dtype(df[c]) and pd.notna(med):
+                med = int(np.floor(float(med) + 0.5))  # colonne d'entiers (Int64) : une médiane « 120,5 » n'y entre pas
             df[c] = df[c].fillna(med)
             rapport["imputations"].append({
                 "colonne": str(c), "methode": "médiane", "n": na,

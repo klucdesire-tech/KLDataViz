@@ -738,13 +738,25 @@ def _cell_safe(v):
     return v
 
 
-def clean(file_path, skip=None):
+def clean(file_path, skip=None, hermes=None):
     """Agent 2 — modélisation : nettoie, met en forme et sauvegarde un fichier.
-    `skip` : corrections refusées par l'utilisateur (voir modeling.clean_dataframe)."""
+    `skip` : corrections refusées par l'utilisateur (voir modeling.clean_dataframe).
+    `hermes` : corrections de Hermes acceptées (hermes_clean), appliquées AVANT les règles."""
     df, err = _read_df(file_path)
     if err:
         return {"error": err}
+    h_details, h_applied = {}, []
+    if hermes:
+        import hermes_clean as HCL
+        h_applied = [c for c in hermes if isinstance(c, dict)][:20]
+        df, h_details, keep_text = HCL.apply(df, h_applied)
+        skip = list(skip or []) + [f"type:{c}" for c in keep_text]  # codes gardés en texte
+        # Valeurs que Hermes vient de vider (vides déguisés, valeurs impossibles) : ne pas les recompléter
+        skip += [f"imput:{c.get('colonne')}" for c in h_applied
+                 if c.get("type") == "plage" or (c.get("type") == "remplacer" and c.get("par") is None)]
     df_clean, rapport = clean_dataframe(df, skip=skip) if skip else clean_dataframe(df)
+    if h_applied:
+        rapport["hermes"] = [dict(c, detail=h_details.get(c.get("id"), {})) for c in h_applied]
 
     # Sauvegarde de la version nettoyée (c'est elle, et elle seule, qui sera ingérée)
     cleaned_dir = T.cleaned_dir()
@@ -1680,6 +1692,39 @@ def _period_series(s):
     return None
 
 
+def _rule_items(rapport):
+    """Corrections proposées par les règles, avec les mêmes identifiants que l'interface (étape Vérifier)."""
+    items = []
+    if rapport.get("doublons_supprimes"):
+        items.append({"id": "doublons", "correction": f"supprimer {rapport['doublons_supprimes']} ligne(s) en double"})
+    if rapport.get("colonnes_vides"):
+        items.append({"id": "vides", "correction": "supprimer les colonnes vides : " + ", ".join(rapport["colonnes_vides"][:8])})
+    for k in rapport.get("encodage_corrige") or {}:
+        items.append({"id": f"encodage:{k}", "correction": f"réparer l'encodage du texte de « {k} »"})
+    for k, v in (rapport.get("types_corriges") or {}).items():
+        items.append({"id": f"type:{k}", "correction": f"convertir « {k} » de {v.get('avant')} en {v.get('apres')}"})
+    for im in rapport.get("imputations") or []:
+        items.append({"id": f"imput:{im['colonne']}",
+                      "correction": f"compléter {im['n']} vide(s) de « {im['colonne']} » par la {im.get('methode')} ({im.get('valeur')})"})
+    return items[:40]
+
+
+def hermes_clean(file_path, progress=lambda _t: None):
+    """Avis de Hermes sur les corrections des règles et corrections supplémentaires vérifiées."""
+    import hermes_clean as HCL
+    df, err = _read_df(file_path)
+    if err:
+        return {"error": err}
+    _, rapport = clean_dataframe(df)
+    cfg = _llm_config()
+    model = os.environ.get("KLDV_CLEAN_MODEL") or (cfg or {}).get("clean_model") or "deepseek-flash"
+
+    def llm(messages, max_tokens):
+        return (_llm_call(messages, max_tokens, model=model, effort="high", timeout=100, attempts=1)
+                or _llm_call(messages, max_tokens, model=model, effort="low", timeout=70, attempts=1))
+    return HCL.run(df, _rule_items(rapport), source_label(file_path), llm if cfg else None, _parse_llm_json, progress)
+
+
 def hermes_charts(file_path, progress=lambda _t: None):
     """Graphiques choisis et commentés par Hermes pour le fichier analysé (repli : graphiques automatiques)."""
     import hermes_charts as HC
@@ -1976,7 +2021,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
         # ---- POST
         if path in ("/api/analyze", "/api/chat", "/api/chat/start", "/api/insights", "/api/clean", "/api/architect",
-                    "/api/architect/apply", "/api/sheets/understand", "/api/hermes/charts") and not _rate_ok(f"{ctx.key}:{path}"):
+                    "/api/architect/apply", "/api/sheets/understand", "/api/hermes/charts", "/api/hermes/clean") and not _rate_ok(f"{ctx.key}:{path}"):
             return self._send(429, {"error": "Trop de demandes en peu de temps. Patientez une minute."})
         if path == "/api/analyze":
             file_path = str(p.get("file_path") or "")
@@ -1987,7 +2032,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 st["last_result"], st["current_path"], st["result_path"] = result, file_path, file_path
             return self._send(200, result)
         if path == "/api/clean":
-            return self._send(200, clean(str(p.get("file_path") or ""), p.get("skip") or None))
+            hermes = p.get("hermes") if isinstance(p.get("hermes"), list) else None
+            return self._send(200, clean(str(p.get("file_path") or ""), p.get("skip") or None, hermes))
+        if path == "/api/hermes/clean":
+            if T.CLOUD and _llm_config():
+                cloud.consume(ctx, "ai")
+            fp = str(p.get("file_path") or "")
+            return self._send(200, start_job(lambda progress: hermes_clean(fp, progress)))
         if path == "/api/hermes/charts":
             if T.CLOUD and _llm_config():
                 cloud.consume(ctx, "ai")
