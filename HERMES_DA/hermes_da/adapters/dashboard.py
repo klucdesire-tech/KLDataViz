@@ -227,7 +227,7 @@ ACCENTS = ["#0ea5e9", "#1286b4", "#22c55e", "#7c6fd0", "#f59e0b", "#ef4444", "#1
 TEMPLATE = """<!DOCTYPE html>
 <html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Tableau de bord KLDataViz</title>
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script>__CHARTJS__</script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:linear-gradient(180deg,#f7fafc 0%,#eef2f6 100%);color:#1f2937;padding:28px;min-height:100vh}
@@ -281,7 +281,15 @@ def _render_html(objective: str, data_json: str, kpi_defs: list, filter_cols: li
     """Tableau de bord interactif : filtres par dimension + KPI/graphiques recalculés côté client."""
     obj = (objective or "Analyse de données").replace("\\", "\\\\").replace('"', '\\"').replace("</", "<\\/")
     data_safe = data_json.replace("</", "<\\/")
+    chartjs = ""
+    chartjs_path = config.CONSOLE_DIR / "chart.umd.min.js"
+    if chartjs_path.exists():
+        try:
+            chartjs = chartjs_path.read_text(encoding="utf-8", errors="ignore").replace("</", "<\\/")
+        except Exception:
+            chartjs = ""
     return (TEMPLATE
+            .replace("__CHARTJS__", chartjs)
             .replace("__DATA__", data_safe)
             .replace("__KPIDEFS__", json.dumps(kpi_defs, ensure_ascii=False))
             .replace("__FILTERCOLS__", json.dumps(filter_cols, ensure_ascii=False))
