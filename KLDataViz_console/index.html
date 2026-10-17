@@ -312,7 +312,6 @@ tr.versions td{background:var(--surface-2);font-size:13px}
   <main class="main">
     <div class="top">
       <div class="crumb" id="crumb"><b>Nouvelle analyse</b></div>
-      <span class="status hide-sm" id="status"><i></i>Connexion…</span>
       <span class="spacer"></span>
       <div class="userbox" id="userbox" hidden><a class="btn ghost sm" id="adminLink" href="/admin" hidden>Administration</a><span id="userEmail"></span><button class="btn ghost sm" id="logoutBtn">Déconnexion</button></div>
       <button class="iconbtn" id="themeBtn" aria-label="Changer de thème" title="Changer de thème"><svg class="i" viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 0 1 9.5 4 8 8 0 1 0 20 14.5z"/></svg></button>
@@ -1557,10 +1556,8 @@ async function loadSettings(){
     $('#smtpTag').className='tag '+(s.smtp_ready?'ok':'type');$('#smtpTag').textContent=s.smtp_ready?'Configuré':'Non configuré';
   }
   if(CLOUD){loadTeam();loadAdmin()}
-  const [st,reg]=await Promise.all([api('/api/status'),api('/api/ingest/list')]);
-  const on=st&&!st.error&&String(st.status||'').toUpperCase()==='ONLINE';
+  const reg=await api('/api/ingest/list');
   $('#services').innerHTML=`
-    ${CLOUD?'':`<div class="setrow"><div><b>Orchestrateur CVLynk</b><span>${on?`${(st.capabilities||[]).length} capacité(s) déclarée(s), signal envoyé toutes les 45 s`:esc(st.error||st.detail||'Statut : '+(st.status||'inconnu'))}</span></div><span class="tag ${on?'ok':'bad'}">${on?'En ligne':'Hors ligne'}</span></div>`}
     <div class="setrow"><div><b>Registre des données</b><span>${reg.error?esc(reg.error):'Stockage : '+esc(reg.backend||'')}</span></div><span class="tag ${reg.error?'bad':'ok'}">${reg.error?'Indisponible':'Disponible'}</span></div>
     <div class="setrow"><div><b>Envoi des e-mails</b><span>${CLOUD?(s.smtp_ready?'Envoi assuré par la plateforme':'Pas encore activé sur la plateforme'):(s.smtp_ready?esc(s.smtp.host):'Renseignez le serveur SMTP ci-dessus')}</span></div><span class="tag ${s.smtp_ready?'ok':'type'}">${s.smtp_ready?'Prêt':'Non configuré'}</span></div>`;
 }
@@ -1578,15 +1575,6 @@ async function loadCounts(){
   if(Array.isArray(r))$('#cntRp').textContent=r.length||'';
   if(Array.isArray(t))$('#cntTk').textContent=t.length||'';
   if(Array.isArray(s))$('#cntSc').textContent=s.length||'';
-}
-
-/* ================= status ================= */
-async function loadStatus(){
-  if(CLOUD){$('#status').hidden=true;return}
-  const d=await api('/api/status'),el=$('#status'),st=String(d.status||'').toUpperCase();
-  el.className='status hide-sm '+(st==='ONLINE'?'on':'off');
-  el.innerHTML=`<i></i>${st==='ONLINE'?'Hermes en ligne':'Orchestrateur hors ligne'}`;
-  el.title=st==='ONLINE'?'':'L\'analyse locale fonctionne. Seules les tâches assignées sont indisponibles.';
 }
 
 /* ================= chat ================= */
@@ -1784,7 +1772,7 @@ async function boot(){
     renderMe(me);
     loadAnnouncements();
   }
-  go(0);loadStatus();loadCounts();loadSettingsData();setInterval(loadStatus,60000);
+  go(0);loadCounts();loadSettingsData();
 }
 boot();
 </script>
