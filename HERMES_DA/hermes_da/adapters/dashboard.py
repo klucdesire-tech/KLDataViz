@@ -21,19 +21,23 @@ from .. import artifacts, config
 from ..contracts import new_job_id
 from .quality import _load_dataset
 
-SYSTEM = """Tu es Hermes, architecte de tableaux de bord (santé publique, BI).
+SYSTEM = """Tu es le DATA VISUALIZATION & DASHBOARD AGENT d'Hermes (santé publique, BI).
 On te donne le PROFIL d'un dataset (colonnes, types, valeurs d'exemple, répartition)
 et un OBJECTIF MÉTIER. Propose les KPI les plus pertinents et les graphiques adaptés.
 Réponds en JSON STRICT, sans aucun texte hors du JSON, exactement sous cette forme :
 {"kpis":[{"nom":"...","agregation":"somme|moyenne|compte|max|min|taux","colonne":"...","dimension":"...","justification":"..."}],"graphiques":[{"colonne":"...","type":"bar|line|pie|hist|scatter|box","justification":"..."}]}
 Règles absolues :
+- Analyse les colonnes réellement disponibles ; ne suppose jamais une colonne ou dimension prédéfinie.
 - Ne propose QUE des colonnes qui existent réellement dans le profil (respecte leur nom exact).
-- 4 à 7 KPI pertinents pour l'objectif métier, pas plus.
+- N'invente jamais de valeur, de total, d'objectif ou de formule métier.
+- Ne confonds jamais une valeur manquante avec zéro.
+- 4 à 7 KPI pertinents pour l'objectif métier, pas plus ; évite les répétitions inutiles.
 - « dimension » (optionnel) : une colonne catégorielle (ex. region, district, domaine, sexe) pour
   regrouper le KPI. Mets-en une quand le KPI gagne à être comparé par région/période/catégorie.
+- Choisis chaque graphique selon sa pertinence analytique, pas parce qu'il est techniquement disponible.
 - Justifie chaque choix en une phrase courte, en français.
 - agrégation « somme » pour des comptages/volumes, « moyenne » pour des taux/intensités,
-  « compte » pour des effectifs, « taux » pour des proportions (0 à 1)."""
+  « compte » pour des effectifs, « taux » pour des proportions (0 à 1, sens clair)."""
 
 
 def _llm_dashboard(profile_json: str) -> dict | None:
