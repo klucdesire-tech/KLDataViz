@@ -43,6 +43,7 @@ Règle d'or : **avant d'éditer un fichier, vérifier son propriétaire ci-desso
 | `KLDataViz_console/server.py` | **point chaud** : endpoints backend (Hermes) + sert l'UI (Claude) |
 | `KLDataViz_console/llm_config.json` | config LLM (clé, modèle) |
 | `README.md`, `requirements.txt`, `.gitignore` | fichiers transverses |
+| `KLDataViz_console/tests/` | tests des deux périmètres ; chacun ajoute ceux de son code |
 
 ## Règles de coordination
 
@@ -51,3 +52,10 @@ Règle d'or : **avant d'éditer un fichier, vérifier son propriétaire ci-desso
 3. **Jamais `git push --force`** sans prévenir l'autre agent / l'utilisateur.
 4. Si un changement de l'un casse l'autre (endpoint, format), **le signaler dans le commit**.
 5. En cas de conflit de merge, **réconcilier les deux versions** (ne pas écraser).
+6. **Jamais de push direct sur `main`** : toute modification passe par une branche et une pull request, et c'est
+   l'utilisateur qui décide de la fusion. Si deux branches touchent les mêmes lignes, GitHub signale le conflit
+   au lieu d'écraser le travail de l'autre.
+7. **Les tests passent avant chaque PR** : `.venv/Scripts/python.exe -m pytest tests -q` depuis `KLDataViz_console`.
+   Toute route `/api/...` appelée par l'interface est couverte par un test ; un changement de format de réponse
+   met à jour le test et l'interface dans la même PR.
+8. **Aucune donnée de santé réelle** (TA-MOH) n'est committée ni envoyée à l'IA pendant les tests : données fictives.
