@@ -435,7 +435,7 @@ tr.versions td{background:var(--surface-2);font-size:13px}
         <div class="head"><h1>Ce que disent vos données</h1><p id="anLead"></p></div>
         <div class="kpis" id="kpis"></div>
         <div><div class="toolbar" style="margin-bottom:10px"><div class="label">Points clés trouvés par Hermes</div><span class="spacer"></span><span class="aibadge" id="aiBadge"></span></div><div class="insights" id="insights"></div></div>
-        <div><div class="toolbar" style="margin-bottom:10px"><div class="label">Graphiques</div><span class="aibadge" id="hermesBadge" style="margin-left:10px"></span><span class="spacer"></span><button class="btn ghost sm" id="hermesToggle" hidden></button><button class="btn ghost sm" id="moreCharts" hidden></button></div>
+        <div><div class="toolbar" style="margin-bottom:10px"><div class="label">Graphiques</div><span class="aibadge" id="hermesBadge" style="margin-left:10px"></span><span class="spacer"></span><button class="btn ghost sm" id="moreCharts" hidden></button></div>
           <p class="sub" id="hermesSynth" hidden style="margin:-2px 0 10px"></p>
           <div class="charts" id="charts"></div></div>
         <div id="details" style="display:grid;gap:12px"></div>
@@ -1169,14 +1169,12 @@ async function loadHermesCharts(){
   if(r.ia&&(r.charts||[]).length&&state.step===2)drawAnalyzeCharts();else renderHermesBar();
 }
 function renderHermesBar(){
-  const h=state.hermes,a=state.analysis,b=$('#hermesBadge'),t=$('#hermesToggle'),syn=$('#hermesSynth');if(!b)return;
+  const h=state.hermes,a=state.analysis,b=$('#hermesBadge'),syn=$('#hermesSynth');if(!b)return;
   const ok=h&&h.for===a&&h.status==='done'&&h.ia&&(h.charts||[]).length;
-  b.innerHTML=!h||h.for!==a?'':h.status==='running'?`<span class="spin"></span> ${esc(h.etape||'Hermes choisit les graphiques…')}`
-    :ok&&!state.hermesOff?(h.source==='hermes'?'✦ Choisis et commentés par Hermes':'✦ Commentés par Hermes'):'';
-  t.hidden=!ok;t.textContent=state.hermesOff?'Voir les graphiques de Hermes':'Graphiques automatiques';
-  syn.hidden=!(ok&&!state.hermesOff&&h.synthese);syn.innerHTML=ok&&h.synthese?`<b>Synthèse :</b> ${md(h.synthese)}`:'';
+  b.innerHTML=!h||h.for!==a?'':h.status==='running'?`<span class="spin"></span> ${esc(h.etape||'Hermes prépare ses graphiques…')} Les graphiques ci-dessous seront remplacés.`
+    :ok?(h.source==='hermes'?'✦ Choisis et commentés par Hermes':'✦ Commentés par Hermes'):'';
+  syn.hidden=!(ok&&h.synthese);syn.innerHTML=ok&&h.synthese?`<b>Synthèse :</b> ${md(h.synthese)}`:'';
 }
-$('#hermesToggle').onclick=()=>{state.hermesOff=!state.hermesOff;drawAnalyzeCharts()};
 async function loadAiInsights(){
   const a=state.analysis,key=a;
   $('#aiBadge').innerHTML='<span class="spin"></span> Hermes rédige les points clés…';
@@ -1216,7 +1214,7 @@ function renderAnalyze(){
 }
 const detailsBlock=(t,html)=>`<details class="more"><summary>${t}</summary><div class="tablewrap">${html}</div></details>`;
 const perVarCharts=a=>[...(a.bivariate?.groupes||[]).map(g=>({title:`${g.num} moyen par ${g.cat}`,subtitle:'Moyenne par groupe',type:'bar',labels:g.labels,values:[g.moyennes]})),...(a.charts||[]).map(c=>({...c,subtitle:c.subtitle||'Vue par variable'}))];
-const hermesReady=a=>!state.hermesOff&&state.hermes?.for===a&&(state.hermes.charts||[]).length;
+const hermesReady=a=>state.hermes?.for===a&&state.hermes.ia&&(state.hermes.charts||[]).length;
 const baseCharts=a=>hermesReady(a)?state.hermes.charts:(a.smart_charts||[]).length?a.smart_charts:perVarCharts(a).slice(0,6);
 // Graphiques du rapport PDF : les mêmes que l'écran Analyser, redessinés hors écran en thème clair (2×) puis envoyés en JPEG.
 async function chartImages(){
@@ -1245,7 +1243,7 @@ function drawAnalyzeCharts(){
   const base=baseCharts(a);
   const shown=state.showAll?[...base,...(smart.length?perVar:perVar.slice(6))]:base;
   const wide=c=>c.kind==='trend'||(c.kind==='ranking'&&c.labels.length>8);
-  $('#charts').innerHTML=shown.length?shown.map((c,i)=>`<div class="card${wide(c)?' wide':''}"><h2 style="font-size:14.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(c.title)}">${esc(c.title)}</h2>${c.subtitle?`<p class="sub">${esc(c.subtitle)}</p>`:''}<div class="cbox" style="${c.kind==='ranking'?`height:${Math.max(220,c.labels.length*30+50)}px`:''}"><canvas id="ac${i}" role="img" aria-label="${esc(c.title)}"></canvas></div>${c.lecture?`<div class="alert info" style="margin-top:10px;color:var(--fg)"><b>Lecture de Hermes :</b> ${md(c.lecture)}</div>`:''}</div>`).join('')
+  $('#charts').innerHTML=shown.length?shown.map((c,i)=>`<div class="card${wide(c)?' wide':''}"><h2 style="font-size:14.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(c.title)}">${esc(c.title)}</h2>${c.subtitle?`<p class="sub">${esc(c.subtitle)}</p>`:''}<div class="cbox" style="${c.kind==='ranking'?`height:${Math.max(220,c.labels.length*30+50)}px`:''}"><canvas id="ac${i}" role="img" aria-label="${esc(c.title)}"></canvas></div>${c.lecture||c.lecture_auto?`<div class="alert info" style="margin-top:10px;color:var(--fg)"><b>${c.lecture?'✦ Lecture de Hermes':'Lecture'} :</b> ${md(c.lecture||c.lecture_auto)}</div>`:''}</div>`).join('')
     :'<div class="card empty">Aucun graphique pour ce fichier.</div>';
   shown.forEach((c,i)=>{const cv=document.getElementById('ac'+i);if(cv){const ch=drawChart(cv,c);if(ch)state.charts.push(ch)}});
   renderHermesBar();

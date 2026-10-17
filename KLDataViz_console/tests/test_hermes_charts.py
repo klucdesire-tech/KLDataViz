@@ -75,3 +75,16 @@ def test_stock_derniere_periode():
     c = HC.build_one(_df(), g, server._period_series)
     # dernière période = mars 2025 (j = 3) : 100 + 10 * i + 3, jamais la somme des 4 mois
     assert c["labels"][0] == "Site 5" and c["values"][0][0] == 153 and "2025-03" in c["subtitle"]
+
+
+def test_lecture_par_regles_des_graphiques_automatiques():
+    server, _ = _load()
+    with tempfile.TemporaryDirectory() as d:
+        src = os.path.join(d, "fa.csv")
+        _df().to_csv(src, index=False)
+        charts = server.analyze(src)["smart_charts"]
+        assert charts and all(c.get("lecture_auto") for c in charts)
+        assert "<b>" not in charts[0]["lecture_auto"] and "**" in charts[0]["lecture_auto"]  # gras en markdown pour l'écran
+        rank = next(c for c in charts if c["kind"] == "ranking")
+        assert rank["subtitle"].startswith("Dernière période (2025-03)")              # file active = stock
+        assert rank["values"][0][0] == 153                                             # Site 5 en mars, pas la somme
