@@ -804,6 +804,20 @@ def build(result, path):
 
     # ---- 2. Synthèse
     story.append(Paragraph("2. Synthèse des résultats", st["h1"]))
+    ev = r.get("_evolution")  # rapport planifié : ce qui a changé depuis l'envoi précédent
+    if ev:
+        since = (ev.get("depuis") or "")[:10]
+        since = f"{since[8:10]}/{since[5:7]}/{since[:4]}" if len(since) == 10 else ""
+        story.append(Paragraph(("Depuis le dernier envoi" + (f" ({since})" if since else "")) if ev.get("depuis")
+                               else "Premier envoi de ce rapport", st["h2"]))
+        story.append(callout(("<b>Hermes</b> — " if ev.get("ia") else "") + md(ev.get("resume", "")), st))
+        story.append(Spacer(1, 4))
+        if ev.get("alertes"):
+            story.append(callout("<b>Points d'attention</b><br/>" + "<br/>".join("• " + md(a) for a in ev["alertes"]), st, "warn"))
+            story.append(Spacer(1, 4))
+        for e in ev.get("evolutions") or []:
+            story.append(Paragraph(md(e), st["bullet"], bulletText="•"))
+        story.append(Paragraph("Situation actuelle", st["h2"]))
     pts = [f"Le fichier contient <b>{nf(rows_n)} lignes</b> et <b>{nf(r.get('columns'))} colonnes</b> ; "
            f"la complétude est <b>{quality_verdict(comp)}</b> ({pct(comp)})."]
     if anomalies:

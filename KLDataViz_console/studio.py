@@ -263,7 +263,7 @@ def delete_schedule(job_id):
         _save_schedules(items)
 
 
-def run_schedule(job_id, analyze_fn, exporters, exports_dir):
+def run_schedule(job_id, analyze_fn, exporters, exports_dir, commentary_fn=None):
     job = next((j for j in list_schedules() if j["id"] == job_id), None)
     if job is None:
         raise KeyError("Planification introuvable.")
@@ -273,13 +273,21 @@ def run_schedule(job_id, analyze_fn, exporters, exports_dir):
     if "error" in result:
         status = "Erreur : " + str(result["error"])
     else:
+        # Ce qui a changé depuis l'envoi précédent (Hermes, ou règles sans IA) : en tête du rapport et dans l'e-mail
+        ev = None
+        if commentary_fn is not None:
+            try:
+                ev = commentary_fn(job, result)
+            except Exception:
+                ev = None
+        if ev:
+            result = dict(result, _evolution=ev)
         fn = exporters[job["format"]](result)
         if job.get("to"):
             try:
+                import hermes_report
                 send_mail(job["to"], f"Rapport KLDataViz — {job['name']} — {now:%d/%m/%Y}",
-                          f"Bonjour,\n\nVeuillez trouver ci-joint le rapport {job['name']} "
-                          f"({result.get('rows')} lignes, complétude {result.get('completeness_pct')} %).\n\n"
-                          "Rapport généré automatiquement par KLDataViz.",
+                          hermes_report.email_text(job["name"], result, ev),
                           os.path.join(exports_dir, fn))
                 status = f"Envoyé à {len(job['to'])} destinataire(s)"
             except Exception as exc:
@@ -290,7 +298,7 @@ def run_schedule(job_id, analyze_fn, exporters, exports_dir):
                            next_run=next_run(job["freq"], job["hour"], now).isoformat(timespec="seconds"))
 
 
-def start_scheduler(analyze_fn, exporters, exports_dir):
+def start_scheduler(analyze_fn, exporters, exports_dir, commentary_fn=None):
     if T.CLOUD:
         def cloud_loop():
             while True:
@@ -298,7 +306,7 @@ def start_scheduler(analyze_fn, exporters, exports_dir):
                     for org_id, j in cloud.due_schedules():
                         with T.use(cloud.org_ctx(org_id)):
                             try:
-                                run_schedule(j["id"], analyze_fn, exporters, T.exports_dir())
+                                run_schedule(j["id"], analyze_fn, exporters, T.exports_dir(), commentary_fn)
                             except Exception as exc:
                                 update_schedule(j["id"], last_status=f"Erreur : {exc}"[:300],
                                                 next_run=next_run(j["freq"], j["hour"]).isoformat(timespec="seconds"))
@@ -315,7 +323,7 @@ def start_scheduler(analyze_fn, exporters, exports_dir):
                 for j in list_schedules():
                     if j.get("on") and j.get("next_run") and j["next_run"] <= now:
                         try:
-                            run_schedule(j["id"], analyze_fn, exporters, exports_dir)
+                            run_schedule(j["id"], analyze_fn, exporters, exports_dir, commentary_fn)
                         except Exception as exc:
                             update_schedule(j["id"], last_status=f"Erreur : {exc}",
                                             next_run=next_run(j["freq"], j["hour"]).isoformat(timespec="seconds"))
