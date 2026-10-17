@@ -1737,7 +1737,8 @@ async function loadAnnouncements(){
 const ROLE={owner:'Propriétaire',analyst:'Analyste',viewer:'Lecteur'};
 function loadScript(src){return new Promise((ok,ko)=>{const s=document.createElement('script');s.src=src;s.onload=ok;s.onerror=ko;document.head.append(s)})}
 function applyCloudUI(){
-  ['[data-src="path"]','[data-src="db"]','#taskSrcBtn','#classicCard','#smtpCard','nav.menu [data-nav="tasks"]','#dbCard'].forEach(sel=>$$(sel).forEach(el=>el.hidden=true));
+  // #toDashboard / exp dashboard : l'agent AGT-11 vit dans HERMES_DA/, absent de l'image Render (rootDir KLDataViz_console)
+  ['[data-src="path"]','[data-src="db"]','#taskSrcBtn','#classicCard','#smtpCard','nav.menu [data-nav="tasks"]','#dbCard','#toDashboard','.exp[data-exp="dashboard"]'].forEach(sel=>$$(sel).forEach(el=>el.hidden=true));
   $('#userbox').hidden=false;$('#pathTitle').textContent='Lien Google Sheets ou web';
   $('#pathHint').textContent='Collez le lien d\'une feuille Google Sheets (partagée avec « Tous les utilisateurs disposant du lien ») ou l\'URL https d\'un fichier CSV, Excel ou JSON.';
   $('#pathInput').placeholder='https://docs.google.com/spreadsheets/…';
