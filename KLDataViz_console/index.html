@@ -300,6 +300,7 @@ tr.versions td{background:var(--surface-2);font-size:13px}
     <div class="ws"><span id="orgName">Équipe Data</span><span>Espace de travail local</span></div>
     <nav class="menu">
       <button aria-current="page" data-nav="home"><svg class="i" viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5V21h-6v-6H9v6H3z"/></svg>Analyse</button>
+      <button data-nav="dashboard"><svg class="i" viewBox="0 0 24 24"><path d="M4 4h7v9H4zM13 4h7v5h-7zM13 11h7v9h-7zM4 15h7v5H4z"/></svg>Tableau de bord</button>
       <button data-nav="datasets"><svg class="i" viewBox="0 0 24 24"><path d="M4 6c0-1.7 3.6-3 8-3s8 1.3 8 3-3.6 3-8 3-8-1.3-8-3zm0 0v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></svg>Données<span class="count" id="cntDs"></span></button>
       <button data-nav="reports"><svg class="i" viewBox="0 0 24 24"><path d="M14 3H6a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8zM14 3v5h5M9 13h6M9 17h6"/></svg>Rapports<span class="count" id="cntRp"></span></button>
       <button data-nav="schedule"><svg class="i" viewBox="0 0 24 24"><path d="M5 5h14v15H5zM5 10h14M9 3v4M15 3v4"/></svg>Planifié<span class="count" id="cntSc"></span></button>
@@ -438,7 +439,7 @@ tr.versions td{background:var(--surface-2);font-size:13px}
           <p class="sub" id="hermesSynth" hidden style="margin:-2px 0 10px"></p>
           <div class="charts" id="charts"></div></div>
         <div id="details" style="display:grid;gap:12px"></div>
-        <div class="actions"><button class="btn ghost" id="toDashboard">📊 Tableau de bord</button><button class="btn primary" id="toShare">Exporter et partager<svg class="i" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button></div>
+        <div class="actions"><button class="btn primary" id="toShare">Exporter et partager<svg class="i" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button></div>
       </section>
 
       <!-- 4. PARTAGER -->
@@ -448,7 +449,6 @@ tr.versions td{background:var(--surface-2);font-size:13px}
           <button class="exp" data-exp="pdf"><span class="fmt">PDF</span><b>Rapport à imprimer</b><span>Synthèse prête pour la direction</span></button>
           <button class="exp" data-exp="excel"><span class="fmt">XLSX</span><b>Classeur Excel</b><span>Une feuille par section de l'analyse</span></button>
           <button class="exp" data-exp="html"><span class="fmt">HTML</span><b>Page web</b><span>S'ouvre dans n'importe quel navigateur</span></button>
-          <button class="exp" data-exp="dashboard"><span class="fmt">📊</span><b>Tableau de bord</b><span>KPI + graphiques interactifs et filtres</span></button>
           <button class="exp" id="ingestCard"><span class="fmt">DB</span><b>Enregistrer dans le registre</b><span>Nouvelle version, source intacte, métadonnées dans PostgreSQL</span></button>
         </div>
         <div class="card" id="ingestOut" hidden></div>
@@ -498,6 +498,11 @@ tr.versions td{background:var(--surface-2);font-size:13px}
       </section>
 
       <!-- TÂCHES -->
+      <section class="view" data-view="dashboard" hidden>
+        <div class="head"><h1>Tableau de bord</h1><p id="dbLead">Indicateurs clés, graphiques et filtres interactifs, construits par l'agent AGT-11 à partir des données analysées.</p></div>
+        <div class="toolbar" id="dbBar" hidden><span class="aibadge" id="dbBadge"></span><span class="spacer"></span><button class="btn ghost sm" id="dbRegen">Régénérer</button><button class="btn ghost sm" id="dbOpen">Ouvrir dans un onglet</button></div>
+        <div class="card" id="dbBody"><div class="empty">Chargement…</div></div>
+      </section>
       <section class="view" data-view="tasks" hidden>
         <div class="head"><h1>Tâches assignées</h1><p>Les analyses lancées par l'orchestrateur interne (HERMES_DA).</p></div>
         <div class="card"><div class="list" id="tkList"><div class="empty">Chargement…</div></div></div>
@@ -657,7 +662,7 @@ hours($('#ssHour'));hours($('#scHour'));
 /* ================= state & navigation ================= */
 const state={step:0,path:'',name:'',original:null,analysis:null,clean:null,accept:new Set(),applied:false,charts:[],showAll:false,ai:null,settings:null,registry:[]};
 const STEPS=['Importer','Vérifier','Analyser','Partager'], VIEWS=['import','verify','analyze','share'];
-const SECTIONS={datasets:'Données',reports:'Rapports',schedule:'Planifié',tasks:'Tâches',settings:'Réglages'};
+const SECTIONS={dashboard:'Tableau de bord',datasets:'Données',reports:'Rapports',schedule:'Planifié',tasks:'Tâches',settings:'Réglages'};
 
 function reach(i){return i===0||(i===1&&!!state.original)||(i>=2&&!!state.analysis)}
 function renderStepper(){
@@ -678,7 +683,7 @@ function go(i){
 function nav(key){
   if(key==='home'){go(state.step);return}
   setNav(key);show(key);
-  ({datasets:loadDatasets,reports:loadReports,schedule:loadSchedules,tasks:loadTasks,settings:loadSettings})[key]();
+  ({dashboard:loadDashboard,datasets:loadDatasets,reports:loadReports,schedule:loadSchedules,tasks:loadTasks,settings:loadSettings})[key]();
 }
 $('#stepper').addEventListener('click',e=>{const b=e.target.closest('[data-go]');if(b&&!b.disabled)go(+b.dataset.go)});
 $$('nav.menu button').forEach(b=>b.onclick=()=>nav(b.dataset.nav));
@@ -1284,16 +1289,29 @@ function drawAnalyzeCharts(){
 }
 $('#moreCharts').onclick=()=>{state.showAll=!state.showAll;drawAnalyzeCharts()};
 $('#toShare').onclick=()=>go(3);
-$('#toDashboard').onclick=async()=>{
-  const src=state.applied&&state.cleanedPath?state.cleanedPath:state.path;
-  if(!src){toast('Analysez d\'abord un fichier');return}
-  const b=$('#toDashboard'),old=b.textContent;
-  b.innerHTML='<span class="spin"></span> Génération…';
+// ---- Tableau de bord (agent AGT-11), page du menu : généré une fois par jeu de données analysé
+async function loadDashboard(force){
+  const body=$('#dbBody'),src=currentDataPath(),a=state.analysis;
+  if(!a||!src){$('#dbBar').hidden=true;
+    body.innerHTML=`<div class="empty">Analysez d'abord un fichier : le tableau de bord se construit à partir des données analysées.<br><button class="btn primary" data-goto="home" style="margin-top:12px">Importer un fichier</button></div>`;return}
+  $('#dbLead').textContent=`${state.name} · ${state.structView?'structure proposée':state.applied?'données corrigées':'données d\'origine'} · ${nf(a.rows)} lignes`;
+  if(!force&&state.dash?.for===a&&state.dash.html)return showDashboard();
+  $('#dbBar').hidden=true;
+  body.innerHTML='<div class="empty"><span class="spin"></span> L\'agent AGT-11 choisit les indicateurs et construit le tableau de bord (jusqu\'à 1 min)…</div>';
   const d=await api('/api/dashboard',{file_path:src});
-  b.textContent=old;
-  if(d.html){const blob=new Blob([d.html],{type:'text/html'});window.open(URL.createObjectURL(blob),'_blank');toast(d.ia?'Tableau de bord généré (IA)':'Tableau de bord généré (règles)')}
-  else{toast(d.error||'Génération impossible')}
-};
+  if(state.analysis!==a)return;  // une autre analyse a été ouverte entre-temps
+  if(!d.html){body.innerHTML=`<div class="alert">${esc(d.error||'Génération impossible.')}</div>`;return}
+  state.dash={for:a,html:d.html,ia:d.ia};showDashboard();
+}
+function showDashboard(){
+  const d=state.dash;$('#dbBar').hidden=false;
+  $('#dbBadge').textContent=d.ia?'✦ Indicateurs choisis par l\'IA':'Indicateurs choisis par règles';
+  // Cadre isolé : le tableau de bord exécute ses propres scripts (Chart.js embarqué) sans accès à l'application
+  $('#dbBody').innerHTML='<iframe id="dbFrame" title="Tableau de bord" sandbox="allow-scripts" style="width:100%;height:78vh;border:0;border-radius:10px;background:#fff"></iframe>';
+  $('#dbFrame').srcdoc=d.html;
+}
+$('#dbRegen').onclick=()=>loadDashboard(true);
+$('#dbOpen').onclick=()=>{if(state.dash?.html){const u=URL.createObjectURL(new Blob([state.dash.html],{type:'text/html'}));window.open(u,'_blank')}};
 
 // ---- rendu des graphiques (style « Studio » : courbes lissées, barres triées, valeurs lisibles)
 function hexA(hex,a){const h=String(hex).trim().replace('#','');if(h.length<6)return hex;const n=parseInt(h.slice(0,6),16);return `rgba(${n>>16&255},${n>>8&255},${n&255},${a})`}
@@ -1415,14 +1433,6 @@ function renderShare(){
 $$('.exp[data-exp]').forEach(b=>b.onclick=async()=>{
   const kind=b.dataset.exp,s=b.querySelector('span:last-child'),old=s.textContent;
   s.innerHTML='<span class="spin"></span> Génération…';
-  if(kind==='dashboard'){
-    const src=state.applied&&state.cleanedPath?state.cleanedPath:state.path;
-    if(!src){s.textContent=old;toast('Analysez d\'abord un fichier');return}
-    const d=await api('/api/dashboard',{file_path:src});
-    if(d.html){const blob=new Blob([d.html],{type:'text/html'});window.open(URL.createObjectURL(blob),'_blank');s.textContent='Ouvrir le tableau de bord';toast(d.ia?'Tableau de bord généré (IA)':'Tableau de bord généré (règles)')}
-    else{s.textContent=old;toast(d.error||'Génération impossible')}
-    return;
-  }
   let body={};
   if(kind==='pdf')try{body={charts:await chartImages(),...(hermesReady(state.analysis)&&state.hermes.synthese?{hermes_synthese:state.hermes.synthese}:{})}}catch(e){console.warn('Graphiques du PDF : '+e)}
   const d=await api('/api/export/'+kind,body);

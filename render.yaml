@@ -5,8 +5,15 @@ services:
   - type: web
     name: kldataviz
     runtime: docker
-    rootDir: KLDataViz_console
-    dockerfilePath: ./Dockerfile
+    # Construite depuis la racine pour embarquer HERMES_DA/hermes_da (agent AGT-11) ; /.dockerignore = liste blanche
+    dockerfilePath: ./KLDataViz_console/Dockerfile
+    dockerContext: .
+    buildFilter:              # ne redéploie que si le code embarqué change
+      paths:
+        - KLDataViz_console/**
+        - HERMES_DA/hermes_da/**
+        - render.yaml
+        - .dockerignore
     plan: starter            # le disque persistant demande une offre payante
     region: frankfurt        # au plus près de Supabase (Europe)
     healthCheckPath: /healthz
