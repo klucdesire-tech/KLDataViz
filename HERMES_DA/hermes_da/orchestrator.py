@@ -10,6 +10,7 @@ demande la validation, puis compose la réponse finale. Toutes les étapes vont 
 """
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 from . import agents_registry, artifacts, contracts, jobs as jobs_module
@@ -84,6 +85,72 @@ def plan(objective: str, *, source: str | None = None, dataset_version_id: str |
 
     add("validate", "validation indépendante obligatoire avant toute restitution")
     return steps
+
+
+# Dépendances entre types de tâches : une étape ne démarre qu'une fois ses prérequis terminés.
+# « validate » n'est pas listée : elle est toujours exécutée en dernière vague (contrôle final).
+DEPENDENCIES: dict[str, set[str]] = {
+    "ingest": set(),
+    "quality_check": {"ingest"},
+    "clean": {"ingest"},
+    "indicator": {"ingest"},
+    "analyze": {"ingest"},
+    "detect_anomalies": {"ingest"},
+    "visualize": {"ingest"},
+    "interpret": {"indicator", "analyze", "detect_anomalies"},
+    "report": {"interpret"},
+}
+
+
+def _execution_levels(steps: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:
+    """Regroupe les étapes en vagues topologiques.
+
+    Au sein d'une vague, les étapes sont indépendantes (elles peuvent s'exécuter en
+    parallèle) ; les vagues s'enchaînent séquentiellement dans l'ordre des dépendances.
+    """
+    types_present = {s["task_type"] for s in steps}
+    done: set[str] = set()
+    levels: list[list[dict[str, Any]]] = []
+    remaining = list(steps)
+    while remaining:
+        ready: list[dict[str, Any]] = []
+        rest: list[dict[str, Any]] = []
+        for s in remaining:
+            if s["task_type"] == "validate":
+                rest.append(s)  # toujours la dernière vague
+                continue
+            prereq = DEPENDENCIES.get(s["task_type"], set()) & types_present
+            if prereq <= done:
+                ready.append(s)
+            else:
+                rest.append(s)
+        if not ready:
+            ready, rest = rest, []  # ne restent que des étapes validate
+        levels.append(ready)
+        for s in ready:
+            done.add(s["task_type"])
+        remaining = rest
+    return levels
+
+
+def _execute_parallel(step: dict[str, Any], objective: str, source: str | None,
+                      parameters: dict | None, master_job_id: str,
+                      dataset_version_id: str | None) -> tuple[Envelope, dict[str, Any]]:
+    """Exécute une étape (hors ingest/validate) dans un thread avec connexion dédiée."""
+    db = Database()
+    manager = jobs_module.JobManager(db)
+    try:
+        env = Envelope(
+            agent_id=step["agent_id"], task_type=step["task_type"], objective=objective,
+            parent_job_id=master_job_id, dataset_version_id=dataset_version_id,
+            input_reference={},
+            parameters={"dataset_version_id": dataset_version_id},
+            max_attempts=2,
+        )
+        outcome = dispatch(db, manager, env)
+        return env, outcome
+    finally:
+        db.close()
 
 
 # ---------------------------------------------------------------------- exécution
@@ -166,33 +233,30 @@ def run(objective: str, *, source: str | None = None, parameters: dict | None = 
         datasets_used: list[dict[str, Any]] = []
         warnings: list[str] = []
         errors: list[str] = []
-        current_dataset_version: str | None = None
-        primary_job_id: str | None = None
-        last_data_job_id: str | None = None
         step_logs: list[dict[str, Any]] = []
+        state: dict[str, Any] = {"current_dataset_version": None,
+                                 "primary_job_id": None, "last_data_job_id": None}
 
-        # ---------------- dispatch étape par étape
-        for step in steps:
+        def build_env(step: dict[str, Any]) -> Envelope:
             env = Envelope(
                 agent_id=step["agent_id"], task_type=step["task_type"], objective=objective,
-                parent_job_id=master.job_id, dataset_version_id=current_dataset_version,
+                parent_job_id=master.job_id, dataset_version_id=state["current_dataset_version"],
                 input_reference=({"path": source} if source and step["task_type"] == "ingest" else {}),
-                parameters=parameters if step["task_type"] == "ingest" else {"dataset_version_id": current_dataset_version},
+                parameters=(parameters if step["task_type"] == "ingest"
+                            else {"dataset_version_id": state["current_dataset_version"]}),
                 max_attempts=2,
             )
             if step["task_type"] == "validate":
                 # On valide le résultat produit ; à défaut, le dernier job de données exécuté
                 # (même en échec) — jamais le job de planification, qui ne produit aucun résultat.
-                target = primary_job_id or last_data_job_id
+                target = state["primary_job_id"] or state["last_data_job_id"]
                 if target is None:
                     target = master.job_id
                 env.parameters = {"target_job_id": target}
                 env.input_reference = {"target_job_id": target}
+            return env
 
-            outcome = dispatch(db, manager, env)
-            if step["task_type"] not in ("plan", "validate") and outcome["status"] in ("DONE", "FAILED"):
-                # cible de validation : le dernier job de données réellement exécuté
-                last_data_job_id = env.job_id
+        def collect(step: dict[str, Any], env: Envelope, outcome: dict[str, Any]) -> None:
             summary = {"order": step["order"], "agent_id": env.agent_id, "agent_name": step["agent_name"],
                        "task_type": env.task_type, "status": outcome["status"], "job_id": env.job_id,
                        "attempts": outcome.get("attempts"), "available": step["available"],
@@ -205,13 +269,31 @@ def run(objective: str, *, source: str | None = None, parameters: dict | None = 
 
             ref = outcome.get("result_reference") or {}
             if ref.get("dataset_version_id"):
-                current_dataset_version = ref["dataset_version_id"]
-                primary_job_id = env.job_id
+                state["current_dataset_version"] = ref["dataset_version_id"]
+                state["primary_job_id"] = env.job_id
                 datasets_used.append({"dataset_id": ref.get("dataset_id"),
                                       "dataset_version_id": ref.get("dataset_version_id"),
                                       "row_count": ref.get("row_count"), "column_count": ref.get("column_count")})
             if step["task_type"] == "ingest" and outcome["status"] == "DONE":
-                primary_job_id = env.job_id
+                state["primary_job_id"] = env.job_id
+            if env.task_type not in ("plan", "validate") and outcome["status"] in ("DONE", "FAILED"):
+                state["last_data_job_id"] = env.job_id
+
+        # ---------------- exécution par vagues (étapes indépendantes en parallèle)
+        for level in _execution_levels(steps):
+            if len(level) == 1:
+                step = level[0]
+                env = build_env(step)
+                outcome = dispatch(db, manager, env)
+                collect(step, env, outcome)
+            else:
+                with ThreadPoolExecutor(max_workers=len(level)) as pool:
+                    futures = {step["task_type"]: pool.submit(
+                        _execute_parallel, step, objective, source, parameters,
+                        master.job_id, state["current_dataset_version"]) for step in level}
+                for step in level:  # collecte dans l'ordre du plan (déterministe)
+                    env, outcome = futures[step["task_type"]].result()
+                    collect(step, env, outcome)
 
         validation_status = (results.get("validate", {}).get("result_reference") or {}).get("decision", "NON_EVALUEE")
 

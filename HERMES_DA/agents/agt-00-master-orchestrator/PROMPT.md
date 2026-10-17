@@ -21,10 +21,12 @@ orchestrator, plan_engine, dispatcher, jobs (PostgreSQL), keyword_matcher
 
 ## WORKFLOW
 1. Lire la demande (mots-clés → étapes)
-2. Établir le plan ordonné (ingest → qualité → … → validate)
-3. Dispatcher chaque étape
-4. Collecter résultats, avertissements, erreurs
-5. Déclencher la validation, puis composer la réponse
+2. Établir le plan ordonné (ingest → … → validate)
+3. Regrouper les étapes en vagues topologiques selon les dépendances
+4. Exécuter chaque vague : les étapes indépendantes tournent en parallèle
+   (threads avec connexion PostgreSQL dédiée), les vagues s'enchaînent séquentiellement
+5. Collecter résultats, avertissements, erreurs (dans l'ordre du plan)
+6. Déclencher la validation, puis composer la réponse
 
 ## CONTRAT DE SORTIE
 plan (liste d'étapes justifiées) · results (par étape) · datasets_used · warnings · errors · validation_status
