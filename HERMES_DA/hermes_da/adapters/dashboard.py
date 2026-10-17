@@ -222,75 +222,70 @@ def _json_safe(o: Any) -> Any:
 ACCENTS = ["#0ea5e9", "#1286b4", "#22c55e", "#7c6fd0", "#f59e0b", "#ef4444", "#14b8a6", "#8b5cf6"]
 
 
-def _render_html(objective: str, kpis: list[dict], charts: list[dict]) -> str:
-    """Génère un tableau de bord HTML autonome (cartes KPI + graphiques Chart.js)."""
-    kpi_cards = ""
-    for i, k in enumerate(kpis):
-        color = ACCENTS[i % len(ACCENTS)]
-        sub = k.get("justification", "")
-        if k.get("top"):
-            top_label, top_val = k["top"]
-            sub = f"{k.get('dimension')} · top : {top_label} ({_fmt(top_val)}) · {sub}"
-        kpi_cards += (
-            f'<div class="kpi" style="border-top:3px solid {color}">'
-            f'<div class="kpi-v">{_fmt(k.get("valeur"))}</div>'
-            f'<div class="kpi-n">{k.get("nom", "KPI")}</div>'
-            f'<div class="kpi-s">{sub}</div></div>'
-        )
+ACCENTS = ["#0ea5e9", "#1286b4", "#22c55e", "#7c6fd0", "#f59e0b", "#ef4444", "#14b8a6", "#8b5cf6"]
 
-    charts_html = ""
-    for i, ch in enumerate(charts):
-        cid = f"ch{i}"
-        ctype = ch.get("type", "bar")
-        title = ch.get("titre") or ch.get("colonne", "Graphique")
-        charts_html += (
-            f'<div class="card"><div class="card-h">{title}'
-            f'<span class="card-s">{ch.get("justification", "")}</span></div>'
-            f'<div class="chart-box"><canvas id="{cid}"></canvas></div></div>'
-        )
-
-    js_charts = ""
-    for i, ch in enumerate(charts):
-        cid = f"ch{i}"
-        data = ch.get("data", {})
-        ctype = ch.get("type", "bar")
-        labels = json.dumps(data.get("labels", []), ensure_ascii=False)
-        values = json.dumps(data.get("values", []), ensure_ascii=False)
-        ctype_js = {"hist": "bar", "box": "bar", "pie": "pie"}.get(ctype, ctype)
-        datasets = json.dumps([{"label": ch.get("colonne", ""), "data": data.get("values", []),
-                                "backgroundColor": ACCENTS[i % len(ACCENTS)]}], ensure_ascii=False)
-        js_charts += (
-            f'new Chart(document.getElementById("{cid}"),{{type:"{ctype_js}",'
-            f'data:{{labels:{labels},datasets:{datasets}}},'
-            f'options:{{responsive:true,maintainAspectRatio:false,plugins:{{legend:{{display:false}}}}}}}});'
-        )
-
-    return f"""<!DOCTYPE html>
+TEMPLATE = """<!DOCTYPE html>
 <html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Tableau de bord KLDataViz</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <style>
-*{{box-sizing:border-box;margin:0;padding:0}}
-body{{font-family:'Segoe UI',system-ui,sans-serif;background:#eef1f4;color:#1f2937;padding:24px}}
-.head{{margin-bottom:18px}}
-.head h1{{font-size:22px;font-weight:700}}
-.head p{{color:#667085;font-size:13px;margin-top:4px}}
-.kpis{{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-bottom:18px}}
-.kpi{{background:#fff;border-radius:12px;padding:16px;box-shadow:0 1px 2px rgba(0,0,0,.05)}}
-.kpi-v{{font-size:28px;font-weight:700;letter-spacing:-.5px}}
-.kpi-n{{font-size:13px;font-weight:600;margin-top:4px}}
-.kpi-s{{font-size:11.5px;color:#667085;margin-top:4px;line-height:1.4}}
-.grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:14px}}
-.card{{background:#fff;border-radius:12px;padding:16px;box-shadow:0 1px 2px rgba(0,0,0,.05)}}
-.card-h{{font-size:14px;font-weight:600;margin-bottom:10px}}
-.card-s{{display:block;font-size:11.5px;color:#667085;font-weight:400;margin-top:2px}}
-.chart-box{{height:280px;position:relative}}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:linear-gradient(180deg,#f7fafc 0%,#eef2f6 100%);color:#1f2937;padding:28px;min-height:100vh}
+.head{margin-bottom:20px;padding-bottom:16px;border-bottom:2px solid #eef2f6}
+.head h1{font-size:26px;font-weight:800;letter-spacing:-.5px;background:linear-gradient(90deg,#0ea5e9,#7c6fd0);-webkit-background-clip:text;background-clip:text;color:transparent}
+.head p{color:#667085;font-size:13.5px;margin-top:6px}
+.filters{display:flex;flex-wrap:wrap;gap:12px;margin-bottom:22px}
+.filters label{display:flex;flex-direction:column;font-size:11px;font-weight:600;color:#667085;gap:5px;text-transform:uppercase;letter-spacing:.3px}
+.filters select{min-width:150px;padding:9px 12px;border:1px solid #dbe3ea;border-radius:10px;background:#fff;font-size:13px;color:#1f2937;box-shadow:0 1px 2px rgba(0,0,0,.04);cursor:pointer;transition:border .15s,box-shadow .15s}
+.filters select:hover{border-color:#0ea5e9;box-shadow:0 0 0 3px rgba(14,165,233,.12)}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;margin-bottom:22px}
+.kpi{position:relative;background:#fff;border-radius:14px;padding:18px 16px;box-shadow:0 2px 6px rgba(15,23,42,.06);overflow:hidden;transition:transform .15s,box-shadow .15s}
+.kpi:hover{transform:translateY(-3px);box-shadow:0 8px 20px rgba(15,23,42,.1)}
+.kpi-v{font-size:30px;font-weight:800;letter-spacing:-.5px;color:#0f172a}
+.kpi-n{font-size:13px;font-weight:600;margin-top:6px;color:#334155}
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px;vertical-align:1px}
+.kpi-s{font-size:11.5px;color:#667085;margin-top:5px;line-height:1.45}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(360px,1fr));gap:16px}
+.card{background:#fff;border-radius:14px;padding:18px;box-shadow:0 2px 6px rgba(15,23,42,.06);transition:box-shadow .15s}
+.card:hover{box-shadow:0 8px 20px rgba(15,23,42,.1)}
+.card-h{font-size:14px;font-weight:700;margin-bottom:12px;color:#0f172a}
+.chart-box{height:300px;position:relative}
 </style></head><body>
-<div class="head"><h1>Tableau de bord</h1><p>{objective or "Analyse de données"}</p></div>
-<div class="kpis">{kpi_cards}</div>
-<div class="grid">{charts_html}</div>
-<script>{js_charts}</script>
+<div class="head"><h1>Tableau de bord</h1><p id="objective"></p></div>
+<div class="filters" id="filters"></div>
+<div class="kpis" id="kpis"></div>
+<div class="grid" id="charts"></div>
+<script>
+window.DATA=__DATA__;
+window.KPIDEFS=__KPIDEFS__;
+window.FILTERCOLS=__FILTERCOLS__;
+window.OBJECTIVE="__OBJECTIVE__";
+var ACCENTS=["#0ea5e9","#1286b4","#22c55e","#7c6fd0","#f59e0b","#ef4444","#14b8a6","#8b5cf6"];
+var state={};var charts=[];
+function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}
+function fmt(v){if(v==null)return '\u2014';var n=Number(v);if(isNaN(n))return '\u2014';if(Math.abs(n)>=1000)return n.toLocaleString('fr-FR',{maximumFractionDigits:0});return n.toLocaleString('fr-FR',{maximumFractionDigits:2})}
+function filtered(){return DATA.filter(function(r){return FILTERCOLS.every(function(c){return state[c]==null||state[c]==='all'||String(r[c])===state[c]})})}
+function agg(rows,col,agr){if(agr==='compte')return col?rows.filter(function(r){return r[col]!=null&&r[col]!==''}).length:rows.length;var vals=rows.map(function(r){return parseFloat(r[col])}).filter(function(v){return !isNaN(v)});if(!vals.length)return null;if(agr==='moyenne')return vals.reduce(function(a,b){return a+b},0)/vals.length;if(agr==='max')return Math.max.apply(null,vals);if(agr==='min')return Math.min.apply(null,vals);if(agr==='taux')return vals.reduce(function(a,b){return a+b},0)/vals.length;return vals.reduce(function(a,b){return a+b},0)}
+function groupAgg(rows,col,agr,dim,top){var acc={};rows.forEach(function(r){var k=String(r[dim]==null?'':r[dim]);if(k===''||k==='null')return;if(!acc[k])acc[k]={sum:0,count:0,max:-Infinity,min:Infinity};var o=acc[k];if(agr==='compte'){if(col==null||(r[col]!=null&&r[col]!==''))o.count++;return}var n=parseFloat(r[col]);if(isNaN(n))return;o.sum+=n;o.count++;if(n>o.max)o.max=n;if(n<o.min)o.min=n});var entries=Object.keys(acc).map(function(k){var o=acc[k],v;if(agr==='compte')v=o.count;else if(agr==='moyenne')v=o.count?o.sum/o.count:0;else if(agr==='max')v=o.max;else if(agr==='min')v=o.min;else v=o.sum;return [k,v]}).sort(function(a,b){return b[1]-a[1]}).slice(0,top||6);return {labels:entries.map(function(e){return e[0]}),values:entries.map(function(e){return e[1]})}}
+function buildFilters(){var el=document.getElementById('filters');el.innerHTML='';FILTERCOLS.forEach(function(c){var vals=[],seen={};DATA.forEach(function(r){var v=String(r[c]==null?'':r[c]);if(v!==''&&v!=='null'&&!seen[v]){seen[v]=1;vals.push(v)}});vals.sort();var lab=document.createElement('label');lab.innerHTML='<span>'+esc(c)+'</span>';var sel=document.createElement('select');sel.innerHTML='<option value="all">Tous</option>'+vals.map(function(v){return '<option value="'+esc(v)+'">'+esc(v)+'</option>'}).join('');sel.onchange=function(){state[c]=sel.value;render()};lab.appendChild(sel);el.appendChild(lab)})}
+function renderKpis(){var rows=filtered();var el=document.getElementById('kpis');el.innerHTML='';KPIDEFS.forEach(function(k,i){var v=agg(rows,k.colonne,k.agregation);var sub='';if(k.dimension){var g=groupAgg(rows,k.colonne,k.agregation,k.dimension);if(g.labels.length)sub=esc(k.dimension)+' \u00b7 top : '+esc(g.labels[0])+' ('+fmt(g.values[0])+')'}el.innerHTML+='<div class="kpi" style="border-top:4px solid '+ACCENTS[i%ACCENTS.length]+'"><div class="kpi-v">'+fmt(v)+'</div><div class="kpi-n"><span class="dot" style="background:'+ACCENTS[i%ACCENTS.length]+'"></span>'+esc(k.nom)+'</div><div class="kpi-s">'+sub+'</div></div>'})}
+function renderCharts(){var rows=filtered();var el=document.getElementById('charts');el.innerHTML='';charts.forEach(function(c){c.destroy()});charts=[];KPIDEFS.forEach(function(k,i){if(!k.dimension)return;var g=groupAgg(rows,k.colonne,k.agregation,k.dimension);if(!g.labels.length)return;var cid='ch'+i;el.innerHTML+='<div class="card"><div class="card-h">'+esc(k.nom)+' par '+esc(k.dimension)+'</div><div class="chart-box"><canvas id="'+cid+'"></canvas></div></div>';charts.push(new Chart(document.getElementById(cid),{type:'bar',data:{labels:g.labels,datasets:[{data:g.values,backgroundColor:ACCENTS[i%ACCENTS.length]}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}}}}))})}
+function render(){renderKpis();renderCharts()}
+document.getElementById('objective').textContent=window.OBJECTIVE;
+buildFilters();render();
+</script>
 </body></html>"""
+
+
+def _render_html(objective: str, data_json: str, kpi_defs: list, filter_cols: list) -> str:
+    """Tableau de bord interactif : filtres par dimension + KPI/graphiques recalculés côté client."""
+    obj = (objective or "Analyse de données").replace("\\", "\\\\").replace('"', '\\"').replace("</", "<\\/")
+    data_safe = data_json.replace("</", "<\\/")
+    return (TEMPLATE
+            .replace("__DATA__", data_safe)
+            .replace("__KPIDEFS__", json.dumps(kpi_defs, ensure_ascii=False))
+            .replace("__FILTERCOLS__", json.dumps(filter_cols, ensure_ascii=False))
+            .replace("__OBJECTIVE__", obj))
 
 
 def run(env, db, jobs) -> dict:
@@ -354,8 +349,15 @@ def run(env, db, jobs) -> dict:
                            "data": kpi["breakdown"],
                            "justification": kpi.get("justification", "")})
 
-    # 4. rendu HTML (design inspiré du modèle fourni)
-    html = _render_html(objective, kpis, charts)
+    # 4. préparation de l'interactivité (filtres + données embarquées)
+    kpi_defs = [{"nom": k["nom"], "agregation": k["agregation"], "colonne": k["colonne"],
+                 "dimension": k.get("dimension")} for k in kpis]
+    filter_cols = [str(c) for c in df.columns if 1 < int(df[c].nunique(dropna=True)) <= 30]
+    sample = df if len(df) <= 6000 else df.sample(6000, random_state=0)
+    data_json = json.dumps(sample.to_dict(orient="records"), ensure_ascii=False, default=str)
+
+    # 5. rendu HTML (tableau de bord interactif)
+    html = _render_html(objective, data_json, kpi_defs, filter_cols)
     config.ensure_dirs()
     html_path = config.ARTIFACTS_DIR / f"{env.job_id}__dashboard.html"
     html_path.write_text(html, encoding="utf-8")
