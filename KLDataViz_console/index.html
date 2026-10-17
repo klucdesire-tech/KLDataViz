@@ -400,7 +400,7 @@ tr.versions td{background:var(--surface-2);font-size:13px}
               <div class="scoreline"><span class="sub" style="margin:0">Avec les corrections choisies :</span><span class="num" id="scoreAfter">–</span></div>
               <p class="sub" id="ringTxt"></p><div class="chips" id="dsChips"></div></div>
           </div>
-          <div class="card"><h2>Ce que Hermes a compris</h2><p class="sub" style="font-size:14px;color:var(--fg);margin-top:8px" id="understood"></p></div>
+          <div class="card"><h2>Ce que Hermes a compris</h2><div class="sub" style="font-size:14px;color:var(--fg);margin-top:8px" id="understood"></div></div>
         </div>
         <div class="card">
           <div class="toolbar"><h2>Corrections proposées</h2><span class="spacer"></span><button class="btn ghost sm" id="toggleAll"></button></div>
@@ -879,7 +879,20 @@ async function loadHermesClean(path){
   (r.avis||[]).filter(a=>a.verdict==='deconseille').forEach(a=>state.accept.delete(a.id));
   if(state.step===1)renderVerify();
   const n=(r.corrections||[]).length,d=(r.avis||[]).filter(a=>a.verdict==='deconseille').length;
+  if(r.comprehension?.resume)say(`Voici ce que je comprends de **${state.name}** : ${r.comprehension.resume}`);
   if(r.ia&&(n||d))say(`J'ai relu les corrections : ${n?`**${n}** correction(s) supplémentaire(s) proposée(s)`:''}${n&&d?' et ':''}${d?`**${d}** correction(s) automatique(s) déconseillée(s), désactivée(s)`:''}. Vous gardez la main sur chacune.`);
+}
+// Compréhension du fichier par Hermes : résumé, grain, période, colonnes par rôle, pièges.
+const ROLE_FR={identifiant:'Identifiants',dimension:'Axes d\'analyse',periode:'Période',mesure_flux:'Mesures (flux, s\'additionnent)',
+  mesure_stock:'Mesures (stock, à une date)',taux:'Taux',texte_libre:'Texte libre',autre:'Autres'};
+function understoodHtml(c){
+  const by={};(c.colonnes||[]).forEach(x=>(by[x.role]=by[x.role]||[]).push(x));
+  const roles=Object.keys(ROLE_FR).filter(r=>by[r]);
+  return `<span class="aibadge" style="display:inline-block;margin-bottom:6px">✦ Hermes</span><br>${md(c.resume)}`+
+    (c.grain?`<p style="margin:8px 0 0"><b>Une ligne :</b> ${esc(c.grain.replace(/^\s*une ligne\s*(=|:|représente|correspond à)\s*/i,''))}</p>`:'')+
+    (c.periode?`<p style="margin:4px 0 0"><b>Période :</b> ${esc(c.periode)}</p>`:'')+
+    (roles.length?`<div style="margin-top:8px;display:grid;gap:4px">${roles.map(r=>`<div><b>${ROLE_FR[r]} :</b> ${by[r].map(x=>`<code title="${esc(x.sens)}">${esc(x.nom)}</code>`).join(' ')}</div>`).join('')}</div>`:'')+
+    ((c.pieges||[]).length?`<div class="alert" style="margin-top:10px;background:var(--amber-soft);color:var(--fg)"><b>À savoir :</b><ul style="margin:4px 0 0 18px">${c.pieges.map(p=>`<li>${md(p)}</li>`).join('')}</ul></div>`:'');
 }
 function hermesCorrText(c){
   const imp=c.type==='exclure_lignes'?`${nf(c.impact)} ligne(s) retirée(s)`:c.type==='texte'?'codes gardés en texte':`${nf(c.impact)} valeur(s) concernée(s)`;
@@ -921,6 +934,9 @@ function renderVerify(){
   const cor=(a.bivariate?.correlations||[])[0];
   $('#understood').innerHTML=`Le fichier <b>${esc(a.file)}</b> contient <b>${nNum}</b> variable(s) numérique(s) et <b>${cd.length-nNum}</b> variable(s) texte ou date.`+
     (ids.length?` Identifiant probable : <code>${esc(ids[0])}</code>.`:'')+(cor?` Relation la plus forte : <code>${esc(cor.a)}</code> et <code>${esc(cor.b)}</code>.`:'');
+  const hu=state.hclean?.for===state.clean?state.hclean:null;
+  if(hu?.comprehension?.resume)$('#understood').innerHTML=understoodHtml(hu.comprehension);
+  else if(hu?.status==='running')$('#understood').innerHTML+=`<span class="aibadge" style="display:block;margin-top:8px"><span class="spin"></span> Hermes étudie le fichier…</span>`;
   const items=issuesOf();
   $('#issues').innerHTML=!state.clean?`<div class="alert info">Le module de nettoyage n'est pas disponible. Vous pouvez analyser le fichier tel quel.</div>`
     :items.length?items.map(x=>{const on=isOn(x),det=corrDetail(x);return `<div class="issue toggle ${on?'':'off'}"><span class="sev ${x.sev==='bad'?'':x.sev}" style="${x.sev==='bad'?'background:var(--red)':''}"></span><div><b>${esc(x.t)}</b><span>${esc(x.d)}</span>${(av=>av?`<span style="display:block;margin-top:4px;color:${av.verdict==='deconseille'?'var(--amber)':'var(--brand)'}">✦ Hermes : ${av.verdict==='deconseille'?'déconseillé':'recommandé'}${av.raison?' — '+esc(av.raison):''}</span>`:'')(hermesAvis(x))}${det?`<details class="corr"><summary>Voir le détail</summary>${det}</details>`:''}</div>
@@ -1155,7 +1171,8 @@ function renderInsights(list,ai){
 async function loadHermesCharts(){
   const a=state.analysis;if(!a)return;
   state.hermes={for:a,status:'running',etape:'Hermes choisit les graphiques…'};renderHermesBar();
-  const s=await api('/api/hermes/charts',{file_path:currentDataPath()});
+  const comp=state.hclean?.for===state.clean?state.hclean.comprehension:null;  // rôles des colonnes (stock, flux, taux…)
+  const s=await api('/api/hermes/charts',{file_path:currentDataPath(),...(comp&&!state.structView?{comprehension:comp}:{})});
   let r=s.error?s:null;
   for(let i=0;!r&&i<80;i++){
     await new Promise(ok=>setTimeout(ok,3000));
