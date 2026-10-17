@@ -1660,6 +1660,46 @@ def architect_start(paths):
 architect_job = job_status
 
 
+def _period_series(s):
+    """Colonne de période sous forme de dates (date réelle, « 2026-01 », « Avril 2025 », « T1 2025 »), sinon None."""
+    if pd.api.types.is_datetime64_any_dtype(s):
+        return s
+    if pd.api.types.is_numeric_dtype(s):
+        return None
+    sample = s.dropna().astype(str).head(40)
+    if len(sample) < 2:
+        return None
+    try:
+        parsed = pd.to_datetime(sample, errors="coerce", format="mixed", dayfirst=True)
+        if parsed.notna().mean() >= 0.9:
+            return pd.to_datetime(s.astype(str), errors="coerce", format="mixed", dayfirst=True)
+    except Exception:
+        pass
+    if sample.map(_fr_period).notna().mean() >= 0.9:
+        return pd.to_datetime(s.map(_fr_period))
+    return None
+
+
+def hermes_charts(file_path, progress=lambda _t: None):
+    """Graphiques choisis et commentés par Hermes pour le fichier analysé (repli : graphiques automatiques)."""
+    import hermes_charts as HC
+    df, err = _read_df(file_path)
+    if err:
+        return {"error": err}
+    cumul = _cumul_rows(df)
+    if cumul["lignes"]:  # les lignes « Total » ne sont pas des catégories
+        txt = [c for c in df.columns if not pd.api.types.is_numeric_dtype(df[c])]
+        df = df[~df[txt].astype(str).apply(lambda s: s.str.match(TOTAL_LABEL)).any(axis=1)]
+    base = _report_charts(df) if _is_report(df) else _smart_charts(df)
+    cfg = _llm_config()
+    model = os.environ.get("KLDV_CHARTS_MODEL") or (cfg or {}).get("charts_model") or "deepseek-flash"
+
+    def llm(messages, max_tokens):
+        return (_llm_call(messages, max_tokens, model=model, effort="high", timeout=100, attempts=1)
+                or _llm_call(messages, max_tokens, model=model, effort="low", timeout=70, attempts=1))
+    return HC.run(df, source_label(file_path), base, llm if cfg else None, _parse_llm_json, _period_series, progress)
+
+
 def architect_apply(paths, spec):
     if architect is None:
         return {"error": f"Agent architecte indisponible : {ARCHITECT_ERROR}"}
@@ -1906,7 +1946,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 return self._send(code if code else 502, r)
             if path == "/api/exports":
                 return self._send(200, _list_exports())
-            if path in ("/api/architect/job", "/api/chat/job"):
+            if path in ("/api/architect/job", "/api/chat/job", "/api/hermes/job"):
                 return self._send(200, job_status((parse_qs(urlparse(self.path).query).get("id") or [""])[0]))
             if path == "/api/settings":
                 return self._send(200, studio.public_settings())
@@ -1936,7 +1976,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
         # ---- POST
         if path in ("/api/analyze", "/api/chat", "/api/chat/start", "/api/insights", "/api/clean", "/api/architect",
-                    "/api/architect/apply", "/api/sheets/understand") and not _rate_ok(f"{ctx.key}:{path}"):
+                    "/api/architect/apply", "/api/sheets/understand", "/api/hermes/charts") and not _rate_ok(f"{ctx.key}:{path}"):
             return self._send(429, {"error": "Trop de demandes en peu de temps. Patientez une minute."})
         if path == "/api/analyze":
             file_path = str(p.get("file_path") or "")
@@ -1948,6 +1988,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return self._send(200, result)
         if path == "/api/clean":
             return self._send(200, clean(str(p.get("file_path") or ""), p.get("skip") or None))
+        if path == "/api/hermes/charts":
+            if T.CLOUD and _llm_config():
+                cloud.consume(ctx, "ai")
+            fp = str(p.get("file_path") or "")
+            return self._send(200, start_job(lambda progress: hermes_charts(fp, progress)))
         if path == "/api/architect":
             if T.CLOUD and _llm_config():
                 cloud.consume(ctx, "ai")
@@ -1975,6 +2020,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 # Graphiques dessinés par l'interface (identiques à l'écran Analyser), 12 au plus
                 result = dict(result, _chart_images=[c for c in p["charts"][:12]
                                                      if isinstance(c, dict) and isinstance(c.get("image"), str)])
+            if path.endswith("/pdf") and p.get("hermes_synthese"):
+                result = dict(result, _hermes_synthese=str(p["hermes_synthese"])[:900])
             fn = EXPORTERS[path.rsplit("/", 1)[-1]](result)
             return self._send(200, {"url": download_url(fn), "file": fn})
         if path == "/api/upload-source":

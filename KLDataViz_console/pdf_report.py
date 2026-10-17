@@ -841,6 +841,9 @@ def build(result, path):
         story.append(callout("<b>Attention</b> — les statistiques des sections 5 à 7 incluent les lignes de cumul "
                              f"({', '.join(esc(t) for t in totals)}). Utilisez « Proposer une structure » dans KLDataViz pour les séparer automatiquement.", st, "warn"))
         story.append(Spacer(1, 4))
+    if r.get("_hermes_synthese"):
+        story.append(callout(f"<b>Synthèse de Hermes</b> — {md(r['_hermes_synthese'])}", st))
+        story.append(Spacer(1, 4))
     if insights:
         story.append(Paragraph("Constats de l'IA (Hermes)", st["h2"]))
         for it in insights:
@@ -903,9 +906,12 @@ def build(result, path):
                 block.append(Paragraph(esc(c["subtitle"]), st["small"]))
             block.append(Spacer(1, 3))
             block.append(fig)
-            txt = interpret_chart(c)
-            if txt:
-                block.append(Paragraph(f"<b>Lecture :</b> {txt}", st["interp"]))
+            if c.get("lecture"):
+                block.append(Paragraph(f"<b>Lecture de Hermes :</b> {md(c['lecture'])}", st["interp"]))
+            else:
+                txt = interpret_chart(c)
+                if txt:
+                    block.append(Paragraph(f"<b>Lecture :</b> {txt}", st["interp"]))
             story.append(KeepTogether(block))
 
     # ---- 5. Statistiques descriptives
