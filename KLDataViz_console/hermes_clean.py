@@ -81,6 +81,11 @@ def _f(x):
 SYSTEM = (
     "Tu es Hermes, data manager expérimenté (données sanitaires et de gestion). On te donne le profil d'un "
     "fichier et la liste des corrections automatiques proposées par des règles.\n"
+    "0. Explique ce que contient le fichier à un utilisateur non technique : sujet, ce que représente UNE ligne "
+    "(grain), période couverte si elle se voit, rôle de chaque colonne (identifiant, dimension, periode, "
+    "mesure_flux = s'additionne dans le temps comme des nouveaux cas, mesure_stock = mesurée à une date comme une "
+    "file active, taux, texte_libre, autre) avec son sens probable, et les pièges à connaître (codes lus comme des "
+    "nombres, dates en texte, lignes de total, colonnes vides ou constantes). Ne déduis rien qui ne se voie pas.\n"
     "1. Donne ton avis sur chaque correction des règles : « recommande » ou « deconseille », avec une raison "
     "courte et concrète. Déconseille par exemple de compléter par la médiane un effectif ou un nombre de cas "
     "(le vide peut vouloir dire « aucun cas » ou « non rapporté »), ou de convertir en nombre un code "
@@ -95,7 +100,10 @@ SYSTEM = (
     "Utilise les noms de colonnes et les valeurs EXACTEMENT comme dans le profil. N'invente rien : si rien "
     "n'est utile, renvoie une liste vide.\n"
     "Réponds avec un objet JSON valide et rien d'autre :\n"
-    '{{"avis":[{{"id":"…","verdict":"recommande|deconseille","raison":"…"}}],'
+    '{{"comprehension":{{"resume":"2 phrases","grain":"une ligne = …","periode":"… ou null",'
+    '"colonnes":[{{"nom":"…","role":"identifiant|dimension|periode|mesure_flux|mesure_stock|taux|texte_libre|autre",'
+    '"sens":"…"}}],"pieges":["…"]}},'
+    '"avis":[{{"id":"…","verdict":"recommande|deconseille","raison":"…"}}],'
     '"corrections":[{{"type":"…","colonne":"…","titre":"phrase courte","raison":"…", …}}]}}'
 )
 
@@ -234,7 +242,7 @@ def apply(df, corrections):
 def run(df, rule_items, file_name, llm, parse, progress=lambda _t: None):
     if llm is None:
         return {"ia": False, "avis": [], "corrections": [], "raison": "IA non configurée"}
-    progress("Hermes relit les corrections…")
+    progress("Hermes étudie le fichier et relit les corrections…")
     prof = profile(df, rule_items, file_name)
     content = llm([{"role": "system", "content": SYSTEM.format(n=MAX_CORR)},
                    {"role": "user", "content": json.dumps(prof, ensure_ascii=False, default=str)}], 12000)
@@ -247,4 +255,30 @@ def run(df, rule_items, file_name, llm, parse, progress=lambda _t: None):
         if isinstance(a, dict) and str(a.get("id")) in known and a.get("verdict") in ("recommande", "deconseille"):
             avis.append({"id": str(a["id"]), "verdict": a["verdict"], "raison": str(a.get("raison") or "")[:300]})
     corrections, rejected = validate(df, data.get("corrections"))
-    return {"ia": True, "avis": avis, "corrections": corrections, "rejetees": rejected}
+    return {"ia": True, "avis": avis, "corrections": corrections, "rejetees": rejected,
+            "comprehension": understanding(df, data.get("comprehension"))}
+
+
+ROLES = {"identifiant", "dimension", "periode", "mesure_flux", "mesure_stock", "taux", "texte_libre", "autre"}
+
+
+def _txt(v, n):
+    return "" if v in (None, "", "null") else re.sub(r"\s+", " ", str(v)).strip()[:n]
+
+
+def understanding(df, comp):
+    """Compréhension du fichier par Hermes, limitée aux colonnes qui existent vraiment."""
+    if not isinstance(comp, dict):
+        return None
+    cols = []
+    for c in comp.get("colonnes") or []:
+        if not isinstance(c, dict):
+            continue
+        name = _col(df, c.get("nom"))
+        if name is None:
+            continue
+        role = str(c.get("role") or "autre").lower()
+        cols.append({"nom": str(name), "role": role if role in ROLES else "autre", "sens": _txt(c.get("sens"), 160)})
+    return {"resume": _txt(comp.get("resume"), 500), "grain": _txt(comp.get("grain"), 200),
+            "periode": _txt(comp.get("periode"), 120), "colonnes": cols[:60],
+            "pieges": [_txt(p, 220) for p in (comp.get("pieges") or []) if _txt(p, 220)][:6]}

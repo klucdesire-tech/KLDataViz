@@ -1776,7 +1776,7 @@ def schedule_commentary(job, result):
     return HR.run(job["id"], result, T.current().dir(os.path.join("storage", "snapshots")), llm, _parse_llm_json)
 
 
-def hermes_charts(file_path, progress=lambda _t: None):
+def hermes_charts(file_path, progress=lambda _t: None, comprehension=None):
     """Graphiques choisis et commentés par Hermes pour le fichier analysé (repli : graphiques automatiques)."""
     import hermes_charts as HC
     df, err = _read_df(file_path)
@@ -1793,7 +1793,8 @@ def hermes_charts(file_path, progress=lambda _t: None):
     def llm(messages, max_tokens):
         return (_llm_call(messages, max_tokens, model=model, effort="high", timeout=100, attempts=1)
                 or _llm_call(messages, max_tokens, model=model, effort="low", timeout=70, attempts=1))
-    return HC.run(df, source_label(file_path), base, llm if cfg else None, _parse_llm_json, _period_series, progress)
+    return HC.run(df, source_label(file_path), base, llm if cfg else None, _parse_llm_json, _period_series, progress,
+                  comprehension if isinstance(comprehension, dict) else None)
 
 
 def architect_apply(paths, spec):
@@ -2094,7 +2095,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if T.CLOUD and _llm_config():
                 cloud.consume(ctx, "ai")
             fp = str(p.get("file_path") or "")
-            return self._send(200, start_job(lambda progress: hermes_charts(fp, progress)))
+            comp = p.get("comprehension")
+            return self._send(200, start_job(lambda progress: hermes_charts(fp, progress, comp)))
         if path == "/api/architect":
             if T.CLOUD and _llm_config():
                 cloud.consume(ctx, "ai")

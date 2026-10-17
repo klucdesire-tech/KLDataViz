@@ -265,12 +265,14 @@ def _compact(c):
     return out
 
 
-def run(df, file_name, base_charts, llm, parse, period_of, progress=lambda _t: None):
+def run(df, file_name, base_charts, llm, parse, period_of, progress=lambda _t: None, comprehension=None):
     """Graphiques choisis et commentés par Hermes ; repli sur base_charts (graphiques automatiques)."""
     if llm is None:
         return {"charts": base_charts, "ia": False, "source": "regles", "raison": "IA non configurée"}
     progress("Hermes étudie les colonnes du fichier…")
     prof = profile(df, file_name, period_of)
+    if comprehension:  # rôles déjà établis à l'étape Vérifier (stock, flux, taux…) : même lecture du fichier
+        prof["comprehension_etape_verifier"] = {k: comprehension.get(k) for k in ("resume", "grain", "colonnes")}
     content = llm([{"role": "system", "content": SYSTEM_PROPOSE.format(n=MAX_CHARTS)},
                    {"role": "user", "content": json.dumps(prof, ensure_ascii=False, default=str)}], 6000)
     data = parse(content) or {}

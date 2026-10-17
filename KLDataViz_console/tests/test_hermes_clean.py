@@ -79,3 +79,14 @@ def test_clean_avec_corrections_de_hermes():
 def test_sans_ia():
     server, H = _load()
     assert H.run(_df(), [], "f.csv", None, server._parse_llm_json)["ia"] is False
+
+
+def test_comprehension_limitee_aux_colonnes_existantes():
+    _, H = _load()
+    comp = H.understanding(_df(), {"resume": "Cas par site.", "grain": "une ligne = un site",
+                                   "colonnes": [{"nom": "district", "role": "dimension", "sens": "district sanitaire"},
+                                                {"nom": "inventee", "role": "taux"},
+                                                {"nom": "nouveaux_cas", "role": "inconnu"}],
+                                   "pieges": ["codes à zéros en tête", ""]})
+    assert [c["nom"] for c in comp["colonnes"]] == ["district", "nouveaux_cas"]
+    assert comp["colonnes"][1]["role"] == "autre" and comp["pieges"] == ["codes à zéros en tête"]
