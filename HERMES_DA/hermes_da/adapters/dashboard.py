@@ -25,10 +25,12 @@ SYSTEM = """Tu es Hermes, architecte de tableaux de bord (santé publique, BI).
 On te donne le PROFIL d'un dataset (colonnes, types, valeurs d'exemple, répartition)
 et un OBJECTIF MÉTIER. Propose les KPI les plus pertinents et les graphiques adaptés.
 Réponds en JSON STRICT, sans aucun texte hors du JSON, exactement sous cette forme :
-{"kpis":[{"nom":"...","agregation":"somme|moyenne|compte|max|min|taux","colonne":"...","justification":"..."}],"graphiques":[{"colonne":"...","type":"bar|line|pie|hist|scatter|box","justification":"..."}]}
+{"kpis":[{"nom":"...","agregation":"somme|moyenne|compte|max|min|taux","colonne":"...","dimension":"...","justification":"..."}],"graphiques":[{"colonne":"...","type":"bar|line|pie|hist|scatter|box","justification":"..."}]}
 Règles absolues :
 - Ne propose QUE des colonnes qui existent réellement dans le profil (respecte leur nom exact).
 - 4 à 7 KPI pertinents pour l'objectif métier, pas plus.
+- « dimension » (optionnel) : une colonne catégorielle (ex. region, district, domaine, sexe) pour
+  regrouper le KPI. Mets-en une quand le KPI gagne à être comparé par région/période/catégorie.
 - Justifie chaque choix en une phrase courte, en français.
 - agrégation « somme » pour des comptages/volumes, « moyenne » pour des taux/intensités,
   « compte » pour des effectifs, « taux » pour des proportions (0 à 1)."""
@@ -132,6 +134,33 @@ def _agg(df, colonne: str | None, agregation: str) -> float | int | None:
     return int(s.notna().sum())
 
 
+def _agg_grouped(df, colonne: str | None, agregation: str, dimension: str, top: int = 6) -> dict | None:
+    """Agrégation d'un KPI regroupé par une dimension (labels + valeurs triés décroissants)."""
+    import pandas as pd
+    a = (agregation or "").lower()
+    if dimension is None or dimension not in df.columns:
+        return None
+    if colonne is None or colonne not in df.columns:
+        vc = df[dimension].astype(str).value_counts().head(top)
+        return {"labels": [str(x) for x in vc.index], "values": [int(x) for x in vc.values]}
+    if a in ("compte", "count", "effectif"):
+        vc = df.groupby(dimension)[colonne].count().sort_values(ascending=False).head(top)
+        return {"labels": [str(x) for x in vc.index], "values": [int(x) for x in vc.values]}
+    s = pd.to_numeric(df[colonne], errors="coerce")
+    if a in ("moyenne", "mean", "avg"):
+        g = df.assign(_v=s).groupby(dimension)["_v"].mean()
+    elif a in ("max", "maximum"):
+        g = df.assign(_v=s).groupby(dimension)["_v"].max()
+    elif a in ("min", "minimum"):
+        g = df.assign(_v=s).groupby(dimension)["_v"].min()
+    elif a in ("taux", "rate", "pct", "proportion"):
+        g = df.assign(_v=s).groupby(dimension)["_v"].mean()
+    else:
+        g = df.assign(_v=s).groupby(dimension)["_v"].sum()
+    g = g.sort_values(ascending=False).head(top)
+    return {"labels": [str(x) for x in g.index], "values": [round(float(x), 2) for x in g.values]}
+
+
 def _chart_data(df, colonne: str, ctype: str) -> dict:
     import pandas as pd
     import numpy as np
@@ -198,11 +227,15 @@ def _render_html(objective: str, kpis: list[dict], charts: list[dict]) -> str:
     kpi_cards = ""
     for i, k in enumerate(kpis):
         color = ACCENTS[i % len(ACCENTS)]
+        sub = k.get("justification", "")
+        if k.get("top"):
+            top_label, top_val = k["top"]
+            sub = f"{k.get('dimension')} · top : {top_label} ({_fmt(top_val)}) · {sub}"
         kpi_cards += (
             f'<div class="kpi" style="border-top:3px solid {color}">'
             f'<div class="kpi-v">{_fmt(k.get("valeur"))}</div>'
             f'<div class="kpi-n">{k.get("nom", "KPI")}</div>'
-            f'<div class="kpi-s">{k.get("justification", "")}</div></div>'
+            f'<div class="kpi-s">{sub}</div></div>'
         )
 
     charts_html = ""
@@ -290,9 +323,16 @@ def run(env, db, jobs) -> dict:
         if col is not None and col not in cols:
             continue
         v = _agg(df, col, k.get("agregation", "compte"))
-        kpis.append({"nom": k.get("nom") or (col or "Total"), "valeur": v,
-                     "agregation": k.get("agregation"), "colonne": col,
-                     "justification": k.get("justification", "")})
+        kpi = {"nom": k.get("nom") or (col or "Total"), "valeur": v,
+               "agregation": k.get("agregation"), "colonne": col,
+               "dimension": k.get("dimension"), "justification": k.get("justification", "")}
+        dim = k.get("dimension")
+        if dim and dim in cols and dim != col:
+            bd = _agg_grouped(df, col, k.get("agregation", "compte"), dim)
+            if bd and bd.get("labels"):
+                kpi["breakdown"] = bd
+                kpi["top"] = (bd["labels"][0], bd["values"][0])
+        kpis.append(kpi)
 
     charts = []
     for g in spec.get("graphiques", [])[:8]:
@@ -305,6 +345,14 @@ def run(env, db, jobs) -> dict:
         charts.append({"colonne": col, "type": g.get("type", "bar"),
                        "titre": g.get("nom") or f"{col}", "data": data,
                        "justification": g.get("justification", "")})
+
+    # graphiques de répartition pour les KPI regroupés par dimension
+    for kpi in kpis:
+        if kpi.get("breakdown"):
+            charts.append({"colonne": kpi["colonne"], "type": "bar",
+                           "titre": f"{kpi['nom']} par {kpi['dimension']}",
+                           "data": kpi["breakdown"],
+                           "justification": kpi.get("justification", "")})
 
     # 4. rendu HTML (design inspiré du modèle fourni)
     html = _render_html(objective, kpis, charts)
