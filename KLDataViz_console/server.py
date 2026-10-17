@@ -1759,6 +1759,23 @@ def hermes_clean(file_path, progress=lambda _t: None):
     return HCL.run(df, _rule_items(rapport), source_label(file_path), llm if cfg else None, _parse_llm_json, progress)
 
 
+def schedule_commentary(job, result):
+    """Rapport planifié : ce qui a changé depuis l'envoi précédent, rédigé par Hermes (règles sans IA ou hors quota)."""
+    import hermes_report as HR
+    cfg = _llm_config()
+    llm = None
+    if cfg:
+        try:
+            if T.CLOUD:
+                cloud.consume(T.current(), "ai")
+            model = os.environ.get("KLDV_REPORT_MODEL") or cfg.get("report_model") or "deepseek-flash"
+            llm = lambda m, n: (_llm_call(m, n, model=model, effort="high", timeout=100, attempts=1)
+                                or _llm_call(m, n, model=model, effort="low", timeout=70, attempts=1))
+        except Exception:  # quota atteint : commentaire par règles
+            llm = None
+    return HR.run(job["id"], result, T.current().dir(os.path.join("storage", "snapshots")), llm, _parse_llm_json)
+
+
 def hermes_charts(file_path, progress=lambda _t: None):
     """Graphiques choisis et commentés par Hermes pour le fichier analysé (repli : graphiques automatiques)."""
     import hermes_charts as HC
@@ -2156,7 +2173,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if path == "/api/schedules/run":
             if T.CLOUD:
                 cloud.consume(ctx, "analyses")
-            return self._send(200, studio.run_schedule(p.get("id"), analyze, EXPORTERS, T.exports_dir()))
+            return self._send(200, studio.run_schedule(p.get("id"), analyze, EXPORTERS, T.exports_dir(), schedule_commentary))
         if path == "/api/exports/delete":
             fp = os.path.join(T.exports_dir(), os.path.basename(str(p.get("file") or "")))
             if not os.path.isfile(fp):
@@ -2282,7 +2299,7 @@ def heartbeat_loop():
 if __name__ == "__main__":
     if not T.CLOUD:
         threading.Thread(target=heartbeat_loop, daemon=True).start()
-    studio.start_scheduler(analyze, EXPORTERS, T.LOCAL.dir("exports") if not T.CLOUD else None)
+    studio.start_scheduler(analyze, EXPORTERS, T.LOCAL.dir("exports") if not T.CLOUD else None, schedule_commentary)
     host = "0.0.0.0" if T.CLOUD else "127.0.0.1"
     port = int(os.environ.get("PORT") or PORT)
     socketserver.ThreadingTCPServer.allow_reuse_address = True
