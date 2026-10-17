@@ -433,6 +433,27 @@ def _cumul_rows(df):
     return {"lignes": int(mask.sum()), "libelles": labels[:5]}
 
 
+def _with_rule_readings(charts):
+    """Lecture chiffrée calculée par règles pour chaque graphique automatique (la même que dans le PDF) :
+    affichée tout de suite, avant que Hermes ne rédige la sienne."""
+    import html as _html
+    try:
+        import pdf_report
+    except Exception:
+        return charts
+    out = []
+    for c in charts:
+        try:
+            txt = pdf_report.interpret_chart(c)
+        except Exception:
+            txt = ""
+        if txt:
+            txt = _html.unescape(re.sub(r"</?b>", "**", txt))
+            c = dict(c, lecture_auto=txt)
+        out.append(c)
+    return out
+
+
 def _smart_charts(df, max_charts=6):
     """Graphiques « décisionnels » choisis automatiquement : évolution dans le temps, classement par
     groupe (avec ligne de moyenne), répartition, distribution et relation. Chaque graphique porte
@@ -552,6 +573,17 @@ def _smart_charts(df, max_charts=6):
                            "labels": labels, "values": vals, "seriesNames": names, "axis2": two_axes,
                            "unit": unit_of(metrics[0])})
 
+    # Indicateurs de stock (file active, TX_CURR…) : jamais additionnés d'une période à l'autre ; les classements
+    # et répartitions portent alors sur la dernière période.
+    stock_hint = re.compile(r"(file_?active|tx_?curr|actifs?|sous_?(arv|traitement)|stock|effectif_?present|patients?_?suivis?)", re.I)
+    last = None
+    if period_dt is not None and period_dt.notna().any():
+        last = df[period_dt == period_dt.max()]
+        last_txt = "Dernière période (" + str(period_dt.max().to_period("M")) + ") · "
+
+    def frame_for(m):
+        return (last, last_txt) if last is not None and len(last) and stock_hint.search(str(m)) else (df, "")
+
     # 2. Classements par groupe
     pairs = []
     if cats and num:
@@ -562,12 +594,13 @@ def _smart_charts(df, max_charts=6):
             pairs.append((cats[0], num[1]))
     for cat, m in pairs[:2]:
         a = agg_of(m)
-        g = getattr(df.groupby(cat)[m], a)().dropna().sort_values(ascending=False)
+        src, pre = frame_for(m)
+        g = getattr(src.groupby(cat)[m], a)().dropna().sort_values(ascending=False)
         if len(g) < 2:
             continue
         top = g.head(12)
         charts.append({"kind": "ranking", "type": "bar", "title": f"{_pretty(m)} par {str(cat).replace('_', ' ')}",
-                       "subtitle": ("Somme" if a == "sum" else "Moyenne") + (f" · {len(top)} premiers sur {len(g)}" if len(g) > 12 else "")
+                       "subtitle": pre + ("Somme" if a == "sum" else "Moyenne") + (f" · {len(top)} premiers sur {len(g)}" if len(g) > 12 else "")
                        + " · ligne : moyenne", "labels": [str(x) for x in top.index], "values": [series(top.values)],
                        "seriesNames": [_pretty(m)], "ref": {"value": round(float(g.mean()), 4), "label": "Moyenne"},
                        "horizontal": True, "unit": unit_of(m)})
@@ -576,14 +609,15 @@ def _smart_charts(df, max_charts=6):
     small = [c for c in cats if 2 <= df[c].nunique() <= 6]
     if small:
         c = small[0]
+        src, pre = frame_for(num[0]) if num else (df, "")
         if num and agg_of(num[0]) == "sum":
-            g = df.groupby(c)[num[0]].sum().sort_values(ascending=False)
+            g = src.groupby(c)[num[0]].sum().sort_values(ascending=False)
             title = f"Répartition de {str(num[0]).replace('_', ' ')} par {str(c).replace('_', ' ')}"
         else:
             g = df[c].value_counts()
             title = f"Répartition des lignes par {str(c).replace('_', ' ')}"
         if len(g) >= 2 and float(g.sum()) > 0:
-            charts.append({"kind": "share", "type": "doughnut", "title": title, "subtitle": "Part du total",
+            charts.append({"kind": "share", "type": "doughnut", "title": title, "subtitle": pre + "Part du total",
                            "labels": [str(x) for x in g.index], "values": [series(g.values)]})
 
     # 4. Distribution
@@ -715,7 +749,7 @@ def analyze(file_path):
         "bivariate": bivariate_stats(df),
         "lignes_cumul": _cumul_rows(df),
         "charts": [] if _is_report(df) else _auto_charts(df),
-        "smart_charts": _report_charts(df) if _is_report(df) else _smart_charts(df),
+        "smart_charts": _with_rule_readings(_report_charts(df) if _is_report(df) else _smart_charts(df)),
         **({"controles": report_checks(df)[:200]} if _is_report(df) else {}),
         **({"feuille": {"lue": lu["feuille"], "autres": [n for n in lu["feuilles"] if n != lu["feuille"]]}}
            if lu.get("feuilles") else {}),
