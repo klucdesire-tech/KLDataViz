@@ -46,3 +46,6 @@ def test_tableau_de_bord_avec_l_ia_de_la_console(monkeypatch):
         out = server.do_dashboard(_src(d))
     assert out["ia"] is True and seen                       # la clé vient de la console, pas de llm_config.json
     assert out["kpis"][0]["nom"] == "File active" and out["kpis"][0]["valeur"] == 663  # calculée sur les données
+    # Style « Analytics » : période reconnue (courbe + sélecteur Mois/Trimestre/Année) et graphiques choisis transmis
+    assert '"period": "mois"' in out["html"] and '"__p": "2025-01"' in out["html"]
+    assert '"type": "bar"' in out["html"] and "janv. 2025 – févr. 2025" in out["html"]
