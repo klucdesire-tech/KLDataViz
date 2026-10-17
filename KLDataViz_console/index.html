@@ -438,7 +438,7 @@ tr.versions td{background:var(--surface-2);font-size:13px}
           <p class="sub" id="hermesSynth" hidden style="margin:-2px 0 10px"></p>
           <div class="charts" id="charts"></div></div>
         <div id="details" style="display:grid;gap:12px"></div>
-        <div class="actions"><button class="btn primary" id="toShare">Exporter et partager<svg class="i" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button></div>
+        <div class="actions"><button class="btn ghost" id="toDashboard">📊 Tableau de bord</button><button class="btn primary" id="toShare">Exporter et partager<svg class="i" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button></div>
       </section>
 
       <!-- 4. PARTAGER -->
@@ -1284,6 +1284,16 @@ function drawAnalyzeCharts(){
 }
 $('#moreCharts').onclick=()=>{state.showAll=!state.showAll;drawAnalyzeCharts()};
 $('#toShare').onclick=()=>go(3);
+$('#toDashboard').onclick=async()=>{
+  const src=state.applied&&state.cleanedPath?state.cleanedPath:state.path;
+  if(!src){toast('Analysez d\'abord un fichier');return}
+  const b=$('#toDashboard'),old=b.textContent;
+  b.innerHTML='<span class="spin"></span> Génération…';
+  const d=await api('/api/dashboard',{file_path:src});
+  b.textContent=old;
+  if(d.html){const blob=new Blob([d.html],{type:'text/html'});window.open(URL.createObjectURL(blob),'_blank');toast(d.ia?'Tableau de bord généré (IA)':'Tableau de bord généré (règles)')}
+  else{toast(d.error||'Génération impossible')}
+};
 
 // ---- rendu des graphiques (style « Studio » : courbes lissées, barres triées, valeurs lisibles)
 function hexA(hex,a){const h=String(hex).trim().replace('#','');if(h.length<6)return hex;const n=parseInt(h.slice(0,6),16);return `rgba(${n>>16&255},${n>>8&255},${n&255},${a})`}
