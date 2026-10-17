@@ -34,8 +34,9 @@ KEYWORDS: dict[str, tuple[str, ...]] = {
                 "régression", "regression", "comparaison", "moyenne", "test"),
     "detect_anomalies": ("anomalie", "anomaly", "aberrant", "outlier", "rupture", "atypique"),
     "interpret": ("interprèt", "interprete", "explique", "comprendre", "pourquoi", "hypothèse", "hypothese"),
-    "visualize": ("graphique", "visualis", "dashboard", "diagramme", "chart", "courbe", "carte"),
+    "visualize": ("graphique", "visualis", "diagramme", "chart", "courbe", "carte"),
     "report": ("rapport", "report", "synthèse", "synthese", "pdf", "excel", "présentation", "presentation"),
+    "dashboard": ("dashboard", "tableau de bord", "kpi"),
 }
 
 DEFAULT_PIPELINE_APPENDIX = ("validate",)
@@ -97,6 +98,7 @@ DEPENDENCIES: dict[str, set[str]] = {
     "analyze": {"ingest"},
     "detect_anomalies": {"ingest"},
     "visualize": {"ingest"},
+    "dashboard": {"ingest"},
     "interpret": {"indicator", "analyze", "detect_anomalies"},
     "report": {"interpret"},
 }

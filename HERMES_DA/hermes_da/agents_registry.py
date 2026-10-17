@@ -145,6 +145,18 @@ AGENTS: list[dict[str, Any]] = [
         "permissions": {"read": ["hermes.*", "ingestion.*", "storage/*"], "write": ["hermes.validation_results"]},
         "status": "IMPLEMENTED",
     },
+    {
+        "agent_id": "AGT-11", "ordinal": 11, "name": "DASHBOARD AGENT",
+        "role": "Comprendre les données et l'objectif métier, identifier les variables et leurs relations, "
+                "puis générer un tableau de bord dynamique et intuitif (KPI pertinents + graphiques adaptés).",
+        "responsibilities": ["profiler les données (types, répartition, exemples)",
+                             "comprendre l'objectif métier et choisir les KPI pertinents",
+                             "calculer les KPI sur les données (jamais inventés)",
+                             "générer un tableau de bord HTML autonome (cartes KPI + Chart.js)"],
+        "tools": ["data_profiler", "llm_kpi_selector", "aggregation_engine", "chart_engine", "html_dashboard_renderer"],
+        "permissions": {"read": ["ingestion.*", "hermes.*"], "write": ["storage/artifacts", "hermes.visualizations"]},
+        "status": "IMPLEMENTED",
+    },
 ]
 
 
@@ -157,6 +169,7 @@ def by_task_type(task_type: str) -> dict[str, Any] | None:
         "plan": "AGT-00", "ingest": "AGT-01", "quality_check": "AGT-02", "clean": "AGT-03",
         "indicator": "AGT-04", "analyze": "AGT-05", "detect_anomalies": "AGT-06",
         "interpret": "AGT-07", "visualize": "AGT-08", "report": "AGT-09", "validate": "AGT-10",
+        "dashboard": "AGT-11",
     }
     return by_id(mapping.get(task_type, ""))
 
