@@ -40,8 +40,19 @@ Règles absolues :
   « compte » pour des effectifs, « taux » pour des proportions (0 à 1, sens clair)."""
 
 
-def _llm_dashboard(profile_json: str) -> dict | None:
-    """Choisit KPI et graphiques via le LLM, ou None si indisponible."""
+def _llm_dashboard(profile_json: str, llm=None) -> dict | None:
+    """Choisit KPI et graphiques via le LLM, ou None si indisponible.
+
+    `llm(messages, max_tokens) -> texte` : accès à l'IA fourni par l'appelant (la console en ligne, où
+    llm_config.json n'existe pas et où la clé vient de l'environnement). Sans lui : llm_config.json local."""
+    if llm is not None:
+        try:
+            content = llm([{"role": "system", "content": SYSTEM},
+                           {"role": "user", "content": profile_json}], 8000) or ""
+            start, end = content.find("{"), content.rfind("}")
+            return json.loads(content[start:end + 1]) if start >= 0 and end > start else None
+        except Exception:
+            return None
     cfg_path = os.path.join(config.CONSOLE_DIR, "llm_config.json")
     if not os.path.isfile(cfg_path):
         return None
@@ -300,7 +311,7 @@ def _render_html(objective: str, data_json: str, kpi_defs: list, filter_cols: li
             .replace("__OBJECTIVE__", obj))
 
 
-def generate_dashboard(df, objective: str = "", job_id: str | None = None) -> dict:
+def generate_dashboard(df, objective: str = "", job_id: str | None = None, llm=None) -> dict:
     """Génère un tableau de bord (KPI + HTML interactif) depuis un DataFrame.
 
     Réutilisable par l'orchestrateur HERMES_DA ET par la console KLDataViz (bouton Dashboard).
@@ -308,7 +319,7 @@ def generate_dashboard(df, objective: str = "", job_id: str | None = None) -> di
     """
     profile = _profile(df)
     profile_json = json.dumps(profile, ensure_ascii=False, default=str)[:20000]
-    llm_spec = _llm_dashboard(profile_json)
+    llm_spec = _llm_dashboard(profile_json, llm)
     ia = llm_spec is not None
     spec = llm_spec or _rule_dashboard(profile)
 

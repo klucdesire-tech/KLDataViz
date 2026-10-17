@@ -870,7 +870,11 @@ def do_dashboard(file_path):
         if hermes_da_dir not in sys.path:
             sys.path.insert(0, hermes_da_dir)
         from hermes_da.adapters.dashboard import generate_dashboard
-        result = generate_dashboard(df, "Tableau de bord KLDataViz")
+        cfg = _llm_config()  # en ligne : clé DEEPSEEK_API_KEY de l'environnement (pas de llm_config.json)
+        model = os.environ.get("KLDV_DASHBOARD_MODEL") or (cfg or {}).get("dashboard_model") or "deepseek-flash"
+        llm = (lambda m, n: _llm_call(m, n, model=model, effort="high", timeout=120, attempts=1)
+               or _llm_call(m, n, model=model, effort="low", timeout=90, attempts=1)) if cfg else None
+        result = generate_dashboard(df, "Tableau de bord KLDataViz", llm=llm)
         return {"html": result["html"], "ia": result["ia"], "kpis": result["kpis"]}
     except Exception as e:
         return {"error": f"Génération du tableau de bord échouée : {e}"}
