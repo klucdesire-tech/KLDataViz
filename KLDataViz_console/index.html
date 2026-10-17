@@ -469,7 +469,7 @@ tr.versions td{background:var(--surface-2);font-size:13px}
       <!-- DONNÉES -->
       <section class="view" data-view="datasets" hidden>
         <div class="head"><h1>Données</h1><p>Les jeux de données enregistrés dans le registre, avec l'historique de leurs versions.</p></div>
-        <div class="toolbar"><input type="text" id="dsSearch" placeholder="Rechercher un jeu de données" aria-label="Rechercher un jeu de données" style="max-width:320px"><span class="spacer"></span><button class="btn primary" data-goto="home">Importer</button></div>
+        <div class="toolbar"><input type="text" id="dsSearch" placeholder="Rechercher : nom, sujet, lieu, période, mot-clé…" aria-label="Rechercher un jeu de données" style="max-width:320px"><span class="spacer"></span><button class="btn primary" data-goto="home">Importer</button></div>
         <div class="card"><div id="dsBody" class="empty">Chargement…</div></div>
       </section>
 
@@ -796,7 +796,7 @@ async function openSource(path,name,size){
 
 /* ================= pipeline ================= */
 async function startRun(path,name,size,opts={}){
-  Object.assign(state,{path,name,original:null,analysis:null,clean:null,applied:false,showAll:false,ai:null,arch:null,archFile:null,archExtra:opts.archExtra||[],structView:null,wb:opts.understand?{...opts.understand,res:null}:null});state.accept=new Set();resetChat();  // nouveau fichier : nouvelle conversation
+  Object.assign(state,{path,name,original:null,analysis:null,clean:null,cleanTried:false,reg:null,applied:false,showAll:false,ai:null,arch:null,archFile:null,archExtra:opts.archExtra||[],structView:null,wb:opts.understand?{...opts.understand,res:null}:null});state.accept=new Set();resetChat();  // nouveau fichier : nouvelle conversation
   setNav('home');state.step=0;renderStepper();show('run');
   $('#runFile').textContent=name+(size?` · ${dec((size/1048576).toFixed(1))} Mo`:'');
   $('#runErr').hidden=true;
@@ -815,7 +815,8 @@ async function startRun(path,name,size,opts={}){
   if(!opts.fromRegistry)autoRegister(path,name);  // en tâche de fond, sans retarder l'analyse
   t0=performance.now();set(1,'doing');
   const c=await api('/api/clean',{file_path:path});
-  if(c.error){set(1,'warn','Nettoyage indisponible : '+c.error,secs(t0));state.clean=null}
+  state.cleanTried=true;
+  if(c.error){set(1,'warn','Nettoyage indisponible : '+c.error,secs(t0));state.clean=null;maybeDescribe()}
   else{state.clean=c;const n=issuesOf().length;state.accept=new Set(issuesOf().flatMap(idsOf));set(1,n?'warn':'done',n?`${n} correction${n>1?'s':''} proposée${n>1?'s':''}`:'Aucune correction nécessaire',secs(t0));loadHermesClean(path)}
   prog(85);
   set(2,'done',`${(a.anomalies||[]).length} colonne(s) avec anomalies, ${(a.charts||[]).length} graphique(s)`,'');prog(100);
@@ -831,6 +832,19 @@ const secs=t=>dec(((performance.now()-t)/1000).toFixed(1))+' s';
 async function autoRegister(path,name){
   const d=await api('/api/ingest',{file_path:path,name});
   if(d.error){console.warn('Registre : '+d.error);return}
+  if(d.dataset_id&&state.path===path){state.reg={path,name,dataset_id:d.dataset_id,version_no:d.version?.version_no||0,described:false};maybeDescribe()}
+  await fetchRegistry();
+  if(!$('[data-view="datasets"]').hidden)renderDatasets();
+}
+// Description du jeu de données dans le registre : titre, résumé, période, mots-clés (compréhension de Hermes,
+// sans appel IA de plus) et changements de version (règles). Envoyée une fois la relecture de Hermes terminée.
+async function maybeDescribe(){
+  const g=state.reg;if(!g||g.described||g.path!==state.path)return;
+  const hc=state.hclean?.for===state.clean?state.hclean:null;
+  if(!state.cleanTried||(state.clean&&hc?.status!=='done'))return;  // on attend le nettoyage puis Hermes (ou son échec)
+  g.described=true;
+  const r=await api('/api/registry/describe',{file_path:g.path,name:g.name,dataset_id:g.dataset_id,version_no:g.version_no,comprehension:hc?.comprehension||null});
+  if(r.error){console.warn('Description : '+r.error);return}
   await fetchRegistry();
   if(!$('[data-view="datasets"]').hidden)renderDatasets();
 }
@@ -877,6 +891,7 @@ async function loadHermesClean(path){
   // Accord par défaut sur les corrections de Hermes ; celles des règles qu'il déconseille sont décochées
   (r.corrections||[]).forEach(c=>state.accept.add(c.id));
   (r.avis||[]).filter(a=>a.verdict==='deconseille').forEach(a=>state.accept.delete(a.id));
+  maybeDescribe();
   if(state.step===1)renderVerify();
   const n=(r.corrections||[]).length,d=(r.avis||[]).filter(a=>a.verdict==='deconseille').length;
   if(r.comprehension?.resume)say(`Voici ce que je comprends de **${state.name}** : ${r.comprehension.resume}`);
@@ -1425,9 +1440,15 @@ $('#shareSched').addEventListener('submit',async e=>{e.preventDefault();if(!stat
 const fmtDate=t=>t?new Date(t).toLocaleString('fr-FR',{day:'numeric',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'}):'—';
 let openDs=null;
 async function fetchRegistry(){const d=await api('/api/ingest/list');if(!d.error){state.registry=d.datasets||[];$('#cntDs').textContent=state.registry.length||''}return d}
+function dsCell(x,actions){
+  const m=x.meta;if(!m||!m.titre||m.titre===x.dataset_name)return esc(x.dataset_name)+(m?.periode&&actions==='full'?`<span class="sub" style="display:block;margin:2px 0 0">${esc(m.periode)}</span>`:'');
+  return `<b>${m.source==='hermes'?'✦ ':''}${esc(m.titre)}</b><span class="sub" style="display:block;margin:2px 0 0">${esc(x.dataset_name)}${m.periode?' · '+esc(m.periode):''}</span>`+
+    (actions==='full'&&m.resume?`<span class="sub" style="display:block;margin:4px 0 0;color:var(--fg)">${md(m.resume)}</span>`:'')+
+    (actions==='full'&&(m.mots_cles||[]).length?`<span class="chips" style="margin-top:4px">${m.mots_cles.map(k=>`<span class="tag type">${esc(k)}</span>`).join('')}</span>`:'');
+}
 function dsRows(ds,actions){
   return `<div class="tablewrap"><table><thead><tr><th>Nom</th><th>Version</th><th>Format</th><th class="r">Lignes</th><th class="r">Colonnes</th><th>Enregistré le</th>${actions?'<th class="r">Actions</th>':''}</tr></thead><tbody>
-    ${ds.map(x=>`<tr><td>${esc(x.dataset_name)}</td><td class="num">v${String(x.version_no).padStart(3,'0')}</td><td>${esc(x.source_format||'—')}</td><td class="r num">${nf(x.row_count||0)}</td><td class="r num">${x.column_count??''}</td><td>${fmtDate(x.ingested_at)}</td>
+    ${ds.map(x=>`<tr><td>${dsCell(x,actions)}</td><td class="num">v${String(x.version_no).padStart(3,'0')}</td><td>${esc(x.source_format||'—')}</td><td class="r num">${nf(x.row_count||0)}</td><td class="r num">${x.column_count??''}</td><td>${fmtDate(x.ingested_at)}</td>
       ${actions?`<td><div class="rowbtns">${(x.version_count||1)>1||actions==='full'?`<button class="btn ghost sm" data-ver="${esc(x.dataset_id)}" aria-expanded="${openDs===x.dataset_id}">Versions</button>`:''}${x.work_path?`<button class="btn primary sm" data-an="${esc(x.work_path)}" data-nm="${esc(x.dataset_name)}">Analyser</button>`:''}</div></td>`:''}</tr>
       ${openDs===x.dataset_id?`<tr class="versions"><td colspan="7" id="ver-${esc(x.dataset_id)}"><span class="spin"></span> Chargement des versions…</td></tr>`:''}`).join('')}</tbody></table></div>`;
 }
@@ -1442,7 +1463,7 @@ async function loadDatasets(){
   renderDatasets(d);
 }
 function renderDatasets(d){
-  const el=$('#dsBody'),f=$('#dsSearch').value.trim().toLowerCase(),list=state.registry.filter(x=>String(x.dataset_name).toLowerCase().includes(f));
+  const el=$('#dsBody'),f=$('#dsSearch').value.trim().toLowerCase(),list=state.registry.filter(x=>[x.dataset_name,x.meta?.titre,x.meta?.resume,x.meta?.periode,...(x.meta?.mots_cles||[])].join(' ').toLowerCase().includes(f));
   const s=(d?.summary||{}).counts||state.counts||{};if(d?.summary)state.counts=s;
   el.className='';el.innerHTML=`<p class="sub" style="margin-bottom:8px">${s.datasets??state.registry.length} jeu(x) de données · ${s.versions??'—'} version(s) · ${s.executions??'—'} exécution(s)</p>`+
     (list.length?dsRows(list,'full'):`<div class="empty">${state.registry.length?'Aucun jeu de données ne correspond.':'Le registre est vide. Les fichiers que vous importez apparaissent ici automatiquement, avec l\'historique de leurs versions.'}</div>`);
@@ -1452,7 +1473,7 @@ async function loadVersions(id){
   const cell=document.getElementById('ver-'+id);if(!cell)return;
   const v=await api('/api/ingest/versions?id='+encodeURIComponent(id));
   if(!Array.isArray(v)){cell.textContent='Versions indisponibles : '+(v.error||'');return}
-  cell.innerHTML=`<table><tbody>${v.slice().reverse().map(x=>`<tr><td class="num">v${String(x.version_no).padStart(3,'0')}</td><td>${fmtDate(x.ingested_at)}</td><td class="r num">${nf(x.row_count)} lignes</td><td><span class="tag ${x.status==='OK'?'ok':'warn'}">${esc(x.status)}</span></td><td class="r">${x.work_path?`<button class="btn ghost sm" data-an="${esc(x.work_path)}" data-nm="${esc(baseName(x.source_path||x.work_path))} v${String(x.version_no).padStart(3,'0')}">Analyser</button>`:''}</td></tr>`).join('')}</tbody></table>`;
+  cell.innerHTML=`<table><tbody>${v.slice().reverse().map(x=>`<tr><td class="num">v${String(x.version_no).padStart(3,'0')}</td><td>${fmtDate(x.ingested_at)}</td><td class="r num">${nf(x.row_count)} lignes</td><td class="sub" style="margin:0">${esc((x.changements||[]).join(' '))}</td><td><span class="tag ${x.status==='OK'?'ok':'warn'}">${esc(x.status)}</span></td><td class="r">${x.work_path?`<button class="btn ghost sm" data-an="${esc(x.work_path)}" data-nm="${esc(baseName(x.source_path||x.work_path))} v${String(x.version_no).padStart(3,'0')}">Analyser</button>`:''}</td></tr>`).join('')}</tbody></table>`;
 }
 $('#dsSearch').addEventListener('input',()=>renderDatasets());
 document.addEventListener('click',e=>{

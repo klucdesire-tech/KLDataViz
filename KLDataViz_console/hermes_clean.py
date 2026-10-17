@@ -100,7 +100,9 @@ SYSTEM = (
     "Utilise les noms de colonnes et les valeurs EXACTEMENT comme dans le profil. N'invente rien : si rien "
     "n'est utile, renvoie une liste vide.\n"
     "Réponds avec un objet JSON valide et rien d'autre :\n"
-    '{{"comprehension":{{"resume":"2 phrases","grain":"une ligne = …","periode":"… ou null",'
+    '{{"comprehension":{{"titre":"titre court et parlant du jeu de données (6 à 10 mots)",'
+    '"mots_cles":["3 à 8 mots-clés : sujet, indicateurs, lieux, période"],'
+    '"resume":"2 phrases","grain":"une ligne = …","periode":"… ou null",'
     '"colonnes":[{{"nom":"…","role":"identifiant|dimension|periode|mesure_flux|mesure_stock|taux|texte_libre|autre",'
     '"sens":"…"}}],"pieges":["…"]}},'
     '"avis":[{{"id":"…","verdict":"recommande|deconseille","raison":"…"}}],'
@@ -279,6 +281,8 @@ def understanding(df, comp):
             continue
         role = str(c.get("role") or "autre").lower()
         cols.append({"nom": str(name), "role": role if role in ROLES else "autre", "sens": _txt(c.get("sens"), 160)})
-    return {"resume": _txt(comp.get("resume"), 500), "grain": _txt(comp.get("grain"), 200),
+    return {"titre": _txt(comp.get("titre"), 120),
+            "mots_cles": [_txt(m, 40) for m in (comp.get("mots_cles") or []) if _txt(m, 40)][:10],
+            "resume": _txt(comp.get("resume"), 500), "grain": _txt(comp.get("grain"), 200),
             "periode": _txt(comp.get("periode"), 120), "colonnes": cols[:60],
             "pieges": [_txt(p, 220) for p in (comp.get("pieges") or []) if _txt(p, 220)][:6]}

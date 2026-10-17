@@ -1759,6 +1759,10 @@ def hermes_clean(file_path, progress=lambda _t: None):
     return HCL.run(df, _rule_items(rapport), source_label(file_path), llm if cfg else None, _parse_llm_json, progress)
 
 
+def _registry_meta_dir():
+    return T.current().dir(os.path.join("storage", "registry_meta"))
+
+
 def schedule_commentary(job, result):
     """Rapport planifié : ce qui a changé depuis l'envoi précédent, rédigé par Hermes (règles sans IA ou hors quota)."""
     import hermes_report as HR
@@ -2053,7 +2057,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 ds_id = (parse_qs(urlparse(self.path).query).get("id") or [""])[0]
                 reg = T.registry()
                 reg.ensure()
-                return self._send(200, reg.list_versions(ds_id))
+                import registry_meta as RM
+                vm = RM.load(_registry_meta_dir(), ds_id).get("versions", {})
+                return self._send(200, [dict(v, changements=(vm.get(str(v.get("version_no"))) or {}).get("changements"))
+                                        for v in reg.list_versions(ds_id)])
             if path == "/api/fetch-source":
                 if T.CLOUD:
                     return self._send(200, {"source": None, "message": "Indisponible dans la version en ligne."})
@@ -2063,8 +2070,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     return self._send(500, {"error": f"Agent d'ingestion indisponible : {INGESTION_ERROR}"})
                 reg = T.registry()
                 info = reg.ensure()
+                import registry_meta as RM
+                md = _registry_meta_dir()
+                datasets = [dict(x, meta=RM.summary(RM.load(md, x.get("dataset_id")))) for x in reg.latest_versions()]
                 return self._send(200, {"backend": reg.backend, "connection": {} if T.CLOUD else info,
-                                        "summary": reg.summary(), "datasets": reg.latest_versions()})
+                                        "summary": reg.summary(), "datasets": datasets})
             if T.CLOUD and path == "/api/team":
                 return self._send(200, cloud.team(ctx))
             if T.CLOUD and path == "/api/announcements":
@@ -2086,6 +2096,15 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if path == "/api/clean":
             hermes = p.get("hermes") if isinstance(p.get("hermes"), list) else None
             return self._send(200, clean(str(p.get("file_path") or ""), p.get("skip") or None, hermes))
+        if path == "/api/registry/describe":
+            import registry_meta as RM
+            df, err = _read_df(str(p.get("file_path") or ""))
+            if err:
+                return self._send(200, {"error": err})
+            meta = RM.describe(_registry_meta_dir(), p.get("dataset_id"), p.get("version_no"), df, _period_series,
+                               p.get("comprehension") if isinstance(p.get("comprehension"), dict) else None,
+                               str(p.get("name") or "")[:200])
+            return self._send(200, {"meta": RM.summary(meta)})
         if path == "/api/hermes/clean":
             if T.CLOUD and _llm_config():
                 cloud.consume(ctx, "ai")
