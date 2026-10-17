@@ -55,7 +55,7 @@ AGENTS: list[dict[str, Any]] = [
                   "format_validator", "consistency_checker", "business_rule_engine", "outlier_detector",
                   "quality_scorer", "quality_reporter"],
         "permissions": {"read": ["hermes.variables", "storage/work"], "write": ["hermes.quality_checks"]},
-        "status": "DECLARED",
+        "status": "IMPLEMENTED",
     },
     {
         "agent_id": "AGT-03", "ordinal": 3, "name": "DATA ENGINEERING AGENT",
@@ -79,7 +79,7 @@ AGENTS: list[dict[str, Any]] = [
                   "SQL_engine", "indicator_validator"],
         "permissions": {"read": ["hermes.variables", "storage/work"], "write": ["hermes.indicators",
                         "hermes.indicator_dimensions", "hermes.indicator_results"]},
-        "status": "DECLARED",
+        "status": "IMPLEMENTED",
     },
     {
         "agent_id": "AGT-05", "ordinal": 5, "name": "STATISTICAL ANALYSIS AGENT",
@@ -88,7 +88,7 @@ AGENTS: list[dict[str, Any]] = [
         "tools": ["numpy", "pandas", "scipy", "statsmodels", "scikit-learn"],
         "permissions": {"read": ["storage/work", "hermes.variables"],
                         "write": ["hermes.analysis_jobs", "hermes.analysis_results"]},
-        "status": "DECLARED",
+        "status": "IMPLEMENTED",
     },
     {
         "agent_id": "AGT-06", "ordinal": 6, "name": "ANOMALY DETECTION AGENT",
@@ -98,7 +98,7 @@ AGENTS: list[dict[str, Any]] = [
         "tools": ["scipy", "scikit-learn", "iqr", "zscore", "isolation_forest", "lof",
                   "time_series_detector", "business_rule_engine"],
         "permissions": {"read": ["storage/work", "hermes.indicator_results"], "write": ["hermes.anomalies"]},
-        "status": "DECLARED",
+        "status": "IMPLEMENTED",
     },
     {
         "agent_id": "AGT-07", "ordinal": 7, "name": "INTERPRETATION AGENT",
@@ -110,7 +110,7 @@ AGENTS: list[dict[str, Any]] = [
         "tools": ["llm_reasoning", "result_reader"],
         "permissions": {"read": ["hermes.analysis_results", "hermes.indicator_results", "hermes.anomalies"],
                         "write": ["hermes.analysis_results.interpretation"]},
-        "status": "DECLARED",
+        "status": "IMPLEMENTED",
     },
     {
         "agent_id": "AGT-08", "ordinal": 8, "name": "VISUALIZATION AGENT",
@@ -121,7 +121,7 @@ AGENTS: list[dict[str, Any]] = [
         "tools": ["plotly", "matplotlib", "pandas", "excel_chart_engine", "html_generator"],
         "permissions": {"read": ["hermes.indicator_results", "hermes.analysis_results", "hermes.anomalies"],
                         "write": ["hermes.visualizations", "storage/artifacts"]},
-        "status": "DECLARED",
+        "status": "IMPLEMENTED",
     },
     {
         "agent_id": "AGT-09", "ordinal": 9, "name": "REPORTING AGENT",
@@ -131,7 +131,7 @@ AGENTS: list[dict[str, Any]] = [
                              "exporter HTML/PDF/DOCX/Excel/JSON"],
         "tools": ["html_renderer", "pdf_renderer", "docx_writer", "xlsx_writer", "json_writer"],
         "permissions": {"read": ["hermes.* (résultats validés)"], "write": ["hermes.reports", "storage/artifacts"]},
-        "status": "DECLARED",
+        "status": "IMPLEMENTED",
     },
     {
         "agent_id": "AGT-10", "ordinal": 10, "name": "VALIDATOR AGENT",

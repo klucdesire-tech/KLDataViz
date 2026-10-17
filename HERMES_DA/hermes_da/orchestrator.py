@@ -41,10 +41,20 @@ DEFAULT_PIPELINE_APPENDIX = ("validate",)
 
 
 # ---------------------------------------------------------------------- planification
+def _norm(s: str) -> str:
+    """Normalise casse et accents pour un matching de mots-clés robuste."""
+    out = str(s).lower()
+    for a, b in (("é", "e"), ("è", "e"), ("ê", "e"), ("ë", "e"), ("à", "a"), ("â", "a"),
+                 ("ä", "a"), ("î", "i"), ("ï", "i"), ("ô", "o"), ("ö", "o"), ("ù", "u"),
+                 ("û", "u"), ("ü", "u"), ("ç", "c"), ("œ", "oe"), ("æ", "ae")):
+        out = out.replace(a, b)
+    return out
+
+
 def plan(objective: str, *, source: str | None = None, dataset_version_id: str | None = None,
          parameters: dict | None = None) -> list[dict[str, Any]]:
     """Plan d'exécution déterministe et justifié (aucune conclusion calculée ici)."""
-    text = (objective or "").lower()
+    text = _norm(objective or "")
     steps: list[dict[str, Any]] = []
 
     def add(task_type: str, reason: str) -> None:
@@ -62,7 +72,7 @@ def plan(objective: str, *, source: str | None = None, dataset_version_id: str |
         add("ingest", "aucune donnée disponible : il faut d'abord importer une source")
 
     for task_type, words in KEYWORDS.items():
-        hits = [w for w in words if w in text]
+        hits = [w for w in words if _norm(w) in text]
         if hits:
             add(task_type, f"demande contenant {hits[:3]}")
 

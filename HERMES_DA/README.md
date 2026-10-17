@@ -74,6 +74,13 @@ HERMES_DA/
 │   ├── reconcile.py                # rattrapage du miroir hermes ↔ ingestion
 │   ├── detectors_helper.py         # empreintes + relecture indépendante des versions
 │   ├── adapters/ingestion.py       # AGT-01 → package existant (non modifié)
+│   ├── adapters/quality.py         # AGT-02 → modeling.clean_dataframe
+│   ├── adapters/indicators.py      # AGT-04 → calcul déterministe d'indicateurs
+│   ├── adapters/stats.py           # AGT-05 → modeling.bivariate_stats
+│   ├── adapters/anomalies.py       # AGT-06 → détection IQR
+│   ├── adapters/interpretation.py  # AGT-07 → interprétation LLM (repli par règles)
+│   ├── adapters/viz.py             # AGT-08 → specs de graphiques adaptés
+│   ├── adapters/report.py          # AGT-09 → synthèse descriptive
 │   └── adapters/validator.py       # AGT-10 : contrôles déterministes + décision
 ├── storage/artifacts/              # réponses complètes, artefacts de validation
 └── tests/verifier_systeme.py       # vérification bout en bout
@@ -85,5 +92,12 @@ HERMES_DA/
 | --- | --- |
 | AGT-00 Master Orchestrator | IMPLEMENTED |
 | AGT-01 Data Ingestion | IMPLEMENTED (code existant, branché par adaptateur) |
+| AGT-02 Data Quality | IMPLEMENTED (→ modeling.clean_dataframe) |
+| AGT-04 Indicator Analytics | IMPLEMENTED (agrégats déterministes, jamais de formule inventée) |
+| AGT-05 Statistical Analysis | IMPLEMENTED (→ modeling.bivariate_stats) |
+| AGT-06 Anomaly Detection | IMPLEMENTED (IQR 1.5) |
+| AGT-07 Interpretation | IMPLEMENTED (LLM + repli par règles) |
+| AGT-08 Visualization | IMPLEMENTED (specs de graphiques adaptés) |
+| AGT-09 Reporting | IMPLEMENTED (synthèse descriptive) |
 | AGT-10 Validator | IMPLEMENTED |
-| AGT-02 … AGT-09 | DECLARED (schéma PostgreSQL et plan prêts ; dispatch refusé proprement) |
+| AGT-03 Data Engineering | DECLARED (transformations déjà couvertes par AGT-01/AGT-02 et l'architecte de la console) |
