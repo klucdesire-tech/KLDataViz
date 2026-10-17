@@ -826,6 +826,38 @@ def fetch_source():
         return {"source": source, "task_id": task.get("id") or task.get("task_id")}
     return {"source": None, "message": "La tâche assignée ne contient pas de lien source."}
 
+def _hermes_tasks():
+    """Tâches de l'orchestrateur interne HERMES_DA (AGT-00) : jobs maîtres de planification."""
+    try:
+        from ingestion.store import default_dsn
+        import psycopg
+        conn = psycopg.connect(default_dsn(), autocommit=True, connect_timeout=5)
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT job_id, objective, status, input_reference, created_at "
+                    "FROM hermes.jobs WHERE task_type = 'plan' "
+                    "ORDER BY created_at DESC LIMIT 50")
+                rows = cur.fetchall()
+        finally:
+            conn.close()
+    except Exception:
+        return []
+    tasks = []
+    for job_id, objective, status, input_ref, created_at in rows:
+        src = ""
+        if isinstance(input_ref, dict):
+            src = input_ref.get("source") or input_ref.get("path") or ""
+        tasks.append({
+            "type": (objective or "Analyse de données").strip(),
+            "id": job_id,
+            "task_id": job_id,
+            "status": status or "DONE",
+            "source": src,
+            "created_at": str(created_at) if created_at else "",
+        })
+    return tasks
+
 def export_excel(result):
     wb = openpyxl.Workbook()
     hdr = PatternFill("solid", fgColor="1286B4"); hdr_font = Font(bold=True, color="FFFFFF")
@@ -2043,8 +2075,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if path == "/api/tasks":
                 if T.CLOUD:
                     return self._send(200, [])
-                code, r = orchestrator("/api/v1/agents/tasks")
-                return self._send(code if code else 502, r)
+                return self._send(200, _hermes_tasks())
             if path == "/api/exports":
                 return self._send(200, _list_exports())
             if path in ("/api/architect/job", "/api/chat/job", "/api/hermes/job"):
