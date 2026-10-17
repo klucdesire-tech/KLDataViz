@@ -448,6 +448,7 @@ tr.versions td{background:var(--surface-2);font-size:13px}
           <button class="exp" data-exp="pdf"><span class="fmt">PDF</span><b>Rapport à imprimer</b><span>Synthèse prête pour la direction</span></button>
           <button class="exp" data-exp="excel"><span class="fmt">XLSX</span><b>Classeur Excel</b><span>Une feuille par section de l'analyse</span></button>
           <button class="exp" data-exp="html"><span class="fmt">HTML</span><b>Page web</b><span>S'ouvre dans n'importe quel navigateur</span></button>
+          <button class="exp" data-exp="dashboard"><span class="fmt">📊</span><b>Tableau de bord</b><span>KPI + graphiques interactifs et filtres</span></button>
           <button class="exp" id="ingestCard"><span class="fmt">DB</span><b>Enregistrer dans le registre</b><span>Nouvelle version, source intacte, métadonnées dans PostgreSQL</span></button>
         </div>
         <div class="card" id="ingestOut" hidden></div>
@@ -1404,6 +1405,14 @@ function renderShare(){
 $$('.exp[data-exp]').forEach(b=>b.onclick=async()=>{
   const kind=b.dataset.exp,s=b.querySelector('span:last-child'),old=s.textContent;
   s.innerHTML='<span class="spin"></span> Génération…';
+  if(kind==='dashboard'){
+    const src=state.applied&&state.cleanedPath?state.cleanedPath:state.path;
+    if(!src){s.textContent=old;toast('Analysez d\'abord un fichier');return}
+    const d=await api('/api/dashboard',{file_path:src});
+    if(d.html){const blob=new Blob([d.html],{type:'text/html'});window.open(URL.createObjectURL(blob),'_blank');s.textContent='Ouvrir le tableau de bord';toast(d.ia?'Tableau de bord généré (IA)':'Tableau de bord généré (règles)')}
+    else{s.textContent=old;toast(d.error||'Génération impossible')}
+    return;
+  }
   let body={};
   if(kind==='pdf')try{body={charts:await chartImages(),...(hermesReady(state.analysis)&&state.hermes.synthese?{hermes_synthese:state.hermes.synthese}:{})}}catch(e){console.warn('Graphiques du PDF : '+e)}
   const d=await api('/api/export/'+kind,body);

@@ -858,6 +858,23 @@ def _hermes_tasks():
         })
     return tasks
 
+def do_dashboard(file_path):
+    """Génère un tableau de bord interactif (AGT-11) depuis une source locale."""
+    try:
+        df, err = _read_df(file_path)
+        if err:
+            return {"error": err}
+        if df is None or len(df) == 0:
+            return {"error": "Aucune donnée lisible dans cette source."}
+        hermes_da_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "HERMES_DA")
+        if hermes_da_dir not in sys.path:
+            sys.path.insert(0, hermes_da_dir)
+        from hermes_da.adapters.dashboard import generate_dashboard
+        result = generate_dashboard(df, "Tableau de bord KLDataViz")
+        return {"html": result["html"], "ia": result["ia"], "kpis": result["kpis"]}
+    except Exception as e:
+        return {"error": f"Génération du tableau de bord échouée : {e}"}
+
 def export_excel(result):
     wb = openpyxl.Workbook()
     hdr = PatternFill("solid", fgColor="1286B4"); hdr_font = Font(bold=True, color="FFFFFF")
@@ -2114,7 +2131,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
         # ---- POST
         if path in ("/api/analyze", "/api/chat", "/api/chat/start", "/api/insights", "/api/clean", "/api/architect",
-                    "/api/architect/apply", "/api/sheets/understand", "/api/hermes/charts", "/api/hermes/clean") and not _rate_ok(f"{ctx.key}:{path}"):
+                    "/api/architect/apply", "/api/sheets/understand", "/api/hermes/charts", "/api/hermes/clean",
+                    "/api/dashboard") and not _rate_ok(f"{ctx.key}:{path}"):
             return self._send(429, {"error": "Trop de demandes en peu de temps. Patientez une minute."})
         if path == "/api/analyze":
             file_path = str(p.get("file_path") or "")
@@ -2124,6 +2142,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if "error" not in result:
                 st["last_result"], st["current_path"], st["result_path"] = result, file_path, file_path
             return self._send(200, result)
+        if path == "/api/dashboard":
+            if T.CLOUD and _llm_config():
+                cloud.consume(ctx, "ai")
+            return self._send(200, do_dashboard(str(p.get("file_path") or "")))
         if path == "/api/clean":
             hermes = p.get("hermes") if isinstance(p.get("hermes"), list) else None
             return self._send(200, clean(str(p.get("file_path") or ""), p.get("skip") or None, hermes))

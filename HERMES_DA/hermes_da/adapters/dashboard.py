@@ -300,29 +300,18 @@ def _render_html(objective: str, data_json: str, kpi_defs: list, filter_cols: li
             .replace("__OBJECTIVE__", obj))
 
 
-def run(env, db, jobs) -> dict:
-    dv = env.dataset_version_id or (env.parameters or {}).get("dataset_version_id") \
-        or (env.input_reference or {}).get("dataset_version_id")
-    if not dv:
-        return {"status": "FAILED", "result_reference": {}, "warnings": [],
-                "errors": ["dataset_version_id manquant : impossible de générer le tableau de bord."]}
+def generate_dashboard(df, objective: str = "", job_id: str | None = None) -> dict:
+    """Génère un tableau de bord (KPI + HTML interactif) depuis un DataFrame.
 
-    df, err = _load_dataset(db, dv)
-    if df is None or err:
-        return {"status": "FAILED", "result_reference": {}, "warnings": [], "errors": [err or "dataset illisible"]}
-
-    objective = (env.parameters or {}).get("objective") or env.objective or ""
-
-    # 1. profil des données
+    Réutilisable par l'orchestrateur HERMES_DA ET par la console KLDataViz (bouton Dashboard).
+    Retourne : html (le tableau de bord autonome), path (fichier écrit si job_id), kpis, charts, ia.
+    """
     profile = _profile(df)
-
-    # 2. choix des KPI + graphiques (LLM, sinon règles)
     profile_json = json.dumps(profile, ensure_ascii=False, default=str)[:20000]
     llm_spec = _llm_dashboard(profile_json)
     ia = llm_spec is not None
     spec = llm_spec or _rule_dashboard(profile)
 
-    # 3. calcul des KPI (déterministe) + données des graphiques
     cols = set(df.columns)
     kpis = []
     for k in spec.get("kpis", [])[:8]:
@@ -341,46 +330,54 @@ def run(env, db, jobs) -> dict:
                 kpi["top"] = (bd["labels"][0], bd["values"][0])
         kpis.append(kpi)
 
-    charts = []
+    charts_count = 0
     for g in spec.get("graphiques", [])[:8]:
         col = g.get("colonne")
         if col is None or col not in cols:
             continue
-        data = _chart_data(df, col, g.get("type", "bar"))
-        if not data.get("labels"):
-            continue
-        charts.append({"colonne": col, "type": g.get("type", "bar"),
-                       "titre": g.get("nom") or f"{col}", "data": data,
-                       "justification": g.get("justification", "")})
+        if _chart_data(df, col, g.get("type", "bar")).get("labels"):
+            charts_count += 1
+    charts_count += sum(1 for k in kpis if k.get("breakdown"))
 
-    # graphiques de répartition pour les KPI regroupés par dimension
-    for kpi in kpis:
-        if kpi.get("breakdown"):
-            charts.append({"colonne": kpi["colonne"], "type": "bar",
-                           "titre": f"{kpi['nom']} par {kpi['dimension']}",
-                           "data": kpi["breakdown"],
-                           "justification": kpi.get("justification", "")})
-
-    # 4. préparation de l'interactivité (filtres + données embarquées)
     kpi_defs = [{"nom": k["nom"], "agregation": k["agregation"], "colonne": k["colonne"],
                  "dimension": k.get("dimension")} for k in kpis]
     filter_cols = [str(c) for c in df.columns if 1 < int(df[c].nunique(dropna=True)) <= 30]
     sample = df if len(df) <= 6000 else df.sample(6000, random_state=0)
     data_json = json.dumps(sample.to_dict(orient="records"), ensure_ascii=False, default=str)
 
-    # 5. rendu HTML (tableau de bord interactif)
     html = _render_html(objective, data_json, kpi_defs, filter_cols)
-    config.ensure_dirs()
-    html_path = config.ARTIFACTS_DIR / f"{env.job_id}__dashboard.html"
-    html_path.write_text(html, encoding="utf-8")
+    path = None
+    if job_id:
+        config.ensure_dirs()
+        path = config.ARTIFACTS_DIR / f"{job_id}__dashboard.html"
+        path.write_text(html, encoding="utf-8")
+
+    return {"html": html, "path": str(path) if path else None,
+            "kpis": _json_safe(kpis), "charts": charts_count, "ia": ia,
+            "filter_cols": filter_cols, "kpi_defs": kpi_defs}
+
+
+def run(env, db, jobs) -> dict:
+    dv = env.dataset_version_id or (env.parameters or {}).get("dataset_version_id") \
+        or (env.input_reference or {}).get("dataset_version_id")
+    if not dv:
+        return {"status": "FAILED", "result_reference": {}, "warnings": [],
+                "errors": ["dataset_version_id manquant : impossible de générer le tableau de bord."]}
+
+    df, err = _load_dataset(db, dv)
+    if df is None or err:
+        return {"status": "FAILED", "result_reference": {}, "warnings": [], "errors": [err or "dataset illisible"]}
+
+    objective = (env.parameters or {}).get("objective") or env.objective or ""
+    result = generate_dashboard(df, objective, job_id=env.job_id)
 
     artifacts.write_contract(env.job_id, "agent11_dashboard",
-                             {"kpis": _json_safe(kpis), "charts": len(charts), "ia": ia})
+                             {"kpis": result["kpis"], "charts": result["charts"], "ia": result["ia"]})
 
     return {
         "status": "DONE",
-        "result_reference": {"dashboard": str(html_path), "kpis": _json_safe(kpis),
-                             "charts": len(charts), "ia": ia},
-        "warnings": [] if ia else ["LLM indisponible — tableau de bord généré par règles."],
+        "result_reference": {"dashboard": result["path"], "kpis": result["kpis"],
+                             "charts": result["charts"], "ia": result["ia"]},
+        "warnings": [] if result["ia"] else ["LLM indisponible — tableau de bord généré par règles."],
         "errors": [],
     }
