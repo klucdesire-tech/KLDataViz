@@ -664,9 +664,16 @@ function renderCards(rows){var el=document.getElementById('row3'),html='',todo=[
       add(card('<div class="donut">'+canvas('c_d'+i,'Répartition par '+col)+'<ul class="legend">'+e.map(function(x,j){return '<li><i style="background:'+DONUT[j%DONUT.length]+'"></i><span>'+esc(label(x[0]))+'</span><b>'+Math.round(x[1]/tot*100)+' %</b></li>'}).join('')+'</ul></div>','Répartition par '+short(col),c.justification));
       todo.push(function(){charts.push(new Chart(document.getElementById('c_d'+i),{type:'doughnut',data:{labels:e.map(function(x){return x[0]}),datasets:[{data:e.map(function(x){return x[1]}),backgroundColor:DONUT,borderColor:'#fff',borderWidth:3,hoverOffset:4}]},options:{responsive:true,maintainAspectRatio:false,cutout:'68%',plugins:{legend:{display:false},tooltip:navyTip}}}))})}
     else if(c.type==='hist'||c.type==='box'||(c.type==='line'&&!META.period)){var v=rows.map(function(r){return num(r[col])}).filter(function(x){return x!=null}).sort(function(a,b){return a-b});if(v.length<10)return;
-      var lo=v[Math.floor(v.length*.01)],hi=v[Math.ceil(v.length*.99)-1],w=(hi-lo)/10||1,bins=new Array(10).fill(0);v.forEach(function(x){if(x<lo||x>hi)return;bins[Math.min(9,Math.floor((x-lo)/w))]++});
-      add(card(canvas('c_h'+i,'Distribution de '+nice(col)),'Distribution de '+short(col),c.justification));
-      todo.push(function(){charts.push(new Chart(document.getElementById('c_h'+i),{type:'bar',data:{labels:bins.map(function(_,j){return fmt(lo+j*w)}),datasets:[{data:bins,backgroundColor:'#10BCD0',hoverBackgroundColor:NAVY,borderRadius:6,borderSkipped:false,categoryPercentage:.9,barPercentage:.92}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:navyTip},scales:axes}}))})}
+      var q=function(p){return v[Math.min(v.length-1,Math.floor(p*(v.length-1)))]},med=q(.5),lo=q(.01),hi=q(.99),labels,bins;
+      // Très asymétrique (ex. charge virale : beaucoup de valeurs basses, quelques très hautes) → classes par puissance de 10
+      if(v[0]>=0&&hi>20*Math.max(med,1)){var top=Math.ceil(Math.log10(Math.max(v[v.length-1],10))),bot=Math.max(1,Math.floor(Math.log10(Math.max(q(.05),1))));
+        labels=[];bins=[];if(v[0]<Math.pow(10,bot)){labels.push('< '+fmt(Math.pow(10,bot)));bins.push(0)}
+        for(var e=bot;e<top;e++){labels.push(fmt(Math.pow(10,e))+' – '+fmt(Math.pow(10,e+1)));bins.push(0)}
+        v.forEach(function(x){var j=x<Math.pow(10,bot)?0:Math.min(labels.length-1,(v[0]<Math.pow(10,bot)?1:0)+Math.floor(Math.log10(x))-bot);bins[j]++})}
+      else{var w=(hi-lo)/10||1;bins=new Array(10).fill(0);v.forEach(function(x){if(x<lo||x>hi)return;bins[Math.min(9,Math.floor((x-lo)/w))]++});labels=bins.map(function(_,j){return fmt(lo+j*w)})}
+      var sub='Médiane '+fmt(med)+' · moitié centrale '+fmt(q(.25))+' – '+fmt(q(.75))+' · max '+fmt(v[v.length-1]);
+      add(card(canvas('c_h'+i,'Distribution de '+nice(col)),'Distribution de '+short(col),sub));
+      todo.push(function(){charts.push(new Chart(document.getElementById('c_h'+i),{type:'bar',data:{labels:labels,datasets:[{data:bins,backgroundColor:'#10BCD0',hoverBackgroundColor:NAVY,borderRadius:6,borderSkipped:false,categoryPercentage:.9,barPercentage:.92}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:navyTip},scales:axes}}))})}
     else if(c.type==='bar'&&numeric&&Cc&&col!==Cc){if(SHOWN[col+'|'+Cc])return;SHOWN[col+'|'+Cc]=1;var e3=ranked(rows,col,'somme',Cc,8);if(e3.length<2)return;add(card(rankList(e3),short(col)+' par '+short(Cc),c.justification))}
     else if(c.type==='bar'&&!numeric){var e2=ranked(rows,null,'compte',col,8);if(e2.length<2||e2.every(function(x){return x[1]===e2[0][1]}))return;add(card(rankList(e2),'Lignes par '+short(col),c.justification))}});
   // Classements par dimension (pas par date : la courbe les montre déjà)
