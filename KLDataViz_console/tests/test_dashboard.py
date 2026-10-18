@@ -163,6 +163,30 @@ def test_taux_par_categorie_non_empile():
     assert "var add=/^(somme|compte|count|sum)$/" in TEMPLATE and "html+=catBar('c_stack',e0" in TEMPLATE
 
 
+def test_ecarts_fichier_patient_par_patient():
+    """Une ligne par patient : nouveaux patients, taux (écart en points), délai (une hausse est une dégradation)."""
+    import sys  # noqa: PLC0415
+    reset_app_modules()
+    import server  # noqa: PLC0415
+    sys.path.insert(0, os.path.join(os.path.dirname(server.__file__), "..", "HERMES_DA"))
+    from hermes_da.adapters.dashboard import _keyind, _patient_gaps, _patient_items, _period, _period_key  # noqa: PLC0415
+    df = pd.DataFrame({"date_initiation_arv": pd.to_datetime(["2025-03-02", "2025-03-09", "2025-04-01", "2025-04-03", "2025-04-20"]),
+                       "initiation_meme_jour": ["Oui", "Non", "Oui", "Oui", "Non"],
+                       "delai_initiation_jours": [0, 10, 0, 2, 7]})
+    dom = {"cle": "vih", "nom": "VIH / Sida", "indicateurs": []}
+    assert _keyind(df, {"cle": "vih", "nom": "VIH", "indicateurs": [{"nom": "Nouveaux sous TARV", "tous": ["initi"], "un": [],
+                                                                    "sauf": [], "bon": 1}]})[2] == []   # délai ≠ indicateur
+    items = _patient_items(df, [{"nom": "Taux d'initiation le même jour", "agregation": "taux", "colonne": "initiation_meme_jour"},
+                                {"nom": "Délai moyen d'initiation", "agregation": "moyenne", "colonne": "delai_initiation_jours"}],
+                           dom, "date_initiation_arv")
+    pc, ps = _period(df)
+    g = {x["indicateur"]: x for x in _patient_gaps(df, _period_key(df, pc, ps), items)}
+    assert g["Nouveaux patients"]["derniere"] == 3 and g["Nouveaux patients"]["pct"] == 50
+    t = g["Taux d'initiation le même jour"]
+    assert t["pts"] and round(t["derniere"], 1) == 66.7 and round(t["pct"], 1) == 16.7
+    assert g["Délai moyen d'initiation"]["bon"] == -1 and g["Délai moyen d'initiation"]["sens"] == "baisse"
+
+
 def test_graphiques_adaptes_aux_donnees():
     """Pyramide pour les classes d'âge, seuils cliniques (CD4, CV, délai), imputation signalée, pas de doublon."""
     import sys  # noqa: PLC0415
