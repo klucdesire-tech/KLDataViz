@@ -1307,9 +1307,11 @@ function showDashboard(){
   const d=state.dash;$('#dbBar').hidden=false;
   $('#dbBadge').textContent=d.ia?'✦ Indicateurs choisis par l\'IA':'Indicateurs choisis par règles';
   // Cadre isolé : le tableau de bord exécute ses propres scripts (Chart.js embarqué) sans accès à l'application
-  $('#dbBody').innerHTML='<iframe id="dbFrame" title="Tableau de bord" sandbox="allow-scripts" style="display:block;width:100%;height:82vh;border:0;border-radius:16px;background:#F3F6F9"></iframe>';
+  $('#dbBody').innerHTML='<iframe id="dbFrame" title="Tableau de bord" sandbox="allow-scripts" scrolling="no" style="display:block;width:100%;height:82vh;overflow:hidden;border:0;border-radius:16px;background:#F3F6F9"></iframe>';
   $('#dbFrame').srcdoc=d.html;
 }
+// Hauteur du cadre = hauteur du tableau de bord (la page défile, pas le cadre)
+window.addEventListener('message',e=>{const f=$('#dbFrame');if(f&&e.source===f.contentWindow&&e.data&&+e.data.kldvHeight>0)f.style.height=Math.min(+e.data.kldvHeight,20000)+'px'});
 $('#dbRegen').onclick=()=>loadDashboard(true);
 $('#dbOpen').onclick=()=>{if(state.dash?.html){const u=URL.createObjectURL(new Blob([state.dash.html],{type:'text/html'}));window.open(u,'_blank')}};
 

@@ -411,7 +411,7 @@ select{appearance:none;border:1px solid var(--line);background:var(--card) url("
 @media (max-width:900px){.row2{grid-template-columns:minmax(0,1fr)}}
 /* Affiché dans l'application (cadre) : le titre est déjà sur la page */
 .embedded body,body.embedded{padding:4px 2px 16px;background:transparent}
-body.embedded .top .title{display:none}body.embedded .top{justify-content:flex-end;margin-bottom:8px}
+body.embedded{min-height:0;overflow:hidden}html:has(body.embedded){overflow:hidden}body.embedded .top .title{display:none}body.embedded .top{justify-content:flex-end;margin-bottom:8px}
 @media (max-width:560px){body{padding:16px}.donut{grid-template-columns:1fr}.donut .box{height:170px}}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 </style></head><body>
@@ -544,6 +544,9 @@ function render(){charts.forEach(function(c){c.destroy()});charts=[];var rows=fi
   var todo=renderMain(rows).concat(renderCards(rows));if(window.Chart)todo.forEach(function(f){f()})}
 document.getElementById('objective').textContent=window.OBJECTIVE;
 try{if(window.self!==window.top)document.body.classList.add('embedded')}catch(e){document.body.classList.add('embedded')}
+// Intégré : la page parente ajuste la hauteur du cadre au contenu (pas d'ascenseur interne)
+if(document.body.classList.contains('embedded')){var lastH=0,sendH=function(){var h=Math.ceil(document.body.getBoundingClientRect().height);if(Math.abs(h-lastH)>2){lastH=h;parent.postMessage({kldvHeight:h},'*')}};
+  if(window.ResizeObserver)new ResizeObserver(sendH).observe(document.body);window.addEventListener('load',sendH);setTimeout(sendH,300)}
 if(META.range){var r=document.getElementById('range');r.hidden=false;r.querySelector('span').textContent=META.range}
 buildFilters();render();
 </script>
