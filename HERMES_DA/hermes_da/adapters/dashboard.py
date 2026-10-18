@@ -370,6 +370,94 @@ def _meta(df, kpis, spec, filter_cols, period_col, period_series):
             "filters": filters, "gran": gran, "grans": grans}
 
 
+# ---- Domaine / programme : détection + indicateurs clés + écarts (gaps)
+# Chaque indicateur clé est un (mot-clé de libellé, libellé affiché). Le mot-clé est cherché
+# en sous-chaîne dans les libellés d'indicateurs du fichier (ex. « arv », « seropositifs »).
+DOMAINES = {
+    "vih": {
+        "nom": "VIH / Sida",
+        "mots": ["vih", "hiv", "arv", "tarv", "seropositif", "charge virale", "depist", "index testing"],
+        "indicateurs": [
+            ("depistes pour le vih et ayant recu", "Personnes dépistées (résultats reçus)"),
+            ("seropositifs", "Cas positifs dépistés"),
+            ("nouvellement initie", "Nouveaux sous TARV"),
+            ("charge virale", "Charge virale contrôlée"),
+        ],
+    },
+    "paludisme": {
+        "nom": "Paludisme",
+        "mots": ["palu", "malaria", "moustiquaire", "mild", "tpi", "act", "rdt"],
+        "indicateurs": [("cas", "Cas confirmés"), ("deces", "Décès"), ("mild", "Moustiquaires distribuées")],
+    },
+    "tuberculose": {
+        "nom": "Tuberculose",
+        "mots": ["tubercul", "tpm+", "bacterio"],
+        "indicateurs": [("cas", "Cas notifiés"), ("deces", "Décès")],
+    },
+    "vaccination": {
+        "nom": "Vaccination / PEV",
+        "mots": ["vaccin", "pev", "penta", "rougeole", "dose", "antigene", "bcg"],
+        "indicateurs": [("doses", "Doses administrées"), ("enfants", "Enfants vaccinés")],
+    },
+    "sante_maternelle": {
+        "nom": "Santé maternelle & néonatale",
+        "mots": ["matern", "cpn", "anc", "accouch", "cesarienne", "neonat", "postnatal"],
+        "indicateurs": [("cpn", "Consultations prénatales"), ("accouch", "Accouchements assistés")],
+    },
+}
+
+
+def _detect_domaine(df) -> dict | None:
+    """Détecte le domaine/programme à partir des codes indicateurs et noms de colonnes."""
+    text = " ".join(str(c) for c in df.columns).lower()
+    for c in df.columns:
+        lc = str(c).lower()
+        if lc in ("indicator", "indicateur", "code", "code_indicateur", "libelle", "libellé"):
+            text += " " + " ".join(str(v) for v in df[c].dropna().astype(str).unique()[:200]).lower()
+    for cle, dom in DOMAINES.items():
+        if any(m in text for m in dom["mots"]):
+            return {"cle": cle, "nom": dom["nom"], "indicateurs": dom["indicateurs"]}
+    return None
+
+
+def _gaps(df, domaine, period_col):
+    """Écarts (gaps) entre la dernière et l'avant-dernière période, pour les indicateurs du domaine."""
+    if not domaine:
+        return []
+    import pandas as pd
+    indicator_col = next((c for c in df.columns if str(c).lower()
+                          in ("indicator", "indicateur", "code", "code_indicateur", "libelle", "libellé")), None)
+    value_col = next((c for c in df.columns if str(c).lower() in ("value", "valeur", "val", "montant", "mesure")
+                      and pd.api.types.is_numeric_dtype(df[c])), None)
+    if not indicator_col or not value_col:
+        return []
+    if not period_col:
+        period_col = next((c for c in df.columns if str(c).lower()
+                           in ("quarter", "period", "periode", "trimestre", "mois", "date", "year", "annee", "année")), None)
+    if not period_col:
+        return []
+    periods = sorted(df[period_col].dropna().astype(str).unique())
+    if len(periods) < 2:
+        return []
+    last, prev = periods[-1], periods[-2]
+    labels = df[indicator_col].dropna().astype(str).str.strip().str.lower()
+    gaps = []
+    for mot, nom in domaine.get("indicateurs", []):
+        sub = df[labels.str.contains(mot, regex=False)]
+        if sub.empty:
+            continue
+        cur = pd.to_numeric(sub[sub[period_col].astype(str) == last][value_col], errors="coerce").sum()
+        pre = pd.to_numeric(sub[sub[period_col].astype(str) == prev][value_col], errors="coerce").sum()
+        if pd.isna(cur) or pd.isna(pre) or pre == 0:
+            continue
+        delta = cur - pre
+        pct = (delta / pre) * 100
+        gaps.append({"indicateur": nom, "derniere": cur, "precedente": pre,
+                     "delta": delta, "pct": pct,
+                     "sens": "hausse" if delta > 0 else "baisse" if delta < 0 else "stable"})
+    return gaps
+
+
 TEMPLATE = r"""<!DOCTYPE html>
 <html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Tableau de bord KLDataViz</title>
@@ -439,11 +527,24 @@ select{appearance:none;border:1px solid var(--line);background:var(--card) url("
 body.embedded{min-height:0;overflow:hidden}html:has(body.embedded){overflow:hidden}body.embedded .top .title{display:none}body.embedded .top{justify-content:flex-end;margin-bottom:8px}
 @media (max-width:560px){body{padding:16px}.donut{grid-template-columns:1fr}.donut .box{height:170px}}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
+.gaps{margin:0 0 18px;padding:16px;background:#fff;border:1px solid #e3e9f0;border-radius:14px;box-shadow:0 2px 6px rgba(15,23,42,.05)}
+.gaps-h{font-size:15px;font-weight:700;margin-bottom:12px;color:#0f172a}
+.gaps-dom{color:#0B4F8F}
+.gaps-sub{font-size:11.5px;color:#667085;font-weight:400;margin-left:8px}
+.gaps-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}
+.gap{background:#f8fafc;border:1px solid #eef1f5;border-radius:10px;padding:12px 14px}
+.gap b{display:block;font-size:12.5px;font-weight:600;color:#334155;margin-bottom:4px;line-height:1.3}
+.gap-v{display:block;font-size:21px;font-weight:800;color:#0f172a}
+.gap-d{display:inline-block;font-size:12px;font-weight:600;margin-top:5px;padding:2px 8px;border-radius:20px}
+.gap-d.up{background:#e6f7ed;color:#157a3f}
+.gap-d.down{background:#fdeaea;color:#c0392b}
+.gap-d.flat{background:#eef1f4;color:#667085}
 </style></head><body>
 <header class="top"><div class="title"><h1>Tableau de bord</h1><p id="objective"></p></div>
   <span class="chip" id="range" hidden><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg><span></span></span></header>
 <div class="filters" id="filters"></div>
 <section class="kpis" id="kpis" aria-label="Indicateurs clés"></section>
+<section class="gaps" id="gaps" hidden></section>
 <section class="row2" id="row2"></section>
 <section class="row3" id="row3"></section>
 <script>
@@ -573,7 +674,8 @@ function renderCards(rows){var el=document.getElementById('row3'),html='',todo=[
     add(card(rankList(e,isRate(k.agregation)?' %':''),k.nom+' par '+short(k.dimension),'Classement'))});
   el.innerHTML=html||'';return todo}
 
-function render(){charts.forEach(function(c){c.destroy()});charts=[];var rows=filtered();renderKpis(rows);
+function renderGaps(){var el=document.getElementById('gaps'),G=META.gaps,D=META.domaine;if(!G||!G.length){el.hidden=true;return}el.hidden=false;var t=D?'<span class="gaps-dom">'+esc(D.nom)+'</span>':'';el.innerHTML='<h2 class="gaps-h">Indicateurs clés de suivi '+t+'<span class="gaps-sub">évolution vs période précédente</span></h2><div class="gaps-grid">'+G.map(function(g){var a=g.sens==='hausse'?'\u25b2':g.sens==='baisse'?'\u25bc':'\u2014';var c=g.sens==='hausse'?'up':g.sens==='baisse'?'down':'flat';var p=(g.pct>0?'+':'')+Number(g.pct).toFixed(1)+'%';return '<div class="gap"><b>'+esc(g.indicateur)+'</b><span class="gap-v">'+fmt(g.derniere)+'</span><span class="gap-d '+c+'">'+a+' '+p+'</span></div>'}).join('')+'</div>'}
+function render(){charts.forEach(function(c){c.destroy()});charts=[];var rows=filtered();renderKpis(rows);renderGaps();
   var todo=renderMain(rows).concat(renderCards(rows));if(window.Chart)todo.forEach(function(f){f()})}
 document.getElementById('objective').textContent=window.OBJECTIVE;
 try{if(window.self!==window.top)document.body.classList.add('embedded')}catch(e){document.body.classList.add('embedded')}
@@ -662,6 +764,12 @@ def generate_dashboard(df, objective: str = "", job_id: str | None = None, llm=N
     filter_cols = [str(c) for c in df.columns if 1 < int(df[c].nunique(dropna=True)) <= 30]
     period_col, period_series = _period(df)
     meta = _meta(df, kpi_defs, spec, filter_cols, period_col, period_series)
+    domaine = _detect_domaine(df)
+    gaps = _gaps(df, domaine, period_col)
+    if domaine:
+        meta["domaine"] = {"cle": domaine["cle"], "nom": domaine["nom"]}
+    if gaps:
+        meta["gaps"] = _json_safe(gaps)
     data = df.assign(__p=period_series) if period_series is not None else df
     sample = data if len(data) <= 6000 else data.sample(6000, random_state=0)
     data_json = json.dumps(sample.to_dict(orient="records"), ensure_ascii=False, default=str)
@@ -675,7 +783,8 @@ def generate_dashboard(df, objective: str = "", job_id: str | None = None, llm=N
 
     return {"html": html, "path": str(path) if path else None,
             "kpis": _json_safe(kpis), "charts": charts_count, "ia": ia,
-            "filter_cols": filter_cols, "kpi_defs": kpi_defs}
+            "filter_cols": filter_cols, "kpi_defs": kpi_defs,
+            "domaine": _json_safe(domaine), "gaps": _json_safe(gaps)}
 
 
 def run(env, db, jobs) -> dict:
