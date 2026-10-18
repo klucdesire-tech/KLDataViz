@@ -514,6 +514,8 @@ def _keyind(df, domaine):
             return ic, vc, out
     nums = [c for c in df.columns if pd.to_numeric(df[c], errors="coerce").notna().sum() >= max(1, int(df[c].notna().sum() * .9))
             and df[c].notna().any() and not pd.api.types.is_datetime64_any_dtype(df[c])]
+    # Libellé d'indicateur (« Nombre de PVVIH nouvellement initiés sous TARV »), pas une variable patient (« delai_initiation »)
+    nums = [c for c in nums if len(_norm(c).split()) >= 4 and not any(m in _norm(c).split() for m in ("delai", "duree", "age", "jours", "date"))]
     for ki in domaine["indicateurs"]:
         col = next((c for c in nums if c not in used and _match(_norm(c), ki)), None)
         if col is not None:
@@ -549,6 +551,55 @@ def _gaps(df, keys, ic, vc, kis):
             g.update({"precedente": p, "delta": d, "pct": d / p * 100,
                       "sens": "hausse" if d > 0 else "baisse" if d < 0 else "stable"})
         gaps.append(g)
+    return gaps
+
+
+# Fichier « une ligne par patient » (pas de colonne indicateur/valeur) : on compare les deux derniers mois
+# de la colonne de date — nouveaux enregistrements et indicateurs « taux »/« moyenne » choisis pour le tableau.
+_MAUVAIS = ("deces", "decede", "perdu", "abandon", "arret", "echec", "non supprim", "1000", "delai", "attente", "rupture")
+
+
+def _bon(nom) -> int:
+    """Sens souhaité d'un indicateur d'après son nom : -1 si une hausse est une dégradation (décès, délai…)."""
+    n = _norm(nom)
+    return -1 if any(m in n for m in _MAUVAIS) else 1
+
+
+def _patient_items(df, kpi_defs, domaine, period_col):
+    items = [{"nom": "Nouveaux patients" if domaine else "Nouveaux enregistrements", "kind": "count", "bon": 1,
+              "libelle": f"Lignes par mois de « {period_col} »"}]
+    for k in kpi_defs:
+        a, col = (k.get("agregation") or "").lower(), k.get("colonne")
+        if col in df.columns and col != period_col and a in ("taux", "rate", "pct", "proportion", "moyenne", "mean"):
+            items.append({"nom": k["nom"], "kind": "agg", "col": str(col), "agg": a, "bon": _bon(k["nom"]),
+                          "libelle": f"{k['nom']} ({col})", "pts": a in ("taux", "rate", "pct", "proportion")})
+    return items
+
+
+def _patient_gaps(df, keys, items):
+    """Dernier mois vs précédent : effectif, taux (écart en points) ou moyenne (écart en %)."""
+    if keys is None:
+        return []
+    ps = sorted(k for k in keys.dropna().unique())
+    if len(ps) < 2:
+        return []
+    last, prev = ps[-1], ps[-2]
+    gaps = []
+    for k in items:
+        if k["kind"] == "count":
+            cur, pre = float((keys == last).sum()), float((keys == prev).sum())
+        else:
+            cur, pre = _agg(df[keys == last], k["col"], k["agg"]), _agg(df[keys == prev], k["col"], k["agg"])
+            if cur is None or pre is None:
+                continue
+            if k.get("pts"):
+                cur, pre = cur * 100, pre * 100
+        d = cur - pre
+        if not k.get("pts") and pre == 0:
+            continue
+        gaps.append({"indicateur": k["nom"], "libelle": k["libelle"], "derniere": cur, "precedente": pre, "delta": d,
+                     "pct": d if k.get("pts") else d / pre * 100, "pts": bool(k.get("pts")), "bon": k["bon"],
+                     "periode": last, "periode_prec": prev, "sens": "hausse" if d > 0 else "baisse" if d < 0 else "stable"})
     return gaps
 
 
@@ -785,7 +836,10 @@ function renderCards(rows){var el=document.getElementById('row3'),html='',todo=[
 function gkey(k){k=String(k||'');var m=k.match(/^(\d{4})-(\d{2})$/);if(m)return MOIS[+m[2]-1]+' '+m[1];m=k.match(/^(\d{4})-T(\d)$/);return m?'T'+m[2]+' '+m[1]:k}
 function renderGaps(rows){var el=document.getElementById('gaps'),K=META.keyind,D=META.domaine,G=META.gaps;if(!G||!G.length||!K){el.hidden=true;return}
   // Recalcul sur les lignes filtrées (district, sexe…) ; format long : libellé exact ; format large : la colonne de l'indicateur
-  if(K.live){G=K.items.map(function(k){var c=null,p=null;rows.forEach(function(r){if(!k.col&&String(r[K.ind]).trim()!==k.libelle)return;var v=num(k.col?r[k.col]:r[K.val]);if(v==null)return;
+  if(K.live){G=K.items.map(function(k){if(k.kind){var L=rows.filter(function(r){return r.__g===K.last}),Pr=rows.filter(function(r){return r.__g===K.prev});
+      var c=k.kind==='count'?L.length:agg(L,k.col,k.agg),p=k.kind==='count'?Pr.length:agg(Pr,k.col,k.agg);if(c==null||p==null||(!k.pts&&!p))return null;
+      var d=c-p;return {indicateur:k.nom,libelle:k.libelle,derniere:c,pct:k.pts?d:d/p*100,pts:k.pts,bon:k.bon,sens:d>0?'hausse':d<0?'baisse':'stable'}}
+    var c=null,p=null;rows.forEach(function(r){if(!k.col&&String(r[K.ind]).trim()!==k.libelle)return;var v=num(k.col?r[k.col]:r[K.val]);if(v==null)return;
       if(K.last==null||r.__g===K.last)c=(c||0)+v;else if(K.prev!=null&&r.__g===K.prev)p=(p||0)+v});
     if(c==null)return null;var d=p?c-p:null;return {indicateur:k.nom,libelle:k.libelle,derniere:c,pct:p?d/p*100:null,bon:k.bon,sens:d==null?null:d>0?'hausse':d<0?'baisse':'stable'}}).filter(Boolean)}
   if(!G.length){el.hidden=true;return}el.hidden=false;var t=D?'<span class="gaps-dom">'+esc(D.nom)+'</span>':'';
@@ -793,8 +847,8 @@ function renderGaps(rows){var el=document.getElementById('gaps'),K=META.keyind,D
   // Vert = évolution souhaitée (ex. baisse des décès), rouge = dégradation
   el.innerHTML='<h2 class="gaps-h">Indicateurs clés de suivi '+t+'<span class="gaps-sub">'+sub+'</span></h2><div class="gaps-grid">'+G.map(function(g){var badge='';
     if(g.pct!=null){var a=g.sens==='hausse'?'▲':g.sens==='baisse'?'▼':'—',good=g.pct*(g.bon||1),c=g.sens==='stable'?'flat':good>0?'up':'down';
-      badge='<span class="gap-d '+c+'">'+a+' '+(g.pct>0?'+':'')+Number(g.pct).toFixed(1).replace('.',',')+' %</span>'}
-    return '<div class="gap" title="'+esc(g.libelle||'')+'"><b>'+esc(g.indicateur)+'</b><span class="gap-v">'+fmt(g.derniere)+'</span>'+badge+'</div>'}).join('')+'</div>'}
+      badge='<span class="gap-d '+c+'">'+a+' '+(g.pct>0?'+':'')+Number(g.pct).toFixed(1).replace('.',',')+(g.pts?' pts':' %')+'</span>'}
+    return '<div class="gap" title="'+esc(g.libelle||'')+'"><b>'+esc(g.indicateur)+'</b><span class="gap-v">'+fmt(g.derniere)+(g.pts?' %':'')+'</span>'+badge+'</div>'}).join('')+'</div>'}
 function render(){charts.forEach(function(c){c.destroy()});charts=[];var rows=filtered();renderKpis(rows);renderGaps(rows);
   var todo=renderMain(rows).concat(renderCards(rows));if(window.Chart)todo.forEach(function(f){f()})}
 document.getElementById('objective').textContent=window.OBJECTIVE;
@@ -888,6 +942,10 @@ def generate_dashboard(df, objective: str = "", job_id: str | None = None, llm=N
     ic, vc, kis = _keyind(df, domaine)
     keys = _period_key(df, period_col, period_series) if kis else None
     gaps = _gaps(df, keys, ic, vc, kis)
+    if not kis and period_series is not None:  # une ligne par patient : comparaison des deux derniers mois
+        kis = _patient_items(df, kpi_defs, domaine, period_col)
+        keys = _period_key(df, period_col, period_series)
+        gaps = _patient_gaps(df, keys, kis)
     if domaine:
         meta["domaine"] = {"cle": domaine["cle"], "nom": domaine["nom"]}
     data = df.assign(__p=period_series) if period_series is not None else df
