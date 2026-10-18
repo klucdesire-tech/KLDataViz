@@ -726,9 +726,15 @@ function renderMain(rows){var M=META.measure,P=META.period,S=META.stack,el=docum
       charts.push(new Chart(cv,{type:'line',data:{labels:ks.map(plabel),datasets:[{data:ks.map(function(k){return agg(g[k],M.colonne,M.agregation)}),borderColor:NAVY,backgroundColor:grad,fill:true,tension:.35,borderWidth:2.5,spanGaps:true,pointRadius:ks.length<=15?3:0,pointHoverRadius:5,pointBackgroundColor:NAVY}]},
         options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},plugins:{legend:{display:false},tooltip:Object.assign({callbacks:{label:function(c){return M.nom+' : '+fmt(c.parsed.y)+(isRate(M.agregation)?' %':'')}}},navyTip)},scales:axes}}))})}
   if(P&&M&&S){var g2=groupBy(rows,function(r){return pkey(r.__p)}),ks2=Object.keys(g2).sort(),cats=ranked(rows,M.colonne,M.agregation,S,5).map(function(e){return e[0]});
-    html+=card(canvas('c_stack',M.nom+' par '+short(S)),M.nom+' par '+short(S),'Par '+GRAN[gran].toLowerCase()+', empilé',seg());
-    todo.push(function(){charts.push(new Chart(document.getElementById('c_stack'),{type:'bar',data:{labels:ks2.map(plabel),datasets:cats.map(function(c,i){return {label:label(c),data:ks2.map(function(k){return agg(g2[k].filter(function(r){return String(r[S])===c}),M.colonne,M.agregation)||0}),backgroundColor:PASTEL[i%PASTEL.length],borderRadius:6,borderSkipped:false,barPercentage:.55}})},
-      options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom',labels:{usePointStyle:true,pointStyle:'circle',boxWidth:8,padding:14}},tooltip:Object.assign({},navyTip,{displayColors:true})},scales:{x:Object.assign({},axes.x,{stacked:true}),y:Object.assign({},axes.y,{stacked:true})}}}))})}
+    // Un total (somme, effectif) s'empile ; un taux ou une moyenne ne s'additionne pas : une courbe par catégorie
+    var add=/^(somme|compte|count|sum)$/.test((M.agregation||'').toLowerCase()),pct=isRate(M.agregation)?' %':'';
+    html+=card(canvas('c_stack',M.nom+' par '+short(S)),M.nom+' par '+short(S),'Par '+GRAN[gran].toLowerCase()+(add?', empilé':', comparé'),seg());
+    todo.push(function(){charts.push(new Chart(document.getElementById('c_stack'),{type:add?'bar':'line',data:{labels:ks2.map(plabel),datasets:cats.map(function(c,i){var col=PASTEL[i%PASTEL.length];return {label:label(c),
+        data:ks2.map(function(k){var v=agg(g2[k].filter(function(r){return String(r[S])===c}),M.colonne,M.agregation);return v==null?(add?0:null):v}),
+        backgroundColor:col,borderColor:col,borderRadius:6,borderSkipped:false,barPercentage:.55,borderWidth:add?0:2.5,tension:.35,spanGaps:true,fill:false,pointRadius:add||ks2.length>15?0:3}})},
+      options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},plugins:{legend:{position:'bottom',labels:{usePointStyle:true,pointStyle:'circle',boxWidth:8,padding:14}},
+        tooltip:Object.assign({},navyTip,{displayColors:true,callbacks:{label:function(c){return c.dataset.label+' : '+fmt(c.parsed.y)+pct}}})},
+        scales:{x:Object.assign({},axes.x,{stacked:add}),y:Object.assign({},axes.y,{stacked:add})}}}))})}
   // Sans période (ex. un export par structure) : l'indicateur principal par catégorie, en barres et en part du total
   var C=META.stack||((META.filters||[])[0]||{}).col;SHOWN={};
   if(!P&&M&&M.colonne&&C){var e=ranked(rows,M.colonne,M.agregation,C,12);
