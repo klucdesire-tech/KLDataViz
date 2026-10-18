@@ -565,6 +565,16 @@ def _bon(nom) -> int:
     return -1 if any(m in n for m in _MAUVAIS) else 1
 
 
+def _partial_month(period_series):
+    """Dernier mois incomplet (dates au jour qui s'arrêtent avant les 5 derniers jours du mois) → sa clé « AAAA-MM »."""
+    import calendar
+    days = sorted(v for v in period_series.dropna().unique() if isinstance(v, str) and len(v) == 10)
+    if not days:
+        return None
+    y, m, d = (int(x) for x in days[-1].split("-"))
+    return days[-1][:7] if d <= calendar.monthrange(y, m)[1] - 5 else None
+
+
 def _patient_items(df, kpi_defs, domaine, period_col):
     items = [{"nom": "Nouveaux patients" if domaine else "Nouveaux enregistrements", "kind": "count", "bon": 1,
               "libelle": f"Lignes par mois de « {period_col} »"}]
@@ -684,6 +694,14 @@ body.embedded{min-height:0;overflow:hidden}html:has(body.embedded){overflow:hidd
 .gap-d.up{background:#e6f7ed;color:#157a3f}
 .gap-d.down{background:#fdeaea;color:#c0392b}
 .gap-d.flat{background:#eef1f4;color:#667085}
+.gaps-top{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px}.gaps-top .gaps-h{margin:0}
+.gaps-ctl{display:flex;flex-wrap:wrap;align-items:center;gap:10px}.gaps-ctl label{font-size:12px;color:var(--muted);display:flex;align-items:center;gap:6px}.gaps-ctl select{min-width:130px}
+.gaps-warn{font-size:12px;color:#9A5B00;background:#FFF6E5;border-radius:8px;padding:6px 10px;margin:0 0 10px}
+.gaps-body{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr);gap:14px;align-items:start}.gaps-body.solo{grid-template-columns:minmax(0,1fr)}
+.gaps-chart .box{height:220px}.gaps-ct{font-size:12px;color:var(--muted);margin:0 0 6px}
+.gap{border-left:4px solid #E3EAF1}.gap.up{border-left-color:#12BF9A}.gap.down{border-left-color:#E5484D}.gap.flat{border-left-color:#9AA8B6}
+.gap-p{display:block;font-size:11.5px;color:var(--muted);margin-top:4px}
+@media (max-width:900px){.gaps-body{grid-template-columns:minmax(0,1fr)}}
 </style></head><body>
 <header class="top"><div class="title"><h1>Tableau de bord</h1><p id="objective"></p></div>
   <span class="chip" id="range" hidden><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg><span></span></span></header>
@@ -865,21 +883,44 @@ function renderCards(rows){var el=document.getElementById('row3'),html='',todo=[
 
 // « 2025-04 » → « avr. 2025 », « 2025-T1 » → « T1 2025 »
 function gkey(k){k=String(k||'');var m=k.match(/^(\d{4})-(\d{2})$/);if(m)return MOIS[+m[2]-1]+' '+m[1];m=k.match(/^(\d{4})-T(\d)$/);return m?'T'+m[2]+' '+m[1]:k}
-function renderGaps(rows){var el=document.getElementById('gaps'),K=META.keyind,D=META.domaine,G=META.gaps;if(!G||!G.length||!K){el.hidden=true;return}
-  // Recalcul sur les lignes filtrées (district, sexe…) ; format long : libellé exact ; format large : la colonne de l'indicateur
-  if(K.live){G=K.items.map(function(k){if(k.kind){var L=rows.filter(function(r){return r.__g===K.last}),Pr=rows.filter(function(r){return r.__g===K.prev});
-      var c=k.kind==='count'?L.length:agg(L,k.col,k.agg),p=k.kind==='count'?Pr.length:agg(Pr,k.col,k.agg);if(c==null||p==null||(!k.pts&&!p))return null;
-      var d=c-p;return {indicateur:k.nom,libelle:k.libelle,derniere:c,pct:k.pts?d:d/p*100,pts:k.pts,bon:k.bon,sens:d>0?'hausse':d<0?'baisse':'stable'}}
-    var c=null,p=null;rows.forEach(function(r){if(!k.col&&String(r[K.ind]).trim()!==k.libelle)return;var v=num(k.col?r[k.col]:r[K.val]);if(v==null)return;
-      if(K.last==null||r.__g===K.last)c=(c||0)+v;else if(K.prev!=null&&r.__g===K.prev)p=(p||0)+v});
-    if(c==null)return null;var d=p?c-p:null;return {indicateur:k.nom,libelle:k.libelle,derniere:c,pct:p?d/p*100:null,bon:k.bon,sens:d==null?null:d>0?'hausse':d<0?'baisse':'stable'}}).filter(Boolean)}
-  if(!G.length){el.hidden=true;return}el.hidden=false;var t=D?'<span class="gaps-dom">'+esc(D.nom)+'</span>':'';
-  var sub=K.prev!=null?esc(gkey(K.last))+' vs '+esc(gkey(K.prev)):K.last!=null?esc(gkey(K.last))+' · une seule période, pas d\'écart':'pas de période dans le fichier, pas d\'écart';
+// Écarts : période analysée et comparaison choisies par l'utilisateur ; tuiles + graphique des écarts
+var GAP={p:null,mode:'prev'},gapChart=null;
+function gYearBefore(k){var m=String(k).match(/^(\d{4})(.*)$/);return m?(+m[1]-1)+m[2]:null}
+function gval(k,rows,key){var K=META.keyind,R=key==null?rows:rows.filter(function(r){return r.__g===key});
+  if(k.kind==='count')return R.length;if(k.kind==='agg')return agg(R,k.col,k.agg);
+  var s=null;R.forEach(function(r){if(!k.col&&String(r[K.ind]).trim()!==k.libelle)return;var v=num(k.col?r[k.col]:r[K.val]);if(v!=null)s=(s||0)+v});return s}
+function renderGaps(rows){var el=document.getElementById('gaps'),K=META.keyind,D=META.domaine,G=META.gaps;if(gapChart){gapChart.destroy();gapChart=null}
+  if(!G||!G.length||!K){el.hidden=true;return}
+  var P=K.periods||[],cur=K.last,ref=K.prev,mode=GAP.mode;
+  if(K.live&&P.length){// Par défaut : dernière période complète (un mois en cours fausserait la comparaison)
+    if(GAP.p==null||P.indexOf(GAP.p)<0)GAP.p=(K.partial===P[P.length-1]&&P.length>=3)?P[P.length-2]:P[P.length-1];
+    cur=GAP.p;var i=P.indexOf(cur);ref=mode==='n1'?gYearBefore(cur):(i>0?P[i-1]:null);if(ref!=null&&P.indexOf(ref)<0)ref=null;
+    G=K.items.map(function(k){var c=gval(k,rows,cur);if(c==null)return null;var p=ref==null?null:gval(k,rows,ref),pts=!!k.pts;
+      if(pts){c=c;p=p}var ok=p!=null&&(pts||p!==0),d=ok?c-p:null;
+      return {indicateur:k.nom,libelle:k.libelle,derniere:c,precedente:p,pct:ok?(pts?d:d/p*100):null,pts:pts,bon:k.bon,sens:d==null?null:d>0?'hausse':d<0?'baisse':'stable'}}).filter(Boolean)}
+  else if(K.live&&!P.length){G=K.items.map(function(k){var c=gval(k,rows,null);return c==null?null:{indicateur:k.nom,libelle:k.libelle,derniere:c,pct:null,pts:!!k.pts,bon:k.bon}}).filter(Boolean);cur=null;ref=null}
+  if(!G.length){el.hidden=true;return}el.hidden=false;
+  var t=D?'<span class="gaps-dom">'+esc(D.nom)+'</span>':'',hasN1=P.some(function(k){return P.indexOf(gYearBefore(k))>=0});
+  var ctl=K.live&&P.length>1?'<div class="gaps-ctl"><label>Période <select id="gapP">'+P.slice().reverse().map(function(k){return '<option value="'+esc(k)+'"'+(k===cur?' selected':'')+'>'+esc(gkey(k))+(k===K.partial?' (en cours)':'')+'</option>'}).join('')+'</select></label>'
+    +'<div class="seg" role="group" aria-label="Comparer avec"><button data-m="prev" aria-pressed="'+(mode==='prev')+'">Période précédente</button>'+(hasN1?'<button data-m="n1" aria-pressed="'+(mode==='n1')+'">Même période N-1</button>':'')+'</div></div>':'';
+  var sub=cur==null?'pas de période dans le fichier, pas d\'écart':ref==null?esc(gkey(cur))+' · pas de période de comparaison':esc(gkey(cur))+' vs '+esc(gkey(ref));
+  var warn=K.partial&&cur===K.partial?'<p class="gaps-warn">⚠ '+esc(gkey(cur))+' est incomplet : les effectifs sont sous-estimés.</p>':'';
   // Vert = évolution souhaitée (ex. baisse des décès), rouge = dégradation
-  el.innerHTML='<h2 class="gaps-h">Indicateurs clés de suivi '+t+'<span class="gaps-sub">'+sub+'</span></h2><div class="gaps-grid">'+G.map(function(g){var badge='';
-    if(g.pct!=null){var a=g.sens==='hausse'?'▲':g.sens==='baisse'?'▼':'—',good=g.pct*(g.bon||1),c=g.sens==='stable'?'flat':good>0?'up':'down';
-      badge='<span class="gap-d '+c+'">'+a+' '+(g.pct>0?'+':'')+Number(g.pct).toFixed(1).replace('.',',')+(g.pts?' pts':' %')+'</span>'}
-    return '<div class="gap" title="'+esc(g.libelle||'')+'"><b>'+esc(g.indicateur)+'</b><span class="gap-v">'+fmt(g.derniere)+(g.pts?' %':'')+'</span>'+badge+'</div>'}).join('')+'</div>'}
+  var tone=function(g){if(g.pct==null)return '';var good=g.pct*(g.bon||1);return g.sens==='stable'?'flat':good>0?'up':'down'};
+  var tiles=G.map(function(g){var badge='',prev='';
+    if(g.pct!=null){var a=g.sens==='hausse'?'▲':g.sens==='baisse'?'▼':'—';badge='<span class="gap-d '+tone(g)+'">'+a+' '+(g.pct>0?'+':'')+Number(g.pct).toFixed(1).replace('.',',')+(g.pts?' pts':' %')+'</span>';
+      prev='<span class="gap-p">'+esc(gkey(ref))+' : '+fmt(g.precedente)+(g.pts?' %':'')+'</span>'}
+    return '<div class="gap '+tone(g)+'" title="'+esc(g.libelle||'')+'"><b>'+esc(g.indicateur)+'</b><span class="gap-v">'+fmt(g.derniere)+(g.pts?' %':'')+'</span>'+badge+prev+'</div>'}).join('');
+  var withGap=G.filter(function(g){return g.pct!=null});
+  el.innerHTML='<div class="gaps-top"><h2 class="gaps-h">Indicateurs clés de suivi '+t+'<span class="gaps-sub">'+sub+'</span></h2>'+ctl+'</div>'+warn
+    +'<div class="gaps-body'+(withGap.length>=2?'':' solo')+'"><div class="gaps-grid">'+tiles+'</div>'
+    +(withGap.length>=2?'<div class="gaps-chart"><p class="gaps-ct">Écarts vs '+esc(gkey(ref))+'</p><div class="box"><canvas id="c_gap" role="img" aria-label="Écarts par indicateur"></canvas></div></div>':'')+'</div>';
+  var sel=document.getElementById('gapP');if(sel)sel.onchange=function(){GAP.p=sel.value;renderGaps(filtered())};
+  [].forEach.call(el.querySelectorAll('.gaps-ctl .seg button'),function(b){b.onclick=function(){GAP.mode=b.dataset.m;renderGaps(filtered())}});
+  if(withGap.length>=2&&window.Chart){var col={up:'#12BF9A',down:'#E5484D',flat:'#9AA8B6'};
+    gapChart=new Chart(document.getElementById('c_gap'),{type:'bar',data:{labels:withGap.map(function(g){return g.indicateur}),datasets:[{data:withGap.map(function(g){return g.pct}),backgroundColor:withGap.map(function(g){return col[tone(g)]}),borderRadius:6,borderSkipped:false,barPercentage:.6,maxBarThickness:22}]},
+      options:{responsive:true,maintainAspectRatio:false,indexAxis:'y',plugins:{legend:{display:false},tooltip:Object.assign({},navyTip,{callbacks:{label:function(c){var g=withGap[c.dataIndex];return (g.pct>0?'+':'')+Number(g.pct).toFixed(1).replace('.',',')+(g.pts?' pts':' %')+' ('+fmt(g.precedente)+' → '+fmt(g.derniere)+')'}}})},
+        scales:{x:{grid:{color:function(c){return c.tick&&c.tick.value===0?'#9AA8B6':'#EEF1F5'}},border:{display:false},ticks:{callback:function(v){return (v>0?'+':'')+v}}},y:{grid:{display:false},border:{display:false},ticks:{callback:function(v){var l=this.getLabelForValue(v);return l.length>26?l.slice(0,25)+'…':l}}}}}})}}
 function render(){charts.forEach(function(c){c.destroy()});charts=[];var rows=filtered();renderKpis(rows);renderGaps(rows);
   var todo=renderMain(rows).concat(renderCards(rows));if(window.Chart)todo.forEach(function(f){f()})}
 document.getElementById('objective').textContent=window.OBJECTIVE;
@@ -983,8 +1024,10 @@ def generate_dashboard(df, objective: str = "", job_id: str | None = None, llm=N
     if gaps:
         # Recalculés dans la page selon les filtres (sauf si l'échantillon de 6000 lignes fausserait les sommes)
         meta["gaps"] = _json_safe(gaps)
+        periods = sorted(str(k) for k in keys.dropna().unique()) if keys is not None else []
         meta["keyind"] = {"ind": None if ic is None else str(ic), "val": None if vc is None else str(vc), "items": kis,
-                          "last": gaps[0]["periode"], "prev": gaps[0]["periode_prec"], "live": len(data) <= 6000}
+                          "last": gaps[0]["periode"], "prev": gaps[0]["periode_prec"], "live": len(data) <= 6000,
+                          "periods": periods, "partial": _partial_month(period_series) if period_series is not None else None}
         if keys is not None:
             data = data.assign(__g=keys)
     sample = data if len(data) <= 6000 else data.sample(6000, random_state=0)
