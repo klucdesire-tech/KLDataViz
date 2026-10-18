@@ -151,3 +151,13 @@ def test_indicateurs_cles_format_large():
     sans = _gaps(df.drop(columns="periodname"), None, ic, vc, kis)
     assert {x["indicateur"]: x["derniere"] for x in sans} == {"Charge virale ≥ 1 000 copies/mL": 60, "Décès": 6}
     assert all(x["pct"] is None for x in sans)
+
+
+def test_taux_par_categorie_non_empile():
+    """Un taux par sexe ne s'additionne pas (70 % + 65 % ≠ 135 %) : courbes comparées, empilement réservé aux totaux."""
+    import sys  # noqa: PLC0415
+    reset_app_modules()
+    import server  # noqa: PLC0415
+    sys.path.insert(0, os.path.join(os.path.dirname(server.__file__), "..", "HERMES_DA"))
+    from hermes_da.adapters.dashboard import TEMPLATE  # noqa: PLC0415
+    assert "var add=/^(somme|compte|count|sum)$/" in TEMPLATE and "stacked:add" in TEMPLATE and "', comparé'" in TEMPLATE
