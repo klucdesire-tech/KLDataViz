@@ -316,12 +316,24 @@ def _fr_month(v):
     return f"{y + 2000 if y < 100 else y:04d}-{mo:02d}"
 
 
+_STOCK_RE = re.compile(r"population|stock|solde|encours|effectif total|superficie|capacite|parc|cheptel|habitants")
+
+
+def _plabel(k: str, yearly: bool = False) -> str:
+    """« 2024-01 » d'une colonne année → « 2024 » ; « 2025-09 » → « sept. 2025 »."""
+    return k[:4] if yearly else (f"{_MOIS_COURTS[int(k[5:7]) - 1]} {k[:4]}" if len(k) >= 7 else k)
+
+
 def _period(df):
     """Première colonne de période (dates, « 2025-04 », « Avril 2025 ») → (nom, série « AAAA-MM ») ; (None, None) sinon."""
     import pandas as pd
     for c in df.columns:
         s = df[c]
         if pd.api.types.is_numeric_dtype(s) and not pd.api.types.is_datetime64_any_dtype(s):
+            v = pd.to_numeric(s, errors="coerce").dropna()
+            if re.search(r"(^|[\s_])(annee|an|year|exercice)([\s_]|$)", _norm(c)) and len(v) >= 2 \
+                    and (v % 1 == 0).all() and v.between(1900, 2100).all() and v.nunique() >= 2:
+                return str(c), s.map(lambda x: f"{int(x)}-01" if x == x and x is not None else None)
             continue
         sample = s.dropna().astype(str).head(60)
         if len(sample) < 2:
@@ -353,7 +365,7 @@ def _meta(df, kpis, spec, filter_cols, period_col, period_series):
     for k in kpis:
         col = k.get("colonne")
         if col in cols and pd.api.types.is_numeric_dtype(pd.to_numeric(df[col], errors="coerce")) \
-                and (k.get("agregation") or "").lower() in ("somme", "moyenne", "taux", "max", "min"):
+                and (k.get("agregation") or "").lower() in ("somme", "moyenne", "taux", "max", "min", "dernier"):
             measure = k
             break
     measure = measure or (kpis[0] if kpis else None)
@@ -405,7 +417,9 @@ def _meta(df, kpis, spec, filter_cols, period_col, period_series):
                 elif span <= 731:
                     grans, gran = ["W", "M", "Q"], "M"
                 else:
-                    grans, gran = ["M", "Q", "Y"], "M"
+                    grans, gran = ["M", "Q", "Y"], ("Y" if span > 3650 else "M")
+            elif period_col in df.columns and pd.api.types.is_numeric_dtype(df[period_col]):  # années
+                rng, gran, grans = f"{ks[0][:4]} – {ks[-1][:4]}", "Y", ["Y"]
             else:
                 rng = mo(ks[0]) if ks[0] == ks[-1] else f"{mo(ks[0])} – {mo(ks[-1])}"
                 if len(ks) > 36:
@@ -785,6 +799,7 @@ function rate(rows,col){var t=rows.filter(function(r){return !isNull(r[col])}).m
   if(t.every(function(x){return YES[x]||NO[x]}))return t.filter(function(x){return YES[x]}).length/t.length*100;
   var v=t.map(num).filter(function(x){return x!=null});if(!v.length)return null;var m=v.reduce(function(p,q){return p+q},0)/v.length;return Math.max.apply(null,v)<=1?m*100:m}
 function agg(rows,col,a){a=(a||'').toLowerCase();
+  if(a==='dernier'){var lp=null;rows.forEach(function(r){if(r.__p&&(lp==null||r.__p>lp))lp=r.__p});rows=rows.filter(function(r){return r.__p===lp});a='somme'}
   if(a==='compte'||a==='count'||!col)return col?rows.filter(function(r){return r[col]!=null&&r[col]!==''}).length:rows.length;
   if(isRate(a))return rate(rows,col);
   var v=rows.map(function(r){return num(r[col])}).filter(function(x){return x!=null});if(!v.length)return null;
@@ -843,7 +858,9 @@ function renderMain(rows){var M=META.measure,P=META.period,S=META.stack,el=docum
       charts.push(new Chart(cv,{type:'line',data:{labels:ks.map(plabel),datasets:[{data:ks.map(function(k){return agg(g[k],M.colonne,M.agregation)}),borderColor:NAVY,backgroundColor:grad,fill:true,tension:.35,borderWidth:2.5,spanGaps:true,pointRadius:ks.length<=15?3:0,pointHoverRadius:5,pointBackgroundColor:NAVY}]},
         options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},plugins:{legend:{display:false},tooltip:Object.assign({callbacks:{label:function(c){return M.nom+' : '+fmt(c.parsed.y)+(isRate(M.agregation)?' %':'')}}},navyTip)},scales:axes}}))})}
   if(P&&M&&S){var add=/^(somme|compte|count|sum)$/.test((M.agregation||'').toLowerCase()),pct=isRate(M.agregation)?' %':'';
-    if(add){SHOWN[M.colonne+'|'+S]=1;var g2=groupBy(rows,function(r){return pkey(r.__p)}),ks2=Object.keys(g2).sort(),cats=ranked(rows,M.colonne,M.agregation,S,5).map(function(e){return e[0]});
+    // Empiler seulement s'il y a au moins 2 catégories où la mesure existe (ex. recettes « par type » : une seule)
+    var cats0=add?ranked(rows,M.colonne,M.agregation,S,5).filter(function(e){return e[1]}).map(function(e){return e[0]}):[];if(cats0.length<2)add=false;
+    if(add){SHOWN[M.colonne+'|'+S]=1;var g2=groupBy(rows,function(r){return pkey(r.__p)}),ks2=Object.keys(g2).sort(),cats=cats0;
       html+=card(canvas('c_stack',M.nom+' par '+short(S)),M.nom+' par '+short(S),'Par '+GRAN[gran].toLowerCase()+', empilé',seg());
       todo.push(function(){charts.push(new Chart(document.getElementById('c_stack'),{type:'bar',data:{labels:ks2.map(plabel),datasets:cats.map(function(c,i){return {label:label(c),
           data:ks2.map(function(k){return agg(g2[k].filter(function(r){return String(r[S])===c}),M.colonne,M.agregation)||0}),backgroundColor:PASTEL[i%PASTEL.length],borderRadius:6,borderSkipped:false,barPercentage:.55}})},
@@ -855,7 +872,7 @@ function renderMain(rows){var M=META.measure,P=META.period,S=META.stack,el=docum
   var C=META.stack||((META.filters||[])[0]||{}).col;
   if(!P&&M&&M.colonne&&C){var e=ranked(rows,M.colonne,M.agregation,C,12);
     if(e.length>=2){SHOWN[M.colonne+'|'+C]=1;var mean=e.reduce(function(a,x){return a+x[1]},0)/e.length;
-      html+=card(canvas('c_cat',M.nom+' par '+short(C)),M.nom+' par '+short(C),'Ligne : moyenne '+fmt(mean));
+      html+=card(canvas('c_cat',M.nom+' par '+short(C)),M.nom+' par '+short(C),'Ligne : moyenne '+fmt(mean)+(isRate(M.agregation)?' %':''));
       todo.push(function(){charts.push(new Chart(document.getElementById('c_cat'),{type:'bar',data:{labels:e.map(function(x){return label(x[0])}),
         datasets:[{data:e.map(function(x){return x[1]}),backgroundColor:e.map(function(x){return x[1]>=mean?NAVY:'#10BCD0'}),borderRadius:8,borderSkipped:false,barPercentage:.6,maxBarThickness:46},
                   {type:'line',data:e.map(function(){return mean}),borderColor:'#12BF9A',borderDash:[6,4],borderWidth:2,pointRadius:0}]},
@@ -885,11 +902,15 @@ function renderCards(rows){var el=document.getElementById('row3'),html='',todo=[
   // Effectifs déjà classés par un KPI « compte » (ex. « Patients dépistés par région ») : pas de second classement identique
   KCOUNT={};KPIDEFS.forEach(function(k){if(/^(compte|count|effectif)$/.test((k.agregation||'').toLowerCase())&&k.dimension)KCOUNT[k.dimension]=1});
   function add(h){if(n<6){html+=h;n++}}
-  (META.charts||[]).forEach(function(c,i){var col=c.colonne;if(used[col+c.type])return;used[col+c.type]=1;
+  (META.charts||[]).forEach(function(c,i){var col=c.colonne;
+    if(c.type==='bar'&&Object.keys(groupBy(rows,col)).length<=3&&rows.some(function(r){return !isNull(r[col])&&num(r[col])==null}))c=Object.assign({},c,{type:'pie'});
+    // Anneau demandé sur une colonne chiffrée (ex. « Nombre de dépistés ») : total par catégorie, pas une répartition des valeurs
+    if(c.type==='pie'&&rows.length&&rows.every(function(r){return isNull(r[col])||num(r[col])!=null}))c=Object.assign({},c,{type:'bar'});
+    if(used[col+c.type])return;used[col+c.type]=1;
     var Cc=META.stack||((META.filters||[])[0]||{}).col,numeric=rows.length&&rows.every(function(r){return isNull(r[col])||num(r[col])!=null}),nm=nice(col).toLowerCase();
     // Classes (tranche d'âge, groupe…) ou code chiffré à peu de valeurs : une catégorie, pas une quantité à additionner
-    var classes=/tranche|classe|groupe|categ|age/.test(nm)||(numeric&&Object.keys(groupBy(rows,col)).length<=12&&!/nombre|nb|effectif|total|montant|valeur|quantit/.test(nm));
-    if(c.type==='bar'&&classes&&Cc&&col!==Cc){var cs=Object.keys(groupBy(rows,Cc)).sort();if(cs.length===2){if(SHOWN['#p|'+col])return;SHOWN['#p|'+col]=1;add(pyramid('c_py'+i,rows,col,Cc,cs));todo.push(pyramidDraw('c_py'+i,rows,col,Cc,cs));return}}
+    var pyr=/(^|[\s_])(tranche|age|ages)([\s_]|$)/.test(nm),classes=pyr||/(^|[\s_])(classe|groupe)([\s_]|$)/.test(nm)||(numeric&&Object.keys(groupBy(rows,col)).length<=12&&!/nombre|nb|effectif|total|montant|valeur|quantit/.test(nm));
+    if(c.type==='bar'&&pyr&&Cc&&col!==Cc){var cs=Object.keys(groupBy(rows,Cc)).sort();if(cs.length===2){if(SHOWN['#p|'+col])return;SHOWN['#p|'+col]=1;add(pyramid('c_py'+i,rows,col,Cc,cs));todo.push(pyramidDraw('c_py'+i,rows,col,Cc,cs));return}}
     if(META.agrege&&!numeric&&(c.type==='bar'||c.type==='pie'))return;  // lignes = district × mois : pas des effectifs
     if(c.type==='bar'&&classes){var ec=ranked(rows,null,'compte',col,15).sort(function(x,y){return natural(x[0],y[0])});if(ec.length<2||SHOWN['#n|'+col]||KCOUNT[col])return;SHOWN['#n|'+col]=1;add(card(rankList(ec),'Effectifs par '+short(col),'Par classe, dans l\'ordre'));return}
     if(c.type==='pie'){var e=ranked(rows,null,'compte',col,8),tot=e.reduce(function(p,q){return p+q[1]},0)||1;if(e.length<2||e.every(function(x){return x[1]===e[0][1]}))return;
@@ -921,11 +942,11 @@ function renderCards(rows){var el=document.getElementById('row3'),html='',todo=[
     else if(c.type==='bar'&&!numeric){if(SHOWN['#n|'+col]||KCOUNT[col])return;SHOWN['#n|'+col]=1;var e2=ranked(rows,null,'compte',col,8);if(e2.length<2||e2.every(function(x){return x[1]===e2[0][1]}))return;add(card(rankList(e2),'Effectifs par '+short(col),c.justification))}});
   // Classements par dimension (pas par date : la courbe les montre déjà)
   KPIDEFS.forEach(function(k){if(!k.dimension||k.dimension===META.period||used['k'+k.nom]||SHOWN[k.colonne+'|'+k.dimension])return;used['k'+k.nom]=1;SHOWN[k.colonne+'|'+k.dimension]=1;var e=ranked(rows,k.colonne,k.agregation,k.dimension,8);if(e.length<2)return;
-    add(card(rankList(e,isRate(k.agregation)?' %':''),k.nom+' par '+short(k.dimension),'Classement'))});
+    add(card(rankList(e,isRate(k.agregation)?' %':''),k.nom.toLowerCase().indexOf(nice(k.dimension).toLowerCase())>=0?k.nom:k.nom+' par '+short(k.dimension),'Classement'))});
   el.innerHTML=html||'';return todo}
 
 // « 2025-04 » → « avr. 2025 », « 2025-T1 » → « T1 2025 »
-function gkey(k){k=String(k||'');var m=k.match(/^(\d{4})-(\d{2})$/);if(m)return MOIS[+m[2]-1]+' '+m[1];m=k.match(/^(\d{4})-T(\d)$/);return m?'T'+m[2]+' '+m[1]:k}
+function gkey(k){k=String(k||'');if(META.keyind&&META.keyind.yearly)return k.slice(0,4);var m=k.match(/^(\d{4})-(\d{2})$/);if(m)return MOIS[+m[2]-1]+' '+m[1];m=k.match(/^(\d{4})-T(\d)$/);return m?'T'+m[2]+' '+m[1]:k}
 // Écarts : période analysée et comparaison choisies par l'utilisateur ; tuiles + graphique des écarts
 var GAP={p:null,mode:'prev'},gapChart=null;
 function gYearBefore(k){var m=String(k).match(/^(\d{4})(.*)$/);return m?(+m[1]-1)+m[2]:null}
@@ -1040,11 +1061,24 @@ def generate_dashboard(df, objective: str = "", job_id: str | None = None, llm=N
 
     cols = set(df.columns)
     kpis = []
+    import pandas as pd
+    p_col, p_ser = _period(df)
+    last_p = max((v for v in p_ser.dropna().unique() if isinstance(v, str)), default=None) if p_ser is not None else None
+    seen = set()
     for k in spec.get("kpis", [])[:8]:
+        if last_p and (k.get("agregation") or "").lower() in ("somme", "sum") and k.get("colonne") in cols \
+                and _STOCK_RE.search(_norm(k["colonne"])):
+            yearly = p_col in cols and pd.api.types.is_numeric_dtype(df[p_col])
+            k = dict(k, agregation="dernier", nom=f"{k.get('nom') or k['colonne']} ({_plabel(last_p, yearly)})")
         col = k.get("colonne")
         if col is not None and col not in cols:
             continue
-        v = _agg(df, col, k.get("agregation", "compte"))
+        key = (col, (k.get("agregation") or "").lower())
+        if key in seen:  # même calcul déjà en tuile (l'IA le répète parfois avec une autre dimension)
+            continue
+        seen.add(key)
+        v = (_agg(df[p_ser == last_p], col, "somme") if (k.get("agregation") == "dernier")
+             else _agg(df, col, k.get("agregation", "compte")))
         if v is None:  # incalculable sur ces données (ex. « taux » sur un texte) : pas de tuile « — » ni de courbe vide
             continue
         kpi = {"nom": k.get("nom") or (col or "Total"), "valeur": v,
@@ -1052,7 +1086,8 @@ def generate_dashboard(df, objective: str = "", job_id: str | None = None, llm=N
                "dimension": k.get("dimension"), "justification": k.get("justification", "")}
         dim = k.get("dimension")
         if dim and dim in cols and dim != col:
-            bd = _agg_grouped(df, col, k.get("agregation", "compte"), dim)
+            bd = (_agg_grouped(df[p_ser == last_p], col, "somme", dim) if k.get("agregation") == "dernier"
+                  else _agg_grouped(df, col, k.get("agregation", "compte"), dim))
             if bd and bd.get("labels"):
                 kpi["breakdown"] = bd
                 kpi["top"] = (bd["labels"][0], bd["values"][0])
@@ -1092,7 +1127,8 @@ def generate_dashboard(df, objective: str = "", job_id: str | None = None, llm=N
         periods = sorted(str(k) for k in keys.dropna().unique()) if keys is not None else []
         meta["keyind"] = {"ind": None if ic is None else str(ic), "val": None if vc is None else str(vc), "items": kis,
                           "last": gaps[0]["periode"], "prev": gaps[0]["periode_prec"], "live": len(data) <= 6000,
-                          "periods": periods, "partial": _partial_month(period_series) if period_series is not None else None}
+                          "periods": periods, "partial": _partial_month(period_series) if period_series is not None else None,
+                          "yearly": bool(period_col in df.columns and pd.api.types.is_numeric_dtype(df[period_col]))}
         if keys is not None:
             data = data.assign(__g=keys)
     meta["agrege"] = bool(pivoted or any(k.get("col") for k in (kis or [])))

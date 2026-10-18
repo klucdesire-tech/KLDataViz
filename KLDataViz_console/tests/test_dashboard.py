@@ -246,3 +246,25 @@ def test_ventilation_jamais_par_un_resultat_oui_non():
     meta = _meta(df, [{"nom": "Délai", "agregation": "moyenne", "colonne": "delai"}], {"graphiques": []},
                  ["cv_supprimee", "sexe"], None, None)
     assert meta["stack"] == "sexe"
+
+
+def test_stocks_annees_et_secteurs(monkeypatch):
+    """Colonne « annee » = période annuelle ; une population (stock) se lit à la dernière année, jamais additionnée."""
+    import sys  # noqa: PLC0415
+    reset_app_modules()
+    import server  # noqa: PLC0415
+    sys.path.insert(0, os.path.join(os.path.dirname(server.__file__), "..", "HERMES_DA"))
+    from hermes_da.adapters import dashboard as d  # noqa: PLC0415
+    df = pd.DataFrame({"region": ["A", "B"] * 3, "annee": [2022, 2022, 2023, 2023, 2024, 2024],
+                       "population": [100, 200, 110, 210, 120, 220], "naissances": [5, 9, 6, 9, 7, 10]})
+    pc, ps = d._period(df)
+    assert pc == "annee" and ps.iloc[-1] == "2024-01"
+    meta = d._meta(df, [], {"graphiques": []}, ["region"], pc, ps)
+    assert meta["gran"] == "Y" and meta["range"] == "2022 – 2024"
+    spec = {"kpis": [{"nom": "Population totale", "agregation": "somme", "colonne": "population", "dimension": "region"},
+                     {"nom": "Naissances", "agregation": "somme", "colonne": "naissances"}], "graphiques": []}
+    monkeypatch.setattr(d, "_llm_dashboard", lambda *a, **k: spec)  # spec imposée, pas d'appel réseau
+    out = d.generate_dashboard(df, "t", llm=lambda m, n: "")
+    k = {x["nom"]: x["valeur"] for x in out["kpis"]}
+    assert k == {"Population totale (2024)": 340, "Naissances": 46}
+    assert "(tranche|age|ages)" in d.TEMPLATE  # pyramide : « âge » en mot entier (« agence » exclue)
