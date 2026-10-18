@@ -677,37 +677,32 @@ select{appearance:none;border:1px solid var(--line);background:var(--card) url("
 .rank b{font-weight:600;font-variant-numeric:tabular-nums}
 .empty{color:var(--muted);font-size:13px;padding:24px 0;text-align:center}
 @media (max-width:900px){.row2{grid-template-columns:minmax(0,1fr)}}
+@media (max-width:900px){.gaps-body{grid-template-columns:minmax(0,1fr)}}
+@media (max-width:560px){.gaps-grid{grid-template-columns:repeat(2,minmax(0,1fr))!important}}
 /* Affiché dans l'application (cadre) : le titre est déjà sur la page */
 .embedded body,body.embedded{padding:4px 2px 16px;background:transparent}
 body.embedded{min-height:0;overflow:hidden}html:has(body.embedded){overflow:hidden}body.embedded .top .title{display:none}body.embedded .top{justify-content:flex-end;margin-bottom:8px}
 @media (max-width:560px){body{padding:16px}.donut{grid-template-columns:1fr}.donut .box{height:170px}}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
-.gaps{margin:0 0 18px;padding:16px;background:#fff;border:1px solid #e3e9f0;border-radius:14px;box-shadow:0 2px 6px rgba(15,23,42,.05)}
-.gaps-h{font-size:15px;font-weight:700;margin-bottom:12px;color:#0f172a}
-.gaps-dom{color:#0B4F8F}
-.gaps-sub{font-size:11.5px;color:#667085;font-weight:400;margin-left:8px}
-.gaps-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}
-.gap{background:#f8fafc;border:1px solid #eef1f5;border-radius:10px;padding:12px 14px}
-.gap b{display:block;font-size:12.5px;font-weight:600;color:#334155;margin-bottom:4px;line-height:1.3}
-.gap-v{display:block;font-size:21px;font-weight:800;color:#0f172a}
-.gap-d{display:inline-block;font-size:12px;font-weight:600;margin-top:5px;padding:2px 8px;border-radius:20px}
-.gap-d.up{background:#e6f7ed;color:#157a3f}
-.gap-d.down{background:#fdeaea;color:#c0392b}
-.gap-d.flat{background:#eef1f4;color:#667085}
-.gaps-top{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px}.gaps-top .gaps-h{margin:0}
-.gaps-ctl{display:flex;flex-wrap:wrap;align-items:center;gap:10px}.gaps-ctl label{font-size:12px;color:var(--muted);display:flex;align-items:center;gap:6px}.gaps-ctl select{min-width:130px}
-.gaps-warn{font-size:12px;color:#9A5B00;background:#FFF6E5;border-radius:8px;padding:6px 10px;margin:0 0 10px}
-.gaps-body{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr);gap:14px;align-items:start}.gaps-body.solo{grid-template-columns:minmax(0,1fr)}
-.gaps-chart .box{height:220px}.gaps-ct{font-size:12px;color:var(--muted);margin:0 0 6px}
-.gap{border-left:4px solid #E3EAF1}.gap.up{border-left-color:#12BF9A}.gap.down{border-left-color:#E5484D}.gap.flat{border-left-color:#9AA8B6}
-.gap-p{display:block;font-size:11.5px;color:var(--muted);margin-top:4px}
+/* Écarts : même langage que le reste (carte blanche, tuiles pastel comme les KPI, palette bleu / cyan / vert d'eau) */
+.gaps{margin-bottom:14px}.gaps[hidden]{display:none}
+.gaps-ctl{display:flex;flex-wrap:wrap;align-items:center;gap:8px}.gaps-ctl select{min-width:140px}
+.gaps-note{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;color:var(--navy);background:var(--t5);border-radius:999px;padding:4px 12px;margin:0 0 12px}
+.gaps-body{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(0,1fr);gap:16px;align-items:stretch}.gaps-body.solo{grid-template-columns:minmax(0,1fr)}
+.gaps-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;align-content:start}
+.gap.kpi{min-height:112px}.gap .v small{font-size:14px;font-weight:600;margin-left:2px}
+.gap-d{display:inline-flex;align-items:center;gap:3px;font-size:11.5px;font-weight:600;padding:2px 9px;border-radius:999px;background:#fff;white-space:nowrap}
+.gap-d.up{color:#0B7A62}.gap-d.down{color:#B4232C}.gap-d.flat{color:var(--muted)}
+.gap-p{display:block;font-size:11px;color:var(--muted);margin-top:4px}
+.gaps-chart{display:flex;flex-direction:column;min-width:0}.gaps-chart .box{height:auto;flex:1;min-height:200px}
+.gaps-ct{font-size:11.5px;color:var(--muted);margin:0 0 6px}
 @media (max-width:900px){.gaps-body{grid-template-columns:minmax(0,1fr)}}
 </style></head><body>
 <header class="top"><div class="title"><h1>Tableau de bord</h1><p id="objective"></p></div>
   <span class="chip" id="range" hidden><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg><span></span></span></header>
 <div class="filters" id="filters"></div>
 <section class="kpis" id="kpis" aria-label="Indicateurs clés"></section>
-<section class="gaps" id="gaps" hidden></section>
+<section class="gaps card" id="gaps" hidden></section>
 <section class="row2" id="row2"></section>
 <section class="row3" id="row3"></section>
 <script>
@@ -904,23 +899,24 @@ function renderGaps(rows){var el=document.getElementById('gaps'),K=META.keyind,D
   var ctl=K.live&&P.length>1?'<div class="gaps-ctl"><label>Période <select id="gapP">'+P.slice().reverse().map(function(k){return '<option value="'+esc(k)+'"'+(k===cur?' selected':'')+'>'+esc(gkey(k))+(k===K.partial?' (en cours)':'')+'</option>'}).join('')+'</select></label>'
     +'<div class="seg" role="group" aria-label="Comparer avec"><button data-m="prev" aria-pressed="'+(mode==='prev')+'">Période précédente</button>'+(hasN1?'<button data-m="n1" aria-pressed="'+(mode==='n1')+'">Même période N-1</button>':'')+'</div></div>':'';
   var sub=cur==null?'pas de période dans le fichier, pas d\'écart':ref==null?esc(gkey(cur))+' · pas de période de comparaison':esc(gkey(cur))+' vs '+esc(gkey(ref));
-  var warn=K.partial&&cur===K.partial?'<p class="gaps-warn">⚠ '+esc(gkey(cur))+' est incomplet : les effectifs sont sous-estimés.</p>':'';
+  var warn=K.partial&&cur===K.partial?esc(gkey(cur))+' est incomplet : les effectifs sont sous-estimés':'';
   // Vert = évolution souhaitée (ex. baisse des décès), rouge = dégradation
   var tone=function(g){if(g.pct==null)return '';var good=g.pct*(g.bon||1);return g.sens==='stable'?'flat':good>0?'up':'down'};
-  var tiles=G.map(function(g){var badge='',prev='';
+  var tiles=G.map(function(g,i){var badge='',prev='';
     if(g.pct!=null){var a=g.sens==='hausse'?'▲':g.sens==='baisse'?'▼':'—';badge='<span class="gap-d '+tone(g)+'">'+a+' '+(g.pct>0?'+':'')+Number(g.pct).toFixed(1).replace('.',',')+(g.pts?' pts':' %')+'</span>';
       prev='<span class="gap-p">'+esc(gkey(ref))+' : '+fmt(g.precedente)+(g.pts?' %':'')+'</span>'}
-    return '<div class="gap '+tone(g)+'" title="'+esc(g.libelle||'')+'"><b>'+esc(g.indicateur)+'</b><span class="gap-v">'+fmt(g.derniere)+(g.pts?' %':'')+'</span>'+badge+prev+'</div>'}).join('');
+    return '<div class="kpi gap k'+(i%5+1)+'" title="'+esc(g.libelle||'')+'"><div class="n">'+esc(g.indicateur)+'</div><div class="row"><div class="v">'+fmt(g.derniere)+(g.pts?'<small>%</small>':'')+'</div><div class="s">'+badge+prev+'</div></div></div>'}).join('');
   var withGap=G.filter(function(g){return g.pct!=null});
-  el.innerHTML='<div class="gaps-top"><h2 class="gaps-h">Indicateurs clés de suivi '+t+'<span class="gaps-sub">'+sub+'</span></h2>'+ctl+'</div>'+warn
-    +'<div class="gaps-body'+(withGap.length>=2?'':' solo')+'"><div class="gaps-grid">'+tiles+'</div>'
-    +(withGap.length>=2?'<div class="gaps-chart"><p class="gaps-ct">Écarts vs '+esc(gkey(ref))+'</p><div class="box"><canvas id="c_gap" role="img" aria-label="Écarts par indicateur"></canvas></div></div>':'')+'</div>';
+  var title='Indicateurs clés de suivi'+(D?' · '+D.nom:'');
+  el.innerHTML='<div class="card-h"><div><h2>'+esc(title)+'</h2><small>'+sub+'</small></div>'+ctl+'</div>'+(warn?'<p class="gaps-note">'+warn+'</p>':'')
+    +'<div class="gaps-body'+(withGap.length>=2?'':' solo')+'"><div class="gaps-grid" style="grid-template-columns:repeat('+(withGap.length>=2?(G.length===4||G.length<=2?2:3):Math.min(G.length,5))+',minmax(0,1fr))">'+tiles+'</div>'
+    +(withGap.length>=2?'<div class="gaps-chart"><p class="gaps-ct">Écart par indicateur, vs '+esc(gkey(ref))+'</p><div class="box"><canvas id="c_gap" role="img" aria-label="Écarts par indicateur"></canvas></div></div>':'')+'</div>';
   var sel=document.getElementById('gapP');if(sel)sel.onchange=function(){GAP.p=sel.value;renderGaps(filtered())};
   [].forEach.call(el.querySelectorAll('.gaps-ctl .seg button'),function(b){b.onclick=function(){GAP.mode=b.dataset.m;renderGaps(filtered())}});
-  if(withGap.length>=2&&window.Chart){var col={up:'#12BF9A',down:'#E5484D',flat:'#9AA8B6'};
-    gapChart=new Chart(document.getElementById('c_gap'),{type:'bar',data:{labels:withGap.map(function(g){return g.indicateur}),datasets:[{data:withGap.map(function(g){return g.pct}),backgroundColor:withGap.map(function(g){return col[tone(g)]}),borderRadius:6,borderSkipped:false,barPercentage:.6,maxBarThickness:22}]},
+  if(withGap.length>=2&&window.Chart){var col={up:'#12BF9A',down:'#F08A7E',flat:'#9CC3EA'};
+    gapChart=new Chart(document.getElementById('c_gap'),{type:'bar',data:{labels:withGap.map(function(g){return g.indicateur}),datasets:[{data:withGap.map(function(g){return g.pct}),backgroundColor:withGap.map(function(g){return col[tone(g)]}),borderRadius:8,borderSkipped:false,barPercentage:.62,maxBarThickness:26}]},
       options:{responsive:true,maintainAspectRatio:false,indexAxis:'y',plugins:{legend:{display:false},tooltip:Object.assign({},navyTip,{callbacks:{label:function(c){var g=withGap[c.dataIndex];return (g.pct>0?'+':'')+Number(g.pct).toFixed(1).replace('.',',')+(g.pts?' pts':' %')+' ('+fmt(g.precedente)+' → '+fmt(g.derniere)+')'}}})},
-        scales:{x:{grid:{color:function(c){return c.tick&&c.tick.value===0?'#9AA8B6':'#EEF1F5'}},border:{display:false},ticks:{callback:function(v){return (v>0?'+':'')+v}}},y:{grid:{display:false},border:{display:false},ticks:{callback:function(v){var l=this.getLabelForValue(v);return l.length>26?l.slice(0,25)+'…':l}}}}}})}}
+        scales:{x:{grid:{color:function(c){return c.tick&&c.tick.value===0?'#9CC3EA':'#EEF2F7'},drawTicks:false},border:{display:false},ticks:{padding:6,font:{size:11},callback:function(v){return (v>0?'+':'')+v}}},y:{grid:{display:false},border:{display:false},ticks:{callback:function(v){var l=this.getLabelForValue(v);return l.length>26?l.slice(0,25)+'…':l}}}}}})}}
 function render(){charts.forEach(function(c){c.destroy()});charts=[];var rows=filtered();renderKpis(rows);renderGaps(rows);
   var todo=renderMain(rows).concat(renderCards(rows));if(window.Chart)todo.forEach(function(f){f()})}
 document.getElementById('objective').textContent=window.OBJECTIVE;
