@@ -624,17 +624,22 @@ async function authHeaders(){if(!CLOUD||!sb)return {};const {data}=await sb.auth
 // n'a pas traité la requête, on peut donc la renvoyer sans risque de la faire deux fois.
 const isGateway=r=>[502,503,504].includes(r.status)&&!(r.headers.get('content-type')||'').includes('json');
 const pause=ms=>new Promise(ok=>setTimeout(ok,ms));
+const RETRY=[5000,10000,15000,20000,25000,30000,30000,30000];  // ≈ 2 min 45 au total
+// Message permanent pendant l'attente (le toast habituel disparaît au bout de 3,5 s)
+function waitNote(on){const el=$('#toast');if(on){clearTimeout(el._t);el.textContent='Mise à jour du service en cours… votre demande repart automatiquement dans un instant.';el.hidden=false}
+  else if(el.textContent.startsWith('Mise à jour du service')){el.hidden=true}}
 async function send(url,body,h){
   const opts=body===undefined?{headers:h}:{method:'POST',headers:{'Content-Type':'application/json',...h},body:JSON.stringify(body)};
   for(let i=0;;i++){
     try{
       const r=await fetch(url,opts);
-      if(isGateway(r)&&i<2){toast('Le serveur redémarre, nouvel essai dans quelques secondes…');await pause(5000*(i+1));continue}
-      return r;
+      // Une mise à jour en ligne coupe le service 1 à 2 minutes : on patiente jusqu'à ~2 min 30 au lieu d'afficher une erreur
+      if(isGateway(r)&&i<RETRY.length){waitNote(true);await pause(RETRY[i]);continue}
+      waitNote(false);return r;
     }catch(e){
       // Coupure réseau : on ne renvoie que les lectures (GET) ; un envoi (POST) a pu être traité.
-      if(body===undefined&&i<2){await pause(3000*(i+1));continue}
-      throw e;
+      if(body===undefined&&i<RETRY.length){waitNote(true);await pause(RETRY[i]);continue}
+      waitNote(false);throw e;
     }
   }
 }
