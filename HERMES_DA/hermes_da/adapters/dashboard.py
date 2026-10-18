@@ -45,6 +45,23 @@ Règles absolues :
 - « somme », « moyenne », « max », « min » UNIQUEMENT sur des colonnes chiffrées."""
 
 
+def _parse_spec(content: str) -> dict | None:
+    """JSON de l'IA → dict. Répare les erreurs fréquentes des modèles rapides (virgule finale,
+    « } » oubliée avant « ] ») ; None si toujours illisible."""
+    start, end = (content or "").find("{"), (content or "").rfind("}")
+    if start < 0 or end <= start:
+        return None
+    raw = content[start:end + 1]
+    for fix in (lambda t: t, lambda t: re.sub(r",\s*([\]}])", r"\1", t),
+                lambda t: re.sub(r'"\s*\]', '"}]', re.sub(r",\s*([\]}])", r"\1", t))):
+        try:
+            spec = json.loads(fix(raw))
+            return spec if isinstance(spec, dict) and spec.get("kpis") else None
+        except Exception:
+            continue
+    return None
+
+
 def _llm_dashboard(profile_json: str, llm=None) -> dict | None:
     """Choisit KPI et graphiques via le LLM, ou None si indisponible.
 
@@ -53,13 +70,15 @@ def _llm_dashboard(profile_json: str, llm=None) -> dict | None:
     if llm is False:  # IA explicitement écartée (repli par règles)
         return None
     if llm is not None:
-        try:
-            content = llm([{"role": "system", "content": SYSTEM},
-                           {"role": "user", "content": profile_json}], 8000) or ""
-            start, end = content.find("{"), content.rfind("}")
-            return json.loads(content[start:end + 1]) if start >= 0 and end > start else None
-        except Exception:
-            return None
+        for _ in range(2):  # un JSON illisible (rare) : on redemande une fois avant le repli par règles
+            try:
+                spec = _parse_spec(llm([{"role": "system", "content": SYSTEM},
+                                        {"role": "user", "content": profile_json}], 8000) or "")
+            except Exception:
+                spec = None
+            if spec:
+                return spec
+        return None
     cfg_path = os.path.join(config.CONSOLE_DIR, "llm_config.json")
     if not os.path.isfile(cfg_path):
         return None
@@ -80,10 +99,7 @@ def _llm_dashboard(profile_json: str, llm=None) -> dict | None:
                                               "Authorization": f"Bearer {key}"})
         r = json.loads(urllib.request.urlopen(req, timeout=300).read().decode())
         content = (r.get("choices") or [{}])[0].get("message", {}).get("content", "")
-        start, end = content.find("{"), content.rfind("}")
-        if start >= 0 and end > start:
-            return json.loads(content[start:end + 1])
-        return None
+        return _parse_spec(content)
     except Exception:
         return None
 
@@ -112,26 +128,47 @@ def _profile(df) -> dict:
     return {"lignes": int(len(df)), "colonnes": cols}
 
 
+_ID_RE = re.compile(r"(^|[\s_])(id|code|n°|no|num|numero|identifiant|matricule)([\s_]|$)", re.I)
+_MESURE_RE = re.compile(r"delai|duree|age\b|cd4|cv\b|charge|copies|score|poids|taille|taux|pourcent|moyenne|imc", re.I)
+_VOLUME_RE = re.compile(r"nombre|\bnb\b|effectif|total|volume|montant|quantite|valeur|cout|prix|recette|depense", re.I)
+
+
 def _rule_dashboard(profile: dict) -> dict:
-    """Repli déterministe : KPI sur les colonnes numériques, graphiques sur les catégorielles."""
-    import pandas as pd
+    """Repli déterministe quand l'IA est indisponible : effectif, taux sur les colonnes Oui/Non,
+    moyenne pour les mesures (délai, âge, CD4…), total pour les volumes, comparaison par région/sexe."""
     kpis, graphiques = [], []
-    nums = [c for c in profile["colonnes"] if c["type"] in ("int64", "float64", "int32", "float32")
-            or re.match(r"int|float", c["type"])]
-    cats = [c for c in profile["colonnes"] if c not in nums]
-    kpis.append({"nom": "Total de lignes", "agregation": "compte", "colonne": None,
-                 "justification": "effectif global du jeu de données"})
-    for c in nums[:3]:
-        agg = "somme" if (c.get("min") is not None and c["min"] >= 0) else "moyenne"
-        kpis.append({"nom": f"{agg.title()} de {c['colonne']}", "agregation": agg,
-                     "colonne": c["colonne"], "justification": "indicateur de volume"})
+    cols = profile["colonnes"]
+    name = lambda c: _norm(c["colonne"])  # noqa: E731
+    is_num = lambda c: bool(re.match(r"int|float", c["type"]))  # noqa: E731
+    is_id = lambda c: bool(_ID_RE.search(name(c))) or (not is_num(c) and (c.get("n_distinct") or 0) >= 0.95 * max(profile["lignes"], 1) > 20)  # noqa: E731
+    is_date = lambda c: "datetime" in c["type"] or re.search(r"\bdate\b", name(c))  # noqa: E731
+    yesno = [c for c in cols if not is_num(c) and c.get("exemples") and (c.get("n_distinct") or 0) <= 2
+             and all(_norm(x) in _YES | _NO for x in c["exemples"])]
+    cats = [c for c in cols if not is_num(c) and not is_id(c) and not is_date(c) and c not in yesno
+            and 2 <= (c.get("n_distinct") or 0) <= 30]
+    nums = [c for c in cols if is_num(c) and not is_id(c)]
+    dim = next((c["colonne"] for c in sorted(cats, key=lambda c: 0 if re.search(r"region|district|sexe|genre", name(c)) else 1)), None)
+    is_vol = lambda c: bool(re.match(r"(nombre|nb|effectif|total|volume)\b", name(c))) or (  # noqa: E731
+        bool(_VOLUME_RE.search(name(c))) and not _MESURE_RE.search(name(c)))
+    if not any(is_vol(c) for c in nums):  # données déjà agrégées (« Nombre de … ») : compter les lignes n'a pas de sens
+        kpis.append({"nom": "Effectif total", "agregation": "compte", "colonne": None, "dimension": dim,
+                     "justification": "nombre de lignes du fichier"})
+    for c in yesno[:2]:
+        kpis.append({"nom": f"Taux « {c['colonne'].replace('_', ' ')} »", "agregation": "taux", "colonne": c["colonne"],
+                     "dimension": dim, "justification": "part de « Oui »"})
+    for c in nums:
+        if len(kpis) >= 5:
+            break
+        vol = is_vol(c)
+        agg = "somme" if vol else "moyenne"
+        lib = re.sub(r"^\s*(nombre|nb)\s+(de |d')\s*", "", c["colonne"].replace("_", " "), flags=re.I)
+        kpis.append({"nom": f"{'Total' if vol else 'Moyenne'} : {lib}", "agregation": agg,
+                     "colonne": c["colonne"], "dimension": dim, "justification": "volume" if vol else "mesure moyenne"})
     for c in cats[:3]:
-        if (c.get("n_distinct") or 0) > 1 and (c.get("n_distinct") or 0) <= 20:
-            graphiques.append({"colonne": c["colonne"], "type": "bar",
-                               "justification": "répartition par catégorie"})
-    for c in nums[:2]:
-        graphiques.append({"colonne": c["colonne"], "type": "hist",
-                           "justification": "distribution de la variable numérique"})
+        graphiques.append({"colonne": c["colonne"], "type": "pie" if (c.get("n_distinct") or 0) <= 5 else "bar",
+                           "justification": "répartition par catégorie"})
+    for c in [c for c in nums if not is_vol(c)][:2]:
+        graphiques.append({"colonne": c["colonne"], "type": "hist", "justification": "distribution de la mesure"})
     return {"kpis": kpis, "graphiques": graphiques}
 
 
@@ -342,7 +379,14 @@ def _meta(df, kpis, spec, filter_cols, period_col, period_series):
         cands.append((len(vals), str(c), sorted(vals)))
     cands.sort()
     filters = [{"col": c, "values": v} for _, c, v in cands[:6]]
-    stack = next((f["col"] for f in filters if 2 <= len(f["values"]) <= 5), None)
+    def _outcome(f):  # colonne Oui/Non = un résultat à mesurer, pas une façon de découper la population
+        return all(_norm(v) in _YES | _NO for v in f["values"])
+
+    def _rank(f):
+        n = _norm(f["col"])
+        return 0 if re.search(r"\b(sexe|genre|gender|sex)\b", n) else 1 if re.search(r"region|district|age|tranche|milieu", n) else 2
+    cands = sorted((f for f in filters if 2 <= len(f["values"]) <= 5 and not _outcome(f)), key=_rank)
+    stack = cands[0]["col"] if cands else None
     charts = [{"colonne": str(g["colonne"]), "type": str(g.get("type") or "bar"),
                "justification": str(g.get("justification") or "")[:160]}
               for g in spec.get("graphiques", [])[:8] if g.get("colonne") in cols]
@@ -720,6 +764,7 @@ if(window.Chart){Chart.defaults.font.family="'Fira Sans',system-ui,sans-serif";C
   if(matchMedia('(prefers-reduced-motion: reduce)').matches)Chart.defaults.animation=false;}
 function nice(s){return String(s==null?'':s).replace(/_/g,' ')}
 // Nom de colonne court pour les titres : sans parenthèse, 32 caractères au plus
+function ititle(s){var t=nice(s).replace(/^\s*(nombre|nb)\s+(de |d')\s*/i,'').replace(/\s+/g,' ').trim();t=t.charAt(0).toUpperCase()+t.slice(1);return t.length>70?t.slice(0,69)+'…':t}
 function short(s){var t=nice(s).replace(/\s*\([^)]*\)\s*/g,' ').replace(/\s+/g,' ').trim()||nice(s);return t.length>32?t.slice(0,31)+'…':t}
 var NULLS={'':1,'nan':1,'none':1,'null':1,'nat':1,'na':1,'n/a':1};
 function isNull(v){return v==null||NULLS[String(v).trim().toLowerCase()]===1}
@@ -798,7 +843,7 @@ function renderMain(rows){var M=META.measure,P=META.period,S=META.stack,el=docum
       charts.push(new Chart(cv,{type:'line',data:{labels:ks.map(plabel),datasets:[{data:ks.map(function(k){return agg(g[k],M.colonne,M.agregation)}),borderColor:NAVY,backgroundColor:grad,fill:true,tension:.35,borderWidth:2.5,spanGaps:true,pointRadius:ks.length<=15?3:0,pointHoverRadius:5,pointBackgroundColor:NAVY}]},
         options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},plugins:{legend:{display:false},tooltip:Object.assign({callbacks:{label:function(c){return M.nom+' : '+fmt(c.parsed.y)+(isRate(M.agregation)?' %':'')}}},navyTip)},scales:axes}}))})}
   if(P&&M&&S){var add=/^(somme|compte|count|sum)$/.test((M.agregation||'').toLowerCase()),pct=isRate(M.agregation)?' %':'';
-    if(add){var g2=groupBy(rows,function(r){return pkey(r.__p)}),ks2=Object.keys(g2).sort(),cats=ranked(rows,M.colonne,M.agregation,S,5).map(function(e){return e[0]});
+    if(add){SHOWN[M.colonne+'|'+S]=1;var g2=groupBy(rows,function(r){return pkey(r.__p)}),ks2=Object.keys(g2).sort(),cats=ranked(rows,M.colonne,M.agregation,S,5).map(function(e){return e[0]});
       html+=card(canvas('c_stack',M.nom+' par '+short(S)),M.nom+' par '+short(S),'Par '+GRAN[gran].toLowerCase()+', empilé',seg());
       todo.push(function(){charts.push(new Chart(document.getElementById('c_stack'),{type:'bar',data:{labels:ks2.map(plabel),datasets:cats.map(function(c,i){return {label:label(c),
           data:ks2.map(function(k){return agg(g2[k].filter(function(r){return String(r[S])===c}),M.colonne,M.agregation)||0}),backgroundColor:PASTEL[i%PASTEL.length],borderRadius:6,borderSkipped:false,barPercentage:.55}})},
@@ -845,13 +890,16 @@ function renderCards(rows){var el=document.getElementById('row3'),html='',todo=[
     // Classes (tranche d'âge, groupe…) ou code chiffré à peu de valeurs : une catégorie, pas une quantité à additionner
     var classes=/tranche|classe|groupe|categ|age/.test(nm)||(numeric&&Object.keys(groupBy(rows,col)).length<=12&&!/nombre|nb|effectif|total|montant|valeur|quantit/.test(nm));
     if(c.type==='bar'&&classes&&Cc&&col!==Cc){var cs=Object.keys(groupBy(rows,Cc)).sort();if(cs.length===2){if(SHOWN['#p|'+col])return;SHOWN['#p|'+col]=1;add(pyramid('c_py'+i,rows,col,Cc,cs));todo.push(pyramidDraw('c_py'+i,rows,col,Cc,cs));return}}
+    if(META.agrege&&!numeric&&(c.type==='bar'||c.type==='pie'))return;  // lignes = district × mois : pas des effectifs
     if(c.type==='bar'&&classes){var ec=ranked(rows,null,'compte',col,15).sort(function(x,y){return natural(x[0],y[0])});if(ec.length<2||SHOWN['#n|'+col]||KCOUNT[col])return;SHOWN['#n|'+col]=1;add(card(rankList(ec),'Effectifs par '+short(col),'Par classe, dans l\'ordre'));return}
     if(c.type==='pie'){var e=ranked(rows,null,'compte',col,8),tot=e.reduce(function(p,q){return p+q[1]},0)||1;if(e.length<2||e.every(function(x){return x[1]===e[0][1]}))return;
       add(card('<div class="donut">'+canvas('c_d'+i,'Répartition par '+col)+'<ul class="legend">'+e.map(function(x,j){return '<li><i style="background:'+DONUT[j%DONUT.length]+'"></i><span>'+esc(label(x[0]))+'</span><b>'+Math.round(x[1]/tot*100)+' %</b></li>'}).join('')+'</ul></div>','Répartition par '+short(col),c.justification));
       todo.push(function(){charts.push(new Chart(document.getElementById('c_d'+i),{type:'doughnut',data:{labels:e.map(function(x){return x[0]}),datasets:[{data:e.map(function(x){return x[1]}),backgroundColor:DONUT,borderColor:'#fff',borderWidth:3,hoverOffset:4}]},options:{responsive:true,maintainAspectRatio:false,cutout:'68%',plugins:{legend:{display:false},tooltip:navyTip}}}))})}
+    else if((c.type==='hist'||c.type==='box')&&numeric&&Cc&&col!==Cc&&/^(nombre|nb|effectif|total|volume)\b/.test(nm)){
+      if(SHOWN[col+'|'+Cc])return;SHOWN[col+'|'+Cc]=1;var er=ranked(rows,col,'somme',Cc,8);if(er.length<2)return;add(card(rankList(er),ititle(col)+' par '+short(Cc),'Total sur la période affichée'))}
     else if(c.type==='hist'||c.type==='box'||(c.type==='line'&&!META.period)){var v=rows.map(function(r){return num(r[col])}).filter(function(x){return x!=null}).sort(function(a,b){return a-b});if(v.length<10)return;
       var q=function(p){return v[Math.min(v.length-1,Math.floor(p*(v.length-1)))]},med=q(.5),lo=q(.01),hi=q(.99),labels,bins,nm=nice(col).toLowerCase(),
-          clin=/cd4/.test(nm)?[[200,'< 200'],[350,'200 – 349'],[500,'350 – 499'],[Infinity,'≥ 500']]
+          clin=/^(nombre|nb|effectif|total|volume)\b/.test(nm)?null:/cd4/.test(nm)?[[200,'< 200'],[350,'200 – 349'],[500,'350 – 499'],[Infinity,'≥ 500']]
               :/charge.?virale|\bcv\b/.test(nm)?[[50,'< 50 (indétectable)'],[1000,'50 – 999'],[Infinity,'≥ 1 000']]
               :/d[ée]lai|jours|duree|dur[ée]e/.test(nm)&&v[0]>=0?[[1,'0 (même jour)'],[8,'1 – 7 j'],[15,'8 – 14 j'],[31,'15 – 30 j'],[Infinity,'> 30 j']]:null;
       // Seuils de référence (CD4, charge virale, délai en jours) quand la colonne est reconnue
@@ -869,7 +917,7 @@ function renderCards(rows){var el=document.getElementById('row3'),html='',todo=[
       if(mx!==0&&fq[mx]/v.length>=.2&&Object.keys(fq).length>10)sub+=' · ⚠ '+Math.round(fq[mx]/v.length*100)+' % des valeurs = '+fmt(mx)+' (valeur imputée ?)';
       add(card(canvas('c_h'+i,'Distribution de '+nice(col)),'Distribution de '+short(col),sub));
       todo.push(function(){charts.push(new Chart(document.getElementById('c_h'+i),{type:'bar',data:{labels:labels,datasets:[{data:bins,backgroundColor:'#10BCD0',hoverBackgroundColor:NAVY,borderRadius:6,borderSkipped:false,categoryPercentage:.9,barPercentage:.92}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:navyTip},scales:axes}}))})}
-    else if(c.type==='bar'&&numeric&&Cc&&col!==Cc){if(SHOWN[col+'|'+Cc])return;SHOWN[col+'|'+Cc]=1;var e3=ranked(rows,col,'somme',Cc,8);if(e3.length<2)return;add(card(rankList(e3),short(col)+' par '+short(Cc),c.justification))}
+    else if(c.type==='bar'&&numeric&&Cc&&col!==Cc){if(SHOWN[col+'|'+Cc])return;SHOWN[col+'|'+Cc]=1;var e3=ranked(rows,col,'somme',Cc,8);if(e3.length<2)return;add(card(rankList(e3),ititle(col)+' par '+short(Cc),c.justification))}
     else if(c.type==='bar'&&!numeric){if(SHOWN['#n|'+col]||KCOUNT[col])return;SHOWN['#n|'+col]=1;var e2=ranked(rows,null,'compte',col,8);if(e2.length<2||e2.every(function(x){return x[1]===e2[0][1]}))return;add(card(rankList(e2),'Effectifs par '+short(col),c.justification))}});
   // Classements par dimension (pas par date : la courbe les montre déjà)
   KPIDEFS.forEach(function(k){if(!k.dimension||k.dimension===META.period||used['k'+k.nom]||SHOWN[k.colonne+'|'+k.dimension])return;used['k'+k.nom]=1;SHOWN[k.colonne+'|'+k.dimension]=1;var e=ranked(rows,k.colonne,k.agregation,k.dimension,8);if(e.length<2)return;
@@ -957,12 +1005,33 @@ def _render_html(objective: str, data_json: str, kpi_defs: list, filter_cols: li
             .replace("__OBJECTIVE__", obj))
 
 
+def _long_to_wide(df):
+    """Export « long » (DHIS2 : Indicateur + Valeur par ligne) → une colonne par indicateur.
+
+    Sans cela, « somme de Valeur » additionne tous les indicateurs entre eux (dépistés + positifs + décès…).
+    Les autres colonnes (période, région, district…) restent des dimensions ; une valeur absente reste vide, jamais 0."""
+    import pandas as pd
+    ic, vc = _col(df, _IND_COLS), _col(df, _VAL_COLS, numeric=True)
+    if ic is None or vc is None or not 2 <= int(df[ic].nunique(dropna=True)) <= 80:
+        return df, False
+    dims = [c for c in df.columns if c not in (ic, vc)]
+    d = df.assign(**{vc: pd.to_numeric(df[vc], errors="coerce"), ic: df[ic].astype(str).str.strip()})
+    d[dims] = d[dims].fillna("")
+    if not dims:
+        wide = d.groupby(ic)[vc].sum(min_count=1).to_frame().T.reset_index(drop=True)
+    else:
+        wide = d.pivot_table(index=dims, columns=ic, values=vc, aggfunc=lambda x: x.sum(min_count=1)).reset_index()
+    wide.columns.name = None
+    return wide, True
+
+
 def generate_dashboard(df, objective: str = "", job_id: str | None = None, llm=None) -> dict:
     """Génère un tableau de bord (KPI + HTML interactif) depuis un DataFrame.
 
     Réutilisable par l'orchestrateur HERMES_DA ET par la console KLDataViz (bouton Dashboard).
     Retourne : html (le tableau de bord autonome), path (fichier écrit si job_id), kpis, charts, ia.
     """
+    df, pivoted = _long_to_wide(df)
     profile = _profile(df)
     profile_json = json.dumps(profile, ensure_ascii=False, default=str)[:20000]
     llm_spec = _llm_dashboard(profile_json, llm)
@@ -1026,6 +1095,7 @@ def generate_dashboard(df, objective: str = "", job_id: str | None = None, llm=N
                           "periods": periods, "partial": _partial_month(period_series) if period_series is not None else None}
         if keys is not None:
             data = data.assign(__g=keys)
+    meta["agrege"] = bool(pivoted or any(k.get("col") for k in (kis or [])))
     sample = data if len(data) <= 6000 else data.sample(6000, random_state=0)
     data_json = json.dumps(sample.to_dict(orient="records"), ensure_ascii=False, default=str)
 
@@ -1038,7 +1108,7 @@ def generate_dashboard(df, objective: str = "", job_id: str | None = None, llm=N
 
     return {"html": html, "path": str(path) if path else None,
             "kpis": _json_safe(kpis), "charts": charts_count, "ia": ia,
-            "filter_cols": filter_cols, "kpi_defs": kpi_defs,
+            "filter_cols": filter_cols, "kpi_defs": kpi_defs, "format_long": pivoted,
             "domaine": _json_safe(domaine), "gaps": _json_safe(gaps)}
 
 
