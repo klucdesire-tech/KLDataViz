@@ -211,3 +211,38 @@ def test_gestion_des_ecarts():
     assert _partial_month(pd.Series(["2025-10", "2025-11"])) is None            # mois sans jour : on ne sait pas
     for frag in ('id="gapP"', 'data-m="n1"', "function gYearBefore(", "c_gap", "est incomplet"):
         assert frag in TEMPLATE, frag
+
+
+def test_export_dhis2_long_et_repli_par_regles():
+    """Format long DHIS2 → une colonne par indicateur (plus de somme de tous les indicateurs) ;
+    JSON de l'IA réparé ; repli par règles sensé (taux sur Oui/Non, moyenne des mesures, total des « Nombre de »)."""
+    import sys  # noqa: PLC0415
+    reset_app_modules()
+    import server  # noqa: PLC0415
+    sys.path.insert(0, os.path.join(os.path.dirname(server.__file__), "..", "HERMES_DA"))
+    from hermes_da.adapters import dashboard as d  # noqa: PLC0415
+    long = pd.DataFrame({"Indicateur": ["Nombre de personnes dépistées VIH", "Nombre de décès parmi les PVVIH"] * 2,
+                         "Période": ["Mars 2025", "Mars 2025", "Avril 2025", "Avril 2025"], "Valeur": [100, 2, 120, 1]})
+    wide, pivoted = d._long_to_wide(long)
+    assert pivoted and wide["Nombre de personnes dépistées VIH"].sum() == 220 and wide["Nombre de décès parmi les PVVIH"].sum() == 3
+    out = d.generate_dashboard(long, "t", llm=False)
+    assert {k["nom"]: k["valeur"] for k in out["kpis"]} == {"Total : personnes dépistées VIH": 220, "Total : décès parmi les PVVIH": 3}
+    assert d._parse_spec('{"kpis":[{"nom":"a"}],"graphiques":[{"colonne":"x","type":"bar","justification":"y."]}')["kpis"]
+    patients = pd.DataFrame({"id_patient": [f"P{i}" for i in range(30)], "sexe": ["F", "M"] * 15,
+                             "tpt_demarre": ["Oui", "Non", "Oui"] * 10, "delai_initiation_jours": list(range(30))})
+    spec = d._rule_dashboard(d._profile(patients))
+    aggs = {k["colonne"]: k["agregation"] for k in spec["kpis"]}
+    assert aggs == {None: "compte", "tpt_demarre": "taux", "delai_initiation_jours": "moyenne"}
+    assert all(k["dimension"] == "sexe" for k in spec["kpis"])
+
+
+def test_ventilation_jamais_par_un_resultat_oui_non():
+    import sys  # noqa: PLC0415
+    reset_app_modules()
+    import server  # noqa: PLC0415
+    sys.path.insert(0, os.path.join(os.path.dirname(server.__file__), "..", "HERMES_DA"))
+    from hermes_da.adapters.dashboard import _meta  # noqa: PLC0415
+    df = pd.DataFrame({"cv_supprimee": ["Oui", "Non"] * 10, "sexe": ["F", "M", "F", "F"] * 5, "delai": range(20)})
+    meta = _meta(df, [{"nom": "Délai", "agregation": "moyenne", "colonne": "delai"}], {"graphiques": []},
+                 ["cv_supprimee", "sexe"], None, None)
+    assert meta["stack"] == "sexe"
