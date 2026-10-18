@@ -129,3 +129,25 @@ def test_indicateurs_cles_vih_format_dhis2():
     assert cv["derniere"] == 4 and cv["bon"] == -1             # pas additionnée avec « CV reçue »
     assert "Charge virale supprimée" not in g                    # « CV reçue » n'est pas « supprimée »
     assert g["Décès"]["sens"] == "hausse" and g["Décès"]["bon"] == -1
+
+
+def test_indicateurs_cles_format_large():
+    """Une colonne par indicateur (export DHIS2 « pivot ») : écart entre périodes ; sans période : valeur seule."""
+    import sys  # noqa: PLC0415
+    reset_app_modules()
+    import server  # noqa: PLC0415
+    sys.path.insert(0, os.path.join(os.path.dirname(server.__file__), "..", "HERMES_DA"))
+    from hermes_da.adapters.dashboard import _detect_domaine, _gaps, _keyind, _period, _period_key  # noqa: PLC0415
+    df = pd.DataFrame({"organisationunitname": ["BUYO", "NAWA", "BUYO", "NAWA"],
+                       "periodname": ["Mars 2025", "Mars 2025", "Avril 2025", "Avril 2025"],
+                       "Nombre de patients VIH+ sous ARV avec charge virale ≥1000 copies/mL": [10, 30, 5, 15],
+                       "Nombre de décès parmi les PVVIH": [1, 1, 2, 2]})
+    dom = _detect_domaine(df)
+    ic, vc, kis = _keyind(df, dom)
+    assert dom["cle"] == "vih" and ic is None and {k["nom"] for k in kis} == {"Charge virale ≥ 1 000 copies/mL", "Décès"}
+    pc, ps = _period(df)
+    g = {x["indicateur"]: x for x in _gaps(df, _period_key(df, pc, ps), ic, vc, kis)}
+    assert g["Charge virale ≥ 1 000 copies/mL"]["derniere"] == 20 and g["Charge virale ≥ 1 000 copies/mL"]["pct"] == -50
+    sans = _gaps(df.drop(columns="periodname"), None, ic, vc, kis)
+    assert {x["indicateur"]: x["derniere"] for x in sans} == {"Charge virale ≥ 1 000 copies/mL": 60, "Décès": 6}
+    assert all(x["pct"] is None for x in sans)
