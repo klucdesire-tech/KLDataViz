@@ -89,3 +89,20 @@ def test_sans_periode_graphiques_par_categorie():
     for line in TEMPLATE.splitlines():                                     # régression PR #38 : code après « // »
         if "used['k'+k.nom]=1" in line:
             assert "//" not in line.split("used['k'+k.nom]=1")[0]
+
+
+def test_kpi_incalculable_ecarte(monkeypatch):
+    """« Taux » proposé par l'IA sur une date : pas de tuile « — » ni de courbe vide ; la mesure reste calculable."""
+    reset_app_modules()
+    import server  # noqa: PLC0415
+
+    def fake_llm(messages, max_tokens, **kw):
+        return json.dumps({"kpis": [{"nom": "Taux d'initiation le même jour", "agregation": "taux", "colonne": "mois"},
+                                    {"nom": "File active", "agregation": "somme", "colonne": "file_active"}],
+                           "graphiques": []})
+    monkeypatch.setattr(server, "_llm_config", lambda: {"api_key": "test"})
+    monkeypatch.setattr(server, "_llm_call", fake_llm)
+    with tempfile.TemporaryDirectory() as d:
+        out = server.do_dashboard(_src(d))
+    assert [k["nom"] for k in out["kpis"]] == ["File active"]
+    assert '"measure": {"nom": "File active"' in out["html"]

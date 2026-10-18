@@ -39,7 +39,10 @@ Règles absolues :
 - Choisis chaque graphique selon sa pertinence analytique, pas parce qu'il est techniquement disponible.
 - Justifie chaque choix en une phrase courte, en français.
 - agrégation « somme » pour des comptages/volumes, « moyenne » pour des taux/intensités,
-  « compte » pour des effectifs, « taux » pour des proportions (0 à 1, sens clair)."""
+  « compte » pour des effectifs, « taux » pour des proportions (0 à 1, sens clair).
+- « taux » UNIQUEMENT sur une colonne Oui/Non (vrai/faux, positif/négatif) ou déjà chiffrée entre 0 et 1 ;
+  jamais sur une date, un texte libre ou un statut à plusieurs valeurs (utilise alors « compte » avec une dimension).
+- « somme », « moyenne », « max », « min » UNIQUEMENT sur des colonnes chiffrées."""
 
 
 def _llm_dashboard(profile_json: str, llm=None) -> dict | None:
@@ -47,6 +50,8 @@ def _llm_dashboard(profile_json: str, llm=None) -> dict | None:
 
     `llm(messages, max_tokens) -> texte` : accès à l'IA fourni par l'appelant (la console en ligne, où
     llm_config.json n'existe pas et où la clé vient de l'environnement). Sans lui : llm_config.json local."""
+    if llm is False:  # IA explicitement écartée (repli par règles)
+        return None
     if llm is not None:
         try:
             content = llm([{"role": "system", "content": SYSTEM},
@@ -627,6 +632,8 @@ def generate_dashboard(df, objective: str = "", job_id: str | None = None, llm=N
         if col is not None and col not in cols:
             continue
         v = _agg(df, col, k.get("agregation", "compte"))
+        if v is None:  # incalculable sur ces données (ex. « taux » sur un texte) : pas de tuile « — » ni de courbe vide
+            continue
         kpi = {"nom": k.get("nom") or (col or "Total"), "valeur": v,
                "agregation": k.get("agregation"), "colonne": col,
                "dimension": k.get("dimension"), "justification": k.get("justification", "")}
@@ -637,6 +644,9 @@ def generate_dashboard(df, objective: str = "", job_id: str | None = None, llm=N
                 kpi["breakdown"] = bd
                 kpi["top"] = (bd["labels"][0], bd["values"][0])
         kpis.append(kpi)
+
+    if not kpis and ia:  # aucune proposition de l'IA n'est calculable : repli par règles
+        return generate_dashboard(df, objective, job_id, llm=False)
 
     charts_count = 0
     for g in spec.get("graphiques", [])[:8]:
