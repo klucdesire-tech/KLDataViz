@@ -66,3 +66,6 @@ Thumbs.db
 # Préparation de soutenance — local uniquement, jamais publié
 # =====================================================================
 soutenance/QUESTIONS_REPONSES.md
+
+# Préparation de la soutenance : fichiers de démo gardés en local uniquement
+soutenance/
