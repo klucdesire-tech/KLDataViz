@@ -354,8 +354,9 @@ TEMPLATE = r"""<!DOCTYPE html>
 <script>__CHARTJS__</script>
 <style>
 /* Style « Analytics » : fond lavande, cartes blanches très arrondies, tuiles KPI pastel, accent bleu marine */
-:root{--bg:#EEF0F8;--card:#FFFFFF;--ink:#16213E;--muted:#5B6478;--line:#E6E9F2;--navy:#1E3A8A;--navy-2:#2F4FB0;
-  --blue:#DBEAFE;--green:#DCFCE7;--pink:#FFE4E6;--lav:#E0E7FF;--amber:#FEF3C7;--radius:18px}
+/* Palette « Sales dashboard » : bleu profond, bleu roi, azur, cyan, vert d'eau ; cartes blanches sur gris très clair */
+:root{--bg:#F3F6F9;--card:#FFFFFF;--ink:#102A43;--muted:#52667A;--line:#E3EAF1;--navy:#0B4F8F;--navy-2:#1565C0;
+  --t1:#DCEBFA;--t2:#D7F0FA;--t3:#D3F4F6;--t4:#D5F4EA;--t5:#E4EEF8;--radius:16px}
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:'Fira Sans',system-ui,-apple-system,'Segoe UI',sans-serif;background:var(--bg);color:var(--ink);padding:24px;min-height:100vh;font-size:14px}
 .top{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:16px}
@@ -372,7 +373,7 @@ body{font-family:'Fira Sans',system-ui,-apple-system,'Segoe UI',sans-serif;backg
 .pill{border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:999px;padding:6px 12px;font:inherit;font-size:12.5px;cursor:pointer;min-height:32px;transition:background .15s,color .15s,border-color .15s}
 .pill:hover{border-color:var(--navy)}
 .pill[aria-pressed="true"]{background:var(--navy);border-color:var(--navy);color:#fff}
-.pill:focus-visible,select:focus-visible{outline:3px solid #93C5FD;outline-offset:2px}
+.pill:focus-visible,select:focus-visible,.seg button:focus-visible,.more:focus-visible{outline:3px solid #7FD3EE;outline-offset:2px}
 select{appearance:none;border:1px solid var(--line);background:var(--card) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%235B6478' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E") no-repeat right 12px center;border-radius:999px;padding:7px 34px 7px 14px;font:inherit;font-size:12.5px;color:var(--ink);min-height:32px;cursor:pointer;min-width:150px}
 .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:16px}
 .kpi{border-radius:var(--radius);padding:14px 16px 16px;min-height:104px;display:flex;flex-direction:column;justify-content:space-between;gap:10px}
@@ -380,8 +381,8 @@ select{appearance:none;border:1px solid var(--line);background:var(--card) url("
 .kpi .row{display:flex;align-items:flex-end;justify-content:space-between;gap:8px}
 .kpi .v{font-size:24px;font-weight:700;letter-spacing:-.3px;line-height:1}
 .kpi .s{font-size:11px;text-align:right;line-height:1.3;max-width:55%}
-.kpi.k0{background:var(--navy);color:#fff}.kpi.k0 .s{color:#C7D2FE}
-.kpi.k1{background:var(--blue)}.kpi.k2{background:var(--green)}.kpi.k3{background:var(--pink)}.kpi.k4{background:var(--lav)}.kpi.k5{background:var(--amber)}
+.kpi.k0{background:linear-gradient(135deg,var(--navy),var(--navy-2));color:#fff}.kpi.k0 .s{color:#BFE3F5}
+.kpi.k1{background:var(--t1)}.kpi.k2{background:var(--t2)}.kpi.k3{background:var(--t3)}.kpi.k4{background:var(--t4)}.kpi.k5{background:var(--t5)}
 .kpi:not(.k0) .s{color:var(--muted)}
 .row2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin-bottom:14px}
 .row3{display:grid;grid-template-columns:repeat(auto-fit,minmax(290px,1fr));gap:14px}
@@ -398,7 +399,7 @@ select{appearance:none;border:1px solid var(--line);background:var(--card) url("
 .donut .box{height:150px}
 .legend{list-style:none;display:grid;gap:7px}
 .legend li{display:grid;grid-template-columns:10px 1fr auto;gap:8px;align-items:center;font-size:12.5px}
-.legend i{width:10px;height:10px;border-radius:50%}
+.legend i{width:10px;height:10px;border-radius:50%;flex:none}
 .legend b{font-weight:600}
 .rank{list-style:none;display:grid;gap:9px}
 .rank li{display:grid;grid-template-columns:minmax(80px,38%) 1fr auto;gap:10px;align-items:center;font-size:12.5px}
@@ -408,10 +409,13 @@ select{appearance:none;border:1px solid var(--line);background:var(--card) url("
 .rank b{font-weight:600;font-variant-numeric:tabular-nums}
 .empty{color:var(--muted);font-size:13px;padding:24px 0;text-align:center}
 @media (max-width:900px){.row2{grid-template-columns:minmax(0,1fr)}}
+/* Affiché dans l'application (cadre) : le titre est déjà sur la page */
+.embedded body,body.embedded{padding:4px 2px 16px;background:transparent}
+body.embedded .top .title{display:none}body.embedded .top{justify-content:flex-end;margin-bottom:8px}
 @media (max-width:560px){body{padding:16px}.donut{grid-template-columns:1fr}.donut .box{height:170px}}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 </style></head><body>
-<header class="top"><div><h1>Tableau de bord</h1><p id="objective"></p></div>
+<header class="top"><div class="title"><h1>Tableau de bord</h1><p id="objective"></p></div>
   <span class="chip" id="range" hidden><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg><span></span></span></header>
 <div class="filters" id="filters"></div>
 <section class="kpis" id="kpis" aria-label="Indicateurs clés"></section>
@@ -423,10 +427,10 @@ window.KPIDEFS=__KPIDEFS__;
 window.FILTERCOLS=__FILTERCOLS__;
 window.META=__META__;
 window.OBJECTIVE="__OBJECTIVE__";
-var NAVY='#1E3A8A',PASTEL=['#86EFAC','#93C5FD','#F9A8D4','#C4B5FD','#FCD34D','#5EEAD4'],
-    DONUT=['#1E3A8A','#93C5FD','#86EFAC','#F9A8D4','#C4B5FD','#FCD34D','#5EEAD4','#FDBA74'],
-    BLUES=['#1E3A8A','#2F4FB0','#3F66C9','#5B7FD8','#7C9AE3','#9DB4EC','#BCCDF3','#D6E1F8'];
-var state={},gran=(META.gran||'M'),charts=[],showMore=false;
+var NAVY='#0B4F8F',PASTEL=['#0B4F8F','#0091D0','#10BCD0','#12BF9A','#1565C0','#7FDCC4'],
+    DONUT=['#0B4F8F','#0091D0','#10BCD0','#12BF9A','#1565C0','#5FD3E6','#7FDCC4','#9CC3EA'],
+    BLUES=['#0B4F8F','#0E63A8','#0078C0','#0091D0','#10A7D0','#10BCD0','#12BF9A','#7FDCC4'];
+var state={},gran=(META.gran||'M'),charts=[],showMore=false,SHOWN={};
 var MOIS=['janv.','févr.','mars','avr.','mai','juin','juil.','août','sept.','oct.','nov.','déc.'];
 if(window.Chart){Chart.defaults.font.family="'Fira Sans',system-ui,sans-serif";Chart.defaults.color='#5B6478';
   if(matchMedia('(prefers-reduced-motion: reduce)').matches)Chart.defaults.animation=false;}
@@ -459,7 +463,7 @@ function pkey(p){if(!p)return null;if(gran==='Y')return p.slice(0,4);if(gran==='
 function plabel(k){if(gran==='Y')return k;if(gran==='Q')return k.slice(5)+' '+k.slice(2,4);
   if(k.length===10)return (gran==='W'?'sem. ':'')+(+k.slice(8,10))+' '+MOIS[+k.slice(5,7)-1];return MOIS[+k.slice(5,7)-1]+' '+k.slice(2,4)}
 var GRAN={D:'Jour',W:'Semaine',M:'Mois',Q:'Trimestre',Y:'Année'};
-var navyTip={backgroundColor:NAVY,titleColor:'#fff',bodyColor:'#E0E7FF',padding:10,cornerRadius:10,displayColors:false,titleFont:{weight:'600'}};
+var navyTip={backgroundColor:NAVY,titleColor:'#fff',bodyColor:'#D7F0FA',padding:10,cornerRadius:10,displayColors:false,titleFont:{weight:'600'}};
 var axes={x:{grid:{display:false},border:{display:false},ticks:{maxRotation:0,autoSkip:true,maxTicksLimit:8}},
           y:{grid:{color:'#EEF0F6'},border:{display:false},ticks:{maxTicksLimit:6,callback:function(v){return fmt(v)}}}};
 
@@ -490,13 +494,27 @@ function renderMain(rows){var M=META.measure,P=META.period,S=META.stack,el=docum
   if(P&&M&&Object.keys(gP).length<2)P=null;  // un seul point : pas de courbe vide
   if(P&&M){var g=gP,ks=Object.keys(g).sort();
     html+=card(canvas('c_trend','Évolution de '+M.nom),'Évolution de '+M.nom,(M.sous_titre||'').replace('période',GRAN[gran].toLowerCase()),seg());
-    todo.push(function(){var cv=document.getElementById('c_trend'),ctx=cv.getContext('2d'),grad=ctx.createLinearGradient(0,0,0,250);grad.addColorStop(0,'rgba(30,58,138,.22)');grad.addColorStop(1,'rgba(30,58,138,0)');
+    todo.push(function(){var cv=document.getElementById('c_trend'),ctx=cv.getContext('2d'),grad=ctx.createLinearGradient(0,0,0,250);grad.addColorStop(0,'rgba(0,145,208,.28)');grad.addColorStop(1,'rgba(16,188,208,0)');
       charts.push(new Chart(cv,{type:'line',data:{labels:ks.map(plabel),datasets:[{data:ks.map(function(k){return agg(g[k],M.colonne,M.agregation)}),borderColor:NAVY,backgroundColor:grad,fill:true,tension:.35,borderWidth:2.5,spanGaps:true,pointRadius:ks.length<=15?3:0,pointHoverRadius:5,pointBackgroundColor:NAVY}]},
         options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},plugins:{legend:{display:false},tooltip:Object.assign({callbacks:{label:function(c){return M.nom+' : '+fmt(c.parsed.y)}}},navyTip)},scales:axes}}))})}
   if(P&&M&&S){var g2=groupBy(rows,function(r){return pkey(r.__p)}),ks2=Object.keys(g2).sort(),cats=ranked(rows,M.colonne,M.agregation,S,5).map(function(e){return e[0]});
     html+=card(canvas('c_stack',M.nom+' par '+short(S)),M.nom+' par '+short(S),'Par '+GRAN[gran].toLowerCase()+', empilé',seg());
     todo.push(function(){charts.push(new Chart(document.getElementById('c_stack'),{type:'bar',data:{labels:ks2.map(plabel),datasets:cats.map(function(c,i){return {label:label(c),data:ks2.map(function(k){return agg(g2[k].filter(function(r){return String(r[S])===c}),M.colonne,M.agregation)||0}),backgroundColor:PASTEL[i%PASTEL.length],borderRadius:6,borderSkipped:false,barPercentage:.55}})},
       options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom',labels:{usePointStyle:true,pointStyle:'circle',boxWidth:8,padding:14}},tooltip:Object.assign({},navyTip,{displayColors:true})},scales:{x:Object.assign({},axes.x,{stacked:true}),y:Object.assign({},axes.y,{stacked:true})}}}))})}
+  // Sans période (ex. un export par structure) : l'indicateur principal par catégorie, en barres et en part du total
+  var C=META.stack||((META.filters||[])[0]||{}).col;SHOWN={};
+  if(!P&&M&&M.colonne&&C){var e=ranked(rows,M.colonne,M.agregation,C,12);
+    if(e.length>=2){SHOWN[M.colonne+'|'+C]=1;var mean=e.reduce(function(a,x){return a+x[1]},0)/e.length;
+      html+=card(canvas('c_cat',M.nom+' par '+short(C)),M.nom+' par '+short(C),'Ligne : moyenne '+fmt(mean));
+      todo.push(function(){charts.push(new Chart(document.getElementById('c_cat'),{type:'bar',data:{labels:e.map(function(x){return label(x[0])}),
+        datasets:[{data:e.map(function(x){return x[1]}),backgroundColor:e.map(function(x){return x[1]>=mean?NAVY:'#10BCD0'}),borderRadius:8,borderSkipped:false,barPercentage:.6,maxBarThickness:46},
+                  {type:'line',data:e.map(function(){return mean}),borderColor:'#12BF9A',borderDash:[6,4],borderWidth:2,pointRadius:0}]},
+        options:{responsive:true,maintainAspectRatio:false,indexAxis:e.length>6?'y':'x',plugins:{legend:{display:false},tooltip:Object.assign({filter:function(t){return t.datasetIndex===0},callbacks:{label:function(c){return fmt(e.length>6?c.parsed.x:c.parsed.y)}}},navyTip)},
+          scales:e.length>6?{x:axes.y,y:{grid:{display:false},border:{display:false}}}:axes}}))});
+      var tot=e.reduce(function(a,x){return a+Math.max(0,x[1])},0)||1;
+      if((M.agregation||'').toLowerCase()==='somme'||(M.agregation||'').toLowerCase()==='compte'){
+        html+=card('<div class="donut">'+canvas('c_catd','Part de '+M.nom)+'<ul class="legend">'+e.slice(0,8).map(function(x,j){return '<li><i style="background:'+DONUT[j%DONUT.length]+'"></i><span>'+esc(label(x[0]))+'</span><b>'+Math.round(Math.max(0,x[1])/tot*100)+' %</b></li>'}).join('')+'</ul></div>','Part de '+M.nom,'Par '+short(C));
+        todo.push(function(){charts.push(new Chart(document.getElementById('c_catd'),{type:'doughnut',data:{labels:e.slice(0,8).map(function(x){return label(x[0])}),datasets:[{data:e.slice(0,8).map(function(x){return Math.max(0,x[1])}),backgroundColor:DONUT,borderColor:'#fff',borderWidth:3,hoverOffset:4}]},options:{responsive:true,maintainAspectRatio:false,cutout:'68%',plugins:{legend:{display:false},tooltip:navyTip}}}))})}}}
   el.innerHTML=html;el.style.display=html?'':'none';el.style.gridTemplateColumns=todo.length===1?'minmax(0,1fr)':'';
   [].forEach.call(el.querySelectorAll('.seg button'),function(b){b.onclick=function(){gran=b.dataset.g;render()}});
   return todo}
@@ -507,21 +525,25 @@ function rankList(entries){var max=Math.max.apply(null,entries.map(function(e){r
 function renderCards(rows){var el=document.getElementById('row3'),html='',todo=[],n=0,used={};
   function add(h){if(n<6){html+=h;n++}}
   (META.charts||[]).forEach(function(c,i){var col=c.colonne;if(used[col+c.type])return;used[col+c.type]=1;
-    if(c.type==='pie'){var e=ranked(rows,null,'compte',col,8),tot=e.reduce(function(p,q){return p+q[1]},0)||1;if(e.length<2)return;
+    var Cc=META.stack||((META.filters||[])[0]||{}).col,numeric=rows.length&&rows.every(function(r){return isNull(r[col])||num(r[col])!=null});
+    if(c.type==='pie'){var e=ranked(rows,null,'compte',col,8),tot=e.reduce(function(p,q){return p+q[1]},0)||1;if(e.length<2||e.every(function(x){return x[1]===e[0][1]}))return;
       add(card('<div class="donut">'+canvas('c_d'+i,'Répartition par '+col)+'<ul class="legend">'+e.map(function(x,j){return '<li><i style="background:'+DONUT[j%DONUT.length]+'"></i><span>'+esc(label(x[0]))+'</span><b>'+Math.round(x[1]/tot*100)+' %</b></li>'}).join('')+'</ul></div>','Répartition par '+short(col),c.justification));
       todo.push(function(){charts.push(new Chart(document.getElementById('c_d'+i),{type:'doughnut',data:{labels:e.map(function(x){return x[0]}),datasets:[{data:e.map(function(x){return x[1]}),backgroundColor:DONUT,borderColor:'#fff',borderWidth:3,hoverOffset:4}]},options:{responsive:true,maintainAspectRatio:false,cutout:'68%',plugins:{legend:{display:false},tooltip:navyTip}}}))})}
-    else if(c.type==='hist'||(c.type==='line'&&!META.period)){var v=rows.map(function(r){return num(r[col])}).filter(function(x){return x!=null}).sort(function(a,b){return a-b});if(v.length<5)return;
+    else if(c.type==='hist'||c.type==='box'||(c.type==='line'&&!META.period)){var v=rows.map(function(r){return num(r[col])}).filter(function(x){return x!=null}).sort(function(a,b){return a-b});if(v.length<10)return;
       var lo=v[Math.floor(v.length*.01)],hi=v[Math.ceil(v.length*.99)-1],w=(hi-lo)/10||1,bins=new Array(10).fill(0);v.forEach(function(x){if(x<lo||x>hi)return;bins[Math.min(9,Math.floor((x-lo)/w))]++});
       add(card(canvas('c_h'+i,'Distribution de '+nice(col)),'Distribution de '+short(col),c.justification));
-      todo.push(function(){charts.push(new Chart(document.getElementById('c_h'+i),{type:'bar',data:{labels:bins.map(function(_,j){return fmt(lo+j*w)}),datasets:[{data:bins,backgroundColor:'#93C5FD',hoverBackgroundColor:NAVY,borderRadius:6,borderSkipped:false,categoryPercentage:.9,barPercentage:.92}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:navyTip},scales:axes}}))})}
-    else if(c.type==='bar'){var e2=ranked(rows,null,'compte',col,8);if(e2.length<2)return;add(card(rankList(e2),'Lignes par '+short(col),c.justification))}});
-  KPIDEFS.forEach(function(k){if(!k.dimension||k.dimension===META.period||used['k'+k.nom])return;  // par date : déjà dans la courbeused['k'+k.nom]=1;var e=ranked(rows,k.colonne,k.agregation,k.dimension,8);if(e.length<2)return;
+      todo.push(function(){charts.push(new Chart(document.getElementById('c_h'+i),{type:'bar',data:{labels:bins.map(function(_,j){return fmt(lo+j*w)}),datasets:[{data:bins,backgroundColor:'#10BCD0',hoverBackgroundColor:NAVY,borderRadius:6,borderSkipped:false,categoryPercentage:.9,barPercentage:.92}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:navyTip},scales:axes}}))})}
+    else if(c.type==='bar'&&numeric&&Cc&&col!==Cc){if(SHOWN[col+'|'+Cc])return;SHOWN[col+'|'+Cc]=1;var e3=ranked(rows,col,'somme',Cc,8);if(e3.length<2)return;add(card(rankList(e3),short(col)+' par '+short(Cc),c.justification))}
+    else if(c.type==='bar'&&!numeric){var e2=ranked(rows,null,'compte',col,8);if(e2.length<2||e2.every(function(x){return x[1]===e2[0][1]}))return;add(card(rankList(e2),'Lignes par '+short(col),c.justification))}});
+  // Classements par dimension (pas par date : la courbe les montre déjà)
+  KPIDEFS.forEach(function(k){if(!k.dimension||k.dimension===META.period||used['k'+k.nom]||SHOWN[k.colonne+'|'+k.dimension])return;used['k'+k.nom]=1;SHOWN[k.colonne+'|'+k.dimension]=1;var e=ranked(rows,k.colonne,k.agregation,k.dimension,8);if(e.length<2)return;
     add(card(rankList(e),k.nom+' par '+short(k.dimension),'Classement'))});
   el.innerHTML=html||'';return todo}
 
 function render(){charts.forEach(function(c){c.destroy()});charts=[];var rows=filtered();renderKpis(rows);
   var todo=renderMain(rows).concat(renderCards(rows));if(window.Chart)todo.forEach(function(f){f()})}
 document.getElementById('objective').textContent=window.OBJECTIVE;
+try{if(window.self!==window.top)document.body.classList.add('embedded')}catch(e){document.body.classList.add('embedded')}
 if(META.range){var r=document.getElementById('range');r.hidden=false;r.querySelector('span').textContent=META.range}
 buildFilters();render();
 </script>

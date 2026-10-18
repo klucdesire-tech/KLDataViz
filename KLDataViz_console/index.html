@@ -501,7 +501,7 @@ tr.versions td{background:var(--surface-2);font-size:13px}
       <section class="view" data-view="dashboard" hidden>
         <div class="head"><h1>Tableau de bord</h1><p id="dbLead">Indicateurs clés, graphiques et filtres interactifs, construits par l'agent AGT-11 à partir des données analysées.</p></div>
         <div class="toolbar" id="dbBar" hidden><span class="aibadge" id="dbBadge"></span><span class="spacer"></span><button class="btn ghost sm" id="dbRegen">Régénérer</button><button class="btn ghost sm" id="dbOpen">Ouvrir dans un onglet</button></div>
-        <div class="card" id="dbBody"><div class="empty">Chargement…</div></div>
+        <div id="dbBody"><div class="card empty">Chargement…</div></div>
       </section>
       <section class="view" data-view="tasks" hidden>
         <div class="head"><h1>Tâches assignées</h1><p>Les analyses lancées par l'orchestrateur interne (HERMES_DA).</p></div>
@@ -1293,11 +1293,11 @@ $('#toShare').onclick=()=>go(3);
 async function loadDashboard(force){
   const body=$('#dbBody'),src=currentDataPath(),a=state.analysis;
   if(!a||!src){$('#dbBar').hidden=true;
-    body.innerHTML=`<div class="empty">Analysez d'abord un fichier : le tableau de bord se construit à partir des données analysées.<br><button class="btn primary" data-goto="home" style="margin-top:12px">Importer un fichier</button></div>`;return}
+    body.innerHTML=`<div class="card empty">Analysez d'abord un fichier : le tableau de bord se construit à partir des données analysées.<br><button class="btn primary" data-goto="home" style="margin-top:12px">Importer un fichier</button></div>`;return}
   $('#dbLead').textContent=`${state.name} · ${state.structView?'structure proposée':state.applied?'données corrigées':'données d\'origine'} · ${nf(a.rows)} lignes`;
   if(!force&&state.dash?.for===a&&state.dash.html)return showDashboard();
   $('#dbBar').hidden=true;
-  body.innerHTML='<div class="empty"><span class="spin"></span> L\'agent AGT-11 choisit les indicateurs et construit le tableau de bord (jusqu\'à 1 min)…</div>';
+  body.innerHTML='<div class="card empty"><span class="spin"></span> L\'agent AGT-11 choisit les indicateurs et construit le tableau de bord (jusqu\'à 1 min)…</div>';
   const d=await api('/api/dashboard',{file_path:src});
   if(state.analysis!==a)return;  // une autre analyse a été ouverte entre-temps
   if(!d.html){body.innerHTML=`<div class="alert">${esc(d.error||'Génération impossible.')}</div>`;return}
@@ -1307,7 +1307,7 @@ function showDashboard(){
   const d=state.dash;$('#dbBar').hidden=false;
   $('#dbBadge').textContent=d.ia?'✦ Indicateurs choisis par l\'IA':'Indicateurs choisis par règles';
   // Cadre isolé : le tableau de bord exécute ses propres scripts (Chart.js embarqué) sans accès à l'application
-  $('#dbBody').innerHTML='<iframe id="dbFrame" title="Tableau de bord" sandbox="allow-scripts" style="width:100%;height:78vh;border:0;border-radius:10px;background:#fff"></iframe>';
+  $('#dbBody').innerHTML='<iframe id="dbFrame" title="Tableau de bord" sandbox="allow-scripts" style="display:block;width:100%;height:82vh;border:0;border-radius:16px;background:#F3F6F9"></iframe>';
   $('#dbFrame').srcdoc=d.html;
 }
 $('#dbRegen').onclick=()=>loadDashboard(true);

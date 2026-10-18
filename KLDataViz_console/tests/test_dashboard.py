@@ -71,3 +71,21 @@ def test_ergonomie_filtres_et_periode_au_jour():
     assert meta["gran"] == "D" and meta["grans"] == ["D", "W", "M"] and meta["range"] == "3 – 23 avr. 2024"
     assert [f["col"] for f in meta["filters"]] == ["Libellés (objet, N° véh)"]        # ni N°, ni date, ni montants
     assert meta["filters"][0]["values"] == ["Prise", "Recharge", "Solde"]              # sans valeur vide
+
+
+def test_sans_periode_graphiques_par_categorie():
+    """Export par structure (pas de date) : barres + anneau par catégorie ; aucun code JS masqué par un commentaire."""
+    import sys  # noqa: PLC0415
+    reset_app_modules()
+    import server  # noqa: PLC0415
+    sys.path.insert(0, os.path.join(os.path.dirname(server.__file__), "..", "HERMES_DA"))
+    from hermes_da.adapters.dashboard import TEMPLATE, _meta, _period  # noqa: PLC0415
+    df = pd.DataFrame({"structure": ["BUYO", "GUEYO", "MEAGUI", "NAWA", "SOUBRE"], "patients": [300, 150, 620, 1700, 600]})
+    pc, ps = _period(df)
+    meta = _meta(df, [{"nom": "Patients", "agregation": "somme", "colonne": "patients"}], {"graphiques": []},
+                 ["structure"], pc, ps)
+    assert pc is None and meta["measure"]["colonne"] == "patients"
+    assert "c_cat" in TEMPLATE and "c_catd" in TEMPLATE                    # barres + part du total
+    for line in TEMPLATE.splitlines():                                     # régression PR #38 : code après « // »
+        if "used['k'+k.nom]=1" in line:
+            assert "//" not in line.split("used['k'+k.nom]=1")[0]
