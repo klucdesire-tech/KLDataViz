@@ -387,6 +387,7 @@ DOMAINES = {
             _ki("Personnes dépistées (résultat reçu)", ["depist"], sauf=["positif"]),
             _ki("Cas positifs dépistés", ["positif"], sauf=["charge virale"]),
             _ki("Nouveaux sous TARV", ["initi"]),
+            _ki("Résultats de charge virale reçus", ["charge virale"], un=["recu", "realise"], sauf=["1000", "supprim"]),
             _ki("Charge virale supprimée", ["charge virale"], un=["supprim", "indetect", "< 1000", "<1000"],
                 sauf=["non supprim"]),
             _ki("Charge virale ≥ 1 000 copies/mL", ["charge virale", "1000"], sauf=["supprim", "<"], bon=-1),
@@ -419,7 +420,7 @@ DOMAINES = {
 }
 _IND_COLS = ("indicator", "indicateur", "indicateurs", "code", "code indicateur", "libelle", "dataname", "data")
 _VAL_COLS = ("value", "valeur", "val", "montant", "mesure", "total")
-_PER_COLS = ("quarter", "period", "periode", "trimestre", "mois", "date", "year", "annee")
+_PER_COLS = ("quarter", "period", "periode", "periodname", "periodid", "periodcode", "trimestre", "mois", "date", "year", "annee")
 
 
 def _norm(t) -> str:
@@ -492,44 +493,62 @@ def _period_key(df, period_col, period_series):
 
 
 def _keyind(df, domaine):
-    """Indicateurs clés présents dans le fichier : un seul libellé par indicateur clé (le plus fréquent), jamais une
-    somme de libellés différents (ex. « CV reçue » + « CV ≥ 1000 »)."""
+    """Indicateurs clés présents dans le fichier, un seul par indicateur clé (jamais une somme de libellés différents).
+
+    Format long (DHIS2 : colonnes Indicateur + Valeur) → libellé le plus fréquent ;
+    format large (une colonne chiffrée par indicateur, ex. « PVVIH avec charge virale ≥1000 ») → la colonne."""
+    import pandas as pd
+    if not domaine:
+        return None, None, []
     ic = _col(df, _IND_COLS)
     vc = _col(df, _VAL_COLS, numeric=True)
-    if not domaine or ic is None or vc is None:
-        return None, None, []
-    counts = df[ic].dropna().astype(str).str.strip().value_counts()
     out, used = [], set()
+    if ic is not None and vc is not None:
+        counts = df[ic].dropna().astype(str).str.strip().value_counts()
+        for ki in domaine["indicateurs"]:
+            lab = next((l for l in counts.index if l not in used and _match(_norm(l), ki)), None)
+            if lab is not None:
+                used.add(lab)
+                out.append({"nom": ki["nom"], "libelle": lab, "bon": ki["bon"]})
+        if out:
+            return ic, vc, out
+    nums = [c for c in df.columns if pd.to_numeric(df[c], errors="coerce").notna().sum() >= max(1, int(df[c].notna().sum() * .9))
+            and df[c].notna().any() and not pd.api.types.is_datetime64_any_dtype(df[c])]
     for ki in domaine["indicateurs"]:
-        lab = next((l for l in counts.index if l not in used and _match(_norm(l), ki)), None)
-        if lab is not None:
-            used.add(lab)
-            out.append({"nom": ki["nom"], "libelle": lab, "bon": ki["bon"]})
-    return ic, vc, out
+        col = next((c for c in nums if c not in used and _match(_norm(c), ki)), None)
+        if col is not None:
+            used.add(col)
+            out.append({"nom": ki["nom"], "libelle": str(col), "col": str(col), "bon": ki["bon"]})
+    return None, None, out
 
 
 def _gaps(df, keys, ic, vc, kis):
-    """Écart entre la dernière et l'avant-dernière période, par indicateur clé (sur toutes les lignes)."""
+    """Par indicateur clé : valeur de la dernière période et écart avec la précédente (sur toutes les lignes).
+    Une seule période (ou pas de période) : valeur seule, sans écart."""
     import pandas as pd
-    if keys is None or not kis:
+    if not kis:
         return []
-    ps = sorted(k for k in keys.dropna().unique())
-    if len(ps) < 2:
-        return []
-    last, prev = ps[-1], ps[-2]
-    lab = df[ic].astype(str).str.strip()
-    val = pd.to_numeric(df[vc], errors="coerce")
+    ps = sorted(k for k in keys.dropna().unique()) if keys is not None else []
+    last, prev = (ps[-1], ps[-2]) if len(ps) >= 2 else (ps[-1] if ps else None, None)
+    lab = df[ic].astype(str).str.strip() if ic is not None else None
     gaps = []
     for k in kis:
-        sel = lab == k["libelle"]
-        cur, pre = val[sel & (keys == last)], val[sel & (keys == prev)]
-        if not cur.notna().any() or not pre.notna().any() or float(pre.sum()) == 0:
+        if k.get("col"):
+            sel, val = pd.Series(True, index=df.index), pd.to_numeric(df[k["col"]], errors="coerce")
+        else:
+            sel, val = lab == k["libelle"], pd.to_numeric(df[vc], errors="coerce")
+        cur = val[sel & (keys == last)] if last is not None else val[sel]
+        if not cur.notna().any():
             continue
-        cur, pre = float(cur.sum()), float(pre.sum())
-        d = cur - pre
-        gaps.append({"indicateur": k["nom"], "libelle": k["libelle"], "derniere": cur, "precedente": pre,
-                     "delta": d, "pct": d / pre * 100, "bon": k["bon"], "periode": last, "periode_prec": prev,
-                     "sens": "hausse" if d > 0 else "baisse" if d < 0 else "stable"})
+        g = {"indicateur": k["nom"], "libelle": k["libelle"], "derniere": float(cur.sum()), "bon": k["bon"],
+             "periode": last, "periode_prec": prev, "pct": None, "sens": None}
+        pre = val[sel & (keys == prev)] if prev is not None else None
+        if pre is not None and pre.notna().any() and float(pre.sum()) != 0:
+            p = float(pre.sum())
+            d = g["derniere"] - p
+            g.update({"precedente": p, "delta": d, "pct": d / p * 100,
+                      "sens": "hausse" if d > 0 else "baisse" if d < 0 else "stable"})
+        gaps.append(g)
     return gaps
 
 
@@ -759,15 +778,17 @@ function renderCards(rows){var el=document.getElementById('row3'),html='',todo=[
 // « 2025-04 » → « avr. 2025 », « 2025-T1 » → « T1 2025 »
 function gkey(k){k=String(k||'');var m=k.match(/^(\d{4})-(\d{2})$/);if(m)return MOIS[+m[2]-1]+' '+m[1];m=k.match(/^(\d{4})-T(\d)$/);return m?'T'+m[2]+' '+m[1]:k}
 function renderGaps(rows){var el=document.getElementById('gaps'),K=META.keyind,D=META.domaine,G=META.gaps;if(!G||!G.length||!K){el.hidden=true;return}
-  // Recalcul sur les lignes filtrées (district, sexe…) ; libellé exact de l'indicateur, jamais une somme de libellés
-  if(K.live){G=K.items.map(function(k){var c=null,p=null;rows.forEach(function(r){if(String(r[K.ind]).trim()!==k.libelle)return;var v=num(r[K.val]);if(v==null)return;
-      if(r.__g===K.last)c=(c||0)+v;else if(r.__g===K.prev)p=(p||0)+v});
-    if(c==null||!p)return null;var d=c-p;return {indicateur:k.nom,libelle:k.libelle,derniere:c,pct:d/p*100,bon:k.bon,sens:d>0?'hausse':d<0?'baisse':'stable'}}).filter(Boolean)}
+  // Recalcul sur les lignes filtrées (district, sexe…) ; format long : libellé exact ; format large : la colonne de l'indicateur
+  if(K.live){G=K.items.map(function(k){var c=null,p=null;rows.forEach(function(r){if(!k.col&&String(r[K.ind]).trim()!==k.libelle)return;var v=num(k.col?r[k.col]:r[K.val]);if(v==null)return;
+      if(K.last==null||r.__g===K.last)c=(c||0)+v;else if(K.prev!=null&&r.__g===K.prev)p=(p||0)+v});
+    if(c==null)return null;var d=p?c-p:null;return {indicateur:k.nom,libelle:k.libelle,derniere:c,pct:p?d/p*100:null,bon:k.bon,sens:d==null?null:d>0?'hausse':d<0?'baisse':'stable'}}).filter(Boolean)}
   if(!G.length){el.hidden=true;return}el.hidden=false;var t=D?'<span class="gaps-dom">'+esc(D.nom)+'</span>':'';
+  var sub=K.prev!=null?esc(gkey(K.last))+' vs '+esc(gkey(K.prev)):K.last!=null?esc(gkey(K.last))+' · une seule période, pas d\'écart':'pas de période dans le fichier, pas d\'écart';
   // Vert = évolution souhaitée (ex. baisse des décès), rouge = dégradation
-  el.innerHTML='<h2 class="gaps-h">Indicateurs clés de suivi '+t+'<span class="gaps-sub">'+esc(gkey(K.last))+' vs '+esc(gkey(K.prev))+'</span></h2><div class="gaps-grid">'+G.map(function(g){
-    var a=g.sens==='hausse'?'▲':g.sens==='baisse'?'▼':'—',good=(g.pct||0)*(g.bon||1),c=g.sens==='stable'?'flat':good>0?'up':'down',p=(g.pct>0?'+':'')+Number(g.pct).toFixed(1).replace('.',',')+' %';
-    return '<div class="gap" title="'+esc(g.libelle||'')+'"><b>'+esc(g.indicateur)+'</b><span class="gap-v">'+fmt(g.derniere)+'</span><span class="gap-d '+c+'">'+a+' '+p+'</span></div>'}).join('')+'</div>'}
+  el.innerHTML='<h2 class="gaps-h">Indicateurs clés de suivi '+t+'<span class="gaps-sub">'+sub+'</span></h2><div class="gaps-grid">'+G.map(function(g){var badge='';
+    if(g.pct!=null){var a=g.sens==='hausse'?'▲':g.sens==='baisse'?'▼':'—',good=g.pct*(g.bon||1),c=g.sens==='stable'?'flat':good>0?'up':'down';
+      badge='<span class="gap-d '+c+'">'+a+' '+(g.pct>0?'+':'')+Number(g.pct).toFixed(1).replace('.',',')+' %</span>'}
+    return '<div class="gap" title="'+esc(g.libelle||'')+'"><b>'+esc(g.indicateur)+'</b><span class="gap-v">'+fmt(g.derniere)+'</span>'+badge+'</div>'}).join('')+'</div>'}
 function render(){charts.forEach(function(c){c.destroy()});charts=[];var rows=filtered();renderKpis(rows);renderGaps(rows);
   var todo=renderMain(rows).concat(renderCards(rows));if(window.Chart)todo.forEach(function(f){f()})}
 document.getElementById('objective').textContent=window.OBJECTIVE;
@@ -867,9 +888,10 @@ def generate_dashboard(df, objective: str = "", job_id: str | None = None, llm=N
     if gaps:
         # Recalculés dans la page selon les filtres (sauf si l'échantillon de 6000 lignes fausserait les sommes)
         meta["gaps"] = _json_safe(gaps)
-        meta["keyind"] = {"ind": str(ic), "val": str(vc), "items": kis, "last": gaps[0]["periode"],
-                          "prev": gaps[0]["periode_prec"], "live": len(data) <= 6000}
-        data = data.assign(__g=keys)
+        meta["keyind"] = {"ind": None if ic is None else str(ic), "val": None if vc is None else str(vc), "items": kis,
+                          "last": gaps[0]["periode"], "prev": gaps[0]["periode_prec"], "live": len(data) <= 6000}
+        if keys is not None:
+            data = data.assign(__g=keys)
     sample = data if len(data) <= 6000 else data.sample(6000, random_state=0)
     data_json = json.dumps(sample.to_dict(orient="records"), ensure_ascii=False, default=str)
 
