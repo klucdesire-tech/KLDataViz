@@ -14,7 +14,9 @@ from __future__ import annotations
 import json
 import os
 import re
+import sys
 import urllib.request
+from pathlib import Path
 from typing import Any
 
 from .. import artifacts, config
@@ -128,6 +130,20 @@ def _rule_dashboard(profile: dict) -> dict:
     return {"kpis": kpis, "graphiques": graphiques}
 
 
+_YES = {"oui", "yes", "true", "vrai", "o", "y", "positif", "positive", "1", "1.0"}
+_NO = {"non", "no", "false", "faux", "n", "négatif", "negatif", "négative", "negative", "0", "0.0"}
+
+
+def _rate_values(series):
+    """Valeurs d'un « taux » : colonne Oui/Non (et assimilés) → 1/0, sinon valeurs numériques."""
+    import pandas as pd
+    s = pd.to_numeric(series, errors="coerce")
+    t = series.dropna().astype(str).str.strip().str.lower()
+    if len(t) and t.isin(_YES | _NO).all():
+        return series.astype(str).str.strip().str.lower().map(lambda x: 1.0 if x in _YES else 0.0 if x in _NO else None).astype(float)
+    return s
+
+
 def _agg(df, colonne: str | None, agregation: str) -> float | int | None:
     import pandas as pd
     a = (agregation or "").lower()
@@ -135,6 +151,9 @@ def _agg(df, colonne: str | None, agregation: str) -> float | int | None:
         return int(len(df)) if a in ("compte", "count") else None
     if a in ("compte", "count", "effectif"):
         return int(df[colonne].notna().sum())
+    if a in ("taux", "rate", "pct", "proportion"):
+        s = _rate_values(df[colonne])
+        return round(float(s.mean()), 4) if s.notna().any() else None
     s = pd.to_numeric(df[colonne], errors="coerce")
     if a in ("somme", "sum"):
         return float(s.sum())
@@ -161,7 +180,7 @@ def _agg_grouped(df, colonne: str | None, agregation: str, dimension: str, top: 
     if a in ("compte", "count", "effectif"):
         vc = df.groupby(dimension)[colonne].count().sort_values(ascending=False).head(top)
         return {"labels": [str(x) for x in vc.index], "values": [int(x) for x in vc.values]}
-    s = pd.to_numeric(df[colonne], errors="coerce")
+    s = _rate_values(df[colonne]) if a in ("taux", "rate", "pct", "proportion") else pd.to_numeric(df[colonne], errors="coerce")
     if a in ("moyenne", "mean", "avg"):
         g = df.assign(_v=s).groupby(dimension)["_v"].mean()
     elif a in ("max", "maximum"):
@@ -352,6 +371,7 @@ TEMPLATE = r"""<!DOCTYPE html>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fira+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script>__CHARTJS__</script>
+<script>window.Chart||document.write('<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"><\/script>')</script>
 <style>
 /* Style « Analytics » : fond lavande, cartes blanches très arrondies, tuiles KPI pastel, accent bleu marine */
 /* Palette « Sales dashboard » : bleu profond, bleu roi, azur, cyan, vert d'eau ; cartes blanches sur gris très clair */
@@ -449,8 +469,15 @@ function fmt(v){if(v==null||isNaN(v))return '—';var n=Number(v),a=Math.abs(n);
 function num(v){var n=parseFloat(v);return isNaN(n)?null:n}
 var FCOLS=(META.filters||[]).map(function(f){return f.col});
 function filtered(){return DATA.filter(function(r){return FCOLS.every(function(c){return state[c]==null||state[c]==='all'||String(r[c]).trim()===state[c]})})}
+// Taux : colonne Oui/Non (et assimilés) → 1/0 ; affiché en % (0 à 100)
+var YES={'oui':1,'yes':1,'true':1,'vrai':1,'o':1,'y':1,'positif':1,'positive':1,'1':1},NO={'non':1,'no':1,'false':1,'faux':1,'n':1,'négatif':1,'negatif':1,'négative':1,'negative':1,'0':1};
+function isRate(a){a=(a||'').toLowerCase();return a==='taux'||a==='rate'||a==='pct'||a==='proportion'}
+function rate(rows,col){var t=rows.filter(function(r){return !isNull(r[col])}).map(function(r){return String(r[col]).trim().toLowerCase()});if(!t.length)return null;
+  if(t.every(function(x){return YES[x]||NO[x]}))return t.filter(function(x){return YES[x]}).length/t.length*100;
+  var v=t.map(num).filter(function(x){return x!=null});if(!v.length)return null;var m=v.reduce(function(p,q){return p+q},0)/v.length;return Math.max.apply(null,v)<=1?m*100:m}
 function agg(rows,col,a){a=(a||'').toLowerCase();
   if(a==='compte'||a==='count'||!col)return col?rows.filter(function(r){return r[col]!=null&&r[col]!==''}).length:rows.length;
+  if(isRate(a))return rate(rows,col);
   var v=rows.map(function(r){return num(r[col])}).filter(function(x){return x!=null});if(!v.length)return null;
   var s=v.reduce(function(p,q){return p+q},0);
   if(a==='moyenne'||a==='taux')return s/v.length;if(a==='max')return Math.max.apply(null,v);if(a==='min')return Math.min.apply(null,v);return s}
@@ -482,8 +509,9 @@ function buildFilters(){var el=document.getElementById('filters');el.innerHTML='
     mb.textContent=showMore?'Moins de filtres':'Plus de filtres ('+(F.length-3)+')';mb.onclick=function(){showMore=!showMore;buildFilters()};el.appendChild(mb)}}
 
 function renderKpis(rows){document.getElementById('kpis').innerHTML=KPIDEFS.slice(0,5).map(function(k,i){var v=agg(rows,k.colonne,k.agregation),sub='';
-  if(k.dimension){var t=ranked(rows,k.colonne,k.agregation,k.dimension,1)[0];if(t)sub='En tête : '+esc(label(t[0]))+'<br>'+fmt(t[1])}
-  return '<div class="kpi k'+i+'"><div class="n">'+esc(k.nom)+'</div><div class="row"><div class="v">'+fmt(v)+'</div><div class="s">'+sub+'</div></div></div>'}).join('')}
+  var u=isRate(k.agregation)&&v!=null?' %':'';
+  if(k.dimension){var t=ranked(rows,k.colonne,k.agregation,k.dimension,1)[0];if(t)sub='En tête : '+esc(label(t[0]))+'<br>'+fmt(t[1])+u}
+  return '<div class="kpi k'+i+'"><div class="n">'+esc(k.nom)+'</div><div class="row"><div class="v">'+fmt(v)+u+'</div><div class="s">'+sub+'</div></div></div>'}).join('')}
 
 function card(id,title,sub,extra){return '<div class="card"><div class="card-h"><div><h2>'+esc(nice(title))+'</h2>'+(sub?'<small>'+esc(sub)+'</small>':'')+'</div>'+(extra||'')+'</div>'+id+'</div>'}
 function seg(){return '<div class="seg" role="group" aria-label="Regrouper par">'+(META.grans||['M','Q','Y']).map(function(g){return '<button type="button" data-g="'+g+'" aria-pressed="'+(gran===g)+'">'+GRAN[g]+'</button>'}).join('')+'</div>'}
@@ -496,7 +524,7 @@ function renderMain(rows){var M=META.measure,P=META.period,S=META.stack,el=docum
     html+=card(canvas('c_trend','Évolution de '+M.nom),'Évolution de '+M.nom,(M.sous_titre||'').replace('période',GRAN[gran].toLowerCase()),seg());
     todo.push(function(){var cv=document.getElementById('c_trend'),ctx=cv.getContext('2d'),grad=ctx.createLinearGradient(0,0,0,250);grad.addColorStop(0,'rgba(0,145,208,.28)');grad.addColorStop(1,'rgba(16,188,208,0)');
       charts.push(new Chart(cv,{type:'line',data:{labels:ks.map(plabel),datasets:[{data:ks.map(function(k){return agg(g[k],M.colonne,M.agregation)}),borderColor:NAVY,backgroundColor:grad,fill:true,tension:.35,borderWidth:2.5,spanGaps:true,pointRadius:ks.length<=15?3:0,pointHoverRadius:5,pointBackgroundColor:NAVY}]},
-        options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},plugins:{legend:{display:false},tooltip:Object.assign({callbacks:{label:function(c){return M.nom+' : '+fmt(c.parsed.y)}}},navyTip)},scales:axes}}))})}
+        options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},plugins:{legend:{display:false},tooltip:Object.assign({callbacks:{label:function(c){return M.nom+' : '+fmt(c.parsed.y)+(isRate(M.agregation)?' %':'')}}},navyTip)},scales:axes}}))})}
   if(P&&M&&S){var g2=groupBy(rows,function(r){return pkey(r.__p)}),ks2=Object.keys(g2).sort(),cats=ranked(rows,M.colonne,M.agregation,S,5).map(function(e){return e[0]});
     html+=card(canvas('c_stack',M.nom+' par '+short(S)),M.nom+' par '+short(S),'Par '+GRAN[gran].toLowerCase()+', empilé',seg());
     todo.push(function(){charts.push(new Chart(document.getElementById('c_stack'),{type:'bar',data:{labels:ks2.map(plabel),datasets:cats.map(function(c,i){return {label:label(c),data:ks2.map(function(k){return agg(g2[k].filter(function(r){return String(r[S])===c}),M.colonne,M.agregation)||0}),backgroundColor:PASTEL[i%PASTEL.length],borderRadius:6,borderSkipped:false,barPercentage:.55}})},
@@ -519,8 +547,8 @@ function renderMain(rows){var M=META.measure,P=META.period,S=META.stack,el=docum
   [].forEach.call(el.querySelectorAll('.seg button'),function(b){b.onclick=function(){gran=b.dataset.g;render()}});
   return todo}
 
-function rankList(entries){var max=Math.max.apply(null,entries.map(function(e){return e[1]}).concat([0]))||1;
-  return '<ul class="rank">'+entries.map(function(e,i){return '<li><span class="lab" title="'+esc(label(e[0]))+'">'+esc(label(e[0]))+'</span><span class="bar"><i style="width:'+Math.max(2,e[1]/max*100)+'%;background:'+BLUES[Math.min(i,BLUES.length-1)]+'"></i></span><b>'+fmt(e[1])+'</b></li>'}).join('')+'</ul>'}
+function rankList(entries,u){var max=Math.max.apply(null,entries.map(function(e){return e[1]}).concat([0]))||1;
+  return '<ul class="rank">'+entries.map(function(e,i){return '<li><span class="lab" title="'+esc(label(e[0]))+'">'+esc(label(e[0]))+'</span><span class="bar"><i style="width:'+Math.max(2,e[1]/max*100)+'%;background:'+BLUES[Math.min(i,BLUES.length-1)]+'"></i></span><b>'+fmt(e[1])+(u||'')+'</b></li>'}).join('')+'</ul>'}
 
 function renderCards(rows){var el=document.getElementById('row3'),html='',todo=[],n=0,used={};
   function add(h){if(n<6){html+=h;n++}}
@@ -537,7 +565,7 @@ function renderCards(rows){var el=document.getElementById('row3'),html='',todo=[
     else if(c.type==='bar'&&!numeric){var e2=ranked(rows,null,'compte',col,8);if(e2.length<2||e2.every(function(x){return x[1]===e2[0][1]}))return;add(card(rankList(e2),'Lignes par '+short(col),c.justification))}});
   // Classements par dimension (pas par date : la courbe les montre déjà)
   KPIDEFS.forEach(function(k){if(!k.dimension||k.dimension===META.period||used['k'+k.nom]||SHOWN[k.colonne+'|'+k.dimension])return;used['k'+k.nom]=1;SHOWN[k.colonne+'|'+k.dimension]=1;var e=ranked(rows,k.colonne,k.agregation,k.dimension,8);if(e.length<2)return;
-    add(card(rankList(e),k.nom+' par '+short(k.dimension),'Classement'))});
+    add(card(rankList(e,isRate(k.agregation)?' %':''),k.nom+' par '+short(k.dimension),'Classement'))});
   el.innerHTML=html||'';return todo}
 
 function render(){charts.forEach(function(c){c.destroy()});charts=[];var rows=filtered();renderKpis(rows);
@@ -558,13 +586,18 @@ def _render_html(objective: str, data_json: str, kpi_defs: list, filter_cols: li
     """Tableau de bord interactif (style « Analytics » : tuiles KPI pastel, accent marine) ; recalcul côté client."""
     obj = (objective or "Analyse de données").replace("\\", "\\\\").replace('"', '\\"').replace("</", "<\\/")
     data_safe = data_json.replace("</", "<\\/")
+    # Image Docker : la console est dans /app et hermes_da dans /HERMES_DA, donc config.CONSOLE_DIR
+    # (/KLDataViz_console) n'existe pas ; on cherche aussi à côté du serveur lancé.
     chartjs = ""
-    chartjs_path = config.CONSOLE_DIR / "chart.umd.min.js"
-    if chartjs_path.exists():
-        try:
-            chartjs = chartjs_path.read_text(encoding="utf-8", errors="ignore").replace("</", "<\\/")
-        except Exception:
-            chartjs = ""
+    main_dir = os.path.dirname(os.path.abspath(getattr(sys.modules.get("__main__"), "__file__", "") or "."))
+    for d in (config.CONSOLE_DIR, Path(main_dir), Path.cwd()):
+        chartjs_path = Path(d) / "chart.umd.min.js"
+        if chartjs_path.is_file():
+            try:
+                chartjs = chartjs_path.read_text(encoding="utf-8", errors="ignore").replace("</", "<\\/")
+                break
+            except Exception:
+                chartjs = ""
     meta_json = json.dumps(_json_safe(meta or {}), ensure_ascii=False).replace("</", "<\\/")
     return (TEMPLATE
             .replace("__CHARTJS__", chartjs)
