@@ -371,90 +371,165 @@ def _meta(df, kpis, spec, filter_cols, period_col, period_series):
 
 
 # ---- Domaine / programme : détection + indicateurs clés + écarts (gaps)
-# Chaque indicateur clé est un (mot-clé de libellé, libellé affiché). Le mot-clé est cherché
-# en sous-chaîne dans les libellés d'indicateurs du fichier (ex. « arv », « seropositifs »).
+# Chaque indicateur clé : « tous » (mots tous présents), « un » (au moins un, si non vide), « sauf » (aucun),
+# « bon » = sens souhaité (+1 : une hausse est un progrès ; -1 : une hausse est une dégradation).
+# Les mots sont comparés sur des libellés normalisés (minuscules, sans accents, ponctuation → espace).
+def _ki(nom, tous, un=(), sauf=(), bon=1):
+    return {"nom": nom, "tous": list(tous), "un": list(un), "sauf": list(sauf), "bon": bon}
+
+
 DOMAINES = {
     "vih": {
         "nom": "VIH / Sida",
-        "mots": ["vih", "hiv", "arv", "tarv", "seropositif", "charge virale", "depist", "index testing"],
+        "mots": ["vih", "hiv", "arv", "tarv", "seropositif", "seropositifs", "charge virale", "depistage", "depistes",
+                 "index testing", "pvvih"],
         "indicateurs": [
-            ("depistes pour le vih et ayant recu", "Personnes dépistées (résultats reçus)"),
-            ("seropositifs", "Cas positifs dépistés"),
-            ("nouvellement initie", "Nouveaux sous TARV"),
-            ("charge virale", "Charge virale contrôlée"),
+            _ki("Personnes dépistées (résultat reçu)", ["depist"], sauf=["positif"]),
+            _ki("Cas positifs dépistés", ["positif"], sauf=["charge virale"]),
+            _ki("Nouveaux sous TARV", ["initi"]),
+            _ki("Charge virale supprimée", ["charge virale"], un=["supprim", "indetect", "< 1000", "<1000"],
+                sauf=["non supprim"]),
+            _ki("Charge virale ≥ 1 000 copies/mL", ["charge virale", "1000"], sauf=["supprim", "<"], bon=-1),
+            _ki("Décès", ["deces"], bon=-1),
         ],
     },
     "paludisme": {
         "nom": "Paludisme",
-        "mots": ["palu", "malaria", "moustiquaire", "mild", "tpi", "act", "rdt"],
-        "indicateurs": [("cas", "Cas confirmés"), ("deces", "Décès"), ("mild", "Moustiquaires distribuées")],
+        "mots": ["palu", "paludisme", "malaria", "moustiquaire", "moustiquaires", "mild", "tpi", "tdr", "rdt", "cta"],
+        "indicateurs": [_ki("Cas confirmés", ["cas", "confirm"]), _ki("Décès", ["deces"], bon=-1),
+                        _ki("Moustiquaires distribuées", [], un=["mild", "moustiquaire"])],
     },
     "tuberculose": {
         "nom": "Tuberculose",
-        "mots": ["tubercul", "tpm+", "bacterio"],
-        "indicateurs": [("cas", "Cas notifiés"), ("deces", "Décès")],
+        "mots": ["tuberculose", "tb", "tpm", "bacteriologiquement"],
+        "indicateurs": [_ki("Cas notifiés", ["cas"], un=["notifi", "tb", "tuberculose"]), _ki("Décès", ["deces"], bon=-1)],
     },
     "vaccination": {
         "nom": "Vaccination / PEV",
-        "mots": ["vaccin", "pev", "penta", "rougeole", "dose", "antigene", "bcg"],
-        "indicateurs": [("doses", "Doses administrées"), ("enfants", "Enfants vaccinés")],
+        "mots": ["vaccin", "vaccination", "vaccines", "pev", "penta", "penta3", "rougeole", "var", "bcg", "antigene"],
+        "indicateurs": [_ki("Doses administrées", ["dose"]), _ki("Enfants vaccinés", ["enfant", "vaccin"])],
     },
     "sante_maternelle": {
         "nom": "Santé maternelle & néonatale",
-        "mots": ["matern", "cpn", "anc", "accouch", "cesarienne", "neonat", "postnatal"],
-        "indicateurs": [("cpn", "Consultations prénatales"), ("accouch", "Accouchements assistés")],
+        "mots": ["maternel", "maternelle", "cpn", "cpn1", "cpn4", "anc", "accouchement", "accouchements",
+                 "cesarienne", "neonatal", "postnatal"],
+        "indicateurs": [_ki("Consultations prénatales", [], un=["cpn", "prenatal"]),
+                        _ki("Accouchements assistés", ["accouch"]), _ki("Décès maternels", ["deces", "matern"], bon=-1)],
     },
 }
+_IND_COLS = ("indicator", "indicateur", "indicateurs", "code", "code indicateur", "libelle", "dataname", "data")
+_VAL_COLS = ("value", "valeur", "val", "montant", "mesure", "total")
+_PER_COLS = ("quarter", "period", "periode", "trimestre", "mois", "date", "year", "annee")
 
 
-def _detect_domaine(df) -> dict | None:
-    """Détecte le domaine/programme à partir des codes indicateurs et noms de colonnes."""
-    text = " ".join(str(c) for c in df.columns).lower()
+def _norm(t) -> str:
+    """« Séropositifs (≥1000 copies/mL) » → « seropositifs 1000 copies ml »."""
+    import unicodedata
+    t = unicodedata.normalize("NFKD", str(t)).encode("ascii", "ignore").decode("ascii").lower()
+    return " ".join(re.sub(r"[^a-z0-9<>]+", " ", t).split())
+
+
+def _col(df, names, numeric=False):
+    import pandas as pd
     for c in df.columns:
-        lc = str(c).lower()
-        if lc in ("indicator", "indicateur", "code", "code_indicateur", "libelle", "libellé"):
-            text += " " + " ".join(str(v) for v in df[c].dropna().astype(str).unique()[:200]).lower()
-    for cle, dom in DOMAINES.items():
-        if any(m in text for m in dom["mots"]):
-            return {"cle": cle, "nom": dom["nom"], "indicateurs": dom["indicateurs"]}
+        if _norm(c) not in names:
+            continue
+        if numeric and not pd.to_numeric(df[c], errors="coerce").notna().any():
+            continue
+        return c
     return None
 
 
-def _gaps(df, domaine, period_col):
-    """Écarts (gaps) entre la dernière et l'avant-dernière période, pour les indicateurs du domaine."""
-    if not domaine:
-        return []
+def _detect_domaine(df) -> dict | None:
+    """Domaine/programme le plus représenté dans les noms de colonnes et les libellés d'indicateurs (mots entiers)."""
+    words = " " + _norm(" ".join(str(c) for c in df.columns))
+    ic = _col(df, _IND_COLS)
+    if ic is not None:
+        words += " " + _norm(" ".join(df[ic].dropna().astype(str).unique()[:300]))
+    words += " "
+    best, score = None, 0
+    for cle, dom in DOMAINES.items():
+        n = sum(words.count(" " + m + " ") for m in dom["mots"])
+        if n > score:
+            best, score = cle, n
+    if not best:
+        return None
+    return {"cle": best, "nom": DOMAINES[best]["nom"], "indicateurs": DOMAINES[best]["indicateurs"]}
+
+
+def _match(label_norm: str, ki: dict) -> bool:
+    return (all(m in label_norm for m in ki["tous"]) and (not ki["un"] or any(m in label_norm for m in ki["un"]))
+            and not any(m in label_norm for m in ki["sauf"]))
+
+
+def _period_key(df, period_col, period_series):
+    """Clé de période triable pour comparer « dernière » et « précédente » : AAAA-MM, AAAA-Tn ou AAAA."""
     import pandas as pd
-    indicator_col = next((c for c in df.columns if str(c).lower()
-                          in ("indicator", "indicateur", "code", "code_indicateur", "libelle", "libellé")), None)
-    value_col = next((c for c in df.columns if str(c).lower() in ("value", "valeur", "val", "montant", "mesure")
-                      and pd.api.types.is_numeric_dtype(df[c])), None)
-    if not indicator_col or not value_col:
+    if period_series is not None:
+        return period_series.map(lambda v: v[:7] if isinstance(v, str) else None)
+    c = period_col or _col(df, _PER_COLS)
+    if c is None:
+        return None
+
+    def key(v):
+        if v is None or v != v:
+            return None
+        t = _norm(v)
+        m = re.match(r"^(\d{4}) ?[qt]([1-4])$", t)
+        if m:
+            return f"{m.group(1)}-T{m.group(2)}"
+        m = re.match(r"^[qt]([1-4]) ?(\d{4})$", t)
+        if m:
+            return f"{m.group(2)}-T{m.group(1)}"
+        if re.match(r"^\d{4}$", t):
+            return t
+        fr = _fr_month(v)
+        if fr:
+            return fr
+        d = pd.to_datetime(str(v), errors="coerce", dayfirst=True)
+        return None if pd.isna(d) else d.strftime("%Y-%m")
+    return df[c].map(key)
+
+
+def _keyind(df, domaine):
+    """Indicateurs clés présents dans le fichier : un seul libellé par indicateur clé (le plus fréquent), jamais une
+    somme de libellés différents (ex. « CV reçue » + « CV ≥ 1000 »)."""
+    ic = _col(df, _IND_COLS)
+    vc = _col(df, _VAL_COLS, numeric=True)
+    if not domaine or ic is None or vc is None:
+        return None, None, []
+    counts = df[ic].dropna().astype(str).str.strip().value_counts()
+    out, used = [], set()
+    for ki in domaine["indicateurs"]:
+        lab = next((l for l in counts.index if l not in used and _match(_norm(l), ki)), None)
+        if lab is not None:
+            used.add(lab)
+            out.append({"nom": ki["nom"], "libelle": lab, "bon": ki["bon"]})
+    return ic, vc, out
+
+
+def _gaps(df, keys, ic, vc, kis):
+    """Écart entre la dernière et l'avant-dernière période, par indicateur clé (sur toutes les lignes)."""
+    import pandas as pd
+    if keys is None or not kis:
         return []
-    if not period_col:
-        period_col = next((c for c in df.columns if str(c).lower()
-                           in ("quarter", "period", "periode", "trimestre", "mois", "date", "year", "annee", "année")), None)
-    if not period_col:
+    ps = sorted(k for k in keys.dropna().unique())
+    if len(ps) < 2:
         return []
-    periods = sorted(df[period_col].dropna().astype(str).unique())
-    if len(periods) < 2:
-        return []
-    last, prev = periods[-1], periods[-2]
-    labels = df[indicator_col].dropna().astype(str).str.strip().str.lower()
+    last, prev = ps[-1], ps[-2]
+    lab = df[ic].astype(str).str.strip()
+    val = pd.to_numeric(df[vc], errors="coerce")
     gaps = []
-    for mot, nom in domaine.get("indicateurs", []):
-        sub = df[labels.str.contains(mot, regex=False)]
-        if sub.empty:
+    for k in kis:
+        sel = lab == k["libelle"]
+        cur, pre = val[sel & (keys == last)], val[sel & (keys == prev)]
+        if not cur.notna().any() or not pre.notna().any() or float(pre.sum()) == 0:
             continue
-        cur = pd.to_numeric(sub[sub[period_col].astype(str) == last][value_col], errors="coerce").sum()
-        pre = pd.to_numeric(sub[sub[period_col].astype(str) == prev][value_col], errors="coerce").sum()
-        if pd.isna(cur) or pd.isna(pre) or pre == 0:
-            continue
-        delta = cur - pre
-        pct = (delta / pre) * 100
-        gaps.append({"indicateur": nom, "derniere": cur, "precedente": pre,
-                     "delta": delta, "pct": pct,
-                     "sens": "hausse" if delta > 0 else "baisse" if delta < 0 else "stable"})
+        cur, pre = float(cur.sum()), float(pre.sum())
+        d = cur - pre
+        gaps.append({"indicateur": k["nom"], "libelle": k["libelle"], "derniere": cur, "precedente": pre,
+                     "delta": d, "pct": d / pre * 100, "bon": k["bon"], "periode": last, "periode_prec": prev,
+                     "sens": "hausse" if d > 0 else "baisse" if d < 0 else "stable"})
     return gaps
 
 
@@ -674,8 +749,19 @@ function renderCards(rows){var el=document.getElementById('row3'),html='',todo=[
     add(card(rankList(e,isRate(k.agregation)?' %':''),k.nom+' par '+short(k.dimension),'Classement'))});
   el.innerHTML=html||'';return todo}
 
-function renderGaps(){var el=document.getElementById('gaps'),G=META.gaps,D=META.domaine;if(!G||!G.length){el.hidden=true;return}el.hidden=false;var t=D?'<span class="gaps-dom">'+esc(D.nom)+'</span>':'';el.innerHTML='<h2 class="gaps-h">Indicateurs clés de suivi '+t+'<span class="gaps-sub">évolution vs période précédente</span></h2><div class="gaps-grid">'+G.map(function(g){var a=g.sens==='hausse'?'\u25b2':g.sens==='baisse'?'\u25bc':'\u2014';var c=g.sens==='hausse'?'up':g.sens==='baisse'?'down':'flat';var p=(g.pct>0?'+':'')+Number(g.pct).toFixed(1)+'%';return '<div class="gap"><b>'+esc(g.indicateur)+'</b><span class="gap-v">'+fmt(g.derniere)+'</span><span class="gap-d '+c+'">'+a+' '+p+'</span></div>'}).join('')+'</div>'}
-function render(){charts.forEach(function(c){c.destroy()});charts=[];var rows=filtered();renderKpis(rows);renderGaps();
+// « 2025-04 » → « avr. 2025 », « 2025-T1 » → « T1 2025 »
+function gkey(k){k=String(k||'');var m=k.match(/^(\d{4})-(\d{2})$/);if(m)return MOIS[+m[2]-1]+' '+m[1];m=k.match(/^(\d{4})-T(\d)$/);return m?'T'+m[2]+' '+m[1]:k}
+function renderGaps(rows){var el=document.getElementById('gaps'),K=META.keyind,D=META.domaine,G=META.gaps;if(!G||!G.length||!K){el.hidden=true;return}
+  // Recalcul sur les lignes filtrées (district, sexe…) ; libellé exact de l'indicateur, jamais une somme de libellés
+  if(K.live){G=K.items.map(function(k){var c=null,p=null;rows.forEach(function(r){if(String(r[K.ind]).trim()!==k.libelle)return;var v=num(r[K.val]);if(v==null)return;
+      if(r.__g===K.last)c=(c||0)+v;else if(r.__g===K.prev)p=(p||0)+v});
+    if(c==null||!p)return null;var d=c-p;return {indicateur:k.nom,libelle:k.libelle,derniere:c,pct:d/p*100,bon:k.bon,sens:d>0?'hausse':d<0?'baisse':'stable'}}).filter(Boolean)}
+  if(!G.length){el.hidden=true;return}el.hidden=false;var t=D?'<span class="gaps-dom">'+esc(D.nom)+'</span>':'';
+  // Vert = évolution souhaitée (ex. baisse des décès), rouge = dégradation
+  el.innerHTML='<h2 class="gaps-h">Indicateurs clés de suivi '+t+'<span class="gaps-sub">'+esc(gkey(K.last))+' vs '+esc(gkey(K.prev))+'</span></h2><div class="gaps-grid">'+G.map(function(g){
+    var a=g.sens==='hausse'?'▲':g.sens==='baisse'?'▼':'—',good=(g.pct||0)*(g.bon||1),c=g.sens==='stable'?'flat':good>0?'up':'down',p=(g.pct>0?'+':'')+Number(g.pct).toFixed(1).replace('.',',')+' %';
+    return '<div class="gap" title="'+esc(g.libelle||'')+'"><b>'+esc(g.indicateur)+'</b><span class="gap-v">'+fmt(g.derniere)+'</span><span class="gap-d '+c+'">'+a+' '+p+'</span></div>'}).join('')+'</div>'}
+function render(){charts.forEach(function(c){c.destroy()});charts=[];var rows=filtered();renderKpis(rows);renderGaps(rows);
   var todo=renderMain(rows).concat(renderCards(rows));if(window.Chart)todo.forEach(function(f){f()})}
 document.getElementById('objective').textContent=window.OBJECTIVE;
 try{if(window.self!==window.top)document.body.classList.add('embedded')}catch(e){document.body.classList.add('embedded')}
@@ -765,12 +851,18 @@ def generate_dashboard(df, objective: str = "", job_id: str | None = None, llm=N
     period_col, period_series = _period(df)
     meta = _meta(df, kpi_defs, spec, filter_cols, period_col, period_series)
     domaine = _detect_domaine(df)
-    gaps = _gaps(df, domaine, period_col)
+    ic, vc, kis = _keyind(df, domaine)
+    keys = _period_key(df, period_col, period_series) if kis else None
+    gaps = _gaps(df, keys, ic, vc, kis)
     if domaine:
         meta["domaine"] = {"cle": domaine["cle"], "nom": domaine["nom"]}
-    if gaps:
-        meta["gaps"] = _json_safe(gaps)
     data = df.assign(__p=period_series) if period_series is not None else df
+    if gaps:
+        # Recalculés dans la page selon les filtres (sauf si l'échantillon de 6000 lignes fausserait les sommes)
+        meta["gaps"] = _json_safe(gaps)
+        meta["keyind"] = {"ind": str(ic), "val": str(vc), "items": kis, "last": gaps[0]["periode"],
+                          "prev": gaps[0]["periode_prec"], "live": len(data) <= 6000}
+        data = data.assign(__g=keys)
     sample = data if len(data) <= 6000 else data.sample(6000, random_state=0)
     data_json = json.dumps(sample.to_dict(orient="records"), ensure_ascii=False, default=str)
 

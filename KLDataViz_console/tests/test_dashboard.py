@@ -106,3 +106,26 @@ def test_kpi_incalculable_ecarte(monkeypatch):
         out = server.do_dashboard(_src(d))
     assert [k["nom"] for k in out["kpis"]] == ["File active"]
     assert '"measure": {"nom": "File active"' in out["html"]
+
+
+def test_indicateurs_cles_vih_format_dhis2():
+    """Libellés accentués, mois en lettres (ordre réel), un libellé par indicateur clé, sens souhaité."""
+    import sys  # noqa: PLC0415
+    reset_app_modules()
+    import server  # noqa: PLC0415
+    sys.path.insert(0, os.path.join(os.path.dirname(server.__file__), "..", "HERMES_DA"))
+    from hermes_da.adapters.dashboard import _detect_domaine, _gaps, _keyind, _period, _period_key  # noqa: PLC0415
+    vals = {"Mars 2025": (100, 40, 10, 5), "Avril 2025": (150, 50, 4, 8), "Février 2025": (1, 1, 1, 1)}
+    inds = ["Personnes dépistées VIH ayant reçu leur résultat", "PVVIH avec résultat de charge virale reçu",
+            "PVVIH avec charge virale ≥1000 copies/mL", "Décès parmi les PVVIH"]
+    df = pd.DataFrame([{"Indicateur": i, "Période": p, "Valeur": v[j]} for p, v in vals.items() for j, i in enumerate(inds)])
+    dom = _detect_domaine(df)
+    assert dom["cle"] == "vih"
+    ic, vc, kis = _keyind(df, dom)
+    pc, ps = _period(df)
+    g = {x["indicateur"]: x for x in _gaps(df, _period_key(df, pc, ps), ic, vc, kis)}
+    assert g["Personnes dépistées (résultat reçu)"]["pct"] == 50 and g["Personnes dépistées (résultat reçu)"]["periode"] == "2025-04"
+    cv = g["Charge virale ≥ 1 000 copies/mL"]
+    assert cv["derniere"] == 4 and cv["bon"] == -1             # pas additionnée avec « CV reçue »
+    assert "Charge virale supprimée" not in g                    # « CV reçue » n'est pas « supprimée »
+    assert g["Décès"]["sens"] == "hausse" and g["Décès"]["bon"] == -1
