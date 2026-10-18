@@ -650,7 +650,7 @@ window.OBJECTIVE="__OBJECTIVE__";
 var NAVY='#0B4F8F',PASTEL=['#0B4F8F','#0091D0','#10BCD0','#12BF9A','#1565C0','#7FDCC4'],
     DONUT=['#0B4F8F','#0091D0','#10BCD0','#12BF9A','#1565C0','#5FD3E6','#7FDCC4','#9CC3EA'],
     BLUES=['#0B4F8F','#0E63A8','#0078C0','#0091D0','#10A7D0','#10BCD0','#12BF9A','#7FDCC4'];
-var state={},gran=(META.gran||'M'),charts=[],showMore=false,SHOWN={};
+var state={},gran=(META.gran||'M'),charts=[],showMore=false,SHOWN={},KCOUNT={};
 var MOIS=['janv.','févr.','mars','avr.','mai','juin','juil.','août','sept.','oct.','nov.','déc.'];
 if(window.Chart){Chart.defaults.font.family="'Fira Sans',system-ui,sans-serif";Chart.defaults.color='#5B6478';
   if(matchMedia('(prefers-reduced-motion: reduce)').matches)Chart.defaults.animation=false;}
@@ -717,7 +717,15 @@ function card(id,title,sub,extra){return '<div class="card"><div class="card-h">
 function seg(){return '<div class="seg" role="group" aria-label="Regrouper par">'+(META.grans||['M','Q','Y']).map(function(g){return '<button type="button" data-g="'+g+'" aria-pressed="'+(gran===g)+'">'+GRAN[g]+'</button>'}).join('')+'</div>'}
 function canvas(id,label){return '<div class="box"><canvas id="'+id+'" role="img" aria-label="'+esc(label)+'"></canvas></div>'}
 
-function renderMain(rows){var M=META.measure,P=META.period,S=META.stack,el=document.getElementById('row2'),html='',todo=[];
+// Barres par catégorie avec ligne de moyenne (au-dessus de la moyenne : bleu foncé)
+function catBar(id,e,title,u){var mean=e.reduce(function(a,x){return a+x[1]},0)/e.length;return card(canvas(id,title),title,'Sur la période affichée · ligne : moyenne '+fmt(mean)+(u||''))}
+function catBarDraw(id,e,u){return function(){var mean=e.reduce(function(a,x){return a+x[1]},0)/e.length,h=e.length>6;
+  charts.push(new Chart(document.getElementById(id),{type:'bar',data:{labels:e.map(function(x){return label(x[0])}),
+    datasets:[{data:e.map(function(x){return x[1]}),backgroundColor:e.map(function(x){return x[1]>=mean?NAVY:'#10BCD0'}),borderRadius:8,borderSkipped:false,barPercentage:.6,maxBarThickness:56},
+              {type:'line',data:e.map(function(){return mean}),borderColor:'#12BF9A',borderDash:[6,4],borderWidth:2,pointRadius:0}]},
+    options:{responsive:true,maintainAspectRatio:false,indexAxis:h?'y':'x',plugins:{legend:{display:false},tooltip:Object.assign({filter:function(t){return t.datasetIndex===0},callbacks:{label:function(c){return fmt(h?c.parsed.x:c.parsed.y)+(u||'')}}},navyTip)},
+      scales:h?{x:axes.y,y:{grid:{display:false},border:{display:false}}}:axes}}))}}
+function renderMain(rows){var M=META.measure,P=META.period,S=META.stack,el=document.getElementById('row2'),html='',todo=[];SHOWN={};
   var gP=P?groupBy(rows,function(r){return pkey(r.__p)}):{};
   if(P&&M&&Object.keys(gP).length<2)P=null;  // un seul point : pas de courbe vide
   if(P&&M){var g=gP,ks=Object.keys(g).sort();
@@ -725,18 +733,17 @@ function renderMain(rows){var M=META.measure,P=META.period,S=META.stack,el=docum
     todo.push(function(){var cv=document.getElementById('c_trend'),ctx=cv.getContext('2d'),grad=ctx.createLinearGradient(0,0,0,250);grad.addColorStop(0,'rgba(0,145,208,.28)');grad.addColorStop(1,'rgba(16,188,208,0)');
       charts.push(new Chart(cv,{type:'line',data:{labels:ks.map(plabel),datasets:[{data:ks.map(function(k){return agg(g[k],M.colonne,M.agregation)}),borderColor:NAVY,backgroundColor:grad,fill:true,tension:.35,borderWidth:2.5,spanGaps:true,pointRadius:ks.length<=15?3:0,pointHoverRadius:5,pointBackgroundColor:NAVY}]},
         options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},plugins:{legend:{display:false},tooltip:Object.assign({callbacks:{label:function(c){return M.nom+' : '+fmt(c.parsed.y)+(isRate(M.agregation)?' %':'')}}},navyTip)},scales:axes}}))})}
-  if(P&&M&&S){var g2=groupBy(rows,function(r){return pkey(r.__p)}),ks2=Object.keys(g2).sort(),cats=ranked(rows,M.colonne,M.agregation,S,5).map(function(e){return e[0]});
-    // Un total (somme, effectif) s'empile ; un taux ou une moyenne ne s'additionne pas : une courbe par catégorie
-    var add=/^(somme|compte|count|sum)$/.test((M.agregation||'').toLowerCase()),pct=isRate(M.agregation)?' %':'';
-    html+=card(canvas('c_stack',M.nom+' par '+short(S)),M.nom+' par '+short(S),'Par '+GRAN[gran].toLowerCase()+(add?', empilé':', comparé'),seg());
-    todo.push(function(){charts.push(new Chart(document.getElementById('c_stack'),{type:add?'bar':'line',data:{labels:ks2.map(plabel),datasets:cats.map(function(c,i){var col=PASTEL[i%PASTEL.length];return {label:label(c),
-        data:ks2.map(function(k){var v=agg(g2[k].filter(function(r){return String(r[S])===c}),M.colonne,M.agregation);return v==null?(add?0:null):v}),
-        backgroundColor:col,borderColor:col,borderRadius:6,borderSkipped:false,barPercentage:.55,borderWidth:add?0:2.5,tension:.35,spanGaps:true,fill:false,pointRadius:add||ks2.length>15?0:3}})},
-      options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},plugins:{legend:{position:'bottom',labels:{usePointStyle:true,pointStyle:'circle',boxWidth:8,padding:14}},
-        tooltip:Object.assign({},navyTip,{displayColors:true,callbacks:{label:function(c){return c.dataset.label+' : '+fmt(c.parsed.y)+pct}}})},
-        scales:{x:Object.assign({},axes.x,{stacked:add}),y:Object.assign({},axes.y,{stacked:add})}}}))})}
+  if(P&&M&&S){var add=/^(somme|compte|count|sum)$/.test((M.agregation||'').toLowerCase()),pct=isRate(M.agregation)?' %':'';
+    if(add){var g2=groupBy(rows,function(r){return pkey(r.__p)}),ks2=Object.keys(g2).sort(),cats=ranked(rows,M.colonne,M.agregation,S,5).map(function(e){return e[0]});
+      html+=card(canvas('c_stack',M.nom+' par '+short(S)),M.nom+' par '+short(S),'Par '+GRAN[gran].toLowerCase()+', empilé',seg());
+      todo.push(function(){charts.push(new Chart(document.getElementById('c_stack'),{type:'bar',data:{labels:ks2.map(plabel),datasets:cats.map(function(c,i){return {label:label(c),
+          data:ks2.map(function(k){return agg(g2[k].filter(function(r){return String(r[S])===c}),M.colonne,M.agregation)||0}),backgroundColor:PASTEL[i%PASTEL.length],borderRadius:6,borderSkipped:false,barPercentage:.55}})},
+        options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom',labels:{usePointStyle:true,pointStyle:'circle',boxWidth:8,padding:14}},tooltip:Object.assign({},navyTip,{displayColors:true})},scales:{x:Object.assign({},axes.x,{stacked:true}),y:Object.assign({},axes.y,{stacked:true})}}}))})}
+    // Un taux ou une moyenne ne s'additionne pas et, mois par mois, des courbes par catégorie se croisent sans cesse :
+    // on compare les catégories sur toute la période (l'évolution est déjà dans la courbe de gauche)
+    else{var e0=ranked(rows,M.colonne,M.agregation,S,8);if(e0.length>=2){SHOWN[M.colonne+'|'+S]=1;html+=catBar('c_stack',e0,M.nom+' par '+short(S),pct);todo.push(catBarDraw('c_stack',e0,pct))}}}
   // Sans période (ex. un export par structure) : l'indicateur principal par catégorie, en barres et en part du total
-  var C=META.stack||((META.filters||[])[0]||{}).col;SHOWN={};
+  var C=META.stack||((META.filters||[])[0]||{}).col;
   if(!P&&M&&M.colonne&&C){var e=ranked(rows,M.colonne,M.agregation,C,12);
     if(e.length>=2){SHOWN[M.colonne+'|'+C]=1;var mean=e.reduce(function(a,x){return a+x[1]},0)/e.length;
       html+=card(canvas('c_cat',M.nom+' par '+short(C)),M.nom+' par '+short(C),'Ligne : moyenne '+fmt(mean));
@@ -756,15 +763,36 @@ function renderMain(rows){var M=META.measure,P=META.period,S=META.stack,el=docum
 function rankList(entries,u){var max=Math.max.apply(null,entries.map(function(e){return e[1]}).concat([0]))||1;
   return '<ul class="rank">'+entries.map(function(e,i){return '<li><span class="lab" title="'+esc(label(e[0]))+'">'+esc(label(e[0]))+'</span><span class="bar"><i style="width:'+Math.max(2,e[1]/max*100)+'%;background:'+BLUES[Math.min(i,BLUES.length-1)]+'"></i></span><b>'+fmt(e[1])+(u||'')+'</b></li>'}).join('')+'</ul>'}
 
+// Ordre naturel des classes : « 5-14 » avant « 15-24 », « < 15 » en premier
+function natural(a,b){var x=parseFloat(String(a).replace(/^[^0-9]*/,'')),y=parseFloat(String(b).replace(/^[^0-9]*/,''));if(/^\s*</.test(a))x=-1;if(/^\s*</.test(b))y=-1;return isNaN(x)||isNaN(y)?String(a).localeCompare(String(b)):x-y}
+// Pyramide : classes en lignes, les deux catégories (ex. F / M) de part et d'autre
+function pyramid(id,rows,col,C,cs){return card(canvas(id,short(col)+' par '+short(C)),short(col)+' par '+short(C),'Pyramide des effectifs : '+esc(label(cs[0]))+' à gauche, '+esc(label(cs[1]))+' à droite')}
+function pyramidDraw(id,rows,col,C,cs){return function(){var ks=Object.keys(groupBy(rows,col)).sort(natural).reverse(),cnt=function(k,c){return rows.filter(function(r){return String(r[col])===k&&String(r[C])===c}).length};
+  charts.push(new Chart(document.getElementById(id),{type:'bar',data:{labels:ks.map(label),datasets:[{label:label(cs[0]),data:ks.map(function(k){return -cnt(k,cs[0])}),backgroundColor:NAVY,borderRadius:6,borderSkipped:false},
+      {label:label(cs[1]),data:ks.map(function(k){return cnt(k,cs[1])}),backgroundColor:'#10BCD0',borderRadius:6,borderSkipped:false}]},
+    options:{responsive:true,maintainAspectRatio:false,indexAxis:'y',plugins:{legend:{position:'bottom',labels:{usePointStyle:true,pointStyle:'circle',boxWidth:8,padding:14}},tooltip:Object.assign({},navyTip,{displayColors:true,callbacks:{label:function(c){return c.dataset.label+' : '+fmt(Math.abs(c.parsed.x))}}})},
+      scales:{x:{stacked:true,grid:{color:'#EEF1F5'},border:{display:false},ticks:{callback:function(v){return fmt(Math.abs(v))}}},y:{stacked:true,grid:{display:false},border:{display:false}}}}}))}}
 function renderCards(rows){var el=document.getElementById('row3'),html='',todo=[],n=0,used={};
+  // Effectifs déjà classés par un KPI « compte » (ex. « Patients dépistés par région ») : pas de second classement identique
+  KCOUNT={};KPIDEFS.forEach(function(k){if(/^(compte|count|effectif)$/.test((k.agregation||'').toLowerCase())&&k.dimension)KCOUNT[k.dimension]=1});
   function add(h){if(n<6){html+=h;n++}}
   (META.charts||[]).forEach(function(c,i){var col=c.colonne;if(used[col+c.type])return;used[col+c.type]=1;
-    var Cc=META.stack||((META.filters||[])[0]||{}).col,numeric=rows.length&&rows.every(function(r){return isNull(r[col])||num(r[col])!=null});
+    var Cc=META.stack||((META.filters||[])[0]||{}).col,numeric=rows.length&&rows.every(function(r){return isNull(r[col])||num(r[col])!=null}),nm=nice(col).toLowerCase();
+    // Classes (tranche d'âge, groupe…) ou code chiffré à peu de valeurs : une catégorie, pas une quantité à additionner
+    var classes=/tranche|classe|groupe|categ|age/.test(nm)||(numeric&&Object.keys(groupBy(rows,col)).length<=12&&!/nombre|nb|effectif|total|montant|valeur|quantit/.test(nm));
+    if(c.type==='bar'&&classes&&Cc&&col!==Cc){var cs=Object.keys(groupBy(rows,Cc)).sort();if(cs.length===2){if(SHOWN['#p|'+col])return;SHOWN['#p|'+col]=1;add(pyramid('c_py'+i,rows,col,Cc,cs));todo.push(pyramidDraw('c_py'+i,rows,col,Cc,cs));return}}
+    if(c.type==='bar'&&classes){var ec=ranked(rows,null,'compte',col,15).sort(function(x,y){return natural(x[0],y[0])});if(ec.length<2||SHOWN['#n|'+col]||KCOUNT[col])return;SHOWN['#n|'+col]=1;add(card(rankList(ec),'Effectifs par '+short(col),'Par classe, dans l\'ordre'));return}
     if(c.type==='pie'){var e=ranked(rows,null,'compte',col,8),tot=e.reduce(function(p,q){return p+q[1]},0)||1;if(e.length<2||e.every(function(x){return x[1]===e[0][1]}))return;
       add(card('<div class="donut">'+canvas('c_d'+i,'Répartition par '+col)+'<ul class="legend">'+e.map(function(x,j){return '<li><i style="background:'+DONUT[j%DONUT.length]+'"></i><span>'+esc(label(x[0]))+'</span><b>'+Math.round(x[1]/tot*100)+' %</b></li>'}).join('')+'</ul></div>','Répartition par '+short(col),c.justification));
       todo.push(function(){charts.push(new Chart(document.getElementById('c_d'+i),{type:'doughnut',data:{labels:e.map(function(x){return x[0]}),datasets:[{data:e.map(function(x){return x[1]}),backgroundColor:DONUT,borderColor:'#fff',borderWidth:3,hoverOffset:4}]},options:{responsive:true,maintainAspectRatio:false,cutout:'68%',plugins:{legend:{display:false},tooltip:navyTip}}}))})}
     else if(c.type==='hist'||c.type==='box'||(c.type==='line'&&!META.period)){var v=rows.map(function(r){return num(r[col])}).filter(function(x){return x!=null}).sort(function(a,b){return a-b});if(v.length<10)return;
-      var q=function(p){return v[Math.min(v.length-1,Math.floor(p*(v.length-1)))]},med=q(.5),lo=q(.01),hi=q(.99),labels,bins;
+      var q=function(p){return v[Math.min(v.length-1,Math.floor(p*(v.length-1)))]},med=q(.5),lo=q(.01),hi=q(.99),labels,bins,nm=nice(col).toLowerCase(),
+          clin=/cd4/.test(nm)?[[200,'< 200'],[350,'200 – 349'],[500,'350 – 499'],[Infinity,'≥ 500']]
+              :/charge.?virale|\bcv\b/.test(nm)?[[50,'< 50 (indétectable)'],[1000,'50 – 999'],[Infinity,'≥ 1 000']]
+              :/d[ée]lai|jours|duree|dur[ée]e/.test(nm)&&v[0]>=0?[[1,'0 (même jour)'],[8,'1 – 7 j'],[15,'8 – 14 j'],[31,'15 – 30 j'],[Infinity,'> 30 j']]:null;
+      // Seuils de référence (CD4, charge virale, délai en jours) quand la colonne est reconnue
+      if(clin){labels=clin.map(function(x){return x[1]});bins=clin.map(function(){return 0});v.forEach(function(x){for(var j=0;j<clin.length;j++)if(x<clin[j][0]){bins[j]++;break}})}
+      else
       // Très asymétrique (ex. charge virale : beaucoup de valeurs basses, quelques très hautes) → classes par puissance de 10
       if(v[0]>=0&&hi>20*Math.max(med,1)){var top=Math.ceil(Math.log10(Math.max(v[v.length-1],10))),bot=Math.max(1,Math.floor(Math.log10(Math.max(q(.05),1))));
         labels=[];bins=[];if(v[0]<Math.pow(10,bot)){labels.push('< '+fmt(Math.pow(10,bot)));bins.push(0)}
@@ -772,10 +800,13 @@ function renderCards(rows){var el=document.getElementById('row3'),html='',todo=[
         v.forEach(function(x){var j=x<Math.pow(10,bot)?0:Math.min(labels.length-1,(v[0]<Math.pow(10,bot)?1:0)+Math.floor(Math.log10(x))-bot);bins[j]++})}
       else{var w=(hi-lo)/10||1;bins=new Array(10).fill(0);v.forEach(function(x){if(x<lo||x>hi)return;bins[Math.min(9,Math.floor((x-lo)/w))]++});labels=bins.map(function(_,j){return fmt(lo+j*w)})}
       var sub='Médiane '+fmt(med)+' · moitié centrale '+fmt(q(.25))+' – '+fmt(q(.75))+' · max '+fmt(v[v.length-1]);
+      // Une même valeur très fréquente (hors 0) trahit souvent une imputation (ex. médiane recopiée)
+      var fq={},mx=null;v.forEach(function(x){fq[x]=(fq[x]||0)+1;if(mx==null||fq[x]>fq[mx])mx=x});
+      if(mx!==0&&fq[mx]/v.length>=.2&&Object.keys(fq).length>10)sub+=' · ⚠ '+Math.round(fq[mx]/v.length*100)+' % des valeurs = '+fmt(mx)+' (valeur imputée ?)';
       add(card(canvas('c_h'+i,'Distribution de '+nice(col)),'Distribution de '+short(col),sub));
       todo.push(function(){charts.push(new Chart(document.getElementById('c_h'+i),{type:'bar',data:{labels:labels,datasets:[{data:bins,backgroundColor:'#10BCD0',hoverBackgroundColor:NAVY,borderRadius:6,borderSkipped:false,categoryPercentage:.9,barPercentage:.92}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:navyTip},scales:axes}}))})}
     else if(c.type==='bar'&&numeric&&Cc&&col!==Cc){if(SHOWN[col+'|'+Cc])return;SHOWN[col+'|'+Cc]=1;var e3=ranked(rows,col,'somme',Cc,8);if(e3.length<2)return;add(card(rankList(e3),short(col)+' par '+short(Cc),c.justification))}
-    else if(c.type==='bar'&&!numeric){var e2=ranked(rows,null,'compte',col,8);if(e2.length<2||e2.every(function(x){return x[1]===e2[0][1]}))return;add(card(rankList(e2),'Lignes par '+short(col),c.justification))}});
+    else if(c.type==='bar'&&!numeric){if(SHOWN['#n|'+col]||KCOUNT[col])return;SHOWN['#n|'+col]=1;var e2=ranked(rows,null,'compte',col,8);if(e2.length<2||e2.every(function(x){return x[1]===e2[0][1]}))return;add(card(rankList(e2),'Effectifs par '+short(col),c.justification))}});
   // Classements par dimension (pas par date : la courbe les montre déjà)
   KPIDEFS.forEach(function(k){if(!k.dimension||k.dimension===META.period||used['k'+k.nom]||SHOWN[k.colonne+'|'+k.dimension])return;used['k'+k.nom]=1;SHOWN[k.colonne+'|'+k.dimension]=1;var e=ranked(rows,k.colonne,k.agregation,k.dimension,8);if(e.length<2)return;
     add(card(rankList(e,isRate(k.agregation)?' %':''),k.nom+' par '+short(k.dimension),'Classement'))});

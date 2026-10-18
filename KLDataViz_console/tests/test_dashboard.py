@@ -154,10 +154,22 @@ def test_indicateurs_cles_format_large():
 
 
 def test_taux_par_categorie_non_empile():
-    """Un taux par sexe ne s'additionne pas (70 % + 65 % ≠ 135 %) : courbes comparées, empilement réservé aux totaux."""
+    """Un taux par sexe ne s'additionne pas (70 % + 65 % ≠ 135 %) : barres comparées sur la période, empilement réservé aux totaux."""
     import sys  # noqa: PLC0415
     reset_app_modules()
     import server  # noqa: PLC0415
     sys.path.insert(0, os.path.join(os.path.dirname(server.__file__), "..", "HERMES_DA"))
     from hermes_da.adapters.dashboard import TEMPLATE  # noqa: PLC0415
-    assert "var add=/^(somme|compte|count|sum)$/" in TEMPLATE and "stacked:add" in TEMPLATE and "', comparé'" in TEMPLATE
+    assert "var add=/^(somme|compte|count|sum)$/" in TEMPLATE and "html+=catBar('c_stack',e0" in TEMPLATE
+
+
+def test_graphiques_adaptes_aux_donnees():
+    """Pyramide pour les classes d'âge, seuils cliniques (CD4, CV, délai), imputation signalée, pas de doublon."""
+    import sys  # noqa: PLC0415
+    reset_app_modules()
+    import server  # noqa: PLC0415
+    sys.path.insert(0, os.path.join(os.path.dirname(server.__file__), "..", "HERMES_DA"))
+    from hermes_da.adapters.dashboard import TEMPLATE  # noqa: PLC0415
+    for frag in ("function pyramid(", "'≥ 500'", "'< 50 (indétectable)'", "'0 (même jour)'", "(valeur imputée ?)",
+                 "KCOUNT[col]", "function catBar("):
+        assert frag in TEMPLATE, frag
