@@ -61,3 +61,8 @@ Thumbs.db
 *.m4a
 *.mp4
 *.vtt
+
+# =====================================================================
+# Préparation de soutenance — local uniquement, jamais publié
+# =====================================================================
+soutenance/QUESTIONS_REPONSES.md
