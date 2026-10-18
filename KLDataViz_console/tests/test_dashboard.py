@@ -49,3 +49,25 @@ def test_tableau_de_bord_avec_l_ia_de_la_console(monkeypatch):
     # Style « Analytics » : période reconnue (courbe + sélecteur Mois/Trimestre/Année) et graphiques choisis transmis
     assert '"period": "mois"' in out["html"] and '"__p": "2025-01"' in out["html"]
     assert '"type": "bar"' in out["html"] and "janv. 2025 – févr. 2025" in out["html"]
+
+
+def test_ergonomie_filtres_et_periode_au_jour():
+    """Cas « carte carburant » : identifiant, dates d'un seul mois, montants, valeurs vides."""
+    import sys  # noqa: PLC0415
+    reset_app_modules()
+    import server  # noqa: PLC0415
+    sys.path.insert(0, os.path.join(os.path.dirname(server.__file__), "..", "HERMES_DA"))
+    from hermes_da.adapters.dashboard import _meta, _period  # noqa: PLC0415
+    df = pd.DataFrame({"N°": range(1, 9),
+                       "Date": pd.to_datetime(["2024-04-03", "2024-04-05", None, "2024-04-12", "2024-04-16",
+                                               "2024-04-19", "2024-04-19", "2024-04-23"]),
+                       "Libellés (objet, N° véh)": ["Prise", "Recharge", None, "Prise", "Solde", "Prise", "Recharge", "Prise"],
+                       "Solde /carte": ["113215", "165110", None, "93010", "185215", "113215", "93010", "238215"],
+                       "Sorties": [20000, None, 35000, 17000, 20000, None, 17000, 35000]})
+    pc, ps = _period(df)
+    meta = _meta(df, [{"nom": "Sorties", "agregation": "somme", "colonne": "Sorties"}], {"graphiques": []},
+                 [], pc, ps)
+    assert pc == "Date" and ps.dropna().iloc[0] == "2024-04-03"                       # au jour près
+    assert meta["gran"] == "D" and meta["grans"] == ["D", "W", "M"] and meta["range"] == "3 – 23 avr. 2024"
+    assert [f["col"] for f in meta["filters"]] == ["Libellés (objet, N° véh)"]        # ni N°, ni date, ni montants
+    assert meta["filters"][0]["values"] == ["Prise", "Recharge", "Solde"]              # sans valeur vide
