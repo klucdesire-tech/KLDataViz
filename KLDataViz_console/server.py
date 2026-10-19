@@ -2306,6 +2306,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                       "/api/admin/extend": lambda: cloud.admin_extend_trial(ctx, str(p.get("org_id")), p.get("days") or 14),
                       "/api/admin/suspend": lambda: cloud.admin_suspend(ctx, str(p.get("org_id")), p.get("suspended")),
                       "/api/admin/invite-client": lambda: cloud.admin_invite_client(ctx, p.get("org"), p.get("email"), p.get("plan")),
+                      "/api/admin/resend-invite": lambda: cloud.admin_resend_invite(ctx, str(p.get("org_id")), p.get("email")),
+                      "/api/admin/test-mail": lambda: cloud.admin_test_mail(ctx),
                       "/api/admin/plans/save": lambda: cloud.admin_plan_save(ctx, p),
                       "/api/admin/plans/delete": lambda: cloud.admin_plan_delete(ctx, str(p.get("key"))),
                       "/api/admin/admins/add": lambda: cloud.admin_admin_add(ctx, p.get("email")),

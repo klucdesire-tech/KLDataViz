@@ -113,7 +113,8 @@ input:focus,select:focus,textarea:focus{border-color:var(--brand);outline:none}
 
     <!-- CLIENTS -->
     <section data-view="orgs" hidden>
-      <div class="head"><div><h1>Clients</h1><p>Tous les espaces de la plateforme. Changez un forfait, prolongez un essai ou suspendez un accès.</p></div><span class="spacer"></span><button class="btn primary" id="inviteBtn">Inviter un client</button></div>
+      <div class="head"><div><h1>Clients</h1><p>Tous les espaces de la plateforme. Changez un forfait, prolongez un essai ou suspendez un accès.</p></div><span class="spacer"></span><button class="btn ghost" id="testMailBtn">Tester l'envoi d'e-mail</button><button class="btn primary" id="inviteBtn">Inviter un client</button></div>
+      <div id="testMailOut"></div>
       <div class="grid">
         <input type="search" id="orgSearch" placeholder="Rechercher un espace ou une adresse e-mail" aria-label="Rechercher un client" style="max-width:380px">
         <div class="card"><div class="tablewrap" id="orgList"><div class="empty">Chargement…</div></div></div>
@@ -249,12 +250,21 @@ $('#orgList').addEventListener('click',async e=>{const b=e.target.closest('[data
       <button class="btn ${susp?'primary':'danger'}" id="suspBtn">${susp?'Réactiver l\'espace':'Suspendre l\'espace'}</button></div>
       <p class="sub" style="margin-top:8px">Un espace suspendu garde ses données mais ses membres ne peuvent plus analyser ni poser de questions.</p></div>
     <div class="card"><h2>Membres</h2>${d.members?.length?`<table><tbody>${d.members.map(m=>`<tr><td>${esc(m.name||m.email)}<br><span class="sub">${esc(m.email)}</span></td><td><span class="tag">${esc({owner:'Propriétaire',analyst:'Analyste',viewer:'Lecteur'}[m.role])}</span></td><td class="sub">Dernière connexion<br>${fmtDate(m.last_sign_in_at)}</td></tr>`).join('')}</tbody></table>`:'<div class="empty">Aucun membre (invitation en attente).</div>'}</div>
-    <div class="card"><h2>Invitations</h2>${d.invitations?.length?`<table><tbody>${d.invitations.map(i=>`<tr><td>${esc(i.email)}</td><td>${i.accepted_at?'<span class="tag ok">Acceptée</span>':`<span class="tag warn">Expire le ${fmtDate(i.expires_at)}</span>`}</td></tr>`).join('')}</tbody></table>`:'<div class="empty">Aucune.</div>'}</div>
+    <div class="card"><h2>Invitations</h2>${d.invitations?.length?`<table><tbody>${d.invitations.map(i=>`<tr><td>${esc(i.email)}</td><td>${i.accepted_at?'<span class="tag ok">Acceptée</span>':`<span class="tag warn">Expire le ${fmtDate(i.expires_at)}</span>`}</td><td class="r">${i.accepted_at?'':`<button class="btn ghost sm" data-resend="${esc(i.email)}">Renvoyer</button>`}</td></tr>`).join('')}</tbody></table><div id="resendOut"></div>`:'<div class="empty">Aucune.</div>'}</div>
     <div class="card"><h2>Usage des 6 derniers mois</h2>${d.usage?.length?`<table><thead><tr><th>Mois</th><th class="r">Analyses</th><th class="r">Questions IA</th></tr></thead><tbody>${d.usage.map(u=>`<tr><td>${esc(u.month)}</td><td class="r num">${u.analyses}</td><td class="r num">${u.ai}</td></tr>`).join('')}</tbody></table>`:'<div class="empty">Pas encore d\'usage.</div>'}</div>`);
+  // Renvoyer l'invitation (compte pas encore créé) : prolongée de 30 jours, cause affichée si l'e-mail échoue
+  document.querySelectorAll('[data-resend]').forEach(rb=>rb.onclick=async()=>{rb.disabled=true;
+    const r=await api('/api/admin/resend-invite',{org_id:id,email:rb.dataset.resend});rb.disabled=false;if(r.error){toast(r.error);return}
+    $('#resendOut').innerHTML=mailResult(r,'Invitation renvoyée par e-mail (valable 30 jours).');});
   $('#extBtn').onclick=async()=>{const r=await api('/api/admin/extend',{org_id:id,days:+$('#extDays').value});toast(r.error||'Essai prolongé');loadOrgs()};
   $('#suspBtn').onclick=async ev=>{const btn=ev.currentTarget;if(!susp&&btn.dataset.ok!=='1'){btn.dataset.ok='1';btn.textContent='Confirmer la suspension';return}
     const r=await api('/api/admin/suspend',{org_id:id,suspended:!susp});toast(r.error||(susp?'Espace réactivé':'Espace suspendu'));closeDrawer();loadOrgs()};
 });
+// Résultat d'un envoi : succès, ou cause de l'échec + lien à transmettre soi-même
+function mailResult(r,okMsg){return `<div class="card" style="margin-top:8px">${r.email_sent?esc(okMsg)+'<br><span class="sub">Pas reçu ? Regardez dans les indésirables, puis dans Brevo → Transactionnel → Logs.</span>':'L\'e-mail n\'a pas pu partir.'}${!r.email_sent&&r.email_error?`<br><small style="color:#B45309">Cause : ${esc(r.email_error)}</small>`:''}${r.link&&!r.email_sent?`<br>Envoyez ce lien vous-même :<br><code style="word-break:break-all">${esc(r.link)}</code>`:''}</div>`}
+$('#testMailBtn').onclick=async ev=>{const b=ev.currentTarget;b.disabled=true;$('#testMailOut').innerHTML='<div class="card" style="margin:8px 0">Envoi en cours…</div>';
+  const r=await api('/api/admin/test-mail',{});b.disabled=false;if(r.error){$('#testMailOut').innerHTML='';toast(r.error);return}
+  $('#testMailOut').innerHTML=mailResult(r,`E-mail de test envoyé à ${r.to} (expéditeur : ${r.sender||'non défini'}).`)};
 $('#inviteBtn').onclick=()=>{
   openDrawer(`<header><h2 style="font-size:19px">Inviter un client</h2><span class="spacer"></span><button class="btn ghost sm" data-close>Fermer</button></header>
     <p class="sub">Crée l'espace du client et envoie l'invitation à son responsable, qui en devient propriétaire en créant son compte.</p>
