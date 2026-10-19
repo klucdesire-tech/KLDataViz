@@ -1792,7 +1792,7 @@ $('#teamList').addEventListener('click',async e=>{
 });
 $('#inviteForm').addEventListener('submit',async e=>{e.preventDefault();const d=await api('/api/team/invite',{email:$('#invEmail').value.trim(),role:$('#invRole').value});
   if(d.error){toast(d.error);return}
-  $('#inviteNote').innerHTML=d.email_sent?`Invitation envoyée à ${esc($('#invEmail').value)}.`:`Invitation créée, mais l'e-mail n'a pas pu partir. Envoyez ce lien vous-même : <code>${esc(d.link)}</code>`;
+  $('#inviteNote').innerHTML=d.email_sent?`Invitation envoyée à ${esc($('#invEmail').value)}.`:`Invitation créée, mais l'e-mail n'a pas pu partir${d.email_error?` (${esc(d.email_error)})`:''}. Envoyez ce lien vous-même : <code>${esc(d.link)}</code>`;
   $('#invEmail').value='';loadTeam()});
 async function loadAdmin(){} // l'administration complète est sur /admin
 

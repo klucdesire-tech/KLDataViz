@@ -264,7 +264,7 @@ $('#inviteBtn').onclick=()=>{
       <button class="btn primary" type="submit">Créer l'espace et inviter</button></form><div id="ivOut"></div>`);
   $('#invForm').onsubmit=async e=>{e.preventDefault();const r=await api('/api/admin/invite-client',{org:$('#ivOrg').value,email:$('#ivMail').value,plan:$('#ivPlan').value});
     if(r.error){toast(r.error);return}
-    $('#ivOut').innerHTML=`<div class="card" style="margin-top:8px">${r.email_sent?'Invitation envoyée par e-mail.':'Espace créé. L\'e-mail n\'a pas pu partir : envoyez ce lien au client :'}<br><code style="word-break:break-all">${esc(r.link)}</code></div>`;loadOrgs()};
+    $('#ivOut').innerHTML=`<div class="card" style="margin-top:8px">${r.email_sent?'Invitation envoyée par e-mail.':'Espace créé. L\'e-mail n\'a pas pu partir : envoyez ce lien au client :'}${!r.email_sent&&r.email_error?`<br><small style="color:#B45309">Cause : ${esc(r.email_error)}</small>`:''}<br><code style="word-break:break-all">${esc(r.link)}</code></div>`;loadOrgs()};
 };
 
 /* ---- forfaits ---- */

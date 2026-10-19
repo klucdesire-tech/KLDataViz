@@ -263,10 +263,10 @@ def invite(ctx: Ctx, email: str, role: str) -> dict:
                   f"Bonjour,\n\n{ctx.email} vous invite à rejoindre l'espace « {ctx.plan.get('org_name')} » "
                   f"sur KLDataViz.\n\nCréez votre compte avec cette adresse e-mail ({email}) ici :\n{link}\n\n"
                   "L'invitation est valable 14 jours.")
-        sent = True
-    except Exception:
-        sent = False
-    return {"ok": True, "email_sent": sent, "link": link}
+        sent, why = True, None
+    except Exception as exc:
+        sent, why = False, mail_failure(exc)
+    return {"ok": True, "email_sent": sent, "email_error": why, "link": link}
 
 
 def cancel_invite(ctx: Ctx, invite_id: str):
@@ -422,10 +422,10 @@ def admin_invite_client(ctx: Ctx, org_name: str, email: str, plan: str) -> dict:
                   f"Bonjour,\n\nVotre espace « {org_name} » a été créé sur KLDataViz (forfait {catalog[plan]['label']}).\n\n"
                   f"Créez votre compte avec cette adresse e-mail ({email}) pour y accéder :\n{link}\n\n"
                   "L'invitation est valable 30 jours.")
-        sent = True
-    except Exception:
-        sent = False
-    return {"ok": True, "org_id": org["id"], "email_sent": sent, "link": link}
+        sent, why = True, None
+    except Exception as exc:
+        sent, why = False, mail_failure(exc)
+    return {"ok": True, "org_id": org["id"], "email_sent": sent, "email_error": why, "link": link}
 
 
 # ---- forfaits
@@ -675,4 +675,31 @@ def send_mail(recipients, subject, body, attachment=None):
     try:
         urllib.request.urlopen(req, timeout=30).read()
     except urllib.error.HTTPError as exc:
-        raise RuntimeError(f"Envoi refusé par Brevo ({exc.code}).")
+        try:  # Brevo explique le refus : {"code": "unauthorized", "message": "unrecognised IP address …"}
+            detail = json.loads(exc.read().decode() or "{}").get("message", "")
+        except Exception:
+            detail = ""
+        raise RuntimeError(f"Envoi refusé par Brevo ({exc.code}){' : ' + detail if detail else ''}. {_mail_hint(exc.code, detail)}".strip())
+    except urllib.error.URLError as exc:
+        raise RuntimeError(f"Brevo injoignable depuis le serveur ({exc.reason}).")
+
+
+def _mail_hint(code, detail: str) -> str:
+    """Que faire dans Brevo selon le refus (les causes les plus fréquentes)."""
+    d = (detail or "").lower()
+    if "ip" in d:
+        return "Brevo → Sécurité → IP autorisées : désactivez le blocage (les adresses de Render changent)."
+    if code == 401:
+        return "Clé API invalide : régénérez-la dans Brevo (SMTP & API) et mettez à jour BREVO_API_KEY sur Render."
+    if "sender" in d or "expéditeur" in d:
+        return "Expéditeur non validé : vérifiez l'adresse MAIL_FROM dans Brevo → Expéditeurs."
+    if code == 403:
+        return "Compte Brevo non activé pour l'envoi transactionnel : finalisez l'activation dans Brevo."
+    return ""
+
+
+def mail_failure(exc: Exception) -> str:
+    """Raison lisible d'un échec d'envoi, aussi écrite dans les journaux du serveur."""
+    msg = str(exc) or exc.__class__.__name__
+    print(f"[mail] échec d'envoi : {msg}", flush=True)
+    return msg
