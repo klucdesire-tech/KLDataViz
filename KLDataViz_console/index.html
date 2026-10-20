@@ -500,7 +500,10 @@ tr.versions td{background:var(--surface-2);font-size:13px}
       <!-- TÂCHES -->
       <section class="view" data-view="dashboard" hidden>
         <div class="head"><h1>Tableau de bord</h1><p id="dbLead">Indicateurs clés, graphiques et filtres interactifs, construits par l'agent AGT-11 à partir des données analysées.</p></div>
-        <div class="toolbar" id="dbBar" hidden><span class="aibadge" id="dbBadge"></span><span class="spacer"></span><button class="btn ghost sm" id="dbRegen">Régénérer</button><button class="btn ghost sm" id="dbOpen">Ouvrir dans un onglet</button></div>
+        <div class="toolbar" id="dbBar" hidden><span class="aibadge" id="dbBadge"></span><span class="sub" id="dbSrc" hidden></span><span class="spacer"></span>
+          <span id="dbLive" style="display:none;align-items:center;gap:8px"><button class="btn primary sm" id="dbRefresh" title="Relire la source et recalculer avec les mêmes indicateurs (sans IA)">↻ Actualiser</button>
+          <label class="sub" for="dbFreq" style="display:inline-flex;align-items:center;gap:6px">Auto<select id="dbFreq" style="width:auto;min-height:32px;padding:3px 8px"><option value="off">désactivée</option><option value="hourly">toutes les heures</option><option value="daily">chaque jour</option></select></label></span>
+          <button class="btn ghost sm" id="dbRegen" title="Relancer l'IA pour choisir de nouveaux indicateurs">Régénérer</button><button class="btn ghost sm" id="dbOpen">Ouvrir dans un onglet</button></div>
         <div id="dbBody"><div class="card empty">Chargement…</div></div>
       </section>
       <section class="view" data-view="tasks" hidden>
@@ -1300,16 +1303,35 @@ async function loadDashboard(force){
   if(!a||!src){$('#dbBar').hidden=true;
     body.innerHTML=`<div class="card empty">Analysez d'abord un fichier : le tableau de bord se construit à partir des données analysées.<br><button class="btn primary" data-goto="home" style="margin-top:12px">Importer un fichier</button></div>`;return}
   $('#dbLead').textContent=`${state.name} · ${state.structView?'structure proposée':state.applied?'données corrigées':'données d\'origine'} · ${nf(a.rows)} lignes`;
-  if(!force&&state.dash?.for===a&&state.dash.html)return showDashboard();
+  if(!force&&state.dash?.for===a&&state.dash.html){showDashboard();return syncSource()}
   $('#dbBar').hidden=true;
   body.innerHTML='<div class="card empty"><span class="spin"></span> L\'agent AGT-11 choisit les indicateurs et construit le tableau de bord (jusqu\'à 1 min)…</div>';
-  const d=await api('/api/dashboard',{file_path:src});
+  const d=await api('/api/dashboard',{file_path:src,name:state.name});
   if(state.analysis!==a)return;  // une autre analyse a été ouverte entre-temps
   if(!d.html){body.innerHTML=`<div class="alert">${esc(d.error||'Génération impossible.')}</div>`;return}
-  state.dash={for:a,html:d.html,ia:d.ia};showDashboard();
+  state.dash={for:a,html:d.html,ia:d.ia,source:d.source||null};showDashboard();
 }
+// Source connectée (lien Google Sheets / web) : date de lecture, actualisation à la demande ou automatique
+const when=t=>t?new Date(t).toLocaleString('fr-FR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}).replace(' ',' à '):'—';
+function renderSource(){
+  const s=state.dash?.source;$('#dbLive').style.display=s?'inline-flex':'none';$('#dbSrc').hidden=!s;if(!s)return;
+  $('#dbSrc').textContent=`Source connectée · données lues le ${when(s.refreshed_at)}${s.changed_at&&s.changed_at!==s.refreshed_at?` · dernier changement le ${when(s.changed_at)}`:''}`;
+  $('#dbSrc').title=s.status||'';$('#dbFreq').value=s.freq||'off';
+}
+async function syncSource(){  // une actualisation automatique a peut-être eu lieu depuis l'affichage
+  const s=state.dash?.source;if(!s)return;const r=await api('/api/sources/get?id='+encodeURIComponent(s.id));if(r.error||!r.id)return;
+  const fresh=r.changed_at!==s.changed_at&&r.html;state.dash.source=r;if(fresh){state.dash.html=r.html;showDashboard();toast('Tableau de bord mis à jour : la source a changé.')}else renderSource();
+}
+$('#dbRefresh').onclick=async ev=>{const s=state.dash?.source;if(!s)return;const b=ev.currentTarget;b.disabled=true;b.textContent='↻ Lecture…';
+  const r=await api('/api/sources/refresh',{id:s.id});b.disabled=false;b.textContent='↻ Actualiser';
+  if(r.error&&!r.id){toast(r.error);return}
+  state.dash.source=r;if(r.changed&&r.html){state.dash.html=r.html;showDashboard();toast(r.structure_changed?'Actualisé — des colonnes ont changé : cliquez sur Régénérer pour revoir les indicateurs.':'Tableau de bord actualisé avec les nouvelles données.')}
+  else{renderSource();toast(r.error||'Aucun changement dans la source.')}};
+$('#dbFreq').onchange=async()=>{const s=state.dash?.source;if(!s)return;const r=await api('/api/sources/freq',{id:s.id,freq:$('#dbFreq').value});
+  if(r.error){toast(r.error);return}state.dash.source=Object.assign(s,r);renderSource();
+  toast(r.freq==='off'?'Actualisation automatique désactivée.':`Actualisation automatique : ${r.freq==='hourly'?'toutes les heures':'chaque jour'}.`)};
 function showDashboard(){
-  const d=state.dash;$('#dbBar').hidden=false;
+  const d=state.dash;$('#dbBar').hidden=false;renderSource();
   $('#dbBadge').textContent=d.ia?'✦ Indicateurs choisis par l\'IA':'Indicateurs choisis par règles';
   // Cadre isolé : le tableau de bord exécute ses propres scripts (Chart.js embarqué) sans accès à l'application
   $('#dbBody').innerHTML='<iframe id="dbFrame" title="Tableau de bord" sandbox="allow-scripts" scrolling="no" style="display:block;width:100%;height:82vh;overflow:hidden;border:0;border-radius:16px;background:#F3F6F9"></iframe>';
