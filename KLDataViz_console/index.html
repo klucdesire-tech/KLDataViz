@@ -293,6 +293,23 @@ tr.versions td{background:var(--surface-2);font-size:13px}
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01ms!important;transition-duration:.01ms!important}}
 .shgrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:22px}@media (max-width:900px){.shgrid{grid-template-columns:1fr}}
 .shrow{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 0;border-top:1px solid var(--line)}.shrow code{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12.5px}
+.actmenu{position:relative}
+.actmenu #dbActBtn svg{width:16px;height:16px;transition:transform .2s}
+.actmenu.open #dbActBtn svg,.actmenu:hover #dbActBtn svg{transform:rotate(180deg)}
+.actpanel{position:absolute;right:0;top:100%;z-index:40;min-width:260px;padding-top:6px;opacity:0;visibility:hidden;transform:translateY(-4px);
+  transition:opacity .16s,transform .16s,visibility .16s}
+.actpanel>*:first-child,.actpanel{border-radius:12px}
+.actpanel::before{content:"";position:absolute;inset:6px 0 0;background:var(--surface);border:1px solid var(--line);border-radius:12px;
+  box-shadow:0 12px 30px -10px rgba(0,0,0,.25);z-index:-1}
+@media (hover:hover){.actmenu:hover .actpanel{opacity:1;visibility:visible;transform:none}}
+.actmenu.open .actpanel,.actmenu:focus-within .actpanel{opacity:1;visibility:visible;transform:none}
+.actpanel{display:flex;flex-direction:column;padding:12px 6px 6px}
+.act{display:flex;align-items:center;gap:10px;width:100%;border:0;background:none;color:var(--fg);font:500 14px/1.3 inherit;
+  padding:9px 12px;border-radius:8px;cursor:pointer;text-align:left;min-height:40px}
+.act:hover,.act:focus-visible{background:var(--surface-2)}
+.act .i{width:18px;height:18px;flex:none;color:var(--muted)}
+.actfreq{cursor:default}.actfreq select{margin-left:auto;width:auto;min-height:30px;padding:2px 8px;font-size:13px}
+.actpanel hr{border:0;border-top:1px solid var(--line);margin:4px 8px}
 </style>
 </head>
 <body>
@@ -516,11 +533,22 @@ tr.versions td{background:var(--surface-2);font-size:13px}
       <section class="view" data-view="dashboard" hidden>
         <div class="head"><h1>Tableau de bord</h1><p id="dbLead">Indicateurs clés, graphiques et filtres interactifs, construits par l'agent AGT-11 à partir des données analysées.</p></div>
         <div class="toolbar" id="dbBar" hidden><span class="aibadge" id="dbBadge"></span><span class="sub" id="dbSrc" hidden></span><span class="spacer"></span>
-          <span id="dbLive" style="display:none;align-items:center;gap:8px"><button class="btn primary sm" id="dbRefresh" title="Relire la source et recalculer avec les mêmes indicateurs (sans IA)">↻ Actualiser</button>
-          <label class="sub" for="dbFreq" style="display:inline-flex;align-items:center;gap:6px">Auto<select id="dbFreq" style="width:auto;min-height:32px;padding:3px 8px"><option value="off">désactivée</option><option value="hourly">toutes les heures</option><option value="daily">chaque jour</option></select></label></span>
-          <button class="btn ghost sm" id="dbRegen" title="Relancer l'IA pour choisir de nouveaux indicateurs">Régénérer</button><button class="btn ghost sm" id="dbOpen">Ouvrir dans un onglet</button>
-          <button class="btn ghost sm" id="dbDl" title="Fichier HTML interactif, lisible sans compte et hors connexion">⬇ Télécharger</button>
-          <button class="btn primary sm" id="dbShareBtn" aria-expanded="false" aria-controls="dbShare">Partager</button></div>
+          <!-- Toutes les actions dans un seul menu : la barre reste légère (ouverture au survol, au clic et au clavier) -->
+          <div class="actmenu" id="dbAct">
+            <button class="btn ghost sm" id="dbActBtn" aria-haspopup="menu" aria-expanded="false" aria-controls="dbActPanel">Actions <svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></button>
+            <div class="actpanel" id="dbActPanel" role="menu" aria-label="Actions du tableau de bord">
+              <span id="dbLive" style="display:none">
+                <button class="act" role="menuitem" id="dbRefresh" title="Relire la source et recalculer avec les mêmes indicateurs (sans IA)"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"/></svg>Actualiser les données</button>
+                <label class="act actfreq" for="dbFreq"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 7v5l3 2M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z"/></svg>Auto<select id="dbFreq"><option value="off">désactivée</option><option value="hourly">toutes les heures</option><option value="daily">chaque jour</option></select></label>
+                <hr>
+              </span>
+              <button class="act" role="menuitem" id="dbShareBtn" aria-expanded="false" aria-controls="dbShare"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 8a3 3 0 1 0-2.8-4M6 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zm12 7a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM8.6 13.5l6.8 4M15.4 6.5l-6.8 4"/></svg>Partager…</button>
+              <button class="act" role="menuitem" id="dbDl" title="Fichier HTML interactif, lisible sans compte et hors connexion"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>Télécharger</button>
+              <button class="act" role="menuitem" id="dbOpen"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 4h6v6M20 4l-9 9M19 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h5"/></svg>Ouvrir dans un onglet</button>
+              <hr>
+              <button class="act" role="menuitem" id="dbRegen" title="Relancer l'IA pour choisir de nouveaux indicateurs"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"/></svg>Régénérer avec l'IA</button>
+            </div>
+          </div></div>
         <div class="card" id="dbShare" hidden style="margin-bottom:14px">
           <div class="shgrid">
             <div>
@@ -1370,7 +1398,7 @@ async function loadDashboard(force){
 // Source connectée (lien Google Sheets / web) : date de lecture, actualisation à la demande ou automatique
 const when=t=>t?new Date(t).toLocaleString('fr-FR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}).replace(' ',' à '):'—';
 function renderSource(){
-  const s=state.dash?.source;$('#dbLive').style.display=s?'inline-flex':'none';$('#dbSrc').hidden=!s;if(!s)return;
+  const s=state.dash?.source;$('#dbLive').style.display=s?'block':'none';$('#dbSrc').hidden=!s;if(!s)return;
   $('#dbSrc').textContent=`Source connectée · données lues le ${when(s.refreshed_at)}${s.changed_at&&s.changed_at!==s.refreshed_at?` · dernier changement le ${when(s.changed_at)}`:''}`;
   $('#dbSrc').title=s.status||'';$('#dbFreq').value=s.freq||'off';
 }
@@ -1396,6 +1424,13 @@ function showDashboard(){
 // Hauteur du cadre = hauteur du tableau de bord (la page défile, pas le cadre)
 window.addEventListener('message',e=>{const f=$('#dbFrame');if(f&&e.source===f.contentWindow&&e.data&&+e.data.kldvHeight>0)f.style.height=Math.min(+e.data.kldvHeight,20000)+'px'});
 $('#dbRegen').onclick=()=>loadDashboard(true);
+// ---- Menu « Actions » du tableau de bord
+(()=>{const m=$('#dbAct'),b=$('#dbActBtn');const set=o=>{m.classList.toggle('open',o);b.setAttribute('aria-expanded',o)};
+  b.onclick=e=>{e.stopPropagation();set(!m.classList.contains('open'))};
+  document.addEventListener('click',e=>{if(!m.contains(e.target))set(false)});
+  m.addEventListener('keydown',e=>{if(e.key==='Escape'){set(false);b.focus()}});
+  $('#dbActPanel').addEventListener('click',e=>{if(e.target.closest('button.act')){set(false);if(document.activeElement)document.activeElement.blur()}});
+})();
 // ---- A. Télécharger : fichier HTML autonome (interactif, sans compte, hors connexion)
 $('#dbDl').onclick=()=>{if(!state.dash?.html)return;const n=(state.dash.source?.name||state.name||'tableau').replace(/\.[^.]+$/,'').replace(/[^\w\-]+/g,'_').slice(0,40);
   const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([state.dash.html],{type:'text/html'}));a.download=`tableau_de_bord_${n}.html`;document.body.append(a);a.click();a.remove();
