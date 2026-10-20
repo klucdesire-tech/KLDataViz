@@ -2,6 +2,7 @@
 """DHIS2 : coffre par espace, clé hors disque en ligne, pas de redirection vers un autre serveur,
 périodes lisibles par AGT-11, connexion depuis l'interface (réponse simulée, aucun appel réseau)."""
 import io
+import os
 import json
 import urllib.request
 
@@ -153,3 +154,21 @@ def test_message_coffre_reinitialise(tmp_path, monkeypatch):
     monkeypatch.setenv("KLDV_SECRET", "k2")
     df, err = dhis2.read_dhis2("dhis2://x.test/api/analytics.json?a=1")
     assert df is None and "réinitialisé" in err and "reconnectez" in err
+
+
+def test_dates_iso_intactes_au_nettoyage_et_vues_de_l_architecte(tmp_path):
+    """3e relecture de Hermes : le nettoyage lisait « 2025-08-05 » jour en premier (→ 8 mai) ;
+    les vues « structure proposée » de l'Architecte perdaient le drapeau « agrégé »."""
+    import pandas as pd  # noqa: PLC0415
+    reset_app_modules()
+    import architect  # noqa: PLC0415
+    import modeling  # noqa: PLC0415
+    df = pd.DataFrame({"date": ["2025-08-05", "2025-09-05", "2025-10-12"], "v": ["1", "2", "3"]})
+    clean, _ = modeling.clean_dataframe(df)
+    assert [str(d)[:10] for d in clean["date"]] == ["2025-08-05", "2025-09-05", "2025-10-12"]
+    fr = modeling.to_dates(pd.Series(["05/08/2025", "12/09/2025"]))
+    assert [str(d)[:10] for d in fr] == ["2025-08-05", "2025-09-12"]      # format français : jour d'abord
+    src = pd.DataFrame({"indicateur": ["A", "A"], "periode": ["2025-08", "2025-09"], "valeur": [1, 2]})
+    src.attrs["agrege"] = True
+    res = architect._save({"faits": src}, str(tmp_path), "x", str(tmp_path), agrege=True)
+    assert res["vues"] and all(os.path.exists(v["path"] + ".agrege") for v in res["vues"])

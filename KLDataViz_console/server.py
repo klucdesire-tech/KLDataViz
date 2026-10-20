@@ -12,7 +12,7 @@ from openpyxl.styles import Font, PatternFill
 
 # --- Agent 2 MODÉLISATION (nettoyage, typage, imputation, doublons) ---
 try:
-    from modeling import clean_dataframe, bivariate_stats
+    from modeling import clean_dataframe, bivariate_stats, to_dates
     MODELING_OK = True
 except Exception as _mod_exc:
     MODELING_OK = False
@@ -140,7 +140,7 @@ def _auto_charts(df):
             sample = s.dropna().head(30)
             if len(sample) >= 3:
                 try:
-                    parsed = pd.to_datetime(sample, errors="coerce", format="mixed", dayfirst=True)
+                    parsed = to_dates(sample)
                     if parsed.notna().mean() >= 0.9:
                         is_date = True
                 except Exception:
@@ -148,7 +148,7 @@ def _auto_charts(df):
 
         if is_date:
             try:
-                dt = pd.to_datetime(s, errors="coerce", format="mixed", dayfirst=True)
+                dt = to_dates(s)
                 per = dt.dt.to_period("M").astype(str).value_counts().sort_index()
                 charts.append({"title": name, "type": "line",
                                "labels": list(per.index), "values": [list(map(int, per.values))]})
@@ -527,9 +527,9 @@ def _smart_charts(df, max_charts=6):
         sample = s.dropna().astype(str).head(40)
         if len(sample) >= 3:
             try:
-                parsed = pd.to_datetime(sample, errors="coerce", format="mixed", dayfirst=True)
+                parsed = to_dates(sample)
                 if parsed.notna().mean() >= 0.9:
-                    period, period_dt = c, pd.to_datetime(s.astype(str), errors="coerce", format="mixed", dayfirst=True)
+                    period, period_dt = c, to_dates(s)
                     break
             except Exception:
                 pass
@@ -1833,9 +1833,9 @@ def _period_series(s):
     if len(sample) < 2:
         return None
     try:
-        parsed = pd.to_datetime(sample, errors="coerce", format="mixed", dayfirst=True)
+        parsed = to_dates(sample)
         if parsed.notna().mean() >= 0.9:
-            return pd.to_datetime(s.astype(str), errors="coerce", format="mixed", dayfirst=True)
+            return to_dates(s)
     except Exception:
         pass
     if sample.map(_fr_period).notna().mean() >= 0.9:

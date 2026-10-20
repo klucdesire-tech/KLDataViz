@@ -272,7 +272,7 @@ def flat_views(tables: dict) -> dict:
     return views
 
 
-def _save(tables: dict, out_dir: str, stem: str, views_dir: str | None) -> dict:
+def _save(tables: dict, out_dir: str, stem: str, views_dir: str | None, agrege: bool = False) -> dict:
     stamp = time.strftime("%Y%m%d_%H%M%S")
     fn = f"modele_{stem}_{stamp}.xlsx"
     with pd.ExcelWriter(os.path.join(out_dir, fn)) as xw:
@@ -284,13 +284,15 @@ def _save(tables: dict, out_dir: str, stem: str, views_dir: str | None) -> dict:
         for name, v in flat_views(tables).items():
             p = os.path.join(views_dir, f"structure_{stem}_{name}_{stamp}.csv")
             v.to_csv(p, index=False, encoding="utf-8-sig")
+            if agrege:  # source aux valeurs déjà agrégées (DHIS2) : le témoin suit la vue (cf. server.mark_agrege)
+                open(p + ".agrege", "w").close()
             result["vues"].append({"table": name, "path": p, "lignes": int(len(v)), "colonnes": int(len(v.columns))})
     return result
 
 
 def apply(df: pd.DataFrame, spec: dict, out_dir: str, source_name: str, views_dir: str | None = None) -> dict:
     stem = re.sub(r"[^\w\-]+", "_", os.path.splitext(os.path.basename(source_name))[0])[:40] or "donnees"
-    return _save(A.restructure(df, spec), out_dir, stem, views_dir)
+    return _save(A.restructure(df, spec), out_dir, stem, views_dir, agrege=bool(df.attrs.get("agrege")))
 
 
 # --------------------------------------------------------------------------- #
