@@ -47,6 +47,7 @@ import tenancy as T
 import sandbox, netguard
 import studio
 import sources
+import shares
 import dhis2
 if T.CLOUD:
     import cloud
@@ -2068,6 +2069,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 return self._send(200, "window.KLDV=" + json.dumps(cfg) + ";", "application/javascript")
             if method == "GET" and path.startswith("/download/"):
                 return self._download()
+            if method == "GET" and path.startswith("/t/"):
+                return self._shared(path[3:].strip("/"))
             if not path.startswith("/api/"):
                 return self._send(404, {"error": "Page introuvable."})
             if T.CLOUD and method == "GET" and path.startswith("/api/public/"):
@@ -2112,6 +2115,40 @@ class Handler(http.server.BaseHTTPRequestHandler):
             sys.stderr.write(f"[erreur {ref}] {method} {path} : {type(e).__name__} : {e}\n"
                              + "".join(traceback.format_exception(e)[-4:]))
             self._send(500, {"error": f"Erreur interne (réf. {ref}). Réessayez." if T.CLOUD else f"{type(e).__name__} : {e}"})
+
+    def _shared(self, token):
+        """Tableau de bord partagé par lien (sans compte) : dernière version enregistrée, page isolée."""
+        hit = shares.resolve(token)
+        html = None
+        if hit:
+            org, sid = hit
+            ctx = T.LOCAL if org == "local" else T.Ctx(key="share", org_id=org)
+            with T.use(ctx):
+                try:
+                    html = sources.get(sid).get("html")
+                except KeyError:
+                    html = None
+        if not html:
+            body = ("<!doctype html><meta charset=utf-8><title>Lien indisponible</title>"
+                    "<body style='font:16px system-ui;padding:48px;color:#11241A'><h1>Lien indisponible</h1>"
+                    "<p>Ce lien de partage a expiré ou a été révoqué. Demandez un nouveau lien à la personne qui vous l'a envoyé.</p>")
+            data, code = body.encode("utf-8"), 404
+        else:
+            data, code = html.encode("utf-8"), 200
+        self.send_response(code)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Robots-Tag", "noindex, nofollow")
+        self.send_header("Referrer-Policy", "no-referrer")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        # Page isolée : origine opaque (aucun accès aux cookies ni au stockage de l'application)
+        self.send_header("Content-Security-Policy",
+                         "sandbox allow-scripts allow-popups; default-src 'none'; script-src 'unsafe-inline' https://cdn.jsdelivr.net; "
+                         "style-src 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src data:; "
+                         "frame-ancestors 'none'")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
 
     def _download(self):
         u = urlparse(self.path)
@@ -2173,6 +2210,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 return self._send(200, studio.list_schedules())
             if path == "/api/sources":
                 return self._send(200, sources.list_sources())
+            if path == "/api/shares":
+                return self._send(200, shares.list_for((parse_qs(urlparse(self.path).query).get("id") or [""])[0]))
             if path == "/api/sources/get":
                 return self._send(200, sources.get((parse_qs(urlparse(self.path).query).get("id") or [""])[0]))
             if path == "/api/ingest/versions":
@@ -2228,7 +2267,18 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return self._send(200, sources.set_freq(str(p.get("id")), str(p.get("freq"))))
         if path == "/api/sources/delete":
             sources.delete(str(p.get("id")))
+            shares.revoke_all(str(p.get("id")))
             return self._send(200, {"ok": True})
+        if path == "/api/shares/create":
+            sources.get(str(p.get("id")), with_html=False)  # le tableau doit exister dans cet espace
+            return self._send(200, shares.create(str(p.get("id")), int(p.get("days") or 30)))
+        if path == "/api/shares/revoke":
+            shares.revoke(str(p.get("token")))
+            return self._send(200, {"ok": True})
+        if path == "/api/sources/mail":
+            return self._send(200, sources.set_mail(str(p.get("id")), p.get("to"), str(p.get("freq") or "off")))
+        if path == "/api/sources/send":
+            return self._send(200, sources.send_mail_now(str(p.get("id")), _read_df, build_dashboard, p.get("to") or None))
         if path == "/api/clean":
             hermes = p.get("hermes") if isinstance(p.get("hermes"), list) else None
             return self._send(200, clean(str(p.get("file_path") or ""), p.get("skip") or None, hermes))

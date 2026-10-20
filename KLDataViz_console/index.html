@@ -291,6 +291,8 @@ tr.versions td{background:var(--surface-2);font-size:13px}
   .li{grid-template-columns:minmax(0,1fr)}
 }
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01ms!important;transition-duration:.01ms!important}}
+.shgrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:22px}@media (max-width:900px){.shgrid{grid-template-columns:1fr}}
+.shrow{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 0;border-top:1px solid var(--line)}.shrow code{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12.5px}
 </style>
 </head>
 <body>
@@ -516,8 +518,38 @@ tr.versions td{background:var(--surface-2);font-size:13px}
         <div class="toolbar" id="dbBar" hidden><span class="aibadge" id="dbBadge"></span><span class="sub" id="dbSrc" hidden></span><span class="spacer"></span>
           <span id="dbLive" style="display:none;align-items:center;gap:8px"><button class="btn primary sm" id="dbRefresh" title="Relire la source et recalculer avec les mêmes indicateurs (sans IA)">↻ Actualiser</button>
           <label class="sub" for="dbFreq" style="display:inline-flex;align-items:center;gap:6px">Auto<select id="dbFreq" style="width:auto;min-height:32px;padding:3px 8px"><option value="off">désactivée</option><option value="hourly">toutes les heures</option><option value="daily">chaque jour</option></select></label></span>
-          <button class="btn ghost sm" id="dbRegen" title="Relancer l'IA pour choisir de nouveaux indicateurs">Régénérer</button><button class="btn ghost sm" id="dbOpen">Ouvrir dans un onglet</button></div>
+          <button class="btn ghost sm" id="dbRegen" title="Relancer l'IA pour choisir de nouveaux indicateurs">Régénérer</button><button class="btn ghost sm" id="dbOpen">Ouvrir dans un onglet</button>
+          <button class="btn ghost sm" id="dbDl" title="Fichier HTML interactif, lisible sans compte et hors connexion">⬇ Télécharger</button>
+          <button class="btn primary sm" id="dbShareBtn" aria-expanded="false" aria-controls="dbShare">Partager</button></div>
+        <div class="card" id="dbShare" hidden style="margin-bottom:14px">
+          <div class="shgrid">
+            <div>
+              <h2>Lien de partage</h2>
+              <p class="sub">Vos collègues ouvrent le tableau de bord <b>sans compte</b>. Le lien affiche toujours la dernière version
+                (données à jour si la source est connectée). Expiration obligatoire, révocable à tout moment.</p>
+              <p class="alert info" style="margin:10px 0">Toute personne qui possède le lien peut voir ce tableau : jamais de données nominatives (patients, élèves, salariés).</p>
+              <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+                <label class="sub" for="shDays">Valable</label>
+                <select id="shDays" style="width:auto;min-height:36px"><option value="7">7 jours</option><option value="30" selected>30 jours</option><option value="90">90 jours</option></select>
+                <button class="btn primary sm" id="shCreate">Créer un lien</button>
+              </div>
+              <div class="list" id="shList" style="margin-top:10px"></div>
+            </div>
+            <div>
+              <h2>Envoi par e-mail</h2>
+              <p class="sub">Le tableau de bord part en pièce jointe (fichier interactif), actualisé juste avant si la source est connectée.</p>
+              <form class="form" id="shMail" style="margin-top:10px">
+                <label class="field" for="shTo" style="grid-column:1/-1">Destinataires<input type="text" id="shTo" placeholder="nom@organisation.org, autre@organisation.org" autocomplete="off"></label>
+                <label class="field" for="shFreq" style="grid-column:1/-1">Fréquence<select id="shFreq"><option value="off">Pas d'envoi automatique</option><option value="weekly">Chaque lundi (7 h)</option><option value="monthly">Le 1er du mois (7 h)</option></select></label>
+                <div style="display:flex;gap:8px;align-items:end;flex-wrap:wrap;grid-column:1/-1"><button class="btn primary sm" type="submit">Enregistrer</button><button class="btn ghost sm" type="button" id="shSendNow">Envoyer maintenant</button></div>
+              </form>
+              <p class="sub" id="shMailStatus" style="margin-top:8px"></p>
+            </div>
+          </div>
+        </div>
         <div id="dbBody"><div class="card empty">Chargement…</div></div>
+        <div class="card" id="dbSaved" hidden style="margin-top:14px"><h2>Tableaux de bord de l'espace</h2>
+          <p class="sub">Enregistrés automatiquement, visibles par les membres de votre espace.</p><div class="list" id="dbSavedList" style="margin-top:10px"></div></div>
       </section>
       <section class="view" data-view="tasks" hidden>
         <div class="head"><h1>Tâches assignées</h1><p>Les analyses lancées par l'orchestrateur interne (HERMES_DA).</p></div>
@@ -1322,8 +1354,10 @@ $('#toShare').onclick=()=>go(3);
 // ---- Tableau de bord (agent AGT-11), page du menu : généré une fois par jeu de données analysé
 async function loadDashboard(force){
   const body=$('#dbBody'),src=currentDataPath(),a=state.analysis;
-  if(!a||!src){$('#dbBar').hidden=true;
-    body.innerHTML=`<div class="card empty">Analysez d'abord un fichier : le tableau de bord se construit à partir des données analysées.<br><button class="btn primary" data-goto="home" style="margin-top:12px">Importer un fichier</button></div>`;return}
+  loadSaved();
+  if(!force&&state.dash?.saved&&state.dash.html){showDashboard();return syncSource()}  // tableau enregistré ouvert depuis la liste
+  if(!a||!src){$('#dbBar').hidden=true;$('#dbShare').hidden=true;
+    body.innerHTML=`<div class="card empty">Analysez un fichier pour construire un tableau de bord, ou ouvrez un tableau déjà enregistré ci-dessous.<br><button class="btn primary" data-goto="home" style="margin-top:12px">Importer un fichier</button></div>`;return}
   $('#dbLead').textContent=`${state.name} · ${state.structView?'structure proposée':state.applied?'données corrigées':'données d\'origine'} · ${nf(a.rows)} lignes`;
   if(!force&&state.dash?.for===a&&state.dash.html){showDashboard();return syncSource()}
   $('#dbBar').hidden=true;
@@ -1331,7 +1365,7 @@ async function loadDashboard(force){
   const d=await api('/api/dashboard',{file_path:src,name:state.name});
   if(state.analysis!==a)return;  // une autre analyse a été ouverte entre-temps
   if(!d.html){body.innerHTML=`<div class="alert">${esc(d.error||'Génération impossible.')}</div>`;return}
-  state.dash={for:a,html:d.html,ia:d.ia,source:d.source||null};showDashboard();
+  state.dash={for:a,html:d.html,ia:d.ia,source:d.source||null};$('#dbShare').hidden=true;showDashboard();loadSaved();
 }
 // Source connectée (lien Google Sheets / web) : date de lecture, actualisation à la demande ou automatique
 const when=t=>t?new Date(t).toLocaleString('fr-FR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}).replace(' ',' à '):'—';
@@ -1362,6 +1396,41 @@ function showDashboard(){
 // Hauteur du cadre = hauteur du tableau de bord (la page défile, pas le cadre)
 window.addEventListener('message',e=>{const f=$('#dbFrame');if(f&&e.source===f.contentWindow&&e.data&&+e.data.kldvHeight>0)f.style.height=Math.min(+e.data.kldvHeight,20000)+'px'});
 $('#dbRegen').onclick=()=>loadDashboard(true);
+// ---- A. Télécharger : fichier HTML autonome (interactif, sans compte, hors connexion)
+$('#dbDl').onclick=()=>{if(!state.dash?.html)return;const n=(state.dash.source?.name||state.name||'tableau').replace(/\.[^.]+$/,'').replace(/[^\w\-]+/g,'_').slice(0,40);
+  const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([state.dash.html],{type:'text/html'}));a.download=`tableau_de_bord_${n}.html`;document.body.append(a);a.click();a.remove();
+  toast('Fichier téléchargé : envoyez-le à vos collègues, il s\'ouvre dans un navigateur.')};
+// ---- Partager : lien (B) et envoi par e-mail (D)
+const shareUrl=t=>location.origin+'/t/'+t;
+$('#dbShareBtn').onclick=()=>{const p=$('#dbShare'),open=p.hidden;p.hidden=!open;$('#dbShareBtn').setAttribute('aria-expanded',open);if(open)loadShare()};
+async function loadShare(){const s=state.dash?.source;
+  if(!s){$('#shList').innerHTML='<div class="sub">Ce tableau de bord n\'a pas pu être enregistré : utilisez « Télécharger ».</div>';return}
+  const L=await api('/api/shares?id='+encodeURIComponent(s.id));
+  $('#shList').innerHTML=(Array.isArray(L)&&L.length)?L.map(x=>`<div class="shrow"><code>${esc(shareUrl(x.token))}</code><span class="sub">jusqu'au ${when(x.expires_at)}</span>
+    <button class="btn ghost sm" data-copy="${esc(x.token)}">Copier</button><button class="btn ghost sm" data-revoke="${esc(x.token)}">Révoquer</button></div>`).join(''):'<div class="sub">Aucun lien actif.</div>';
+  $('#shTo').value=(s.mail_to||[]).join(', ');$('#shFreq').value=s.mail_freq||'off';
+  $('#shMailStatus').textContent=[s.mail_freq&&s.mail_freq!=='off'&&s.next_mail?`Prochain envoi : ${when(s.next_mail)}`:'',s.mail_status||''].filter(Boolean).join(' · ')}
+$('#shCreate').onclick=async()=>{const s=state.dash?.source;if(!s)return;const r=await api('/api/shares/create',{id:s.id,days:+$('#shDays').value});
+  if(r.error){toast(r.error);return}try{await navigator.clipboard.writeText(shareUrl(r.token));toast('Lien créé et copié.')}catch(e){toast('Lien créé.')}loadShare()};
+$('#shList').addEventListener('click',async e=>{const c=e.target.closest('[data-copy]'),v=e.target.closest('[data-revoke]');
+  if(c){try{await navigator.clipboard.writeText(shareUrl(c.dataset.copy));toast('Lien copié.')}catch(err){toast(shareUrl(c.dataset.copy))}}
+  if(v){if(v.dataset.ok!=='1'){v.dataset.ok='1';v.textContent='Confirmer';return}const r=await api('/api/shares/revoke',{token:v.dataset.revoke});toast(r.error||'Lien révoqué : il ne fonctionne plus.');loadShare()}});
+$('#shMail').onsubmit=async e=>{e.preventDefault();const s=state.dash?.source;if(!s)return;
+  const r=await api('/api/sources/mail',{id:s.id,to:$('#shTo').value,freq:$('#shFreq').value});if(r.error){toast(r.error);return}
+  state.dash.source=Object.assign(s,r);toast(r.mail_freq==='off'?'Envoi automatique désactivé.':'Envoi automatique enregistré.');loadShare()};
+$('#shSendNow').onclick=async ev=>{const s=state.dash?.source;if(!s)return;const b=ev.currentTarget;b.disabled=true;b.textContent='Envoi…';
+  const r=await api('/api/sources/send',{id:s.id,to:$('#shTo').value||undefined});b.disabled=false;b.textContent='Envoyer maintenant';
+  if(r.error){toast(r.error);$('#shMailStatus').textContent=r.error;return}state.dash.source=Object.assign(s,r);toast('Tableau de bord envoyé.');loadShare()};
+// ---- C. Tableaux de bord de l'espace (enregistrés, visibles par les membres)
+async function loadSaved(){const L=await api('/api/sources');if(!Array.isArray(L)||!L.length){$('#dbSaved').hidden=true;return}
+  $('#dbSaved').hidden=false;
+  $('#dbSavedList').innerHTML=L.map(x=>`<div class="shrow"><b style="flex:1;min-width:0">${esc(x.name||'Tableau')}</b>
+    <span class="sub">${x.connected?'Source connectée':'Fichier importé'} · ${nf(x.rows||0)} lignes · ${when(x.changed_at||x.refreshed_at)}</span>
+    <button class="btn ghost sm" data-open-db="${esc(x.id)}">Ouvrir</button></div>`).join('')}
+$('#dbSavedList').addEventListener('click',async e=>{const b=e.target.closest('[data-open-db]');if(!b)return;
+  const r=await api('/api/sources/get?id='+encodeURIComponent(b.dataset.openDb));if(r.error||!r.html){toast(r.error||'Tableau introuvable.');return}
+  state.dash={saved:true,html:r.html,ia:true,source:r};$('#dbLead').textContent=`${r.name} · tableau enregistré`;$('#dbShare').hidden=true;showDashboard();
+  window.scrollTo({top:0,behavior:'smooth'})});
 $('#dbOpen').onclick=()=>{if(state.dash?.html){const u=URL.createObjectURL(new Blob([state.dash.html],{type:'text/html'}));window.open(u,'_blank')}};
 
 // ---- rendu des graphiques (style « Studio » : courbes lissées, barres triées, valeurs lisibles)
