@@ -384,4 +384,5 @@ def propose_many(tables_in: dict, llm_call) -> dict:
 
 def apply_many(tables_in: dict, spec: dict, out_dir: str, views_dir: str | None = None) -> dict:
     tables = A.restructure_many({n: df for n, (df, _) in tables_in.items()}, spec)
-    return _save(tables, out_dir, f"{len(tables_in)}_fichiers", views_dir)
+    agrege = any(df.attrs.get("agrege") for df, _ in tables_in.values())
+    return _save(tables, out_dir, f"{len(tables_in)}_fichiers", views_dir, agrege=agrege)

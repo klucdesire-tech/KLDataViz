@@ -172,3 +172,21 @@ def test_dates_iso_intactes_au_nettoyage_et_vues_de_l_architecte(tmp_path):
     src.attrs["agrege"] = True
     res = architect._save({"faits": src}, str(tmp_path), "x", str(tmp_path), agrege=True)
     assert res["vues"] and all(os.path.exists(v["path"] + ".agrege") for v in res["vues"])
+
+
+def test_temoin_agrege_par_le_chemin_reel_de_l_architecte(tmp_path, monkeypatch):
+    """4e relecture : un fichier local dérivé (témoin .agrege) relu par l'Architecte garde le drapeau,
+    et un croisement multi-fichiers le transmet à ses vues."""
+    import pandas as pd  # noqa: PLC0415
+    reset_app_modules()
+    import architect  # noqa: PLC0415
+    import server  # noqa: PLC0415
+    src = tmp_path / "copie_dhis2.csv"
+    pd.DataFrame({"indicateur": ["A", "A"], "periode": ["2025-08", "2025-09"], "valeur": [1, 2]}).to_csv(src, index=False)
+    server.mark_agrege(str(src))
+    df, info, err = server._architect_df(str(src))
+    assert err is None and df.attrs.get("agrege") is True
+    autre = pd.DataFrame({"indicateur": ["B"], "periode": ["2025-09"], "valeur": [3]})
+    monkeypatch.setattr(architect.A, "restructure_many", lambda dfs, spec: {"faits": pd.concat(list(dfs.values()))})
+    res = architect.apply_many({"a": (df, info), "b": (autre, {})}, {}, str(tmp_path), str(tmp_path))
+    assert res["vues"] and all(os.path.exists(v["path"] + ".agrege") for v in res["vues"])

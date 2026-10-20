@@ -1525,6 +1525,8 @@ def _architect_df(file_path):
         df, info = data_architect.load_table(file_path)
     except Exception as e:
         return None, None, f"Lecture impossible : {e}"
+    if os.path.exists(file_path + AGREGE_SUFFIX):  # fichier dérivé d'une source agrégée : comme _read_df
+        df.attrs["agrege"] = True
     return df, info, None
 
 
