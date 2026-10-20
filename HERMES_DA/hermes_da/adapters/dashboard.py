@@ -617,13 +617,16 @@ def _gaps(df, keys, ic, vc, kis):
 
 # Fichier « une ligne par patient » (pas de colonne indicateur/valeur) : on compare les deux derniers mois
 # de la colonne de date — nouveaux enregistrements et indicateurs « taux »/« moyenne » choisis pour le tableau.
-_MAUVAIS = ("deces", "decede", "perdu", "abandon", "arret", "echec", "non supprim", "1000", "delai", "attente", "rupture")
+_MAUVAIS = ("deces", "decede", "perdu", "abandon", "arret", "echec", "non supprim", "1000", "delai", "attente", "rupture",
+            "annul", "absence", "absenteisme", "impaye", "plainte", "reclamation", "incident")
+# Mots entiers seulement : « départ » mais pas « département », « panne » mais pas « panneau »
+_MAUVAIS_MOTS = {"depart", "departs", "panne", "pannes", "retour", "retours"}
 
 
 def _bon(nom) -> int:
     """Sens souhaité d'un indicateur d'après son nom : -1 si une hausse est une dégradation (décès, délai…)."""
     n = _norm(nom)
-    return -1 if any(m in n for m in _MAUVAIS) else 1
+    return -1 if any(m in n for m in _MAUVAIS) or _MAUVAIS_MOTS & set(n.split()) else 1
 
 
 def _partial_month(period_series):
