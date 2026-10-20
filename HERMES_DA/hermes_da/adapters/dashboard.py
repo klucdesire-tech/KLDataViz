@@ -345,12 +345,15 @@ def _period(df):
             return str(c), s.map(lambda v: _fr_month(v) if v == v else None)
         if sample.str.match(r"^\d{4}-\d{2}$").mean() >= 0.9:  # « 2025-04 » : déjà un mois
             return str(c), s.map(lambda v: str(v)[:7] if v == v and v is not None else None)
+        # Dates ISO « 2025-08-01 » (fichiers nettoyés, exports) : jamais lues « jour en premier »
+        # (sinon 2025-08-01 devient le 8 janvier et tous les mois s'écrasent sur janvier)
+        iso = sample.str.match(r"^\d{4}-\d{2}-\d{2}").mean() >= 0.9
         try:
-            dt = pd.to_datetime(sample, errors="coerce", format="mixed", dayfirst=True)
+            dt = pd.to_datetime(sample, errors="coerce", format="mixed", dayfirst=not iso)
         except Exception:
             continue
         if dt.notna().mean() >= 0.9 and sample.str.contains(r"\d{4}|\d{1,2}[/-]\d{1,2}", regex=True).mean() >= 0.9:
-            full = pd.to_datetime(s.astype(str), errors="coerce", format="mixed", dayfirst=True)
+            full = pd.to_datetime(s.astype(str), errors="coerce", format="mixed", dayfirst=not iso)
             return str(c), full.dt.strftime("%Y-%m-%d")
     return None, None
 
@@ -545,7 +548,7 @@ def _period_key(df, period_col, period_series):
         fr = _fr_month(v)
         if fr:
             return fr
-        d = pd.to_datetime(str(v), errors="coerce", dayfirst=True)
+        d = pd.to_datetime(str(v), errors="coerce", dayfirst=not re.match(r"^\d{4}-\d{2}", str(v)))
         return None if pd.isna(d) else d.strftime("%Y-%m")
     return df[c].map(key)
 
@@ -1057,7 +1060,12 @@ def generate_dashboard(df, objective: str = "", job_id: str | None = None, llm=N
     `spec` (facultatif) : indicateurs et graphiques déjà choisis (« spec » d'un appel précédent) → actualisation
     d'une source connectée : mêmes indicateurs sur les nouvelles données, sans appel à l'IA.
     """
-    agrege = bool(df.attrs.get("agrege"))  # source qui sait ses valeurs agrégées (connecteur DHIS2)
+    # Valeurs déjà agrégées : drapeau posé par la source (connecteur DHIS2), ou colonnes exactes du connecteur
+    # (si le drapeau s'est perdu en route, ex. copie CSV)
+    agrege = bool(df.attrs.get("agrege")) or {"indicateur", "periode", "unite_organisation", "valeur"} <= {
+        str(c) for c in df.columns}
+    if agrege:
+        df.attrs["agrege"] = True
     df, pivoted = _long_to_wide(df)
     profile = _profile(df)
     profile_json = json.dumps(profile, ensure_ascii=False, default=str)[:20000]

@@ -120,3 +120,36 @@ def test_isolation_des_espaces_en_mode_en_ligne(tmp_path, monkeypatch):
     finally:
         monkeypatch.undo()
         reset_app_modules()                                                 # les tests suivants repartent en local
+
+
+def test_drapeau_agrege_survit_aux_corrections(tmp_path, monkeypatch):
+    """Scénario mesuré par Hermes : DHIS2 à 1 indicateur → corrections appliquées (CSV nettoyé) → tableau de bord.
+    Le drapeau « agrégé » doit survivre à l'aller-retour CSV : écarts sur les vrais KPI, pas « Nouveaux patients »."""
+    reset_app_modules()
+    import server  # noqa: PLC0415
+    one = {"headers": ANALYTICS["headers"], "metaData": ANALYTICS["metaData"],
+           "rows": [["a1", o, p, v] for p, v in (("202508", "90"), ("202509", "95")) for o in ("o1", "o2", "o3")]}
+    monkeypatch.setattr(server.dhis2, "_fetch_json", lambda *a, **k: json.loads(json.dumps(one)))
+    monkeypatch.setattr(server.T.Ctx, "root", property(lambda self: str(tmp_path)))
+    server.dhis2_connect({"link": "https://d.test/api/analytics.json?x=1", "user": "u", "password": "p"})
+    out = server.clean("dhis2://d.test/api/analytics.json?x=1")
+    cleaned = out.get("cleaned_path") or out.get("path") or next(
+        str(f) for f in tmp_path.rglob("*_nettoye.csv"))
+    df, err = server._read_df(cleaned)
+    assert err is None and df.attrs.get("agrege") is True                 # réattaché grâce au témoin .agrege
+    spec = {"kpis": [{"nom": "Total dépistés", "agregation": "somme", "colonne": "Dépistés VIH"}], "graphiques": []}
+    noms = [g["indicateur"] for g in server.build_dashboard(df, spec)["gaps"]]
+    assert noms == ["Total dépistés"]
+    df2 = df.copy()
+    df2.attrs = {}                                                        # témoin perdu : la signature suffit
+    assert [g["indicateur"] for g in server.build_dashboard(df2, spec)["gaps"]] == ["Total dépistés"]
+
+
+def test_message_coffre_reinitialise(tmp_path, monkeypatch):
+    reset_app_modules()
+    import dhis2  # noqa: PLC0415
+    monkeypatch.setenv("KLDV_SECRET", "k1")
+    dhis2.save_credentials("x.test", "u", "p")
+    monkeypatch.setenv("KLDV_SECRET", "k2")
+    df, err = dhis2.read_dhis2("dhis2://x.test/api/analytics.json?a=1")
+    assert df is None and "réinitialisé" in err and "reconnectez" in err

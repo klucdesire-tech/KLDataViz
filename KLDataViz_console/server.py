@@ -246,7 +246,28 @@ def _tidy(df):
     return df.dropna(how="all").reset_index(drop=True)
 
 
+AGREGE_SUFFIX = ".agrege"  # fichier témoin : « ces valeurs sont déjà agrégées » (ex. copie d'une source DHIS2)
+
+
+def mark_agrege(path, on=True):
+    """Pose (ou retire) le témoin à côté d'un fichier dérivé, pour qu'AGT-11 le sache après un aller-retour CSV."""
+    side = path + AGREGE_SUFFIX
+    if on:
+        open(side, "w").close()
+    elif os.path.exists(side):
+        os.remove(side)
+
+
 def _read_df(file_path, sheet=None):
+    """Comme _read_df_raw, et réattache le drapeau « agrégé » d'un fichier dérivé (témoin .agrege)."""
+    df, err = _read_df_raw(file_path, sheet)
+    if df is not None and not file_path.startswith(("http://", "https://", "dhis2://")) \
+            and os.path.exists(file_path + AGREGE_SUFFIX):
+        df.attrs["agrege"] = True
+    return df, err
+
+
+def _read_df_raw(file_path, sheet=None):
     """Lit un fichier local ou une URL en DataFrame (csv/xlsx/xls/xlsm/json/parquet).
 
     Classeur Excel : la feuille `sheet`, sinon celle qui porte les données (pas forcément la
@@ -783,6 +804,7 @@ def clean(file_path, skip=None, hermes=None):
     df, err = _read_df(file_path)
     if err:
         return {"error": err}
+    agrege = bool(df.attrs.get("agrege"))
     h_details, h_applied = {}, []
     if hermes:
         import hermes_clean as HCL
@@ -802,6 +824,7 @@ def clean(file_path, skip=None, hermes=None):
     stem = source_label(file_path)
     cleaned_path = os.path.join(cleaned_dir, f"{stem}_nettoye.csv")
     df_clean.to_csv(cleaned_path, index=False, encoding="utf-8-sig")
+    mark_agrege(cleaned_path, agrege)  # le CSV perd df.attrs : le témoin garde l'information
 
     preview = df_clean.head(30)
     apercu = [[_cell_safe(x) for x in row]
@@ -2390,6 +2413,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 raise ValueError(err)
             local = os.path.join(T.uploads_dir(), source_label(source) + ".csv")
             df.to_csv(local, index=False)
+            mark_agrege(local, bool(df.attrs.get("agrege")))
             kwargs["dataset_name"] = os.path.basename(local)
             source = local
         elif source.startswith(("http://", "https://")):

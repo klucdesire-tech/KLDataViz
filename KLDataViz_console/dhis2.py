@@ -121,13 +121,25 @@ def save_credentials(instance: str, user: str, password: str) -> None:
             # Coffre illisible (clé KLDV_SECRET changée, ancien format…) : on le met de côté au lieu de
             # l'écraser — il redevient lisible si l'ancienne clé est restaurée. Les autres instances devront
             # être reconnectées (read_dhis2 le dit clairement).
+            import glob
             import time
             os.replace(cp, f"{cp}.illisible-{time.strftime('%Y%m%d-%H%M%S')}")
+            for old in glob.glob(cp + ".illisible-*"):  # copies de plus de 30 jours : supprimées (anciens secrets)
+                if time.time() - os.path.getmtime(old) > 30 * 86400:
+                    os.remove(old)
             print("[dhis2] coffre illisible mis de côté (clé changée ?) : reconnectez les instances DHIS2", flush=True)
             vault = {}
     vault[instance] = {"user": user, "password": password}
     with open(cp, "wb") as f:
         f.write(_encrypt(json.dumps(vault, ensure_ascii=False).encode("utf-8")))
+
+
+def _unreadable(cp) -> bool:
+    try:
+        _decrypt(open(cp, "rb").read())
+        return False
+    except ValueError:
+        return True
 
 
 def load_credentials(instance: str):
@@ -266,8 +278,12 @@ def read_dhis2(uri: str, allow_private: bool = False, creds=None):
         return None, str(e)
     creds = creds or load_credentials(instance)
     if creds is None:
-        return None, (f"Aucun identifiant DHIS2 pour « {instance} » (jamais enregistré, ou coffre "
-                      "réinitialisé) : reconnectez la source DHIS2 depuis l'écran d'import.")
+        import glob
+        cp = _cred_path()
+        why = ("le coffre des identifiants a été réinitialisé (clé du serveur changée)"
+               if glob.glob(cp + ".illisible-*") or (os.path.isfile(cp) and _unreadable(cp)) else "jamais enregistré")
+        return None, (f"Aucun identifiant DHIS2 pour « {instance} » ({why}) : "
+                      "reconnectez la source DHIS2 depuis l'écran d'import.")
     user, password = creds
     try:
         payload = _fetch_json(url, user, password, allow_private)
