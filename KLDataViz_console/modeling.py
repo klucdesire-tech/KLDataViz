@@ -13,6 +13,22 @@ import numpy as np
 import pandas as pd
 
 
+_ISO_DATE = re.compile(r"^\d{4}-\d{1,2}-\d{1,2}")
+
+
+def to_dates(values):
+    """Texte → dates. Une date ISO « 2025-08-05 » est lue telle quelle (année-mois-jour) ; les autres
+    (« 05/08/2025 », format français) jour en premier. Lire une date ISO jour en premier la faussait :
+    2025-08-05 devenait le 8 mai (tout jour ≤ 12), dans les données nettoyées elles-mêmes."""
+    s = values if isinstance(values, pd.Series) else pd.Series(list(values))
+    txt = s.astype(str).str.strip()
+    iso = txt.str.match(_ISO_DATE)
+    out = pd.to_datetime(txt.where(~iso), errors="coerce", format="mixed", dayfirst=True)
+    if iso.any():
+        out[iso] = pd.to_datetime(txt[iso], errors="coerce", format="mixed", dayfirst=False)
+    return out
+
+
 def _line(i) -> int:
     """N° de ligne dans le fichier source (l'en-tête est la ligne 1)."""
     return int(i) + 2
@@ -107,8 +123,8 @@ def _coerce_series(s: pd.Series):
     # (17 s → moins d'1 s sur 33 000 lignes).
     uniq = pd.Series(vals.unique())
     sample = uniq.sample(min(len(uniq), 300), random_state=0) if len(uniq) > 300 else uniq
-    if pd.to_datetime(sample, errors="coerce", format="mixed", dayfirst=True).notna().mean() >= 0.9:
-        conv = pd.to_datetime(uniq, errors="coerce", format="mixed", dayfirst=True)
+    if to_dates(sample).notna().mean() >= 0.9:
+        conv = to_dates(uniq)
         if conv.notna().mean() >= 0.9:
             mapping = dict(zip(uniq, conv))
             return pd.to_datetime(s.map(lambda x: mapping.get(str(x).strip()) if pd.notna(x) else pd.NaT)), "date"

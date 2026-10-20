@@ -12,7 +12,7 @@ from openpyxl.styles import Font, PatternFill
 
 # --- Agent 2 MODÉLISATION (nettoyage, typage, imputation, doublons) ---
 try:
-    from modeling import clean_dataframe, bivariate_stats
+    from modeling import clean_dataframe, bivariate_stats, to_dates
     MODELING_OK = True
 except Exception as _mod_exc:
     MODELING_OK = False
@@ -47,6 +47,7 @@ import tenancy as T
 import sandbox, netguard
 import studio
 import sources
+import dhis2
 if T.CLOUD:
     import cloud
 from urllib.parse import urlparse, parse_qs
@@ -139,7 +140,7 @@ def _auto_charts(df):
             sample = s.dropna().head(30)
             if len(sample) >= 3:
                 try:
-                    parsed = pd.to_datetime(sample, errors="coerce", format="mixed", dayfirst=True)
+                    parsed = to_dates(sample)
                     if parsed.notna().mean() >= 0.9:
                         is_date = True
                 except Exception:
@@ -147,7 +148,7 @@ def _auto_charts(df):
 
         if is_date:
             try:
-                dt = pd.to_datetime(s, errors="coerce", format="mixed", dayfirst=True)
+                dt = to_dates(s)
                 per = dt.dt.to_period("M").astype(str).value_counts().sort_index()
                 charts.append({"title": name, "type": "line",
                                "labels": list(per.index), "values": [list(map(int, per.values))]})
@@ -245,12 +246,35 @@ def _tidy(df):
     return df.dropna(how="all").reset_index(drop=True)
 
 
+AGREGE_SUFFIX = ".agrege"  # fichier témoin : « ces valeurs sont déjà agrégées » (ex. copie d'une source DHIS2)
+
+
+def mark_agrege(path, on=True):
+    """Pose (ou retire) le témoin à côté d'un fichier dérivé, pour qu'AGT-11 le sache après un aller-retour CSV."""
+    side = path + AGREGE_SUFFIX
+    if on:
+        open(side, "w").close()
+    elif os.path.exists(side):
+        os.remove(side)
+
+
 def _read_df(file_path, sheet=None):
+    """Comme _read_df_raw, et réattache le drapeau « agrégé » d'un fichier dérivé (témoin .agrege)."""
+    df, err = _read_df_raw(file_path, sheet)
+    if df is not None and not file_path.startswith(("http://", "https://", "dhis2://")) \
+            and os.path.exists(file_path + AGREGE_SUFFIX):
+        df.attrs["agrege"] = True
+    return df, err
+
+
+def _read_df_raw(file_path, sheet=None):
     """Lit un fichier local ou une URL en DataFrame (csv/xlsx/xls/xlsm/json/parquet).
 
     Classeur Excel : la feuille `sheet`, sinon celle qui porte les données (pas forcément la
     première : page de garde, sommaire…). df.attrs["feuille"] / ["feuilles"] disent laquelle.
     En ligne : seuls les fichiers de l'organisation et les liens https publics sont acceptés."""
+    if file_path.startswith("dhis2://"):
+        return dhis2.read_dhis2(file_path, allow_private=not T.CLOUD)
     tmp_to_delete = None
     is_url = file_path.startswith(("http://", "https://"))
     if T.CLOUD and not is_url and not T.current().owns(file_path):
@@ -503,9 +527,9 @@ def _smart_charts(df, max_charts=6):
         sample = s.dropna().astype(str).head(40)
         if len(sample) >= 3:
             try:
-                parsed = pd.to_datetime(sample, errors="coerce", format="mixed", dayfirst=True)
+                parsed = to_dates(sample)
                 if parsed.notna().mean() >= 0.9:
-                    period, period_dt = c, pd.to_datetime(s.astype(str), errors="coerce", format="mixed", dayfirst=True)
+                    period, period_dt = c, to_dates(s)
                     break
             except Exception:
                 pass
@@ -780,6 +804,7 @@ def clean(file_path, skip=None, hermes=None):
     df, err = _read_df(file_path)
     if err:
         return {"error": err}
+    agrege = bool(df.attrs.get("agrege"))
     h_details, h_applied = {}, []
     if hermes:
         import hermes_clean as HCL
@@ -799,6 +824,7 @@ def clean(file_path, skip=None, hermes=None):
     stem = source_label(file_path)
     cleaned_path = os.path.join(cleaned_dir, f"{stem}_nettoye.csv")
     df_clean.to_csv(cleaned_path, index=False, encoding="utf-8-sig")
+    mark_agrege(cleaned_path, agrege)  # le CSV perd df.attrs : le témoin garde l'information
 
     preview = df_clean.head(30)
     apercu = [[_cell_safe(x) for x in row]
@@ -858,6 +884,30 @@ def _hermes_tasks():
             "created_at": str(created_at) if created_at else "",
         })
     return tasks
+
+def dhis2_connect(p):
+    """Lien API DHIS2 (copié depuis DHIS2) + identifiants → source « dhis2:// » prête à analyser.
+    Le mot de passe est chiffré dans l'espace et n'est jamais renvoyé ni écrit dans les journaux."""
+    link, user, pwd = str(p.get("link") or "").strip(), str(p.get("user") or "").strip(), str(p.get("password") or "")
+    if T.CLOUD:
+        cloud.require(T.current(), "owner", "analyst")
+    if not link or not user or not pwd:
+        raise ValueError("Indiquez le lien API DHIS2, l'utilisateur et le mot de passe.")
+    if link.startswith("https://"):
+        link = link[len("https://"):]
+    elif link.startswith(dhis2.SCHEME):
+        link = link[len(dhis2.SCHEME):]
+    else:
+        raise ValueError("Le lien DHIS2 doit commencer par https://")
+    uri = dhis2.SCHEME + link
+    instance, _ = dhis2.parse_uri(uri)
+    df, err = dhis2.read_dhis2(uri, allow_private=not T.CLOUD, creds=(user, pwd))  # essai d'abord
+    if err:
+        return {"error": err}                       # mauvais mot de passe : rien n'est enregistré
+    dhis2.save_credentials(instance, user, pwd)
+    return {"uri": uri, "instance": instance, "name": f"DHIS2 {instance.split('/')[0]}", "rows": int(len(df)),
+            "indicateurs": int(df["indicateur"].nunique()), "periodes": sorted(df["periode"].dropna().astype(str).unique())[-3:]}
+
 
 def build_dashboard(df, spec=None):
     """AGT-11 sur un DataFrame. `spec` fournie (source connectée qu'on actualise) : mêmes indicateurs, sans IA."""
@@ -1464,7 +1514,7 @@ def _json_safe(obj):
 
 def _architect_df(file_path):
     """Lit la source pour l'architecte : détection d'encodage et de séparateur (« ; » des exports FR/DHIS2)."""
-    if file_path.startswith(("http://", "https://")):
+    if file_path.startswith(("http://", "https://", "dhis2://")):
         df, err = _read_df(file_path)
         return df, {"fichier": source_label(file_path)}, err
     if T.CLOUD and not T.current().owns(file_path):
@@ -1475,6 +1525,8 @@ def _architect_df(file_path):
         df, info = data_architect.load_table(file_path)
     except Exception as e:
         return None, None, f"Lecture impossible : {e}"
+    if os.path.exists(file_path + AGREGE_SUFFIX):  # fichier dérivé d'une source agrégée : comme _read_df
+        df.attrs["agrege"] = True
     return df, info, None
 
 
@@ -1783,9 +1835,9 @@ def _period_series(s):
     if len(sample) < 2:
         return None
     try:
-        parsed = pd.to_datetime(sample, errors="coerce", format="mixed", dayfirst=True)
+        parsed = to_dates(sample)
         if parsed.notna().mean() >= 0.9:
-            return pd.to_datetime(s.astype(str), errors="coerce", format="mixed", dayfirst=True)
+            return to_dates(s)
     except Exception:
         pass
     if sample.map(_fr_period).notna().mean() >= 0.9:
@@ -2168,6 +2220,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if T.CLOUD and _llm_config():
                 cloud.consume(ctx, "ai")
             return self._send(200, do_dashboard(str(p.get("file_path") or ""), p.get("name")))
+        if path == "/api/dhis2/connect":  # identifiants chiffrés dans l'espace, puis lecture d'essai
+            return self._send(200, dhis2_connect(p))
         if path == "/api/sources/refresh":  # relit la source, mêmes indicateurs : pas de quota IA
             return self._send(200, sources.refresh(str(p.get("id")), _read_df, build_dashboard))
         if path == "/api/sources/freq":
@@ -2355,7 +2409,16 @@ class Handler(http.server.BaseHTTPRequestHandler):
         kwargs = {"registry_schema": T.current().schema}
         if T.storage_root():
             kwargs["storage_root"] = T.storage_root()
-        if source.startswith(("http://", "https://")):
+        if source.startswith("dhis2://"):  # lu par le connecteur, versionné comme un fichier CSV de l'espace
+            df, err = _read_df(source)
+            if err:
+                raise ValueError(err)
+            local = os.path.join(T.uploads_dir(), source_label(source) + ".csv")
+            df.to_csv(local, index=False)
+            mark_agrege(local, bool(df.attrs.get("agrege")))
+            kwargs["dataset_name"] = os.path.basename(local)
+            source = local
+        elif source.startswith(("http://", "https://")):
             source = normalize_source_url(source)
             if T.CLOUD:  # téléchargé par le serveur (protection SSRF), puis ingéré comme fichier
                 data, ctype = netguard.fetch(source)

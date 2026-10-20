@@ -268,3 +268,18 @@ def test_stocks_annees_et_secteurs(monkeypatch):
     k = {x["nom"]: x["valeur"] for x in out["kpis"]}
     assert k == {"Population totale (2024)": 340, "Naissances": 46}
     assert "(tranche|age|ages)" in d.TEMPLATE  # pyramide : « âge » en mot entier (« agence » exclue)
+
+
+def test_dates_iso_jamais_lues_jour_en_premier():
+    """Fichier nettoyé : dates « 2025-08-01 ». Lues jour en premier, elles devenaient le 8 janvier."""
+    import sys  # noqa: PLC0415
+    reset_app_modules()
+    import server  # noqa: PLC0415
+    sys.path.insert(0, os.path.join(os.path.dirname(server.__file__), "..", "HERMES_DA"))
+    from hermes_da.adapters.dashboard import _period, _period_key  # noqa: PLC0415
+    df = pd.DataFrame({"date": ["2025-08-01", "2025-08-15", "2025-09-01", "2025-10-03"], "v": [1, 2, 3, 4]})
+    pc, ps = _period(df)
+    assert pc == "date" and list(ps) == ["2025-08-01", "2025-08-15", "2025-09-01", "2025-10-03"]
+    assert sorted(set(_period_key(df, pc, ps))) == ["2025-08", "2025-09", "2025-10"]
+    fr = pd.DataFrame({"date": ["01/08/2025", "15/08/2025", "01/09/2025"], "v": [1, 2, 3]})  # format français : jour d'abord
+    assert list(_period(fr)[1]) == ["2025-08-01", "2025-08-15", "2025-09-01"]

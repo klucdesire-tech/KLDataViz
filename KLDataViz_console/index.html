@@ -190,7 +190,7 @@ details.more>div{padding-bottom:14px}
 /* studio additions */
 .ws{display:grid;gap:1px;padding:9px 10px;border:1px solid var(--line);border-radius:10px;background:var(--surface-2);font-size:13px;font-weight:600}
 .ws span{color:var(--muted);font-size:11.5px;font-weight:400}
-.sources{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+.sources{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
 .src{border:1px solid var(--line);background:var(--surface);border-radius:var(--r);padding:14px;display:grid;gap:6px;text-align:left;transition:border-color .15s,box-shadow .15s;align-content:start}
 .src:hover,.src[aria-pressed="true"]{border-color:var(--brand);box-shadow:var(--shadow)}
 .src .ic{width:34px;height:34px;border-radius:9px;background:var(--surface-2);display:grid;place-items:center;color:var(--brand-strong)}
@@ -345,6 +345,7 @@ tr.versions td{background:var(--surface-2);font-size:13px}
             <button class="src" data-src="path"><div class="ic"><svg class="i" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg></div><b>Chemin du fichier</b><span>Un fichier déjà sur cet ordinateur</span></button>
             <button class="src" data-src="url"><div class="ic"><svg class="i" viewBox="0 0 24 24"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></svg></div><b>Google Sheets ou lien web</b><span>Lien de partage, ou URL d'un CSV, Excel, JSON</span></button>
             <button class="src" data-src="db"><div class="ic"><svg class="i" viewBox="0 0 24 24"><path d="M4 6c0-1.7 3.6-3 8-3s8 1.3 8 3-3.6 3-8 3-8-1.3-8-3zm0 0v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></svg></div><b>Base PostgreSQL</b><span>Une table, copiée sans la modifier</span></button>
+            <button class="src" data-src="dhis2"><div class="ic"><svg class="i" viewBox="0 0 24 24"><path d="M12 3v18M3 12h18M6.5 6.5l11 11M17.5 6.5l-11 11"/></svg></div><b>DHIS2</b><span>Indicateurs lus directement, actualisables</span></button>
             <button class="src" data-src="reg"><div class="ic"><svg class="i" viewBox="0 0 24 24"><path d="M12 7v5l3 2M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z"/></svg></div><b>Jeu déjà enregistré</b><span>Réanalyser une version du registre</span></button>
           </div>
         </div>
@@ -366,6 +367,18 @@ tr.versions td{background:var(--surface-2);font-size:13px}
             <label class="field" for="dbTable">Table<input type="text" id="dbTable" placeholder="ventes"></label>
             <label class="field" for="dbLimit">Lignes max<input type="text" id="dbLimit" placeholder="toutes" inputmode="numeric"></label>
             <button class="btn primary" type="submit">Importer et analyser</button>
+          </form>
+        </div>
+        <div class="card" id="dhis2Card" hidden>
+          <h2>Source DHIS2</h2>
+          <p class="sub">Collez le lien API d'une visualisation DHIS2 (Visualiseur de données → Télécharger → Données brutes → JSON : copiez l'adresse de la page ouverte),
+            ou un lien <code>…/api/analytics.json?dimension=…</code>. Utilisez de préférence un compte en <b>lecture seule</b>.
+            Le mot de passe est chiffré dans votre espace et n'est jamais affiché. Les données restent ensuite connectées : <b>↻ Actualiser</b> les relit dans DHIS2.</p>
+          <form class="form" id="dhis2Form" style="margin-top:12px" autocomplete="off">
+            <label class="field" for="dhLink" style="grid-column:1/-1">Lien API DHIS2<input type="url" id="dhLink" placeholder="https://dhis2.exemple.ci/api/analytics.json?dimension=dx:…&dimension=ou:…&dimension=pe:LAST_12_MONTHS" required></label>
+            <label class="field" for="dhUser">Utilisateur<input type="text" id="dhUser" autocomplete="off" required></label>
+            <label class="field" for="dhPass">Mot de passe<input type="password" id="dhPass" autocomplete="new-password" required></label>
+            <button class="btn primary" type="submit">Tester et analyser</button>
           </form>
         </div>
         <div id="importMsg" hidden></div>
@@ -722,7 +735,8 @@ function upload(f){
 }
 $$('.src').forEach(b=>b.onclick=()=>{
   const k=b.dataset.src;$$('.src').forEach(x=>x.setAttribute('aria-pressed',x===b));
-  $('#dbCard').hidden=k!=='db';$('#pathCard').hidden=k==='db'||k==='reg';
+  $('#dbCard').hidden=k!=='db';$('#dhis2Card').hidden=k!=='dhis2';$('#pathCard').hidden=k==='db'||k==='reg'||k==='dhis2';
+  if(k==='dhis2')$('#dhLink').focus();
   if(k==='path'){$('#pathTitle').textContent='Chemin du fichier';$('#pathHint').textContent='Copiez le chemin complet du fichier, par exemple C:\\Users\\…\\donnees.xlsx.';$('#pathInput').placeholder='C:\\Users\\…\\donnees.csv';$('#pathInput').focus()}
   if(k==='url'){$('#pathTitle').textContent='Google Sheets ou lien web';$('#pathHint').textContent='Collez le lien d\'une feuille Google Sheets (partagée avec « Tous les utilisateurs disposant du lien »), ou une URL qui renvoie un fichier CSV, Excel ou JSON.';$('#pathInput').placeholder='https://…';$('#pathInput').focus()}
   if(k==='db')$('#dbDsn').focus();
@@ -736,6 +750,14 @@ $('#taskSrcBtn').onclick=async()=>{
   if(d.source){$('#pathInput').value=d.source;openSource(d.source,baseName(d.source))}
   else importMsg(esc(d.message||d.error||'Aucune tâche assignée pour le moment.'),'alert info');
 };
+// DHIS2 : identifiants chiffrés côté serveur, lecture d'essai, puis analyse de la source « dhis2:// »
+$('#dhis2Form').addEventListener('submit',async e=>{e.preventDefault();const btn=e.submitter||$('#dhis2Form button');btn.disabled=true;
+  importMsg('<span class="spin"></span> Connexion à DHIS2 et lecture des données…','alert info');
+  const d=await api('/api/dhis2/connect',{link:$('#dhLink').value.trim(),user:$('#dhUser').value.trim(),password:$('#dhPass').value});
+  btn.disabled=false;$('#dhPass').value='';
+  if(d.error||!d.uri){importMsg(esc(d.error||'Connexion DHIS2 impossible.'));return}
+  importMsg(`DHIS2 connecté : ${nf(d.rows)} valeurs, ${d.indicateurs} indicateur(s)${d.periodes?.length?`, jusqu'à ${esc(d.periodes[d.periodes.length-1])}`:''}. Analyse en cours…`,'alert info');
+  openSource(d.uri,d.name)});
 $('#dbForm').addEventListener('submit',async e=>{
   e.preventDefault();
   const dsn=$('#dbDsn').value.trim(),table=$('#dbTable').value.trim();
