@@ -68,8 +68,55 @@ def test_dhis2_agrege_sans_compteur_de_patients():
     from hermes_da.adapters import dashboard as d  # noqa: PLC0415
     df = pd.DataFrame([{"indicateur": "ANC 1 Coverage", "periode": p, "unite_organisation": o, "valeur": v}
                        for p, v in (("2025-08", 90), ("2025-09", 95)) for o in ("Bo", "Kenema", "Bombali")])
-    spec = {"kpis": [{"nom": "Couverture ANC 1", "agregation": "moyenne", "colonne": "ANC 1 Coverage"}],
-            "graphiques": []}
+    df.attrs["agrege"] = True  # posé par le connecteur DHIS2
+    spec = {"kpis": [{"nom": "Couverture ANC 1", "agregation": "moyenne", "colonne": "ANC 1 Coverage"},
+                     {"nom": "Total ANC 1", "agregation": "somme", "colonne": "ANC 1 Coverage"}], "graphiques": []}
     out = d.generate_dashboard(df, "t", llm=False, spec=spec)
-    noms = [g["indicateur"] for g in out["gaps"]]
-    assert "Nouveaux patients" not in noms and "Nouveaux enregistrements" not in noms and noms == ["Couverture ANC 1"]
+    g = {x["indicateur"]: x for x in out["gaps"]}
+    assert "Nouveaux patients" not in g and set(g) == {"Couverture ANC 1", "Total ANC 1"}
+    assert g["Total ANC 1"]["derniere"] == 285 and round(g["Total ANC 1"]["pct"], 2) == 5.56   # somme du mois comparée
+    # Vrai fichier patient au format long, un seul indicateur, sans drapeau : jamais pivoté, compteur conservé
+    pat = pd.DataFrame({"indicateur": ["Poids"] * 4, "periode": ["2025-08", "2025-08", "2025-09", "2025-09"],
+                        "valeur": [60, 72, 65, 70]})
+    assert d._long_to_wide(pat)[1] is False
+
+
+def test_coffre_illisible_mis_de_cote_et_essai_avant_enregistrement(tmp_path, monkeypatch):
+    reset_app_modules()
+    import server  # noqa: PLC0415
+    dh = server.dhis2
+    monkeypatch.setenv("KLDV_SECRET", "ancienne-cle")
+    dh.save_credentials("a.test", "u", "p")
+    monkeypatch.setenv("KLDV_SECRET", "nouvelle-cle")                   # clé changée : coffre illisible
+    assert dh.load_credentials("a.test") is None
+    dh.save_credentials("b.test", "u2", "p2")
+    import glob, os  # noqa: E401,PLC0415
+    assert glob.glob(os.path.join(dh._storage_dir(), "dhis2_credentials.enc.illisible-*"))  # pas écrasé : mis de côté
+    monkeypatch.setattr(dh, "_fetch_json", lambda *a, **k: (_ for _ in ()).throw(
+        __import__("urllib.error").error.HTTPError("u", 401, "x", {}, None)))
+    out = server.dhis2_connect({"link": "https://c.test/api/analytics.json?x=1", "user": "u", "password": "faux"})
+    assert "401" in out["error"] and dh.load_credentials("c.test") is None   # mauvais mot de passe : rien d'enregistré
+
+
+def test_isolation_des_espaces_en_mode_en_ligne(tmp_path, monkeypatch):
+    """Vrai chemin tenancy (KLDV_MODE=cloud, deux T.use) — pas seulement la variable d'environnement."""
+    import uuid  # noqa: PLC0415
+    monkeypatch.delenv("KLDV_DHIS2_DIR", raising=False)
+    monkeypatch.setenv("KLDV_MODE", "cloud")
+    monkeypatch.setenv("KLDV_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("KLDV_SECRET", "secret-serveur")
+    try:
+        reset_app_modules()
+        import dhis2  # noqa: PLC0415
+        import tenancy as T  # noqa: PLC0415
+        a, b = str(uuid.uuid4()), str(uuid.uuid4())
+        with T.use(T.Ctx(key="a", org_id=a)):
+            dhis2.save_credentials("dhis2.test", "lecteur", "mdp")
+            assert dhis2.load_credentials("dhis2.test") == ("lecteur", "mdp")
+            assert dhis2._storage_dir().startswith(str(tmp_path / "tenants" / a))
+        with T.use(T.Ctx(key="b", org_id=b)):
+            assert dhis2.load_credentials("dhis2.test") is None             # l'espace B ne voit rien
+        assert not list(tmp_path.rglob("dhis2.key"))                        # aucune clé sur le disque
+    finally:
+        monkeypatch.undo()
+        reset_app_modules()                                                 # les tests suivants repartent en local

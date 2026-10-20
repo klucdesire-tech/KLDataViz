@@ -118,6 +118,12 @@ def save_credentials(instance: str, user: str, password: str) -> None:
         try:
             vault = json.loads(_decrypt(open(cp, "rb").read()).decode("utf-8"))
         except (ValueError, UnicodeDecodeError, json.JSONDecodeError):
+            # Coffre illisible (clé KLDV_SECRET changée, ancien format…) : on le met de côté au lieu de
+            # l'écraser — il redevient lisible si l'ancienne clé est restaurée. Les autres instances devront
+            # être reconnectées (read_dhis2 le dit clairement).
+            import time
+            os.replace(cp, f"{cp}.illisible-{time.strftime('%Y%m%d-%H%M%S')}")
+            print("[dhis2] coffre illisible mis de côté (clé changée ?) : reconnectez les instances DHIS2", flush=True)
             vault = {}
     vault[instance] = {"user": user, "password": password}
     with open(cp, "wb") as f:
@@ -251,16 +257,17 @@ def _data_values_to_long(payload: dict) -> pd.DataFrame:
 # --------------------------------------------------------------------------
 # Point d'entrée
 # --------------------------------------------------------------------------
-def read_dhis2(uri: str, allow_private: bool = False):
-    """Lit une source ``dhis2://`` et renvoie ``(df_long, err)`` (comme ``_read_df``)."""
+def read_dhis2(uri: str, allow_private: bool = False, creds=None):
+    """Lit une source ``dhis2://`` et renvoie ``(df_long, err)`` (comme ``_read_df``).
+    ``creds`` = (user, password) pour une lecture d'essai AVANT d'enregistrer quoi que ce soit."""
     try:
         instance, url = parse_uri(uri)
     except ValueError as e:
         return None, str(e)
-    creds = load_credentials(instance)
+    creds = creds or load_credentials(instance)
     if creds is None:
-        return None, (f"Aucun identifiant enregistré pour l'instance DHIS2 « {instance} ». "
-                      f"Enregistrez-les d'abord via dhis2.save_credentials(instance, user, motdepasse).")
+        return None, (f"Aucun identifiant DHIS2 pour « {instance} » (jamais enregistré, ou coffre "
+                      "réinitialisé) : reconnectez la source DHIS2 depuis l'écran d'import.")
     user, password = creds
     try:
         payload = _fetch_json(url, user, password, allow_private)
@@ -283,4 +290,5 @@ def read_dhis2(uri: str, allow_private: bool = False):
         return None, f"Conversion de la réponse DHIS2 impossible : {e}"
     if df.empty:
         return None, "La requête DHIS2 ne renvoie aucune donnée."
+    df.attrs["agrege"] = True  # valeurs déjà agrégées par DHIS2 : une ligne = une unité × une période
     return df, None

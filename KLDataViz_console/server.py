@@ -878,10 +878,10 @@ def dhis2_connect(p):
         raise ValueError("Le lien DHIS2 doit commencer par https://")
     uri = dhis2.SCHEME + link
     instance, _ = dhis2.parse_uri(uri)
-    dhis2.save_credentials(instance, user, pwd)
-    df, err = dhis2.read_dhis2(uri, allow_private=not T.CLOUD)
+    df, err = dhis2.read_dhis2(uri, allow_private=not T.CLOUD, creds=(user, pwd))  # essai d'abord
     if err:
-        return {"error": err}
+        return {"error": err}                       # mauvais mot de passe : rien n'est enregistré
+    dhis2.save_credentials(instance, user, pwd)
     return {"uri": uri, "instance": instance, "name": f"DHIS2 {instance.split('/')[0]}", "rows": int(len(df)),
             "indicateurs": int(df["indicateur"].nunique()), "periodes": sorted(df["periode"].dropna().astype(str).unique())[-3:]}
 

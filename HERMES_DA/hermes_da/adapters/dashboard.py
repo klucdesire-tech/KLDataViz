@@ -634,12 +634,14 @@ def _partial_month(period_series):
 
 
 def _patient_items(df, kpi_defs, domaine, period_col, aggregated=False):
-    # Données déjà agrégées (export DHIS2 converti) : une ligne = une unité × une période, pas un patient
+    # Données déjà agrégées (DHIS2, export converti) : une ligne = une unité × une période, pas un patient →
+    # pas de compteur de lignes, mais les sommes du mois restent comparées au mois précédent
     items = [] if aggregated else [{"nom": "Nouveaux patients" if domaine else "Nouveaux enregistrements",
                                     "kind": "count", "bon": 1, "libelle": f"Lignes par mois de « {period_col} »"}]
+    kept = ("taux", "rate", "pct", "proportion", "moyenne", "mean") + (("somme", "sum") if aggregated else ())
     for k in kpi_defs:
         a, col = (k.get("agregation") or "").lower(), k.get("colonne")
-        if col in df.columns and col != period_col and a in ("taux", "rate", "pct", "proportion", "moyenne", "mean"):
+        if col in df.columns and col != period_col and a in kept:
             items.append({"nom": k["nom"], "kind": "agg", "col": str(col), "agg": a, "bon": _bon(k["nom"]),
                           "libelle": f"{k['nom']} ({col})", "pts": a in ("taux", "rate", "pct", "proportion")})
     return items
@@ -1034,7 +1036,7 @@ def _long_to_wide(df):
     Les autres colonnes (période, région, district…) restent des dimensions ; une valeur absente reste vide, jamais 0."""
     import pandas as pd
     ic, vc = _col(df, _IND_COLS), _col(df, _VAL_COLS, numeric=True)
-    if ic is None or vc is None or not 1 <= int(df[ic].nunique(dropna=True)) <= 80:
+    if ic is None or vc is None or not (2 if not df.attrs.get("agrege") else 1) <= int(df[ic].nunique(dropna=True)) <= 80:
         return df, False
     dims = [c for c in df.columns if c not in (ic, vc)]
     d = df.assign(**{vc: pd.to_numeric(df[vc], errors="coerce"), ic: df[ic].astype(str).str.strip()})
@@ -1055,6 +1057,7 @@ def generate_dashboard(df, objective: str = "", job_id: str | None = None, llm=N
     `spec` (facultatif) : indicateurs et graphiques déjà choisis (« spec » d'un appel précédent) → actualisation
     d'une source connectée : mêmes indicateurs sur les nouvelles données, sans appel à l'IA.
     """
+    agrege = bool(df.attrs.get("agrege"))  # source qui sait ses valeurs agrégées (connecteur DHIS2)
     df, pivoted = _long_to_wide(df)
     profile = _profile(df)
     profile_json = json.dumps(profile, ensure_ascii=False, default=str)[:20000]
@@ -1121,7 +1124,7 @@ def generate_dashboard(df, objective: str = "", job_id: str | None = None, llm=N
     keys = _period_key(df, period_col, period_series) if kis else None
     gaps = _gaps(df, keys, ic, vc, kis)
     if not kis and period_series is not None:  # une ligne par patient : comparaison des deux derniers mois
-        kis = _patient_items(df, kpi_defs, domaine, period_col, aggregated=pivoted)
+        kis = _patient_items(df, kpi_defs, domaine, period_col, aggregated=bool(pivoted or agrege))
         keys = _period_key(df, period_col, period_series)
         gaps = _patient_gaps(df, keys, kis)
     if domaine:
