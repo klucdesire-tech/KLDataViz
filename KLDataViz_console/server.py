@@ -47,6 +47,7 @@ import tenancy as T
 import sandbox, netguard
 import studio
 import sources
+import dhis2
 if T.CLOUD:
     import cloud
 from urllib.parse import urlparse, parse_qs
@@ -251,6 +252,8 @@ def _read_df(file_path, sheet=None):
     Classeur Excel : la feuille `sheet`, sinon celle qui porte les données (pas forcément la
     première : page de garde, sommaire…). df.attrs["feuille"] / ["feuilles"] disent laquelle.
     En ligne : seuls les fichiers de l'organisation et les liens https publics sont acceptés."""
+    if file_path.startswith("dhis2://"):
+        return dhis2.read_dhis2(file_path, allow_private=not T.CLOUD)
     tmp_to_delete = None
     is_url = file_path.startswith(("http://", "https://"))
     if T.CLOUD and not is_url and not T.current().owns(file_path):
