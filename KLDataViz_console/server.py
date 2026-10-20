@@ -46,6 +46,7 @@ import hashlib, hmac, re, secrets
 import tenancy as T
 import sandbox, netguard
 import studio
+import sources
 if T.CLOUD:
     import cloud
 from urllib.parse import urlparse, parse_qs
@@ -858,24 +859,37 @@ def _hermes_tasks():
         })
     return tasks
 
-def do_dashboard(file_path):
-    """Génère un tableau de bord interactif (AGT-11) depuis une source locale."""
+def build_dashboard(df, spec=None):
+    """AGT-11 sur un DataFrame. `spec` fournie (source connectée qu'on actualise) : mêmes indicateurs, sans IA."""
+    hermes_da_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "HERMES_DA")
+    if hermes_da_dir not in sys.path:
+        sys.path.insert(0, hermes_da_dir)
+    from hermes_da.adapters.dashboard import generate_dashboard
+    if spec is not None:
+        return generate_dashboard(df, "Tableau de bord KLDataViz", llm=False, spec=spec)
+    cfg = _llm_config()  # en ligne : clé DEEPSEEK_API_KEY de l'environnement (pas de llm_config.json)
+    model = os.environ.get("KLDV_DASHBOARD_MODEL") or (cfg or {}).get("dashboard_model") or "deepseek-flash"
+    llm = (lambda m, n: _llm_call(m, n, model=model, effort="high", timeout=120, attempts=1)
+           or _llm_call(m, n, model=model, effort="low", timeout=90, attempts=1)) if cfg else None
+    return generate_dashboard(df, "Tableau de bord KLDataViz", llm=llm)
+
+
+def do_dashboard(file_path, name=None):
+    """Génère un tableau de bord interactif (AGT-11). Une source qu'on peut relire (lien Google Sheets / web,
+    fichier local en mode local) devient une « source connectée » : actualisable sans réimporter."""
     try:
         df, err = _read_df(file_path)
         if err:
             return {"error": err}
         if df is None or len(df) == 0:
             return {"error": "Aucune donnée lisible dans cette source."}
-        hermes_da_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "HERMES_DA")
-        if hermes_da_dir not in sys.path:
-            sys.path.insert(0, hermes_da_dir)
-        from hermes_da.adapters.dashboard import generate_dashboard
-        cfg = _llm_config()  # en ligne : clé DEEPSEEK_API_KEY de l'environnement (pas de llm_config.json)
-        model = os.environ.get("KLDV_DASHBOARD_MODEL") or (cfg or {}).get("dashboard_model") or "deepseek-flash"
-        llm = (lambda m, n: _llm_call(m, n, model=model, effort="high", timeout=120, attempts=1)
-               or _llm_call(m, n, model=model, effort="low", timeout=90, attempts=1)) if cfg else None
-        result = generate_dashboard(df, "Tableau de bord KLDataViz", llm=llm)
-        return {"html": result["html"], "ia": result["ia"], "kpis": result["kpis"]}
+        result = build_dashboard(df)
+        out = {"html": result["html"], "ia": result["ia"], "kpis": result["kpis"]}
+        try:
+            out["source"] = sources.connect(file_path, name, result.get("spec"), df, result["html"])
+        except Exception as exc:  # la connexion est un plus : le tableau de bord reste affiché
+            print(f"[sources] connexion impossible : {exc}", flush=True)
+        return out
     except Exception as e:
         return {"error": f"Génération du tableau de bord échouée : {e}"}
 
@@ -2105,6 +2119,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 return self._send(200, studio.public_settings())
             if path == "/api/schedules":
                 return self._send(200, studio.list_schedules())
+            if path == "/api/sources":
+                return self._send(200, sources.list_sources())
+            if path == "/api/sources/get":
+                return self._send(200, sources.get((parse_qs(urlparse(self.path).query).get("id") or [""])[0]))
             if path == "/api/ingest/versions":
                 ds_id = (parse_qs(urlparse(self.path).query).get("id") or [""])[0]
                 reg = T.registry()
@@ -2149,7 +2167,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if path == "/api/dashboard":
             if T.CLOUD and _llm_config():
                 cloud.consume(ctx, "ai")
-            return self._send(200, do_dashboard(str(p.get("file_path") or "")))
+            return self._send(200, do_dashboard(str(p.get("file_path") or ""), p.get("name")))
+        if path == "/api/sources/refresh":  # relit la source, mêmes indicateurs : pas de quota IA
+            return self._send(200, sources.refresh(str(p.get("id")), _read_df, build_dashboard))
+        if path == "/api/sources/freq":
+            return self._send(200, sources.set_freq(str(p.get("id")), str(p.get("freq"))))
+        if path == "/api/sources/delete":
+            sources.delete(str(p.get("id")))
+            return self._send(200, {"ok": True})
         if path == "/api/clean":
             hermes = p.get("hermes") if isinstance(p.get("hermes"), list) else None
             return self._send(200, clean(str(p.get("file_path") or ""), p.get("skip") or None, hermes))
@@ -2380,6 +2405,7 @@ if __name__ == "__main__":
     if not T.CLOUD:
         threading.Thread(target=heartbeat_loop, daemon=True).start()
     studio.start_scheduler(analyze, EXPORTERS, T.LOCAL.dir("exports") if not T.CLOUD else None, schedule_commentary)
+    sources.start_auto_refresh(_read_df, build_dashboard, cloud.org_ctx if T.CLOUD else None)
     host = "0.0.0.0" if T.CLOUD else "127.0.0.1"
     port = int(os.environ.get("PORT") or PORT)
     socketserver.ThreadingTCPServer.allow_reuse_address = True

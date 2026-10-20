@@ -1046,18 +1046,23 @@ def _long_to_wide(df):
     return wide, True
 
 
-def generate_dashboard(df, objective: str = "", job_id: str | None = None, llm=None) -> dict:
+def generate_dashboard(df, objective: str = "", job_id: str | None = None, llm=None, spec: dict | None = None) -> dict:
     """Génère un tableau de bord (KPI + HTML interactif) depuis un DataFrame.
 
     Réutilisable par l'orchestrateur HERMES_DA ET par la console KLDataViz (bouton Dashboard).
-    Retourne : html (le tableau de bord autonome), path (fichier écrit si job_id), kpis, charts, ia.
+    Retourne : html (le tableau de bord autonome), path (fichier écrit si job_id), kpis, charts, ia, spec.
+    `spec` (facultatif) : indicateurs et graphiques déjà choisis (« spec » d'un appel précédent) → actualisation
+    d'une source connectée : mêmes indicateurs sur les nouvelles données, sans appel à l'IA.
     """
     df, pivoted = _long_to_wide(df)
     profile = _profile(df)
     profile_json = json.dumps(profile, ensure_ascii=False, default=str)[:20000]
-    llm_spec = _llm_dashboard(profile_json, llm)
-    ia = llm_spec is not None
-    spec = llm_spec or _rule_dashboard(profile)
+    if spec is not None:
+        spec, ia = {k: v for k, v in spec.items() if k != "_ia"}, bool(spec.get("_ia"))
+    else:
+        llm_spec = _llm_dashboard(profile_json, llm)
+        ia = llm_spec is not None
+        spec = llm_spec or _rule_dashboard(profile)
 
     cols = set(df.columns)
     kpis = []
@@ -1145,7 +1150,7 @@ def generate_dashboard(df, objective: str = "", job_id: str | None = None, llm=N
     return {"html": html, "path": str(path) if path else None,
             "kpis": _json_safe(kpis), "charts": charts_count, "ia": ia,
             "filter_cols": filter_cols, "kpi_defs": kpi_defs, "format_long": pivoted,
-            "domaine": _json_safe(domaine), "gaps": _json_safe(gaps)}
+            "domaine": _json_safe(domaine), "gaps": _json_safe(gaps), "spec": _json_safe(dict(spec, _ia=ia))}
 
 
 def run(env, db, jobs) -> dict:
