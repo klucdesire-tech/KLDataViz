@@ -49,13 +49,22 @@ COLS = ["indicateur", "periode", "unite_organisation", "valeur"]
 # Clé aléatoire 256 bits dans storage/dhis2.key ; coffre chiffré storage/dhis2_credentials.enc.
 # --------------------------------------------------------------------------
 def _storage_dir() -> str:
-    d = os.environ.get("KLDV_DHIS2_DIR") or os.path.join(
-        os.path.dirname(os.path.abspath(__file__)), "storage")
+    """Coffre de l'ESPACE courant (en ligne : /data/tenants/<org>/storage, disque persistant) :
+    les identifiants d'un client ne sont jamais visibles d'un autre. KLDV_DHIS2_DIR : dossier imposé (tests)."""
+    d = os.environ.get("KLDV_DHIS2_DIR")
+    if not d:
+        import tenancy as T
+        d = T.current().dir("storage")
     os.makedirs(d, exist_ok=True)
     return d
 
 
 def _key() -> bytes:
+    """En ligne : clé dérivée du secret serveur (KLDV_SECRET, hors du disque) et de l'espace ;
+    en local : clé aléatoire conservée dans storage/dhis2.key."""
+    secret = os.environ.get("KLDV_SECRET")
+    if secret:
+        return hmac.new(secret.encode(), ("dhis2-vault:" + _storage_dir()).encode(), hashlib.sha256).digest()
     kp = os.path.join(_storage_dir(), "dhis2.key")
     if os.path.isfile(kp):
         with open(kp, "rb") as f:
@@ -64,6 +73,12 @@ def _key() -> bytes:
     with open(kp, "wb") as f:
         f.write(key)
     return key
+
+
+def _subkeys():
+    """Clés distinctes pour chiffrer et pour authentifier (jamais la même clé pour les deux usages)."""
+    k = _key()
+    return hmac.new(k, b"enc", hashlib.sha256).digest(), hmac.new(k, b"mac", hashlib.sha256).digest()
 
 
 def _stream(key: bytes, iv: bytes, n: int) -> bytes:
@@ -76,19 +91,19 @@ def _stream(key: bytes, iv: bytes, n: int) -> bytes:
 
 
 def _encrypt(plaintext: bytes) -> bytes:
-    key = _key()
+    ek, mk = _subkeys()
     iv = os.urandom(16)
-    ct = bytes(a ^ b for a, b in zip(plaintext, _stream(key, iv, len(plaintext))))
-    tag = hmac.new(key, iv + ct, hashlib.sha256).digest()
+    ct = bytes(a ^ b for a, b in zip(plaintext, _stream(ek, iv, len(plaintext))))
+    tag = hmac.new(mk, iv + ct, hashlib.sha256).digest()
     return iv + ct + tag
 
 
 def _decrypt(blob: bytes) -> bytes:
-    key = _key()
+    ek, mk = _subkeys()
     iv, ct, tag = blob[:16], blob[16:-32], blob[-32:]
-    if not hmac.compare_digest(tag, hmac.new(key, iv + ct, hashlib.sha256).digest()):
+    if not hmac.compare_digest(tag, hmac.new(mk, iv + ct, hashlib.sha256).digest()):
         raise ValueError("Identifiants corrompus ou clé de chiffrement incorrecte.")
-    return bytes(a ^ b for a, b in zip(ct, _stream(key, iv, len(ct))))
+    return bytes(a ^ b for a, b in zip(ct, _stream(ek, iv, len(ct))))
 
 
 def _cred_path() -> str:
@@ -146,14 +161,32 @@ def parse_uri(uri: str):
 # --------------------------------------------------------------------------
 # Appel HTTP — validé par netguard, authentifié (Basic), jamais vers une autre instance
 # --------------------------------------------------------------------------
+class _SameHostRedirect(urllib.request.HTTPRedirectHandler):
+    """Redirection acceptée seulement vers la MÊME instance (sinon le mot de passe partirait ailleurs),
+    et revérifiée par netguard (anti-SSRF)."""
+    def __init__(self, host, allow_private):
+        self.host, self.allow_private = host, allow_private
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        if urllib.parse.urlparse(newurl).netloc.lower() != self.host:
+            raise netguard.BlockedURL("Redirection DHIS2 vers un autre serveur refusée.")
+        netguard.check_url(newurl, allow_private=self.allow_private, https_only=True)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
 def _fetch_json(url: str, user: str, password: str, allow_private: bool = False) -> dict:
     netguard.check_url(url, allow_private=allow_private, https_only=True)
     req = urllib.request.Request(
         url, headers={"User-Agent": "KLDataViz/1.0", "Accept": "application/json"})
     token = base64.b64encode(f"{user}:{password}".encode("utf-8")).decode("ascii")
     req.add_header("Authorization", f"Basic {token}")
-    with urllib.request.urlopen(req, timeout=netguard.TIMEOUT_S) as resp:
-        return json.loads(resp.read().decode("utf-8"))
+    opener = urllib.request.build_opener(
+        _SameHostRedirect(urllib.parse.urlparse(url).netloc.lower(), allow_private))
+    with opener.open(req, timeout=netguard.TIMEOUT_S) as resp:
+        data = resp.read(netguard.MAX_BYTES + 1)
+    if len(data) > netguard.MAX_BYTES:
+        raise ValueError("Réponse DHIS2 trop volumineuse : réduisez les périodes ou les unités d'organisation.")
+    return json.loads(data.decode("utf-8"))
 
 
 def _http_hint(code: int) -> str:
@@ -172,6 +205,17 @@ def _resolve(meta: dict, code):
     return meta[code].get("name", code) if isinstance(meta[code], dict) else code
 
 
+def _period(p):
+    """Périodes DHIS2 → format reconnu par AGT-11 : « 202501 » → « 2025-01 », « 20250115 » → « 2025-01-15 »
+    (trimestres « 2025Q1 », semaines et années inchangés)."""
+    p = "" if p is None else str(p)
+    if len(p) == 6 and p.isdigit():
+        return f"{p[:4]}-{p[4:]}"
+    if len(p) == 8 and p.isdigit():
+        return f"{p[:4]}-{p[4:6]}-{p[6:]}"
+    return p
+
+
 def _analytics_to_long(payload: dict) -> pd.DataFrame:
     headers = payload.get("headers", [])
     rows = payload.get("rows", [])
@@ -184,7 +228,7 @@ def _analytics_to_long(payload: dict) -> pd.DataFrame:
         out.append({
             "indicateur": _resolve(meta, row[i_dx]) if i_dx is not None else "",
             "unite_organisation": _resolve(meta, row[i_ou]) if i_ou is not None else "",
-            "periode": row[i_pe] if i_pe is not None else "",
+            "periode": _period(row[i_pe]) if i_pe is not None else "",
             "valeur": row[i_val] if i_val is not None else None,
         })
     return pd.DataFrame(out, columns=COLS)
@@ -198,7 +242,7 @@ def _data_values_to_long(payload: dict) -> pd.DataFrame:
         out.append({
             "indicateur": _resolve(meta, r.get("dataElement")),
             "unite_organisation": _resolve(meta, r.get("orgUnit")),
-            "periode": r.get("period"),
+            "periode": _period(r.get("period")),
             "valeur": r.get("value"),
         })
     return pd.DataFrame(out, columns=COLS)

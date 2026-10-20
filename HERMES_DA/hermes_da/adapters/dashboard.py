@@ -633,9 +633,10 @@ def _partial_month(period_series):
     return days[-1][:7] if d <= calendar.monthrange(y, m)[1] - 5 else None
 
 
-def _patient_items(df, kpi_defs, domaine, period_col):
-    items = [{"nom": "Nouveaux patients" if domaine else "Nouveaux enregistrements", "kind": "count", "bon": 1,
-              "libelle": f"Lignes par mois de « {period_col} »"}]
+def _patient_items(df, kpi_defs, domaine, period_col, aggregated=False):
+    # Données déjà agrégées (export DHIS2 converti) : une ligne = une unité × une période, pas un patient
+    items = [] if aggregated else [{"nom": "Nouveaux patients" if domaine else "Nouveaux enregistrements",
+                                    "kind": "count", "bon": 1, "libelle": f"Lignes par mois de « {period_col} »"}]
     for k in kpi_defs:
         a, col = (k.get("agregation") or "").lower(), k.get("colonne")
         if col in df.columns and col != period_col and a in ("taux", "rate", "pct", "proportion", "moyenne", "mean"):
@@ -1033,7 +1034,7 @@ def _long_to_wide(df):
     Les autres colonnes (période, région, district…) restent des dimensions ; une valeur absente reste vide, jamais 0."""
     import pandas as pd
     ic, vc = _col(df, _IND_COLS), _col(df, _VAL_COLS, numeric=True)
-    if ic is None or vc is None or not 2 <= int(df[ic].nunique(dropna=True)) <= 80:
+    if ic is None or vc is None or not 1 <= int(df[ic].nunique(dropna=True)) <= 80:
         return df, False
     dims = [c for c in df.columns if c not in (ic, vc)]
     d = df.assign(**{vc: pd.to_numeric(df[vc], errors="coerce"), ic: df[ic].astype(str).str.strip()})
@@ -1120,7 +1121,7 @@ def generate_dashboard(df, objective: str = "", job_id: str | None = None, llm=N
     keys = _period_key(df, period_col, period_series) if kis else None
     gaps = _gaps(df, keys, ic, vc, kis)
     if not kis and period_series is not None:  # une ligne par patient : comparaison des deux derniers mois
-        kis = _patient_items(df, kpi_defs, domaine, period_col)
+        kis = _patient_items(df, kpi_defs, domaine, period_col, aggregated=pivoted)
         keys = _period_key(df, period_col, period_series)
         gaps = _patient_gaps(df, keys, kis)
     if domaine:

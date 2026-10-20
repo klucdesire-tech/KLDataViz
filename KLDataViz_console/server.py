@@ -862,6 +862,30 @@ def _hermes_tasks():
         })
     return tasks
 
+def dhis2_connect(p):
+    """Lien API DHIS2 (copié depuis DHIS2) + identifiants → source « dhis2:// » prête à analyser.
+    Le mot de passe est chiffré dans l'espace et n'est jamais renvoyé ni écrit dans les journaux."""
+    link, user, pwd = str(p.get("link") or "").strip(), str(p.get("user") or "").strip(), str(p.get("password") or "")
+    if T.CLOUD:
+        cloud.require(T.current(), "owner", "analyst")
+    if not link or not user or not pwd:
+        raise ValueError("Indiquez le lien API DHIS2, l'utilisateur et le mot de passe.")
+    if link.startswith("https://"):
+        link = link[len("https://"):]
+    elif link.startswith(dhis2.SCHEME):
+        link = link[len(dhis2.SCHEME):]
+    else:
+        raise ValueError("Le lien DHIS2 doit commencer par https://")
+    uri = dhis2.SCHEME + link
+    instance, _ = dhis2.parse_uri(uri)
+    dhis2.save_credentials(instance, user, pwd)
+    df, err = dhis2.read_dhis2(uri, allow_private=not T.CLOUD)
+    if err:
+        return {"error": err}
+    return {"uri": uri, "instance": instance, "name": f"DHIS2 {instance.split('/')[0]}", "rows": int(len(df)),
+            "indicateurs": int(df["indicateur"].nunique()), "periodes": sorted(df["periode"].dropna().astype(str).unique())[-3:]}
+
+
 def build_dashboard(df, spec=None):
     """AGT-11 sur un DataFrame. `spec` fournie (source connectée qu'on actualise) : mêmes indicateurs, sans IA."""
     hermes_da_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "HERMES_DA")
@@ -1467,7 +1491,7 @@ def _json_safe(obj):
 
 def _architect_df(file_path):
     """Lit la source pour l'architecte : détection d'encodage et de séparateur (« ; » des exports FR/DHIS2)."""
-    if file_path.startswith(("http://", "https://")):
+    if file_path.startswith(("http://", "https://", "dhis2://")):
         df, err = _read_df(file_path)
         return df, {"fichier": source_label(file_path)}, err
     if T.CLOUD and not T.current().owns(file_path):
@@ -2171,6 +2195,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if T.CLOUD and _llm_config():
                 cloud.consume(ctx, "ai")
             return self._send(200, do_dashboard(str(p.get("file_path") or ""), p.get("name")))
+        if path == "/api/dhis2/connect":  # identifiants chiffrés dans l'espace, puis lecture d'essai
+            return self._send(200, dhis2_connect(p))
         if path == "/api/sources/refresh":  # relit la source, mêmes indicateurs : pas de quota IA
             return self._send(200, sources.refresh(str(p.get("id")), _read_df, build_dashboard))
         if path == "/api/sources/freq":
@@ -2358,7 +2384,15 @@ class Handler(http.server.BaseHTTPRequestHandler):
         kwargs = {"registry_schema": T.current().schema}
         if T.storage_root():
             kwargs["storage_root"] = T.storage_root()
-        if source.startswith(("http://", "https://")):
+        if source.startswith("dhis2://"):  # lu par le connecteur, versionné comme un fichier CSV de l'espace
+            df, err = _read_df(source)
+            if err:
+                raise ValueError(err)
+            local = os.path.join(T.uploads_dir(), source_label(source) + ".csv")
+            df.to_csv(local, index=False)
+            kwargs["dataset_name"] = os.path.basename(local)
+            source = local
+        elif source.startswith(("http://", "https://")):
             source = normalize_source_url(source)
             if T.CLOUD:  # téléchargé par le serveur (protection SSRF), puis ingéré comme fichier
                 data, ctype = netguard.fetch(source)

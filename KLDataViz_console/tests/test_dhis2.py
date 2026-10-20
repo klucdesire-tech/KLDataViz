@@ -168,7 +168,7 @@ def test_read_dhis2_http_error_message(isolated, monkeypatch):
 
 def test_fetch_rejects_internal_instance(isolated):
     """Sécurité : netguard bloque un appel vers une adresse interne (anti-SSRF)."""
-    import netguard
+    netguard = dhis2.netguard  # le module réellement utilisé (d'autres tests rechargent les modules)
     dhis2.save_credentials("127.0.0.1", "u", "p")
     with pytest.raises(netguard.BlockedURL):
         dhis2._fetch_json("https://127.0.0.1/api/analytics.json", "u", "p", allow_private=False)
