@@ -100,3 +100,20 @@ def test_sens_souhaite_des_indicateurs_hors_sante():
     assert _bon("Taux d'annulation") == -1 and _bon("Jours d'absence moyens") == -1 and _bon("Taux de départ volontaire") == -1
     assert _bon("Chiffre d'affaires total") == 1 and _bon("Taux d'admission") == 1
     assert _bon("Population par département") == 1 and _bon("Ventes de panneaux solaires") == 1   # mots entiers
+
+
+def test_envoyer_maintenant_avec_le_texte_du_champ(monkeypatch):
+    """Bug : le texte « a@x.org, b@y.org » passait tel quel → Brevo recevait chaque caractère comme adresse."""
+    reset_app_modules()
+    import server  # noqa: PLC0415
+    import studio  # noqa: PLC0415
+    T, sources = server.T, server.sources
+    envois = []
+    monkeypatch.setattr(studio, "send_mail", lambda to, sujet, corps, piece=None: envois.append(to))
+    with T.use(T.LOCAL):
+        monkeypatch.setattr(sources, "connectable", lambda path: False)
+        s = _tableau(sources)
+        sources.send_mail_now(s["id"], None, None, to="chef@exemple.org, collegue@exemple.org")
+        assert envois[-1] == ["chef@exemple.org", "collegue@exemple.org"]
+        with pytest.raises(ValueError, match="invalide"):
+            sources.send_mail_now(s["id"], None, None, to="chef@exemple.org, pas-une-adresse")

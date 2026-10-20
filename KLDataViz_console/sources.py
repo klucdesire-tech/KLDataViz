@@ -212,15 +212,22 @@ def due(now=None):
 
 
 # ---------------------------------------------------------------- envoi du tableau de bord par e-mail
-def set_mail(source_id: str, to, freq: str, hour: int = 7):
+def _emails(to) -> list:
+    """« a@x.org, b@y.org » (texte ou liste) → liste d'adresses valides ; erreur claire sinon."""
     import re
+    items = to if isinstance(to, (list, tuple)) else re.split(r"[,;\s]+", str(to or ""))
+    out = [str(x).strip() for x in items if str(x).strip()]
+    bad = [x for x in out if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", x)]
+    if bad:
+        raise ValueError("Adresse e-mail invalide : " + ", ".join(bad))
+    return out
+
+
+def set_mail(source_id: str, to, freq: str, hour: int = 7):
     import studio
     if freq not in MAIL_FREQS:
         raise ValueError("Fréquence d'envoi inconnue.")
-    to = [x.strip() for x in re.split(r"[,;\s]+", str(to or "")) if x.strip()]
-    bad = [x for x in to if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", x)]
-    if bad:
-        raise ValueError("Adresse e-mail invalide : " + ", ".join(bad))
+    to = _emails(to)
     if freq != "off" and not to:
         raise ValueError("Indiquez au moins un destinataire.")
     if len(to) > 20:
@@ -240,9 +247,11 @@ def send_mail_now(source_id: str, read_df, build, to=None):
     s = next((x for x in _load() if x["id"] == source_id), None)
     if s is None:
         raise KeyError("Tableau de bord introuvable.")
-    dest = to or s.get("mail_to") or []
+    dest = _emails(to) if to else list(s.get("mail_to") or [])  # texte du champ → liste d'adresses
     if not dest:
         raise ValueError("Aucun destinataire.")
+    if len(dest) > 20:
+        raise ValueError("20 destinataires au maximum.")
     if s.get("connected", True):
         try:
             refresh(source_id, read_df, build)
