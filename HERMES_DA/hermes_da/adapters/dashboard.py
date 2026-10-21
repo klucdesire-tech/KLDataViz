@@ -502,21 +502,50 @@ def _col(df, names, numeric=False):
     return None
 
 
+_CATALOGUE_MODE = False  # True quand un dictionnaire d'indicateurs importé est utilisé (Mode B)
+
+
+def _catalogue():
+    """Domaines à utiliser : dictionnaire importé (Mode B, prioritaire) sinon normes intégrées (Mode A)."""
+    global _CATALOGUE_MODE
+    try:
+        from hermes_da import indicators_catalog as cat
+        inds = cat.load_dictionary()
+        if inds:
+            _CATALOGUE_MODE = True
+            return cat.to_domains(inds), True
+    except Exception:
+        pass
+    _CATALOGUE_MODE = False
+    return DOMAINES, False
+
+
 def _detect_domaine(df) -> dict | None:
     """Domaine/programme le plus représenté dans les noms de colonnes et les libellés d'indicateurs (mots entiers)."""
     words = " " + _norm(" ".join(str(c) for c in df.columns))
     ic = _col(df, _IND_COLS)
     if ic is not None:
         words += " " + _norm(" ".join(df[ic].dropna().astype(str).unique()[:300]))
+    # Fichiers « une ligne par patient » (liste) : le domaine se lit aussi dans les VALEURS des
+    # colonnes catégorielles (motif, régime, statut…), pas seulement dans les noms de colonnes.
+    import pandas as pd
+    for c in df.columns:
+        if c == ic or pd.api.types.is_numeric_dtype(df[c]) or pd.api.types.is_datetime64_any_dtype(df[c]):
+            continue
+        vals = df[c].dropna().astype(str).unique()
+        if len(vals) > 60:
+            continue
+        words += " " + _norm(" ".join(vals[:60]))
     words += " "
+    cat = _catalogue()[0]
     best, score = None, 0
-    for cle, dom in DOMAINES.items():
+    for cle, dom in cat.items():
         n = sum(words.count(" " + m + " ") for m in dom["mots"])
         if n > score:
             best, score = cle, n
     if not best:
         return None
-    return {"cle": best, "nom": DOMAINES[best]["nom"], "indicateurs": DOMAINES[best]["indicateurs"]}
+    return {"cle": best, "nom": cat[best]["nom"], "indicateurs": cat[best]["indicateurs"]}
 
 
 def _match(label_norm: str, ki: dict) -> bool:
