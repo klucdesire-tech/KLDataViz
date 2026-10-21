@@ -34,6 +34,10 @@ BANNED_ATTRS = {
     "distutils", "testing", "os", "sys", "system", "popen", "format", "format_map", "plot", "plotting",
     "style", "api", "core", "compat", "util", "errors", "options", "set_option", "get_option",
     "pipe", "ExcelWriter", "HDFStore", "describe_option", "ExcelFile", "DataSource",
+    # chaînes de sous-modules menant aux fonctions intégrées ou au chargement de modules
+    "builtins", "importlib", "inspect", "overrides", "getattr", "setattr", "delattr", "modules",
+    "char", "ctypes", "typing", "functools", "operator", "warnings", "linecache", "pathlib", "shutil",
+    "subprocess", "socket", "pickle", "marshal",
 }
 # Méthodes appelables par leur NOM en texte (df.apply('to_csv', …), df.agg('eval', …)) : refusées aussi
 # quand elles apparaissent comme chaîne de caractères.

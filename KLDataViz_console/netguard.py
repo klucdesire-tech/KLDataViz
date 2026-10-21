@@ -27,11 +27,11 @@ def check_url(url: str, allow_private: bool = False, https_only: bool = True) ->
         raise BlockedURL("Lien invalide.")
     if allow_private:
         return
-    public_ip(u.hostname, u.port or 443)
+    public_ips(u.hostname, u.port or 443)
 
 
-def public_ip(host: str, port: int) -> str:
-    """Résout `host` et renvoie une adresse publique ; lève BlockedURL si l'une est interne."""
+def public_ips(host: str, port: int) -> list:
+    """Résout `host` et renvoie ses adresses (toutes publiques) ; lève BlockedURL si l'une est interne."""
     try:
         infos = socket.getaddrinfo(host, port, proto=socket.IPPROTO_TCP)
     except socket.gaierror:
@@ -40,7 +40,7 @@ def public_ip(host: str, port: int) -> str:
         ip = ipaddress.ip_address(info[4][0].split("%")[0])
         if not ip.is_global or ip.is_multicast:
             raise BlockedURL("Ce lien pointe vers une adresse interne : il est refusé.")
-    return infos[0][4][0]
+    return list(dict.fromkeys(info[4][0] for info in infos))
 
 
 class _PinnedHTTPSConnection(http.client.HTTPSConnection):
@@ -49,8 +49,17 @@ class _PinnedHTTPSConnection(http.client.HTTPSConnection):
     Le certificat reste vérifié pour le nom d'hôte."""
 
     def connect(self):
-        ip = public_ip(self.host, self.port)
-        sock = socket.create_connection((ip, self.port), self.timeout, self.source_address)
+        if self._tunnel_host:  # proxy HTTPS : la cible est contrôlée par check_url, le proxy fait la connexion
+            return super().connect()
+        err = None
+        for ip in public_ips(self.host, self.port):  # comme create_connection : chaque adresse vérifiée, tour à tour
+            try:
+                sock = socket.create_connection((ip, self.port), self.timeout, self.source_address)
+                break
+            except OSError as exc:
+                err = exc
+        else:
+            raise err or OSError(f"connexion impossible : {self.host}")
         self.sock = self._context.wrap_socket(sock, server_hostname=self.host)
 
 
