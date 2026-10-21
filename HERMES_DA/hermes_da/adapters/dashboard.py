@@ -104,6 +104,36 @@ def _llm_dashboard(profile_json: str, llm=None) -> dict | None:
         return None
 
 
+def _resolve_llm(llm):
+    """Transforme le paramètre `llm` en callable (messages, max_tokens) -> texte, ou None si IA indisponible.
+
+    `llm` = False → pas d'IA ; None → clé dans llm_config.json ; callable → utilisé tel quel."""
+    if llm is False:
+        return None
+    if callable(llm):
+        return llm
+    cfg_path = os.path.join(config.CONSOLE_DIR, "llm_config.json")
+    if not os.path.isfile(cfg_path):
+        return None
+    try:
+        with open(cfg_path, encoding="utf-8") as fh:
+            cfg = json.load(fh)
+        key = cfg.get("api_key", "")
+        if not key or "VOTRE_CLE" in str(key):
+            return None
+        def call(messages, max_tokens):
+            body = json.dumps({"model": cfg.get("model", "deepseek-v4-pro"), "messages": messages,
+                               "max_tokens": max_tokens, "temperature": 0}).encode("utf-8")
+            req = urllib.request.Request(cfg["base_url"], data=body, method="POST",
+                                         headers={"Content-Type": "application/json",
+                                                  "Authorization": f"Bearer {key}"})
+            r = json.loads(urllib.request.urlopen(req, timeout=300).read().decode())
+            return (r.get("choices") or [{}])[0].get("message", {}).get("content", "")
+        return call
+    except Exception:
+        return None
+
+
 def _profile(df) -> dict:
     """Profil compact du dataset (colonnes, types, exemples, répartition)."""
     import pandas as pd
@@ -1188,6 +1218,14 @@ def generate_dashboard(df, objective: str = "", job_id: str | None = None, llm=N
             dict_inds = _cat.load_dictionary()
             if dict_inds:
                 res = _cat.match_and_compute(df, dict_inds)
+                llm_fn = _resolve_llm(llm)
+                if llm_fn:
+                    try:
+                        res_llm = _cat.match_and_compute_llm(df, dict_inds, llm_fn)
+                        if res_llm and any(r["present"] for r in res_llm):
+                            res = res_llm  # LLM plus fiable sur les cas ambigus
+                    except Exception:
+                        pass
                 dict_codes = {i["code"].strip().lower() for i in dict_inds}
                 dict_lib = {_norm(i["libelle"]) for i in dict_inds}
                 meta["dictionnaire"] = _json_safe({

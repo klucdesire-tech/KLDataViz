@@ -313,6 +313,100 @@ def _stem(w):
     return w
 
 
+
+
+# --------------------------------------------------------------------------
+# Matching assisté par LLM (cas ambigus que le matching par mots-clés rate)
+# --------------------------------------------------------------------------
+MATCH_SYSTEM = """Tu relies un fichier de données à un dictionnaire d'indicateurs métier.
+Pour CHAQUE indicateur, détermine s'il est calculable depuis les colonnes du fichier, et comment.
+Réponds en JSON STRICT (aucun texte avant ni après) :
+{"matches":[{"code":"...","present":true,"colonne":"...","calcul":"taux"|"somme"|"comptage","positif":"...","negatif":"..."}]}
+
+Règles :
+- « Pourcentage »/« taux » : present=true seulement si une colonne catégorielle porte le résultat
+  (ex. SUPPRIME / NON-SUPPRIME). « calcul »="taux", « positif »=la valeur positive, « negatif »=l'autre.
+- « Nombre » : « calcul »="somme" si une colonne numérique porte la valeur, sinon "comptage".
+- Indicateur non calculable (colonnes/valeurs absentes) : « present »=false.
+- Ne cite que des colonnes qui existent réellement dans le fichier."""
+
+
+def _compute_from_mapping(df, mapping, indicators):
+    """Calcule les valeurs à partir du mapping renvoyé par le LLM."""
+    import pandas as pd
+    by_code = {i["code"].strip().lower(): i for i in indicators}
+    out = []
+    for m in mapping.get("matches", []):
+        code = str(m.get("code") or "").strip().lower()
+        ind = by_code.get(code)
+        if ind is None:
+            continue
+        base = {"code": ind["code"], "libelle": ind["libelle"], "type": ind["type"]}
+        if not m.get("present"):
+            out.append(dict(base, present=False, valeur=None, detail=None))
+            continue
+        col = m.get("colonne")
+        if col is None or col not in df.columns:
+            out.append(dict(base, present=False, valeur=None, detail=None))
+            continue
+        calcul = str(m.get("calcul") or "").lower()
+        if calcul in ("taux", "pourcentage", "rate", "pct", "proportion"):
+            pos, neg = str(m.get("positif") or ""), str(m.get("negatif") or "")
+            s = df[col].astype(str).str.strip()
+            n_pos = int((s == pos).sum()) if pos else 0
+            n_neg = int((s == neg).sum()) if neg else 0
+            if not pos:  # positif non précisé : on prend les 2 valeurs de la colonne
+                vals = [v for v in df[col].dropna().astype(str).unique()
+                        if str(v).strip().lower() not in ("", "nan", "none", "null")]
+                if len(vals) == 2:
+                    pos, neg = vals[0], vals[1]
+                    n_pos, n_neg = int((s == pos).sum()), int((s == neg).sum())
+            val = round(n_pos / (n_pos + n_neg) * 100, 1) if (n_pos + n_neg) else None
+            out.append(dict(base, present=True, valeur=val, detail=f"{n_pos} / {n_pos + n_neg}"))
+        else:  # somme / comptage
+            if pd.api.types.is_numeric_dtype(df[col]):
+                val = float(pd.to_numeric(df[col], errors="coerce").sum())
+                detail = f"somme de « {col} »"
+            else:
+                val = float(df[col].dropna().shape[0])
+                detail = f"comptage de « {col} »"
+            out.append(dict(base, present=True, valeur=val, detail=detail))
+    return out
+
+
+def match_and_compute_llm(df, indicators, llm):
+    """Matching via le LLM : renvoie la même structure que match_and_compute, ou None en cas d'échec.
+
+    ``llm(messages, max_tokens) -> texte`` est fourni par l'appelant (console / orchestrateur)."""
+    import json
+    import pandas as pd
+    cols = []
+    for c in df.columns:
+        ex = [str(v) for v in df[c].dropna().astype(str).unique()[:6]]
+        cols.append({"nom": str(c), "type": "numerique" if pd.api.types.is_numeric_dtype(df[c]) else "texte",
+                     "exemples": ex})
+    payload = json.dumps({
+        "indicateurs": [{k: i.get(k, "") for k in ("code", "libelle", "type", "numerateur", "denominateur")}
+                        for i in indicators],
+        "colonnes": cols,
+    }, ensure_ascii=False)
+    try:
+        raw = llm([{"role": "system", "content": MATCH_SYSTEM},
+                   {"role": "user", "content": payload}], 8000) or ""
+    except Exception:
+        return None
+    m = re.search(r"\{.*\}", raw, re.S)
+    if not m:
+        return None
+    try:
+        mapping = json.loads(m.group(0))
+    except Exception:
+        return None
+    if not isinstance(mapping, dict) or "matches" not in mapping:
+        return None
+    return _compute_from_mapping(df, mapping, indicators)
+
+
 def match_and_compute(df, indicators):
     """Pour chaque indicateur du dictionnaire : présent dans les données ? et valeur selon son type.
 

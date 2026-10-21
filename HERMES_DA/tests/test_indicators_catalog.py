@@ -111,3 +111,42 @@ def test_match_compute_absent_indicator():
              "type": "Pourcentage", "numerateur": "", "denominateur": ""}]
     res = cat.match_and_compute(df, inds)
     assert res[0]["present"] is False
+
+
+# --- Matching assisté par LLM (réponse simulée, aucun appel réseau) ---
+def test_match_compute_llm_taux():
+    df = pd.DataFrame({"STATUT RESULTAT (S/NS)": ["SUPPRIME", "SUPPRIME", "SUPPRIME", "NON-SUPPRIME"]})
+    inds = [{"domaine": "Suppression virale", "code": "TX_PVLS", "libelle": "charge virale supprimée",
+             "type": "Pourcentage", "numerateur": "", "denominateur": ""}]
+
+    def fake_llm(messages, max_tokens):
+        return ('{"matches":[{"code":"TX_PVLS","present":true,"colonne":"STATUT RESULTAT (S/NS)",'
+                '"calcul":"taux","positif":"SUPPRIME","negatif":"NON-SUPPRIME"}]}')
+
+    res = cat.match_and_compute_llm(df, inds, fake_llm)
+    assert res[0]["present"] is True
+    assert res[0]["valeur"] == 75.0
+    assert res[0]["detail"] == "3 / 4"
+
+
+def test_match_compute_llm_somme_et_absent():
+    df = pd.DataFrame({"valeur": [10, 5]})
+    inds = [{"domaine": "T", "code": "TX_NEW", "libelle": "nouveaux", "type": "Nombre",
+             "numerateur": "", "denominateur": ""},
+            {"domaine": "T", "code": "TX_CURR", "libelle": "actifs", "type": "Nombre",
+             "numerateur": "", "denominateur": ""}]
+
+    def fake_llm(messages, max_tokens):
+        return ('{"matches":[{"code":"TX_NEW","present":true,"colonne":"valeur","calcul":"somme"},'
+                '{"code":"TX_CURR","present":false}]}')
+
+    res = cat.match_and_compute_llm(df, inds, fake_llm)
+    assert res[0]["present"] and res[0]["valeur"] == 15.0
+    assert res[1]["present"] is False
+
+
+def test_match_compute_llm_garbage_returns_none():
+    df = pd.DataFrame({"x": [1, 2]})
+    inds = [{"domaine": "X", "code": "A", "libelle": "a", "type": "Nombre",
+             "numerateur": "", "denominateur": ""}]
+    assert cat.match_and_compute_llm(df, inds, lambda m, t: "pas du json") is None
