@@ -294,3 +294,111 @@ def catalogue(structure: str = "default"):
     if not indicators:
         return BUILTIN_DOMAINS, False
     return to_domains(indicators), True
+
+
+
+# --------------------------------------------------------------------------
+# Matching indicateur → données + calcul par type (Nombre = somme/comptage, Pourcentage = taux)
+# --------------------------------------------------------------------------
+def _stem(w):
+    """Racine simple pour rapprocher « supprimée / supprimé / SUPPRIME / patients ».
+
+    Ne tronque pas les mots courts (« sans » reste « sans », pas « san »)."""
+    if w.endswith("ee"):
+        w = w[:-2] + "e"
+    if len(w) > 4 and w.endswith("e"):
+        w = w[:-1]
+    if len(w) >= 5 and w.endswith("s"):
+        w = w[:-1]
+    return w
+
+
+def match_and_compute(df, indicators):
+    """Pour chaque indicateur du dictionnaire : présent dans les données ? et valeur selon son type.
+
+    - Format long (colonne « indicateur/code/libellé » + « valeur ») : matcher le code exact ou
+      les mots-clés ; « Nombre » = somme, « Pourcentage » = valeur lue (déjà un taux).
+    - Format liste (une ligne = une observation) : matcher une colonne catégorielle dont les VALEURS
+      portent les mots-clés (ex. SUPPRIME / NON-SUPPRIME) ; « Pourcentage » = taux (positif / total),
+      « Nombre » = comptage du positif. Un taux privilégie une colonne BINAIRE (2 valeurs).
+
+    Renvoie une liste de dicts {code, libelle, type, present, valeur, detail}.
+    """
+    import pandas as pd
+    ic = next((c for c in df.columns if _norm(c) in ("indicator", "indicateur", "indicateurs",
+                                                     "code", "libelle", "libellé")), None)
+    vc = next((c for c in df.columns if _norm(c) in ("value", "valeur", "val", "montant", "mesure", "total")
+               and pd.to_numeric(df[c], errors="coerce").notna().any()), None)
+
+    def _kw(ind):
+        return _keywords(ind["code"], ind["libelle"])
+
+    def _stems(ind):
+        tous, un = _kw(ind)
+        return {_stem(w) for w in un if (" " in w) or len(w) >= 4}  # bigramme ou mot >= 4 (exclut vih/hiv/arv)
+
+    out = []
+    # --- Format long ---
+    if ic is not None and vc is not None:
+        labels = df[ic].dropna().astype(str)
+        for ind in indicators:
+            code = ind["code"].strip().lower()
+            mask = labels.str.strip().str.lower().eq(code)
+            if not mask.any():
+                tous, _ = _kw(ind)
+                ln = labels.str.lower().str.replace(r"\s+", " ", regex=True)
+                mask = ln.apply(lambda t: all(m in t for m in tous)) if tous else pd.Series(False, index=labels.index)
+            if not mask.any():
+                out.append({"code": ind["code"], "libelle": ind["libelle"], "type": ind["type"],
+                            "present": False, "valeur": None, "detail": None})
+                continue
+            vals = pd.to_numeric(df.loc[mask, vc], errors="coerce")
+            val = float(vals.sum(min_count=1)) if vals.notna().any() else None
+            out.append({"code": ind["code"], "libelle": ind["libelle"], "type": ind["type"],
+                        "present": True, "valeur": val, "detail": f"somme de « {vc} »"})
+        return out
+
+    # --- Format liste (une ligne par observation) ---
+    cat_cols = []
+    for c in df.columns:
+        if pd.api.types.is_numeric_dtype(df[c]) or pd.api.types.is_datetime64_any_dtype(df[c]):
+            continue
+        vals = [str(v).strip() for v in df[c].dropna().unique()
+                if str(v).strip().lower() not in ("", "nan", "none", "null", "nat")]
+        if 2 <= len(vals) <= 8:
+            cat_cols.append((c, vals))
+
+    for ind in indicators:
+        stems = _stems(ind)
+        is_rate = (ind["type"] or "").strip().lower() in ("pourcentage", "proportion", "taux", "%", "rate", "pct")
+        cands = cat_cols
+        if is_rate:
+            cands = [(c, v) for c, v in cat_cols if len(v) == 2] or cat_cols  # taux : colonne binaire d'abord
+        hit = None
+        for c, vals in cands:
+            vstem = {_stem(w) for v in vals for w in _norm(v).split() if len(w) >= 3}
+            if stems & vstem:
+                hit = (c, vals)
+                break
+        if hit is None:
+            out.append({"code": ind["code"], "libelle": ind["libelle"], "type": ind["type"],
+                        "present": False, "valeur": None, "detail": None})
+            continue
+        c, vals = hit
+        def _negated(v):
+            n = _norm(v)
+            return n.startswith("non ") or n == "non" or n.startswith("pas ") or n == "pas"
+        pos = [v for v in vals if not _negated(v)
+               and stems & {_stem(w) for w in _norm(v).split() if len(w) >= 3}]
+        neg = [v for v in vals if v not in pos]
+        n_pos = int(df[c].astype(str).str.strip().isin(pos).sum())
+        n_neg = int(df[c].astype(str).str.strip().isin(neg).sum())
+        if is_rate:
+            val = round(n_pos / (n_pos + n_neg) * 100, 1) if (n_pos + n_neg) else None
+            detail = f"{n_pos} / {n_pos + n_neg}"
+        else:
+            val = float(n_pos)
+            detail = f"comptage {c} = {pos}"
+        out.append({"code": ind["code"], "libelle": ind["libelle"], "type": ind["type"],
+                    "present": True, "valeur": val, "detail": detail})
+    return out

@@ -81,3 +81,33 @@ def test_no_dictionary_falls_back_to_builtin():
     doms, has_dict = cat.catalogue("__aucune_structure__")
     assert has_dict is False
     assert "vih" in doms  # normes intégrées (Mode A)
+
+
+# --- Matching indicateur → données + calcul par type ---
+def test_match_compute_rate_from_linelist():
+    # Liste de patients (une ligne = une observation) : taux de suppression virale
+    df = pd.DataFrame({"STATUT RESULTAT (S/NS)": ["SUPPRIME", "SUPPRIME", "SUPPRIME", "NON-SUPPRIME"]})
+    inds = [{"domaine": "Suppression virale", "code": "TX_PVLS", "libelle": "charge virale supprimée",
+             "type": "Pourcentage", "numerateur": "", "denominateur": ""}]
+    res = cat.match_and_compute(df, inds)
+    assert res[0]["present"] is True
+    assert res[0]["valeur"] == 75.0  # 3/4
+    assert res[0]["detail"] == "3 / 4"
+
+
+def test_match_compute_long_format_sum():
+    # Format long : colonne indicateur + valeur ; indicateur « Nombre » → somme
+    df = pd.DataFrame({"indicateur": ["TX_NEW", "TX_NEW", "TX_CURR"], "valeur": [10, 5, 100]})
+    inds = [{"domaine": "Traitement", "code": "TX_NEW", "libelle": "Nouveaux sous TARV",
+             "type": "Nombre", "numerateur": "", "denominateur": ""}]
+    res = cat.match_and_compute(df, inds)
+    assert res[0]["present"] is True
+    assert res[0]["valeur"] == 15.0  # 10 + 5
+
+
+def test_match_compute_absent_indicator():
+    df = pd.DataFrame({"indicateur": ["AUTRE_CHOSE"], "valeur": [7]})
+    inds = [{"domaine": "X", "code": "TX_PVLS", "libelle": "charge virale supprimée",
+             "type": "Pourcentage", "numerateur": "", "denominateur": ""}]
+    res = cat.match_and_compute(df, inds)
+    assert res[0]["present"] is False
