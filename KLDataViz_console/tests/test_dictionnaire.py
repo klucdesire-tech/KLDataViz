@@ -151,3 +151,49 @@ def test_l_ia_ne_remplace_pas_un_calcul_exact():
     trouves = {r["code"]: r["valeur"] for r in out["dictionnaire"]["trouves"]}
     assert trouves == {"TX_CURR": 320.0, "TX_PVLS": 85.0, "HTS_TST": 200.0}
     assert not any("dictionnaire d'indicateurs" in a for a in appels)  # codes explicites : l'IA n'est pas consultée
+
+
+def _cat_et_dico():
+    reset_app_modules()
+    import dictionnaire  # noqa: PLC0415
+    sys.path.insert(0, os.path.join(os.path.dirname(dictionnaire.__file__), "..", "HERMES_DA"))
+    from hermes_da import indicators_catalog as cat  # noqa: PLC0415
+    dictionnaire.importer(_xlsx(), "mer.xlsx")
+    return cat, dictionnaire.charger()
+
+
+def test_relecture_hermes_format_large_annee_numerique():
+    # 2 sites × 2 ans, année numérique : la période ne doit pas disparaître au dépivotage
+    cat, dico = _cat_et_dico()
+    large = pd.DataFrame({"site": ["A", "B", "A", "B"], "annee": [2024, 2024, 2025, 2025],
+                          "TX_CURR": [50, 60, 62, 70], "TX_PVLS": [70, 65, 68, 67]})
+    res = {r["code"]: r["valeur"] for r in cat.match_and_compute(large, dico) if r["present"]}
+    assert res["TX_CURR"] == 132.0   # 62 + 70 en 2025, pas la somme des 4 lignes (242)
+    assert res["TX_PVLS"] == 67.5    # moyenne des sites en 2025
+
+
+def test_relecture_hermes_colonne_code_d_une_liste_patients():
+    # « code » = code patient et « total » = un montant : ce n'est pas un export d'indicateurs
+    cat, dico = _cat_et_dico()
+    df = pd.DataFrame({"code": [f"P{i:03}" for i in range(12)], "total": range(12),
+                       "statut": ["SUPPRIME"] * 9 + ["NON SUPPRIME"] * 3})
+    assert cat._as_long(df, dico)[1] is None
+    seen = []
+    cat.match_and_compute_llm(df, dico, lambda m, n: seen.append(1) or '{"matches":[]}')
+    assert seen, "le LLM doit rester disponible pour ce cas"
+
+
+def test_taux_pondere_numerateur_denominateur():
+    cat, dico = _cat_et_dico()
+    df = pd.DataFrame({"site": ["A", "A", "B", "B"], "periode": ["2025-10"] * 4,
+                       "indicateur": ["TX_PVLS (N, DSD)", "TX_PVLS (D, DSD)", "TX_PVLS_N", "TX_PVLS_D"],
+                       "valeur": [900, 1000, 5, 10]})
+    r = {x["code"]: x for x in cat.match_and_compute(df, dico)}["TX_PVLS"]
+    assert r["valeur"] == 89.6        # 905 / 1010, pas la moyenne simple de 90 % et 50 % (70 %)
+
+
+def test_tx_curr_ne_prend_pas_tx_curr_nat():
+    cat, dico = _cat_et_dico()
+    df = pd.DataFrame({"indicateur": ["TX_CURR_NAT"], "periode": ["2025"], "valeur": [99]})
+    r = {x["code"]: x for x in cat.match_and_compute(df, dico)}["TX_CURR"]
+    assert r["present"] is False

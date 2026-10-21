@@ -436,10 +436,10 @@ def match_and_compute_llm(df, indicators, llm):
         # Seulement les étiquettes des colonnes catégorielles (2-8 valeurs : SUPPRIME/NON-SUPPRIME, OUI/NON…).
         if not pd.api.types.is_numeric_dtype(df[c]) and not pd.api.types.is_datetime64_any_dtype(df[c]) \
                 and not _IDLIKE.search(_norm(str(c))):  # jamais un identifiant, même à peu de valeurs
-            vals = [str(v).strip() for v in df[c].dropna().astype(str).unique()
-                    if str(v).strip().lower() not in ("", "nan", "none", "null", "nat")]
-            if 2 <= len(vals) <= 8 and len(df) >= 5 * len(vals):
-                entry["categorie"] = vals
+            vc_ = df[c].dropna().astype(str).str.strip()
+            vc_ = vc_[~vc_.str.lower().isin(("", "nan", "none", "null", "nat"))].value_counts()
+            if 2 <= len(vc_) <= 8 and int(vc_.min()) >= 2:
+                entry["categorie"] = [str(v) for v in vc_.index]
         cols.append(entry)
     payload = json.dumps({
         "indicateurs": [{k: i.get(k, "") for k in ("code", "libelle", "type", "numerateur", "denominateur")}
@@ -463,22 +463,48 @@ def match_and_compute_llm(df, indicators, llm):
     return _compute_from_mapping(df, mapping, indicators)
 
 
+def _part(label_norm: str, code_norm: str):
+    """Ligne/colonne relevant de l'indicateur `code` ? '' (valeur), 'n' (numérateur), 'd' (dénominateur), ou None.
+
+    Convention DATIM/DHIS2 : « TX_PVLS (N, DSD) », « TX_PVLS_D ». Jamais un autre code qui commence pareil
+    (TX_CURR ≠ TX_CURR_NAT)."""
+    if label_norm == code_norm:
+        return ""
+    if label_norm.startswith(code_norm + " "):
+        nxt = label_norm[len(code_norm) + 1:].split()[0]
+        if nxt in ("n", "d"):
+            return nxt
+        if nxt in ("dsd", "ta", "total"):
+            return ""
+    return None
+
+
 def _as_long(df, indicators):
     """(df, colonne indicateur, colonne valeur) si les indicateurs sont explicites dans le fichier.
 
     Format long : colonnes « indicateur » + « valeur ». Format large : une colonne numérique par code
-    (TX_CURR, TX_PVLS…), ramenée au format long. Sinon (liste d'observations) : (df, None, None)."""
+    (TX_CURR, TX_PVLS_N…), ramenée au format long en gardant TOUTES les autres colonnes (période numérique
+    comprise). Sinon (liste d'observations) : (df, None, None)."""
     import pandas as pd
+    codes = [_norm(i["code"]) for i in indicators if i.get("code")]
+
+    def known(label):
+        n = _norm(label)
+        return any(_part(n, c) is not None for c in codes)
+
     ic = next((c for c in df.columns if _norm(c) in ("indicator", "indicateur", "indicateurs",
                                                      "code", "libelle", "libellé")), None)
     vc = next((c for c in df.columns if _norm(c) in ("value", "valeur", "val", "montant", "mesure", "total")
                and pd.to_numeric(df[c], errors="coerce").notna().any()), None)
     if ic is not None and vc is not None:
-        return df, ic, vc
-    codes = {_norm(i["code"]) for i in indicators if i.get("code")}
-    wide = [c for c in df.columns if _norm(c) in codes and pd.api.types.is_numeric_dtype(df[c])]
+        # Une colonne « code »/« libellé » n'est une colonne d'indicateurs que si elle porte des codes du
+        # dictionnaire (sinon : code site ou code patient d'une liste d'observations)
+        if _norm(ic) in ("indicator", "indicateur", "indicateurs") or \
+                any(known(v) for v in df[ic].dropna().astype(str).unique()[:500]):
+            return df, ic, vc
+    wide = [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c]) and known(c)]
     if wide:
-        keep = [c for c in df.columns if c not in wide and not pd.api.types.is_numeric_dtype(df[c])]
+        keep = [c for c in df.columns if c not in wide]
         return df.melt(id_vars=keep, value_vars=wide, var_name="indicateur", value_name="valeur"), "indicateur", "valeur"
     return df, None, None
 
@@ -507,50 +533,50 @@ def match_and_compute(df, indicators):
     out = []
     # --- Format long ---
     if ic is not None and vc is not None:
-        labels = df[ic].dropna().astype(str)
+        labels = df[ic].dropna().astype(str).map(_norm)
         pcol = _period_col(df)
+        absent = lambda ind: {"code": ind["code"], "libelle": ind["libelle"], "type": ind["type"],  # noqa: E731
+                              "present": False, "valeur": None, "detail": None}
         for ind in indicators:
-            code = ind["code"].strip().lower()
-            mask = labels.map(_norm).eq(_norm(code))
-            if not mask.any():
-                tous, _ = _kw(ind)
-                ln = labels.str.lower().str.replace(r"\s+", " ", regex=True)
-                mask = ln.apply(lambda t: all(m in t for m in tous)) if tous else pd.Series(False, index=labels.index)
-            if not mask.any():
-                out.append({"code": ind["code"], "libelle": ind["libelle"], "type": ind["type"],
-                            "present": False, "valeur": None, "detail": None})
+            parts = labels.map(lambda t, c=_norm(ind["code"]): _part(t, c)).dropna()
+            if parts.empty:
+                out.append(absent(ind))
                 continue
             is_rate = (ind["type"] or "").strip().lower() in ("pourcentage", "proportion", "taux", "%", "rate", "pct")
             snapshot = _is_snapshot(ind)
-            if pcol is not None and df.loc[mask, pcol].notna().any():
-                sub = df.loc[mask].copy()
-                sub["__v"] = pd.to_numeric(sub[vc], errors="coerce")
-                sub = sub.dropna(subset=["__v"])
-                per = sub.groupby(sub[pcol].astype(str))["__v"]
-                # Plusieurs sites par période : un taux se moyenne, un comptage s'additionne
-                g = per.mean() if is_rate else per.sum()
-                g = g.loc[sorted(g.index, key=_pkey)]
-                if g.empty:
-                    out.append({"code": ind["code"], "libelle": ind["libelle"], "type": ind["type"],
-                                "present": False, "valeur": None, "detail": None})
-                    continue
-                if is_rate or snapshot:
-                    # un taux ne se somme pas ; un instantané = valeur de fin de période
-                    val = round(float(g.iloc[-1]), 1) if is_rate else float(g.iloc[-1])
-                    n_sites = int((sub[pcol].astype(str) == g.index[-1]).sum())
-                    detail = (f"moyenne de {n_sites} lignes, {g.index[-1]}" if is_rate and n_sites > 1
-                              else f"valeur {g.index[-1]}")
+            sub = df.loc[parts.index].copy()
+            sub["__v"] = pd.to_numeric(sub[vc], errors="coerce")
+            sub["__part"] = parts
+            sub = sub.dropna(subset=["__v"])
+            if sub.empty:
+                out.append(absent(ind))
+                continue
+            sub["__p"] = sub[pcol].astype(str) if pcol is not None and sub[pcol].notna().any() else ""
+            last = sorted(sub["__p"].unique(), key=_pkey)[-1]
+            fin = sub[sub["__p"] == last]
+            lib_p = f", {last}" if last else ""
+            if is_rate:
+                num, den = fin.loc[fin["__part"] == "n", "__v"].sum(), fin.loc[fin["__part"] == "d", "__v"].sum()
+                if (fin["__part"] == "n").any() and den > 0:
+                    # taux global exact : Σ numérateurs / Σ dénominateurs (pondéré par la taille des sites)
+                    val, detail = round(float(num / den * 100), 1), f"{float(num):g} / {float(den):g}{lib_p}"
                 else:
-                    val = float(g.sum())
-                    detail = f"somme {len(g)} périodes"
+                    v = fin.loc[fin["__part"] == "", "__v"]
+                    if v.empty:
+                        out.append(absent(ind))
+                        continue
+                    val = round(float(v.mean()), 1)
+                    detail = (f"moyenne simple de {len(v)} valeurs{lib_p} (sans numérateur/dénominateur)"
+                              if len(v) > 1 else f"valeur{lib_p}")
             else:
-                vals = pd.to_numeric(df.loc[mask, vc], errors="coerce")
-                if is_rate:
-                    val = round(float(vals.mean()), 1) if vals.notna().any() else None
-                    detail = f"moyenne de {int(vals.notna().sum())} valeurs (taux non sommé)"
+                cnt = sub[sub["__part"] != "d"]  # un comptage = la valeur (ou le numérateur), jamais le dénominateur
+                if snapshot:
+                    v = cnt.loc[cnt["__p"] == last, "__v"]
+                    val, detail = float(v.sum()), f"valeur de fin de période{lib_p}"
                 else:
-                    val = float(vals.sum(min_count=1)) if vals.notna().any() else None
-                    detail = f"somme de « {vc} »"
+                    n_per = cnt["__p"].nunique()
+                    val = float(cnt["__v"].sum())
+                    detail = f"somme de {n_per} périodes" if last else f"somme de « {vc} »"
             out.append({"code": ind["code"], "libelle": ind["libelle"], "type": ind["type"],
                         "present": True, "valeur": val, "detail": detail})
         return out

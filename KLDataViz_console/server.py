@@ -2272,11 +2272,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 cloud.require(T.current(), "owner", "analyst")
             if path.endswith("/delete"):
                 return self._send(200, dictionnaire.supprimer())
-            data = base64.b64decode(p.get("data") or "")
+            raw = str(p.get("data") or "")
+            if len(raw) > 1024 * 1024 * 4 // 3 + 4:  # taille vérifiée avant décodage
+                raise ValueError("Dictionnaire trop volumineux (1 Mo maximum).")
+            data = base64.b64decode(raw)
             if not data:
                 raise ValueError("Fichier vide.")
-            if len(data) > 1024 * 1024:
-                raise ValueError("Dictionnaire trop volumineux (1 Mo maximum).")
             return self._send(200, dictionnaire.importer(data, str(p.get("name") or "")))
         if path == "/api/dhis2/connect":  # identifiants chiffrés dans l'espace, puis lecture d'essai
             return self._send(200, dhis2_connect(p))

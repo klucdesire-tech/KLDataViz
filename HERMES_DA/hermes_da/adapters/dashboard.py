@@ -1254,8 +1254,9 @@ def generate_dashboard(df, objective: str = "", job_id: str | None = None, llm=N
                 for kd, k in zip(kpi_defs, kpis):
                     kd["hors_dictionnaire"] = (_norm(str(k.get("nom"))) not in dict_lib
                                                and str(k.get("nom", "")).strip().lower() not in dict_codes)
-        except Exception:
-            pass
+        except Exception as exc:  # le tableau de bord reste affiché, mais l'échec laisse une trace
+            import sys
+            print(f"[AGT-11] dictionnaire d'indicateurs ignoré : {type(exc).__name__} : {exc}", file=sys.stderr, flush=True)
     data = df.assign(__p=period_series) if period_series is not None else df
     if gaps:
         # Recalculés dans la page selon les filtres (sauf si l'échantillon de 6000 lignes fausserait les sommes)
