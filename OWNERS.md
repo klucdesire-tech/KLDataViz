@@ -20,6 +20,9 @@ Règle d'or : **avant d'éditer un fichier, vérifier son propriétaire ci-desso
 | `KLDataViz_console/cloud.py` | mode cloud / multi-tenant |
 | `KLDataViz_console/tenancy.py` | tenancy / équipes / rôles |
 | `KLDataViz_console/Dockerfile` | image Render |
+| `KLDataViz_console/sources.py` | sources connectées, actualisation, envoi programmé par e-mail |
+| `KLDataViz_console/shares.py` | liens de partage des tableaux de bord |
+| `KLDataViz_console/dictionnaire.py` | dictionnaire d'indicateurs de l'espace (stockage + import) |
 
 ## Hermes — backend & agents
 
@@ -41,6 +44,7 @@ Règle d'or : **avant d'éditer un fichier, vérifier son propriétaire ci-desso
 | Fichier | Pourquoi c'est partagé |
 | --- | --- |
 | `KLDataViz_console/server.py` | **point chaud** : endpoints backend (Hermes) + sert l'UI (Claude) |
+| `KLDataViz_console/dhis2.py` | connecteur DHIS2 (lecture : Hermes) + coffre chiffré par espace (Claude) |
 | `KLDataViz_console/llm_config.json` | config LLM (clé, modèle) |
 | `README.md`, `requirements.txt`, `.gitignore` | fichiers transverses |
 | `KLDataViz_console/tests/` | tests des deux périmètres ; chacun ajoute ceux de son code |
@@ -59,3 +63,5 @@ Règle d'or : **avant d'éditer un fichier, vérifier son propriétaire ci-desso
    Toute route `/api/...` appelée par l'interface est couverte par un test ; un changement de format de réponse
    met à jour le test et l'interface dans la même PR.
 8. **Aucune donnée de santé réelle** (TA-MOH) n'est committée ni envoyée à l'IA pendant les tests : données fictives.
+9. **Relecture croisée** : une PR qui touche le périmètre de l'autre agent est relue par lui avant fusion
+   (Hermes via son CLI, en lecture seule) ; la PR signale ce périmètre et résume l'avis rendu.
