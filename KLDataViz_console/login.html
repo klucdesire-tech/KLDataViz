@@ -4,109 +4,183 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>Connexion · KLDataViz Studio</title>
+<meta name="color-scheme" content="light">
 <link rel="icon" href="/logo.png">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@500;600&family=Fira+Sans:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@500;600&family=Fira+Sans:wght@400;500;600;700;800&display=swap">
 <script src="/config.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <style>
-:root{--bg:#F3F6F4;--surface:#FFFFFF;--surface-2:#EBF1ED;--line:#D9E3DD;--fg:#11241A;--muted:#55685D;--brand:#1D7A4C;--brand-strong:#15633D;--brand-soft:#DCEFE4;--on-brand:#FFFFFF;--red:#B4372A;--red-soft:#FBE3DF;
+/* Page de connexion : thème sombre de l'application (jetons « dark » du Studio), accent vert de marque */
+:root{--page:#E9EFEB;--frame:#FFFFFF;--surface:#FFFFFF;--field:#F1F5F2;--field-2:#FFFFFF;--line:#D9E3DD;--fg:#11241A;--muted:#55685D;
+  --brand:#1D7A4C;--brand-strong:#15633D;--brand-deep:#1D7A4C;--on-brand:#FFFFFF;--red:#B4372A;--red-soft:#FBE3DF;--ok-soft:#DCEFE4;
   --sans:'Fira Sans',system-ui,-apple-system,'Segoe UI',sans-serif;--mono:'Fira Code',ui-monospace,Consolas,monospace;color-scheme:light}
-@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0D1411;--surface:#141D18;--surface-2:#1A2620;--line:#273730;--fg:#E4EEE8;--muted:#93A79B;--brand:#3FBF7E;--brand-strong:#5FD196;--brand-soft:#173826;--on-brand:#06140C;--red:#F2776A;--red-soft:#3C1D19;color-scheme:dark}}
-:root[data-theme="dark"]{--bg:#0D1411;--surface:#141D18;--surface-2:#1A2620;--line:#273730;--fg:#E4EEE8;--muted:#93A79B;--brand:#3FBF7E;--brand-strong:#5FD196;--brand-soft:#173826;--on-brand:#06140C;--red:#F2776A;--red-soft:#3C1D19;color-scheme:dark}
 *{box-sizing:border-box}
 html,body{min-height:100%;margin:0}
-body{background:var(--bg);color:var(--fg);font:15px/1.5 var(--sans);display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);min-height:100vh}
-:focus-visible{outline:2px solid var(--brand);outline-offset:2px;border-radius:6px}
-.pitch{background:var(--brand-strong);color:#EAF6EF;padding:56px clamp(24px,6vw,72px);display:flex;flex-direction:column;gap:28px;justify-content:center}
-.pitch .brand{display:flex;align-items:center;gap:12px;font-weight:700;font-size:18px}
-.pitch .brand img{width:34px;height:42px;object-fit:contain;background:#fff;border-radius:8px;padding:3px}
-.pitch h1{font-size:clamp(26px,3.2vw,38px);line-height:1.15;margin:0;max-width:18ch;text-wrap:balance;color:#fff}
-.pitch ol{list-style:none;padding:0;margin:0;display:grid;gap:14px;max-width:46ch}
-.pitch li{display:grid;grid-template-columns:30px 1fr;gap:12px;align-items:start}
-.pitch li span{width:30px;height:30px;border-radius:50%;background:rgba(255,255,255,.14);display:grid;place-items:center;font:600 13px var(--mono)}
-.pitch li b{display:block;color:#fff}.pitch li small{color:#BFE3CF;font-size:13.5px}
-.pitch .foot{font-size:12.5px;color:#BFE3CF}
-.side{display:grid;place-items:center;padding:32px 16px}
-.card{width:min(420px,100%);background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:28px;display:grid;gap:16px;box-shadow:0 1px 2px rgba(17,36,26,.05),0 10px 30px rgba(17,36,26,.07)}
-.tabs{display:grid;grid-template-columns:1fr 1fr;background:var(--surface-2);border-radius:10px;padding:4px;gap:4px}
-.tabs button{border:0;background:none;border-radius:8px;padding:9px;font:600 14px var(--sans);color:var(--muted);cursor:pointer;min-height:40px}
-.tabs button[aria-selected="true"]{background:var(--surface);color:var(--fg);box-shadow:0 1px 2px rgba(0,0,0,.08)}
-h2{margin:0;font-size:20px}
-p.sub{margin:-8px 0 0;color:var(--muted);font-size:14px}
-form{display:grid;gap:14px}
-label{display:grid;gap:6px;font-size:13.5px;font-weight:600}
-input{font:inherit;font-weight:400;padding:11px 12px;border:1px solid var(--line);border-radius:10px;background:var(--surface);color:var(--fg);min-height:44px;width:100%}
-input:focus{border-color:var(--brand);outline:none;box-shadow:0 0 0 3px color-mix(in srgb,var(--brand) 22%,transparent)}
-.btn{border:0;border-radius:10px;padding:12px 16px;min-height:46px;font:600 15px var(--sans);background:var(--brand);color:var(--on-brand);cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:8px}
-.btn:hover{background:var(--brand-strong)}.btn[disabled]{opacity:.6;cursor:wait}
-.btn.ghost{background:var(--surface);color:var(--fg);border:1px solid var(--line)}.btn.ghost:hover{background:var(--surface-2)}
-.link{background:none;border:0;color:var(--brand-strong);font:600 13.5px var(--sans);cursor:pointer;padding:4px 0;justify-self:start}
-.msg{border-radius:10px;padding:11px 13px;font-size:14px}
-.msg.err{background:var(--red-soft);color:var(--red)}.msg.ok{background:var(--brand-soft);color:var(--brand-strong)}
-.or{display:flex;align-items:center;gap:10px;color:var(--muted);font-size:12.5px}.or::before,.or::after{content:"";flex:1;height:1px;background:var(--line)}
-.legal{font-size:12px;color:var(--muted);text-align:center}
-.spin{width:14px;height:14px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:sp .8s linear infinite}
+body{background:radial-gradient(1100px 650px at 10% 0%,rgba(16,188,208,.12),transparent 60%),radial-gradient(900px 600px at 100% 100%,rgba(29,122,76,.10),transparent 60%),var(--page);color:var(--fg);font:15px/1.5 var(--sans);
+  min-height:100vh;display:grid;place-items:center;padding:clamp(12px,3vw,40px)}
+:focus-visible{outline:2px solid var(--brand);outline-offset:2px;border-radius:8px}
+a{color:inherit}
+.frame{width:min(1240px,100%);min-height:min(760px,calc(100vh - 2*clamp(12px,3vw,40px)));background:var(--frame);border:1px solid var(--line);
+  border-radius:28px;overflow:hidden;position:relative;display:grid;grid-template-rows:auto 1fr;box-shadow:0 1px 2px rgba(17,36,26,.05),0 40px 80px -40px rgba(17,36,26,.35)}
+/* Arrière-plan d'ambiance : un tableau de bord flouté (à la place de la photo du modèle) */
+.backdrop{position:absolute;inset:0;pointer-events:none;overflow:hidden}
+.backdrop .board{position:absolute;left:-4%;top:12%;width:62%;opacity:1;filter:blur(.8px);transform:perspective(1200px) rotateY(14deg) rotateX(6deg)}
+.backdrop::after{content:"";position:absolute;inset:0;background:
+  linear-gradient(90deg,rgba(255,255,255,.25) 0%,rgba(255,255,255,.62) 40%,var(--frame) 58%),
+  linear-gradient(180deg,rgba(255,255,255,.05),rgba(255,255,255,.85) 95%)}
+.board{display:grid;gap:10px}
+.board .row{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.board .k{border-radius:14px;padding:14px;background:#DCEFE4;display:grid;gap:4px}
+.board .k small{font-size:11px;color:#3F5A4B}.board .k b{font-size:22px;color:#11241A}
+.board .k.b{background:#DCEBFA}.board .k.c{background:#D3F4F6}
+.board .g{border-radius:14px;background:#F1F5F2;padding:12px}
+.board svg{display:block;width:100%;height:auto}
+/* Barre du haut */
+.top{position:relative;z-index:2;display:flex;align-items:center;gap:clamp(12px,3vw,40px);padding:22px clamp(20px,4vw,44px)}
+.logo{display:flex;align-items:center;gap:10px;font-weight:700;font-size:17px;text-decoration:none;color:var(--fg)}
+.logo img{width:34px;height:34px;object-fit:contain;background:#fff;border-radius:9px;padding:3px;border:1px solid var(--line)}
+.nav{display:flex;align-items:center;gap:clamp(14px,2.6vw,34px);margin-left:auto}
+.nav a,.nav button{background:none;border:0;color:var(--muted);font:600 14.5px var(--sans);text-decoration:none;cursor:pointer;padding:8px 2px;display:inline-flex;align-items:center;
+  border-bottom:2px solid transparent;transition:color .2s,border-color .2s;min-height:40px}
+.nav a:hover,.nav button:hover{color:var(--fg)}
+.nav [aria-selected="true"]{color:var(--fg);border-bottom-color:var(--brand)}
+/* Contenu */
+.content{position:relative;z-index:1;display:grid;grid-template-columns:minmax(0,1.05fr) minmax(0,1fr);align-items:center;gap:clamp(24px,4vw,64px);
+  padding:clamp(12px,3vw,32px) clamp(20px,5vw,72px) clamp(28px,4vw,56px)}
+.hero .eyebrow{font:600 13px var(--sans);letter-spacing:.12em;text-transform:uppercase;color:var(--brand);margin:0 0 14px}
+.hero h1{font-size:clamp(30px,3.6vw,46px);line-height:1.12;margin:0;letter-spacing:-.5px;text-wrap:balance;max-width:16ch}
+.hero h1 em{font-style:normal;color:var(--brand)}
+.hero p{color:var(--muted);font-size:15px;max-width:42ch;margin:18px 0 26px}
+.cta{display:flex;flex-wrap:wrap;gap:12px}
+.pill{display:inline-flex;align-items:center;justify-content:center;gap:8px;border-radius:999px;min-height:46px;padding:0 24px;font:600 14.5px var(--sans);
+  text-decoration:none;cursor:pointer;transition:background .2s,border-color .2s,box-shadow .2s,transform .15s}
+.pill.outline{border:1.5px solid #9DB1A5;color:var(--fg);background:rgba(255,255,255,.7)}
+.pill.outline:hover{border-color:var(--fg);background:#fff}
+.pill.solid{border:0;background:var(--brand);color:var(--on-brand);box-shadow:0 10px 24px -10px rgba(29,122,76,.6)}
+.pill.solid:hover{background:var(--brand-strong)}
+.pill:active{transform:translateY(1px)}
+/* Formulaire */
+.card{width:min(440px,100%);justify-self:end;display:grid;gap:14px}
+.card h2{font-size:clamp(30px,3vw,40px);line-height:1.08;margin:0 0 6px;letter-spacing:-.5px}
+.card h2 i{font-style:normal;color:var(--brand)}
+p.sub{margin:-4px 0 4px;color:var(--muted);font-size:14px}
+form{display:grid;gap:12px}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.field{position:relative;display:grid;background:var(--field);border:1.5px solid var(--line);border-radius:14px;padding:8px 46px 8px 16px;
+  transition:border-color .2s,box-shadow .2s,background .2s;cursor:text}
+.field:hover{background:var(--field-2)}
+.field:focus-within{border-color:var(--brand);box-shadow:0 0 0 4px rgba(29,122,76,.14);background:var(--field-2)}
+.field span{font-size:11.5px;color:var(--muted);font-weight:500}
+.field:focus-within span{color:var(--brand)}
+.field input{background:transparent;border:0;outline:0;color:var(--fg);font:600 15px var(--sans);padding:2px 0 0;min-height:24px;width:100%}
+.field input::placeholder{color:#8A9C91;font-weight:400}
+.field .ico{position:absolute;right:14px;top:50%;transform:translateY(-50%);width:20px;height:20px;color:var(--muted)}
+.field .ico svg{width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.field button.ico{background:none;border:0;padding:0;cursor:pointer;border-radius:6px;width:28px;height:28px;right:10px;display:grid;place-items:center}
+.field button.ico:hover{color:var(--fg)}
+.hint{font-size:12px;color:var(--muted);margin:-4px 0 0 4px}
+.switch{justify-self:end;color:var(--fg);font-size:14px;font-weight:500}
+.switch button,.link{background:none;border:0;color:var(--brand);font:600 14px var(--sans);cursor:pointer;padding:6px 2px}
+.switch button:hover,.link:hover{color:var(--brand-strong);text-decoration:underline;text-underline-offset:3px}
+.link{justify-self:start;font-size:13.5px}
+.btn{border:0;border-radius:999px;min-height:52px;padding:0 20px;font:700 15.5px var(--sans);background:var(--brand);color:var(--on-brand);cursor:pointer;
+  display:inline-flex;align-items:center;justify-content:center;gap:8px;box-shadow:0 14px 30px -12px rgba(29,122,76,.6);transition:background .2s,transform .15s}
+.btn:hover{background:var(--brand-strong)}.btn:active{transform:translateY(1px)}.btn[disabled]{opacity:.65;cursor:wait}
+.msg{border-radius:12px;padding:11px 14px;font-size:14px}
+.msg.err{background:var(--red-soft);color:var(--red)}.msg.ok{background:var(--ok-soft);color:var(--brand-strong)}
+.legal{font-size:12px;color:var(--muted);text-align:center;margin:4px 0 0}
+.spin{width:16px;height:16px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:sp .8s linear infinite}
 @keyframes sp{to{transform:rotate(360deg)}}
 [hidden]{display:none!important}
-@media (max-width:860px){body{grid-template-columns:minmax(0,1fr)}.pitch{padding:32px 20px;gap:18px}.pitch ol,.pitch .foot{display:none}}
-@media (prefers-reduced-motion:reduce){*{animation-duration:.01ms!important}}
+@media (max-width:920px){
+  .content{grid-template-columns:minmax(0,1fr);gap:28px}.card{justify-self:stretch;width:100%}
+  .hero h1{font-size:30px}.hero p{margin:12px 0 0}.hero .cta{display:none}.backdrop .board{width:110%;top:4%;opacity:.35}
+  .nav .about{display:none}}
+@media (max-width:520px){.top{padding:16px 18px}.logo span,.nav a{display:none}.two{grid-template-columns:1fr}.frame{border-radius:20px}}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation-duration:.01ms!important}}
 </style>
 </head>
 <body>
-<section class="pitch">
-  <a class="brand" href="/" style="color:inherit;text-decoration:none"><img src="/logo.png" alt="">KLDataViz Studio</a>
-  <h1>Vos données expliquées en minutes, pas en semaines.</h1>
-  <ol>
-    <li><span>1</span><div><b>Importez</b><small>Excel, CSV, JSON ou un lien Google Sheets.</small></div></li>
-    <li><span>2</span><div><b>Vérifiez</b><small>Hermes repère les erreurs et propose les corrections, vous choisissez.</small></div></li>
-    <li><span>3</span><div><b>Comprenez</b><small>Graphiques, points clés rédigés et réponses à vos questions en français.</small></div></li>
-    <li><span>4</span><div><b>Partagez</b><small>Rapports PDF, Excel ou web, envoyés automatiquement chaque mois.</small></div></li>
-  </ol>
-  <div class="foot">Vos données restent privées à votre espace. Essai gratuit de 14 jours.</div>
-</section>
-
-<main class="side">
-  <div class="card">
-    <div class="tabs" role="tablist" id="tabs">
-      <button role="tab" aria-selected="true" data-tab="in">Connexion</button>
-      <button role="tab" aria-selected="false" data-tab="up">Créer un compte</button>
+<div class="frame">
+  <div class="backdrop" aria-hidden="true">
+    <div class="board">
+      <div class="row"><div class="k"><small>Chiffre d'affaires</small><b>200,9 M</b></div><div class="k b"><small>Panier moyen</small><b>33 476</b></div><div class="k c"><small>Clients fidèles</small><b>30,2 %</b></div></div>
+      <div class="g"><svg viewBox="0 0 400 140"><path d="M0 100 C40 92 60 60 100 66 S160 104 200 82 S270 30 310 44 S370 78 400 26" fill="none" stroke="#3FBF7E" stroke-width="4" stroke-linecap="round"/>
+        <path d="M0 120 C50 116 80 96 120 100 S190 124 230 108 S300 76 340 88 S380 104 400 80" fill="none" stroke="#10BCD0" stroke-width="3" stroke-linecap="round" opacity=".8"/></svg></div>
+      <div class="row"><div class="g"><svg viewBox="0 0 120 70"><rect x="6" y="14" width="16" height="50" rx="4" fill="#3FBF7E"/><rect x="28" y="24" width="16" height="40" rx="4" fill="#2FA866"/><rect x="50" y="34" width="16" height="30" rx="4" fill="#10BCD0"/><rect x="72" y="42" width="16" height="22" rx="4" fill="#0091D0"/><rect x="94" y="50" width="16" height="14" rx="4" fill="#7FDCC4"/></svg></div>
+        <div class="g"><svg viewBox="0 0 120 70"><circle cx="60" cy="35" r="24" fill="none" stroke="#DCEFE4" stroke-width="12"/><circle cx="60" cy="35" r="24" fill="none" stroke="#3FBF7E" stroke-width="12" stroke-dasharray="100 151" transform="rotate(-90 60 35)"/></svg></div>
+        <div class="g"><svg viewBox="0 0 120 70"><path d="M8 58 L30 40 L52 46 L74 22 L96 30 L114 12" fill="none" stroke="#7FDCC4" stroke-width="3"/></svg></div></div>
     </div>
-    <div id="msg" class="msg" hidden></div>
-
-    <form id="fIn">
-      <h2>Bon retour</h2>
-      <label for="inEmail">Adresse e-mail<input type="email" id="inEmail" autocomplete="email" required></label>
-      <label for="inPass">Mot de passe<input type="password" id="inPass" autocomplete="current-password" required></label>
-      <button class="btn" type="submit">Se connecter</button>
-      <button class="link" type="button" id="forgot">Mot de passe oublié ?</button>
-    </form>
-
-    <form id="fUp" hidden>
-      <h2>Essayez KLDataViz</h2>
-      <p class="sub" id="upSub">14 jours gratuits, sans carte bancaire.</p>
-      <label for="upName">Votre nom<input type="text" id="upName" autocomplete="name" required></label>
-      <label for="upEmail">Adresse e-mail professionnelle<input type="email" id="upEmail" autocomplete="email" required></label>
-      <label for="upPass">Mot de passe <small style="font-weight:400;color:var(--muted)">(10 caractères minimum)</small><input type="password" id="upPass" autocomplete="new-password" minlength="10" required></label>
-      <button class="btn" type="submit">Créer mon compte</button>
-    </form>
-
-    <form id="fReset" hidden>
-      <h2>Mot de passe oublié</h2>
-      <p class="sub">Nous vous envoyons un lien pour en choisir un nouveau.</p>
-      <label for="rsEmail">Adresse e-mail<input type="email" id="rsEmail" autocomplete="email" required></label>
-      <button class="btn" type="submit">Envoyer le lien</button>
-      <button class="link" type="button" data-back>Retour à la connexion</button>
-    </form>
-
-    <form id="fNew" hidden>
-      <h2>Nouveau mot de passe</h2>
-      <label for="nwPass">Nouveau mot de passe<input type="password" id="nwPass" autocomplete="new-password" minlength="10" required></label>
-      <button class="btn" type="submit">Enregistrer</button>
-    </form>
-
-    <p class="legal">En continuant, vous acceptez les conditions d'utilisation de KLDataViz.</p>
   </div>
-</main>
+
+  <header class="top">
+    <a class="logo" href="/"><img src="/logo.png" alt=""><span>KLDataViz</span></a>
+    <nav class="nav" id="tabs" aria-label="Navigation">
+      <a href="/">Accueil</a>
+      <button type="button" data-tab="in" aria-selected="true">Connexion</button>
+      <button type="button" data-tab="up" aria-selected="false">Créer un compte</button>
+      <a class="about" href="/#fonctions">À propos</a>
+    </nav>
+  </header>
+
+  <div class="content">
+    <section class="hero">
+      <p class="eyebrow">Essai gratuit de 14 jours</p>
+      <h1>Vos données expliquées en <em>minutes</em>, pas en semaines.</h1>
+      <p>Importez un fichier : l'IA vérifie sa qualité, l'analyse et construit votre tableau de bord, en français. Vos données restent privées à votre espace.</p>
+      <div class="cta">
+        <a class="pill outline" href="/">Découvrir KLDataViz</a>
+        <button class="pill solid" type="button" data-tab="up">Créer mon compte</button>
+      </div>
+    </section>
+
+    <main class="card">
+      <div id="msg" class="msg" hidden></div>
+
+      <form id="fIn">
+        <h2>Bon retour<i>.</i></h2>
+        <label class="field" for="inEmail"><span>Adresse e-mail</span><input type="email" id="inEmail" autocomplete="email" placeholder="vous@exemple.com" required>
+          <i class="ico" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg></i></label>
+        <label class="field" for="inPass"><span>Mot de passe</span><input type="password" id="inPass" autocomplete="current-password" required>
+          <button class="ico" type="button" data-eye="inPass" aria-label="Afficher le mot de passe"><svg viewBox="0 0 24 24"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg></button></label>
+        <button class="link" type="button" id="forgot">Mot de passe oublié ?</button>
+        <button class="btn" type="submit">Se connecter</button>
+        <div class="switch">Pas encore de compte ? <button type="button" data-tab="up">Créer un compte</button></div>
+      </form>
+
+      <form id="fUp" hidden>
+        <h2>Créer un<br>nouveau compte<i>.</i></h2>
+        <p class="sub" id="upSub">14 jours gratuits, sans carte bancaire.</p>
+        <label class="field" for="upName"><span>Votre nom</span><input type="text" id="upName" autocomplete="name" placeholder="Prénom Nom" required>
+          <i class="ico" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6"/></svg></i></label>
+        <label class="field" for="upEmail"><span>Adresse e-mail professionnelle</span><input type="email" id="upEmail" autocomplete="email" placeholder="vous@organisation.org" required>
+          <i class="ico" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg></i></label>
+        <label class="field" for="upPass"><span>Mot de passe (10 caractères minimum)</span><input type="password" id="upPass" autocomplete="new-password" minlength="10" required>
+          <button class="ico" type="button" data-eye="upPass" aria-label="Afficher le mot de passe"><svg viewBox="0 0 24 24"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg></button></label>
+        <div class="switch">Déjà membre ? <button type="button" data-tab="in">Se connecter</button></div>
+        <button class="btn" type="submit">Créer mon compte</button>
+      </form>
+
+      <form id="fReset" hidden>
+        <h2>Mot de passe<br>oublié<i>.</i></h2>
+        <p class="sub">Nous vous envoyons un lien pour en choisir un nouveau.</p>
+        <label class="field" for="rsEmail"><span>Adresse e-mail</span><input type="email" id="rsEmail" autocomplete="email" required>
+          <i class="ico" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg></i></label>
+        <button class="btn" type="submit">Envoyer le lien</button>
+        <button class="link" type="button" data-back>Retour à la connexion</button>
+      </form>
+
+      <form id="fNew" hidden>
+        <h2>Nouveau<br>mot de passe<i>.</i></h2>
+        <label class="field" for="nwPass"><span>Nouveau mot de passe (10 caractères minimum)</span><input type="password" id="nwPass" autocomplete="new-password" minlength="10" required>
+          <button class="ico" type="button" data-eye="nwPass" aria-label="Afficher le mot de passe"><svg viewBox="0 0 24 24"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg></button></label>
+        <button class="btn" type="submit">Enregistrer</button>
+      </form>
+
+      <p class="legal">En continuant, vous acceptez les conditions d'utilisation de KLDataViz.</p>
+    </main>
+  </div>
+</div>
 
 <script>
 const $=s=>document.querySelector(s);
@@ -115,7 +189,7 @@ if(!cfg.cloud)location.replace('/');
 const HOME='/app';
 const sb=window.supabase.createClient(cfg.supabaseUrl,cfg.supabaseAnonKey,{auth:{persistSession:true,detectSessionInUrl:true}});
 const forms=['fIn','fUp','fReset','fNew'];
-function show(id){forms.forEach(f=>$('#'+f).hidden=f!==id);$('#tabs').hidden=id==='fReset'||id==='fNew';
+function show(id){forms.forEach(f=>$('#'+f).hidden=f!==id);
   $$('[data-tab]').forEach(b=>b.setAttribute('aria-selected',(b.dataset.tab==='in'&&id==='fIn')||(b.dataset.tab==='up'&&id==='fUp')));msg('')}
 function $$(s){return [...document.querySelectorAll(s)]}
 function msg(t,ok){const m=$('#msg');m.hidden=!t;m.textContent=t||'';m.className='msg '+(ok?'ok':'err')}
@@ -127,6 +201,9 @@ async function busy(form,fn){const b=form.querySelector('.btn');const old=b.inne
   try{await fn()}catch(e){msg(fr(e))}finally{b.disabled=false;b.innerHTML=old}}
 
 $$('[data-tab]').forEach(b=>b.onclick=()=>show(b.dataset.tab==='in'?'fIn':'fUp'));
+// Afficher / masquer le mot de passe
+$$('[data-eye]').forEach(b=>b.onclick=()=>{const i=$('#'+b.dataset.eye),on=i.type==='password';i.type=on?'text':'password';
+  b.setAttribute('aria-label',on?'Masquer le mot de passe':'Afficher le mot de passe');b.classList.toggle('on',on);i.focus()});
 $('#forgot').onclick=()=>{$('#rsEmail').value=$('#inEmail').value;show('fReset')};
 $$('[data-back]').forEach(b=>b.onclick=()=>show('fIn'));
 

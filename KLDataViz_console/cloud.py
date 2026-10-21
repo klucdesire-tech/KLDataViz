@@ -263,10 +263,10 @@ def invite(ctx: Ctx, email: str, role: str) -> dict:
                   f"Bonjour,\n\n{ctx.email} vous invite à rejoindre l'espace « {ctx.plan.get('org_name')} » "
                   f"sur KLDataViz.\n\nCréez votre compte avec cette adresse e-mail ({email}) ici :\n{link}\n\n"
                   "L'invitation est valable 14 jours.")
-        sent = True
-    except Exception:
-        sent = False
-    return {"ok": True, "email_sent": sent, "link": link}
+        sent, why = True, None
+    except Exception as exc:
+        sent, why = False, mail_failure(exc)
+    return {"ok": True, "email_sent": sent, "email_error": why, "link": link}
 
 
 def cancel_invite(ctx: Ctx, invite_id: str):
@@ -409,6 +409,12 @@ def admin_invite_client(ctx: Ctx, org_name: str, email: str, plan: str) -> dict:
     if q("select 1 from app.memberships m join auth.users u on u.id = m.user_id where lower(u.email) = %s",
          (email,), one=True):
         raise ValueError("Cette personne fait déjà partie d'un espace.")
+    pending = q("""select o.name from app.invitations i join app.organizations o on o.id = i.org_id
+                   where lower(i.email) = %s and i.accepted_at is null and i.expires_at > now() limit 1""",
+                (email,), one=True)
+    if pending:  # sinon un second espace serait créé pour la même personne
+        raise ValueError(f"Une invitation est déjà en attente pour cette adresse (espace « {pending['name']} »). "
+                         "Ouvrez « Gérer » sur cet espace et cliquez sur « Renvoyer ».")
     days = catalog[plan].get("days")
     org = q("""insert into app.organizations (name, plan, trial_end) values (%s, %s,
                case when %s::int is null then null else now() + make_interval(days => %s::int) end) returning id::text""",
@@ -416,16 +422,49 @@ def admin_invite_client(ctx: Ctx, org_name: str, email: str, plan: str) -> dict:
     q("""insert into app.invitations (org_id, email, role, token, invited_by, expires_at)
          values (%s, %s, 'owner', %s, %s, now() + interval '30 days')""",
       (org["id"], email, secrets.token_urlsafe(24), ctx.user_id))
+    sent, why, link = _client_invite_mail(email, org_name, catalog[plan]["label"])
+    return {"ok": True, "org_id": org["id"], "email_sent": sent, "email_error": why, "link": link}
+
+
+def _client_invite_mail(email: str, org_name: str, plan_label: str):
+    """E-mail d'invitation du propriétaire d'un nouvel espace → (envoyé, cause de l'échec, lien)."""
     link = f"{APP_URL}/login?invite=1&email={urllib.request.quote(email)}"
     try:
         send_mail([email], f"Votre espace KLDataViz « {org_name} » est prêt",
-                  f"Bonjour,\n\nVotre espace « {org_name} » a été créé sur KLDataViz (forfait {catalog[plan]['label']}).\n\n"
+                  f"Bonjour,\n\nVotre espace « {org_name} » a été créé sur KLDataViz (forfait {plan_label}).\n\n"
                   f"Créez votre compte avec cette adresse e-mail ({email}) pour y accéder :\n{link}\n\n"
                   "L'invitation est valable 30 jours.")
-        sent = True
-    except Exception:
-        sent = False
-    return {"ok": True, "org_id": org["id"], "email_sent": sent, "link": link}
+        return True, None, link
+    except Exception as exc:
+        return False, mail_failure(exc), link
+
+
+def admin_resend_invite(ctx: Ctx, org_id: str, email: str) -> dict:
+    """Renvoie l'invitation d'un espace (compte pas encore créé) et la prolonge de 30 jours."""
+    _admin(ctx)
+    email = (email or "").strip().lower()
+    inv = q("""select i.id::text, o.name, o.plan from app.invitations i join app.organizations o on o.id = i.org_id
+               where i.org_id = %s and lower(i.email) = %s and i.accepted_at is null
+               order by i.created_at desc limit 1""", (org_id, email), one=True)
+    if not inv:
+        raise ValueError("Aucune invitation en attente pour cette adresse dans cet espace.")
+    q("update app.invitations set expires_at = now() + interval '30 days' where id = %s", (inv["id"],))
+    label = (plans().get(inv["plan"]) or {}).get("label", inv["plan"])
+    sent, why, link = _client_invite_mail(email, inv["name"], label)
+    return {"ok": True, "email_sent": sent, "email_error": why, "link": link}
+
+
+def admin_test_mail(ctx: Ctx) -> dict:
+    """E-mail de test à l'administrateur connecté : vérifie la configuration Brevo sans créer d'espace."""
+    _admin(ctx)
+    info = {"to": ctx.email, "sender": MAIL_FROM or None, "configured": mail_ready()}
+    try:
+        send_mail([ctx.email], "KLDataViz — e-mail de test",
+                  "Bonjour,\n\nSi vous lisez ce message, l'envoi d'e-mails de KLDataViz fonctionne.\n"
+                  "Pensez à vérifier aussi qu'il n'est pas arrivé dans les indésirables.")
+        return dict(info, ok=True, email_sent=True, email_error=None)
+    except Exception as exc:
+        return dict(info, ok=True, email_sent=False, email_error=mail_failure(exc))
 
 
 # ---- forfaits
@@ -675,4 +714,31 @@ def send_mail(recipients, subject, body, attachment=None):
     try:
         urllib.request.urlopen(req, timeout=30).read()
     except urllib.error.HTTPError as exc:
-        raise RuntimeError(f"Envoi refusé par Brevo ({exc.code}).")
+        try:  # Brevo explique le refus : {"code": "unauthorized", "message": "unrecognised IP address …"}
+            detail = json.loads(exc.read().decode() or "{}").get("message", "")
+        except Exception:
+            detail = ""
+        raise RuntimeError(f"Envoi refusé par Brevo ({exc.code}){' : ' + detail if detail else ''}. {_mail_hint(exc.code, detail)}".strip())
+    except urllib.error.URLError as exc:
+        raise RuntimeError(f"Brevo injoignable depuis le serveur ({exc.reason}).")
+
+
+def _mail_hint(code, detail: str) -> str:
+    """Que faire dans Brevo selon le refus (les causes les plus fréquentes)."""
+    d = (detail or "").lower()
+    if "ip" in d:
+        return "Brevo → Sécurité → IP autorisées : désactivez le blocage (les adresses de Render changent)."
+    if code == 401:
+        return "Clé API invalide : régénérez-la dans Brevo (SMTP & API) et mettez à jour BREVO_API_KEY sur Render."
+    if "sender" in d or "expéditeur" in d:
+        return "Expéditeur non validé : vérifiez l'adresse MAIL_FROM dans Brevo → Expéditeurs."
+    if code == 403:
+        return "Compte Brevo non activé pour l'envoi transactionnel : finalisez l'activation dans Brevo."
+    return ""
+
+
+def mail_failure(exc: Exception) -> str:
+    """Raison lisible d'un échec d'envoi, aussi écrite dans les journaux du serveur."""
+    msg = str(exc) or exc.__class__.__name__
+    print(f"[mail] échec d'envoi : {msg}", flush=True)
+    return msg

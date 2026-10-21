@@ -25,6 +25,7 @@ TASK_TYPES = {
     "visualize": "Produire des visualisations",
     "report": "Produire un rapport",
     "validate": "Valider indépendamment des résultats",
+    "dashboard": "Générer un tableau de bord dynamique et intuitif",
 }
 
 STATUSES = {"QUEUED", "RUNNING", "DONE", "FAILED", "SKIPPED", "REQUIRES_CORRECTION"}

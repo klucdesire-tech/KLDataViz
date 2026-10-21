@@ -12,7 +12,7 @@ from openpyxl.styles import Font, PatternFill
 
 # --- Agent 2 MODÉLISATION (nettoyage, typage, imputation, doublons) ---
 try:
-    from modeling import clean_dataframe, bivariate_stats
+    from modeling import clean_dataframe, bivariate_stats, to_dates
     MODELING_OK = True
 except Exception as _mod_exc:
     MODELING_OK = False
@@ -46,6 +46,10 @@ import hashlib, hmac, re, secrets
 import tenancy as T
 import sandbox, netguard
 import studio
+import sources
+import shares
+import dhis2
+import dictionnaire
 if T.CLOUD:
     import cloud
 from urllib.parse import urlparse, parse_qs
@@ -138,7 +142,7 @@ def _auto_charts(df):
             sample = s.dropna().head(30)
             if len(sample) >= 3:
                 try:
-                    parsed = pd.to_datetime(sample, errors="coerce", format="mixed", dayfirst=True)
+                    parsed = to_dates(sample)
                     if parsed.notna().mean() >= 0.9:
                         is_date = True
                 except Exception:
@@ -146,7 +150,7 @@ def _auto_charts(df):
 
         if is_date:
             try:
-                dt = pd.to_datetime(s, errors="coerce", format="mixed", dayfirst=True)
+                dt = to_dates(s)
                 per = dt.dt.to_period("M").astype(str).value_counts().sort_index()
                 charts.append({"title": name, "type": "line",
                                "labels": list(per.index), "values": [list(map(int, per.values))]})
@@ -244,12 +248,35 @@ def _tidy(df):
     return df.dropna(how="all").reset_index(drop=True)
 
 
+AGREGE_SUFFIX = ".agrege"  # fichier témoin : « ces valeurs sont déjà agrégées » (ex. copie d'une source DHIS2)
+
+
+def mark_agrege(path, on=True):
+    """Pose (ou retire) le témoin à côté d'un fichier dérivé, pour qu'AGT-11 le sache après un aller-retour CSV."""
+    side = path + AGREGE_SUFFIX
+    if on:
+        open(side, "w").close()
+    elif os.path.exists(side):
+        os.remove(side)
+
+
 def _read_df(file_path, sheet=None):
+    """Comme _read_df_raw, et réattache le drapeau « agrégé » d'un fichier dérivé (témoin .agrege)."""
+    df, err = _read_df_raw(file_path, sheet)
+    if df is not None and not file_path.startswith(("http://", "https://", "dhis2://")) \
+            and os.path.exists(file_path + AGREGE_SUFFIX):
+        df.attrs["agrege"] = True
+    return df, err
+
+
+def _read_df_raw(file_path, sheet=None):
     """Lit un fichier local ou une URL en DataFrame (csv/xlsx/xls/xlsm/json/parquet).
 
     Classeur Excel : la feuille `sheet`, sinon celle qui porte les données (pas forcément la
     première : page de garde, sommaire…). df.attrs["feuille"] / ["feuilles"] disent laquelle.
     En ligne : seuls les fichiers de l'organisation et les liens https publics sont acceptés."""
+    if file_path.startswith("dhis2://"):
+        return dhis2.read_dhis2(file_path, allow_private=not T.CLOUD)
     tmp_to_delete = None
     is_url = file_path.startswith(("http://", "https://"))
     if T.CLOUD and not is_url and not T.current().owns(file_path):
@@ -502,9 +529,9 @@ def _smart_charts(df, max_charts=6):
         sample = s.dropna().astype(str).head(40)
         if len(sample) >= 3:
             try:
-                parsed = pd.to_datetime(sample, errors="coerce", format="mixed", dayfirst=True)
+                parsed = to_dates(sample)
                 if parsed.notna().mean() >= 0.9:
-                    period, period_dt = c, pd.to_datetime(s.astype(str), errors="coerce", format="mixed", dayfirst=True)
+                    period, period_dt = c, to_dates(s)
                     break
             except Exception:
                 pass
@@ -779,6 +806,7 @@ def clean(file_path, skip=None, hermes=None):
     df, err = _read_df(file_path)
     if err:
         return {"error": err}
+    agrege = bool(df.attrs.get("agrege"))
     h_details, h_applied = {}, []
     if hermes:
         import hermes_clean as HCL
@@ -798,6 +826,7 @@ def clean(file_path, skip=None, hermes=None):
     stem = source_label(file_path)
     cleaned_path = os.path.join(cleaned_dir, f"{stem}_nettoye.csv")
     df_clean.to_csv(cleaned_path, index=False, encoding="utf-8-sig")
+    mark_agrege(cleaned_path, agrege)  # le CSV perd df.attrs : le témoin garde l'information
 
     preview = df_clean.head(30)
     apercu = [[_cell_safe(x) for x in row]
@@ -825,6 +854,101 @@ def fetch_source():
     if source:
         return {"source": source, "task_id": task.get("id") or task.get("task_id")}
     return {"source": None, "message": "La tâche assignée ne contient pas de lien source."}
+
+def _hermes_tasks():
+    """Tâches de l'orchestrateur interne HERMES_DA (AGT-00) : jobs maîtres de planification."""
+    try:
+        from ingestion.store import default_dsn
+        import psycopg
+        conn = psycopg.connect(default_dsn(), autocommit=True, connect_timeout=5)
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT job_id, objective, status, input_reference, created_at "
+                    "FROM hermes.jobs WHERE task_type = 'plan' "
+                    "ORDER BY created_at DESC LIMIT 50")
+                rows = cur.fetchall()
+        finally:
+            conn.close()
+    except Exception:
+        return []
+    tasks = []
+    for job_id, objective, status, input_ref, created_at in rows:
+        src = ""
+        if isinstance(input_ref, dict):
+            src = input_ref.get("source") or input_ref.get("path") or ""
+        tasks.append({
+            "type": (objective or "Analyse de données").strip(),
+            "id": job_id,
+            "task_id": job_id,
+            "status": status or "DONE",
+            "source": src,
+            "created_at": str(created_at) if created_at else "",
+        })
+    return tasks
+
+def dhis2_connect(p):
+    """Lien API DHIS2 (copié depuis DHIS2) + identifiants → source « dhis2:// » prête à analyser.
+    Le mot de passe est chiffré dans l'espace et n'est jamais renvoyé ni écrit dans les journaux."""
+    link, user, pwd = str(p.get("link") or "").strip(), str(p.get("user") or "").strip(), str(p.get("password") or "")
+    if T.CLOUD:
+        cloud.require(T.current(), "owner", "analyst")
+    if not link or not user or not pwd:
+        raise ValueError("Indiquez le lien API DHIS2, l'utilisateur et le mot de passe.")
+    if link.startswith("https://"):
+        link = link[len("https://"):]
+    elif link.startswith(dhis2.SCHEME):
+        link = link[len(dhis2.SCHEME):]
+    else:
+        raise ValueError("Le lien DHIS2 doit commencer par https://")
+    uri = dhis2.SCHEME + link
+    instance, _ = dhis2.parse_uri(uri)
+    df, err = dhis2.read_dhis2(uri, allow_private=not T.CLOUD, creds=(user, pwd))  # essai d'abord
+    if err:
+        return {"error": err}                       # mauvais mot de passe : rien n'est enregistré
+    dhis2.save_credentials(instance, user, pwd)
+    return {"uri": uri, "instance": instance, "name": f"DHIS2 {instance.split('/')[0]}", "rows": int(len(df)),
+            "indicateurs": int(df["indicateur"].nunique()), "periodes": sorted(df["periode"].dropna().astype(str).unique())[-3:]}
+
+
+def build_dashboard(df, spec=None):
+    """AGT-11 sur un DataFrame. `spec` fournie (source connectée qu'on actualise) : mêmes indicateurs, sans IA."""
+    hermes_da_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "HERMES_DA")
+    if hermes_da_dir not in sys.path:
+        sys.path.insert(0, hermes_da_dir)
+    from hermes_da.adapters.dashboard import generate_dashboard
+    try:
+        dico = dictionnaire.charger()  # dictionnaire d'indicateurs de l'espace ([] = normes intégrées)
+    except Exception as exc:
+        print(f"[dictionnaire] lecture impossible : {exc}", flush=True)
+        dico = []
+    if spec is not None:
+        return generate_dashboard(df, "Tableau de bord KLDataViz", llm=False, spec=spec, dictionnaire=dico)
+    cfg = _llm_config()  # en ligne : clé DEEPSEEK_API_KEY de l'environnement (pas de llm_config.json)
+    model = os.environ.get("KLDV_DASHBOARD_MODEL") or (cfg or {}).get("dashboard_model") or "deepseek-flash"
+    llm = (lambda m, n: _llm_call(m, n, model=model, effort="high", timeout=120, attempts=1)
+           or _llm_call(m, n, model=model, effort="low", timeout=90, attempts=1)) if cfg else None
+    return generate_dashboard(df, "Tableau de bord KLDataViz", llm=llm, dictionnaire=dico)
+
+
+def do_dashboard(file_path, name=None):
+    """Génère un tableau de bord interactif (AGT-11). Une source qu'on peut relire (lien Google Sheets / web,
+    fichier local en mode local) devient une « source connectée » : actualisable sans réimporter."""
+    try:
+        df, err = _read_df(file_path)
+        if err:
+            return {"error": err}
+        if df is None or len(df) == 0:
+            return {"error": "Aucune donnée lisible dans cette source."}
+        result = build_dashboard(df)
+        out = {"html": result["html"], "ia": result["ia"], "kpis": result["kpis"]}
+        try:
+            out["source"] = sources.connect(file_path, name, result.get("spec"), df, result["html"])
+        except Exception as exc:  # la connexion est un plus : le tableau de bord reste affiché
+            print(f"[sources] connexion impossible : {exc}", flush=True)
+        return out
+    except Exception as e:
+        return {"error": f"Génération du tableau de bord échouée : {e}"}
 
 def export_excel(result):
     wb = openpyxl.Workbook()
@@ -1397,7 +1521,7 @@ def _json_safe(obj):
 
 def _architect_df(file_path):
     """Lit la source pour l'architecte : détection d'encodage et de séparateur (« ; » des exports FR/DHIS2)."""
-    if file_path.startswith(("http://", "https://")):
+    if file_path.startswith(("http://", "https://", "dhis2://")):
         df, err = _read_df(file_path)
         return df, {"fichier": source_label(file_path)}, err
     if T.CLOUD and not T.current().owns(file_path):
@@ -1408,6 +1532,8 @@ def _architect_df(file_path):
         df, info = data_architect.load_table(file_path)
     except Exception as e:
         return None, None, f"Lecture impossible : {e}"
+    if os.path.exists(file_path + AGREGE_SUFFIX):  # fichier dérivé d'une source agrégée : comme _read_df
+        df.attrs["agrege"] = True
     return df, info, None
 
 
@@ -1716,9 +1842,9 @@ def _period_series(s):
     if len(sample) < 2:
         return None
     try:
-        parsed = pd.to_datetime(sample, errors="coerce", format="mixed", dayfirst=True)
+        parsed = to_dates(sample)
         if parsed.notna().mean() >= 0.9:
-            return pd.to_datetime(s.astype(str), errors="coerce", format="mixed", dayfirst=True)
+            return to_dates(s)
     except Exception:
         pass
     if sample.map(_fr_period).notna().mean() >= 0.9:
@@ -1949,6 +2075,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 return self._send(200, "window.KLDV=" + json.dumps(cfg) + ";", "application/javascript")
             if method == "GET" and path.startswith("/download/"):
                 return self._download()
+            if method == "GET" and path.startswith("/t/"):
+                return self._shared(path[3:].strip("/"))
             if not path.startswith("/api/"):
                 return self._send(404, {"error": "Page introuvable."})
             if T.CLOUD and method == "GET" and path.startswith("/api/public/"):
@@ -1993,6 +2121,40 @@ class Handler(http.server.BaseHTTPRequestHandler):
             sys.stderr.write(f"[erreur {ref}] {method} {path} : {type(e).__name__} : {e}\n"
                              + "".join(traceback.format_exception(e)[-4:]))
             self._send(500, {"error": f"Erreur interne (réf. {ref}). Réessayez." if T.CLOUD else f"{type(e).__name__} : {e}"})
+
+    def _shared(self, token):
+        """Tableau de bord partagé par lien (sans compte) : dernière version enregistrée, page isolée."""
+        hit = shares.resolve(token)
+        html = None
+        if hit:
+            org, sid = hit
+            ctx = T.LOCAL if org == "local" else T.Ctx(key="share", org_id=org)
+            with T.use(ctx):
+                try:
+                    html = sources.get(sid).get("html")
+                except KeyError:
+                    html = None
+        if not html:
+            body = ("<!doctype html><meta charset=utf-8><title>Lien indisponible</title>"
+                    "<body style='font:16px system-ui;padding:48px;color:#11241A'><h1>Lien indisponible</h1>"
+                    "<p>Ce lien de partage a expiré ou a été révoqué. Demandez un nouveau lien à la personne qui vous l'a envoyé.</p>")
+            data, code = body.encode("utf-8"), 404
+        else:
+            data, code = html.encode("utf-8"), 200
+        self.send_response(code)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Robots-Tag", "noindex, nofollow")
+        self.send_header("Referrer-Policy", "no-referrer")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        # Page isolée : origine opaque (aucun accès aux cookies ni au stockage de l'application)
+        self.send_header("Content-Security-Policy",
+                         "sandbox allow-scripts allow-popups; default-src 'none'; script-src 'unsafe-inline' https://cdn.jsdelivr.net; "
+                         "style-src 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src data:; "
+                         "frame-ancestors 'none'")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
 
     def _download(self):
         u = urlparse(self.path)
@@ -2043,8 +2205,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if path == "/api/tasks":
                 if T.CLOUD:
                     return self._send(200, [])
-                code, r = orchestrator("/api/v1/agents/tasks")
-                return self._send(code if code else 502, r)
+                return self._send(200, _hermes_tasks())
             if path == "/api/exports":
                 return self._send(200, _list_exports())
             if path in ("/api/architect/job", "/api/chat/job", "/api/hermes/job"):
@@ -2053,6 +2214,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 return self._send(200, studio.public_settings())
             if path == "/api/schedules":
                 return self._send(200, studio.list_schedules())
+            if path == "/api/sources":
+                return self._send(200, sources.list_sources())
+            if path == "/api/dictionnaire":
+                return self._send(200, dictionnaire.info())
+            if path == "/api/shares":
+                return self._send(200, shares.list_for((parse_qs(urlparse(self.path).query).get("id") or [""])[0]))
+            if path == "/api/sources/get":
+                return self._send(200, sources.get((parse_qs(urlparse(self.path).query).get("id") or [""])[0]))
             if path == "/api/ingest/versions":
                 ds_id = (parse_qs(urlparse(self.path).query).get("id") or [""])[0]
                 reg = T.registry()
@@ -2083,7 +2252,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
         # ---- POST
         if path in ("/api/analyze", "/api/chat", "/api/chat/start", "/api/insights", "/api/clean", "/api/architect",
-                    "/api/architect/apply", "/api/sheets/understand", "/api/hermes/charts", "/api/hermes/clean") and not _rate_ok(f"{ctx.key}:{path}"):
+                    "/api/architect/apply", "/api/sheets/understand", "/api/hermes/charts", "/api/hermes/clean",
+                    "/api/dashboard") and not _rate_ok(f"{ctx.key}:{path}"):
             return self._send(429, {"error": "Trop de demandes en peu de temps. Patientez une minute."})
         if path == "/api/analyze":
             file_path = str(p.get("file_path") or "")
@@ -2093,6 +2263,42 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if "error" not in result:
                 st["last_result"], st["current_path"], st["result_path"] = result, file_path, file_path
             return self._send(200, result)
+        if path == "/api/dashboard":
+            if T.CLOUD and _llm_config():
+                cloud.consume(ctx, "ai")
+            return self._send(200, do_dashboard(str(p.get("file_path") or ""), p.get("name")))
+        if path in ("/api/dictionnaire/import", "/api/dictionnaire/delete"):
+            if T.CLOUD:
+                cloud.require(T.current(), "owner", "analyst")
+            if path.endswith("/delete"):
+                return self._send(200, dictionnaire.supprimer())
+            raw = str(p.get("data") or "")
+            if len(raw) > 1024 * 1024 * 4 // 3 + 4:  # taille vérifiée avant décodage
+                raise ValueError("Dictionnaire trop volumineux (1 Mo maximum).")
+            data = base64.b64decode(raw)
+            if not data:
+                raise ValueError("Fichier vide.")
+            return self._send(200, dictionnaire.importer(data, str(p.get("name") or "")))
+        if path == "/api/dhis2/connect":  # identifiants chiffrés dans l'espace, puis lecture d'essai
+            return self._send(200, dhis2_connect(p))
+        if path == "/api/sources/refresh":  # relit la source, mêmes indicateurs : pas de quota IA
+            return self._send(200, sources.refresh(str(p.get("id")), _read_df, build_dashboard))
+        if path == "/api/sources/freq":
+            return self._send(200, sources.set_freq(str(p.get("id")), str(p.get("freq"))))
+        if path == "/api/sources/delete":
+            sources.delete(str(p.get("id")))
+            shares.revoke_all(str(p.get("id")))
+            return self._send(200, {"ok": True})
+        if path == "/api/shares/create":
+            sources.get(str(p.get("id")), with_html=False)  # le tableau doit exister dans cet espace
+            return self._send(200, shares.create(str(p.get("id")), int(p.get("days") or 30)))
+        if path == "/api/shares/revoke":
+            shares.revoke(str(p.get("token")))
+            return self._send(200, {"ok": True})
+        if path == "/api/sources/mail":
+            return self._send(200, sources.set_mail(str(p.get("id")), p.get("to"), str(p.get("freq") or "off")))
+        if path == "/api/sources/send":
+            return self._send(200, sources.send_mail_now(str(p.get("id")), _read_df, build_dashboard, p.get("to") or None))
         if path == "/api/clean":
             hermes = p.get("hermes") if isinstance(p.get("hermes"), list) else None
             return self._send(200, clean(str(p.get("file_path") or ""), p.get("skip") or None, hermes))
@@ -2249,6 +2455,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                       "/api/admin/extend": lambda: cloud.admin_extend_trial(ctx, str(p.get("org_id")), p.get("days") or 14),
                       "/api/admin/suspend": lambda: cloud.admin_suspend(ctx, str(p.get("org_id")), p.get("suspended")),
                       "/api/admin/invite-client": lambda: cloud.admin_invite_client(ctx, p.get("org"), p.get("email"), p.get("plan")),
+                      "/api/admin/resend-invite": lambda: cloud.admin_resend_invite(ctx, str(p.get("org_id")), p.get("email")),
+                      "/api/admin/test-mail": lambda: cloud.admin_test_mail(ctx),
                       "/api/admin/plans/save": lambda: cloud.admin_plan_save(ctx, p),
                       "/api/admin/plans/delete": lambda: cloud.admin_plan_delete(ctx, str(p.get("key"))),
                       "/api/admin/admins/add": lambda: cloud.admin_admin_add(ctx, p.get("email")),
@@ -2271,7 +2479,16 @@ class Handler(http.server.BaseHTTPRequestHandler):
         kwargs = {"registry_schema": T.current().schema}
         if T.storage_root():
             kwargs["storage_root"] = T.storage_root()
-        if source.startswith(("http://", "https://")):
+        if source.startswith("dhis2://"):  # lu par le connecteur, versionné comme un fichier CSV de l'espace
+            df, err = _read_df(source)
+            if err:
+                raise ValueError(err)
+            local = os.path.join(T.uploads_dir(), source_label(source) + ".csv")
+            df.to_csv(local, index=False)
+            mark_agrege(local, bool(df.attrs.get("agrege")))
+            kwargs["dataset_name"] = os.path.basename(local)
+            source = local
+        elif source.startswith(("http://", "https://")):
             source = normalize_source_url(source)
             if T.CLOUD:  # téléchargé par le serveur (protection SSRF), puis ingéré comme fichier
                 data, ctype = netguard.fetch(source)
@@ -2321,6 +2538,7 @@ if __name__ == "__main__":
     if not T.CLOUD:
         threading.Thread(target=heartbeat_loop, daemon=True).start()
     studio.start_scheduler(analyze, EXPORTERS, T.LOCAL.dir("exports") if not T.CLOUD else None, schedule_commentary)
+    sources.start_auto_refresh(_read_df, build_dashboard, cloud.org_ctx if T.CLOUD else None)
     host = "0.0.0.0" if T.CLOUD else "127.0.0.1"
     port = int(os.environ.get("PORT") or PORT)
     socketserver.ThreadingTCPServer.allow_reuse_address = True

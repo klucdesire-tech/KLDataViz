@@ -1,0 +1,28 @@
+# Image Render construite depuis la racine du dépôt : LISTE BLANCHE.
+# Rien n'entre sauf la console et le paquet hermes_da ; en particulier jamais les données TA-MOH
+# (TA-MOH_analyse/, tamoh_rapport.xlsx), ni supabase/, ni HERMES_DA/storage, ni aucun secret.
+*
+!KLDataViz_console
+!HERMES_DA/hermes_da
+
+# Dans la console : secrets, données, environnements locaux (reprend KLDataViz_console/.dockerignore)
+KLDataViz_console/.venv
+KLDataViz_console/tests
+KLDataViz_console/agent_token.txt
+KLDataViz_console/llm_config.json
+KLDataViz_console/storage
+KLDataViz_console/exports
+KLDataViz_console/uploads
+KLDataViz_console/tmp
+KLDataViz_console/lancer_console.bat
+KLDataViz_console/run_ingestion.bat
+
+# Partout : caches et fichiers de données
+**/__pycache__
+**/*.pyc
+**/*.csv
+**/*.xlsx
+**/*.xls
+**/*.parquet
+**/*.db
+**/*.sqlite*

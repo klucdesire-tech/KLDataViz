@@ -21,6 +21,8 @@ import json
 import re
 import sys
 from collections import Counter
+
+from modeling import to_dates as _to_dates  # dates ISO jamais lues jour en premier
 from pathlib import Path
 
 import pandas as pd
@@ -497,7 +499,7 @@ def _profile_column(s: pd.Series) -> dict:
         txt = vals.astype(str)
         p["exemples"] = txt.drop_duplicates().head(5).tolist()
         p["longueur_max"] = int(txt.str.len().max())
-        dates = pd.to_datetime(txt, errors="coerce", dayfirst=True, format="mixed")
+        dates = _to_dates(txt)
         if dates.notna().mean() > 0.9:
             p["semble_date"] = True
             p["plage_dates"] = [str(dates.min().date()), str(dates.max().date())]
