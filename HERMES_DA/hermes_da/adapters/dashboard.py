@@ -327,7 +327,10 @@ def _plabel(k: str, yearly: bool = False) -> str:
 def _period(df):
     """Première colonne de période (dates, « 2025-04 », « Avril 2025 ») → (nom, série « AAAA-MM ») ; (None, None) sinon."""
     import pandas as pd
+    idlike = re.compile(r"(^|[\s_.])(n°|no|num(ero|éro)?|id|code|matricule|ref|référence|reference|labno|pec|datim)($|[\s_.])", re.I)
     for c in df.columns:
+        if idlike.search(re.sub(r"\(.*?\)", "", _norm(c))):
+            continue  # identifiant (code site, labno, code patient…) : jamais une période
         s = df[c]
         if pd.api.types.is_numeric_dtype(s) and not pd.api.types.is_datetime64_any_dtype(s):
             v = pd.to_numeric(s, errors="coerce").dropna()
@@ -793,12 +796,19 @@ body.embedded{min-height:0;overflow:hidden}html:has(body.embedded){overflow:hidd
 .gaps-chart{display:flex;flex-direction:column;min-width:0}.gaps-chart .box{height:auto;flex:1;min-height:200px}
 .gaps-ct{font-size:11.5px;color:var(--muted);margin:0 0 6px}
 @media (max-width:900px){.gaps-body{grid-template-columns:minmax(0,1fr)}}
+.dc{display:inline-block;font-size:10.5px;color:#0B4F8F;background:#EAF2FA;border-radius:4px;padding:1px 6px;margin-left:6px;vertical-align:2px}
+.hd{font-size:10px;color:#B45309;background:#FEF3C7;border-radius:10px;padding:1px 7px;margin-left:6px;font-weight:600;vertical-align:1px}
+.dict{margin-bottom:14px}.dict[hidden]{display:none}
+.dict-abs{margin-top:10px;font-size:12px;color:var(--muted,#667085)}
+.dict-abs ul{margin:6px 0 0;padding-left:18px}
+.dict-abs li{margin:2px 0}
 </style></head><body>
 <header class="top"><div class="title"><h1>Tableau de bord</h1><p id="objective"></p></div>
   <span class="chip" id="range" hidden><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg><span></span></span></header>
 <div class="filters" id="filters"></div>
 <section class="kpis" id="kpis" aria-label="Indicateurs clés"></section>
 <section class="gaps card" id="gaps" hidden></section>
+<section class="dict card" id="dict" hidden></section>
 <section class="row2" id="row2"></section>
 <section class="row3" id="row3"></section>
 <script>
@@ -873,7 +883,7 @@ function buildFilters(){var el=document.getElementById('filters');el.innerHTML='
 function renderKpis(rows){document.getElementById('kpis').innerHTML=KPIDEFS.slice(0,5).map(function(k,i){var v=agg(rows,k.colonne,k.agregation),sub='';
   var u=isRate(k.agregation)&&v!=null?' %':'';
   if(k.dimension){var t=ranked(rows,k.colonne,k.agregation,k.dimension,1)[0];if(t)sub='En tête : '+esc(label(t[0]))+'<br>'+fmt(t[1])+u}
-  return '<div class="kpi k'+i+'"><div class="n">'+esc(k.nom)+'</div><div class="row"><div class="v">'+fmt(v)+u+'</div><div class="s">'+sub+'</div></div></div>'}).join('')}
+  return '<div class="kpi k'+i+'"><div class="n">'+esc(k.nom)+(k.hors_dictionnaire?' <span class="hd">hors dictionnaire</span>':'')+'</div><div class="row"><div class="v">'+fmt(v)+u+'</div><div class="s">'+sub+'</div></div></div>'}).join('')}
 
 function card(id,title,sub,extra){return '<div class="card"><div class="card-h"><div><h2>'+esc(nice(title))+'</h2>'+(sub?'<small>'+esc(sub)+'</small>':'')+'</div>'+(extra||'')+'</div>'+id+'</div>'}
 function seg(){return '<div class="seg" role="group" aria-label="Regrouper par">'+(META.grans||['M','Q','Y']).map(function(g){return '<button type="button" data-g="'+g+'" aria-pressed="'+(gran===g)+'">'+GRAN[g]+'</button>'}).join('')+'</div>'}
@@ -1024,7 +1034,8 @@ function renderGaps(rows){var el=document.getElementById('gaps'),K=META.keyind,D
     gapChart=new Chart(document.getElementById('c_gap'),{type:'bar',data:{labels:withGap.map(function(g){return g.indicateur}),datasets:[{data:withGap.map(function(g){return g.pct}),backgroundColor:withGap.map(function(g){return col[tone(g)]}),borderRadius:8,borderSkipped:false,barPercentage:.62,maxBarThickness:26}]},
       options:{responsive:true,maintainAspectRatio:false,indexAxis:'y',plugins:{legend:{display:false},tooltip:Object.assign({},navyTip,{callbacks:{label:function(c){var g=withGap[c.dataIndex];return (g.pct>0?'+':'')+Number(g.pct).toFixed(1).replace('.',',')+(g.pts?' pts':' %')+' ('+fmt(g.precedente)+' → '+fmt(g.derniere)+')'}}})},
         scales:{x:{grid:{color:function(c){return c.tick&&c.tick.value===0?'#9CC3EA':'#EEF2F7'},drawTicks:false},border:{display:false},ticks:{padding:6,font:{size:11},callback:function(v){return (v>0?'+':'')+v}}},y:{grid:{display:false},border:{display:false},ticks:{callback:function(v){var l=this.getLabelForValue(v);return l.length>26?l.slice(0,25)+'…':l}}}}}})}}
-function render(){charts.forEach(function(c){c.destroy()});charts=[];var rows=filtered();renderKpis(rows);renderGaps(rows);
+function renderDict(){var el=document.getElementById('dict'),D=META.dictionnaire;if(!D||(!D.trouves.length&&!D.absents.length)){el.hidden=true;return}el.hidden=false;var t=(D.trouves||[]).map(function(r){var isPct=(r.type||'').toLowerCase().indexOf('pourcentage')>=0;return '<div class="gap"><b>'+esc(r.libelle)+'</b>'+(r.code?'<span class="dc">'+esc(r.code)+'</span>':'')+'<span class="gap-v">'+(r.valeur==null?'—':(isPct?String(r.valeur).replace('.',',')+' %':fmt(r.valeur)))+'</span>'+(r.detail?'<span class="gap-d flat">'+esc(r.detail)+'</span>':'')+'</div>'}).join('');var a=(D.absents||[]).map(function(r){return '<li><b>'+esc(r.code)+'</b> — '+esc(r.libelle)+'</li>'}).join('');el.innerHTML='<h2 class="gaps-h">Indicateurs du dictionnaire<span class="gaps-sub">référentiel importé</span></h2>'+'<div class="gaps-grid">'+t+'</div>'+(a?'<div class="dict-abs">'+D.absents.length+' indicateur(s) du dictionnaire absent(s) de ces données<ul>'+a+'</ul></div>':'')}
+function render(){charts.forEach(function(c){c.destroy()});charts=[];var rows=filtered();renderKpis(rows);renderGaps(rows);renderDict();
   var todo=renderMain(rows).concat(renderCards(rows));if(window.Chart)todo.forEach(function(f){f()})}
 document.getElementById('objective').textContent=window.OBJECTIVE;
 try{if(window.self!==window.top)document.body.classList.add('embedded')}catch(e){document.body.classList.add('embedded')}
@@ -1169,6 +1180,26 @@ def generate_dashboard(df, objective: str = "", job_id: str | None = None, llm=N
         gaps = _patient_gaps(df, keys, kis)
     if domaine:
         meta["domaine"] = {"cle": domaine["cle"], "nom": domaine["nom"]}
+    # Dictionnaire d'indicateurs importé (Mode B) : source de vérité. Indicateurs calculés selon leur
+    # type (Nombre/%), absents signalés, et KPI auto-détectés hors dictionnaire marqués.
+    if _CATALOGUE_MODE:
+        try:
+            from hermes_da import indicators_catalog as _cat
+            dict_inds = _cat.load_dictionary()
+            if dict_inds:
+                res = _cat.match_and_compute(df, dict_inds)
+                dict_codes = {i["code"].strip().lower() for i in dict_inds}
+                dict_lib = {_norm(i["libelle"]) for i in dict_inds}
+                meta["dictionnaire"] = _json_safe({
+                    "trouves": [{"code": r["code"], "libelle": r["libelle"], "type": r["type"],
+                                 "valeur": r["valeur"], "detail": r["detail"]} for r in res if r["present"]],
+                    "absents": [{"code": r["code"], "libelle": r["libelle"]} for r in res if not r["present"]],
+                })
+                for kd, k in zip(kpi_defs, kpis):
+                    kd["hors_dictionnaire"] = (_norm(str(k.get("nom"))) not in dict_lib
+                                               and str(k.get("nom", "")).strip().lower() not in dict_codes)
+        except Exception:
+            pass
     data = df.assign(__p=period_series) if period_series is not None else df
     if gaps:
         # Recalculés dans la page selon les filtres (sauf si l'échantillon de 6000 lignes fausserait les sommes)
@@ -1194,7 +1225,8 @@ def generate_dashboard(df, objective: str = "", job_id: str | None = None, llm=N
     return {"html": html, "path": str(path) if path else None,
             "kpis": _json_safe(kpis), "charts": charts_count, "ia": ia,
             "filter_cols": filter_cols, "kpi_defs": kpi_defs, "format_long": pivoted,
-            "domaine": _json_safe(domaine), "gaps": _json_safe(gaps), "spec": _json_safe(dict(spec, _ia=ia))}
+            "domaine": _json_safe(domaine), "gaps": _json_safe(gaps), "spec": _json_safe(dict(spec, _ia=ia)),
+            "dictionnaire": _json_safe(meta.get("dictionnaire"))}
 
 
 def run(env, db, jobs) -> dict:
