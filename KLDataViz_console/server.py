@@ -49,6 +49,7 @@ import studio
 import sources
 import shares
 import dhis2
+import dictionnaire
 if T.CLOUD:
     import cloud
 from urllib.parse import urlparse, parse_qs
@@ -916,13 +917,18 @@ def build_dashboard(df, spec=None):
     if hermes_da_dir not in sys.path:
         sys.path.insert(0, hermes_da_dir)
     from hermes_da.adapters.dashboard import generate_dashboard
+    try:
+        dico = dictionnaire.charger()  # dictionnaire d'indicateurs de l'espace ([] = normes intégrées)
+    except Exception as exc:
+        print(f"[dictionnaire] lecture impossible : {exc}", flush=True)
+        dico = []
     if spec is not None:
-        return generate_dashboard(df, "Tableau de bord KLDataViz", llm=False, spec=spec)
+        return generate_dashboard(df, "Tableau de bord KLDataViz", llm=False, spec=spec, dictionnaire=dico)
     cfg = _llm_config()  # en ligne : clé DEEPSEEK_API_KEY de l'environnement (pas de llm_config.json)
     model = os.environ.get("KLDV_DASHBOARD_MODEL") or (cfg or {}).get("dashboard_model") or "deepseek-flash"
     llm = (lambda m, n: _llm_call(m, n, model=model, effort="high", timeout=120, attempts=1)
            or _llm_call(m, n, model=model, effort="low", timeout=90, attempts=1)) if cfg else None
-    return generate_dashboard(df, "Tableau de bord KLDataViz", llm=llm)
+    return generate_dashboard(df, "Tableau de bord KLDataViz", llm=llm, dictionnaire=dico)
 
 
 def do_dashboard(file_path, name=None):
@@ -2210,6 +2216,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 return self._send(200, studio.list_schedules())
             if path == "/api/sources":
                 return self._send(200, sources.list_sources())
+            if path == "/api/dictionnaire":
+                return self._send(200, dictionnaire.info())
             if path == "/api/shares":
                 return self._send(200, shares.list_for((parse_qs(urlparse(self.path).query).get("id") or [""])[0]))
             if path == "/api/sources/get":
@@ -2259,6 +2267,17 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if T.CLOUD and _llm_config():
                 cloud.consume(ctx, "ai")
             return self._send(200, do_dashboard(str(p.get("file_path") or ""), p.get("name")))
+        if path in ("/api/dictionnaire/import", "/api/dictionnaire/delete"):
+            if T.CLOUD:
+                cloud.require(T.current(), "owner", "analyst")
+            if path.endswith("/delete"):
+                return self._send(200, dictionnaire.supprimer())
+            data = base64.b64decode(p.get("data") or "")
+            if not data:
+                raise ValueError("Fichier vide.")
+            if len(data) > 1024 * 1024:
+                raise ValueError("Dictionnaire trop volumineux (1 Mo maximum).")
+            return self._send(200, dictionnaire.importer(data, str(p.get("name") or "")))
         if path == "/api/dhis2/connect":  # identifiants chiffrés dans l'espace, puis lecture d'essai
             return self._send(200, dhis2_connect(p))
         if path == "/api/sources/refresh":  # relit la source, mêmes indicateurs : pas de quota IA

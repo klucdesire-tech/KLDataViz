@@ -16,3 +16,8 @@ def _coffre_dhis2_isole(tmp_path, monkeypatch):
 @pytest.fixture(autouse=True)
 def _partages_isoles(tmp_path, monkeypatch):
     monkeypatch.setenv("KLDV_SHARES_DIR", str(tmp_path / "partages-test"))
+
+
+@pytest.fixture(autouse=True)
+def _dictionnaire_isole(tmp_path, monkeypatch):
+    monkeypatch.setenv("KLDV_DICT_DIR", str(tmp_path / "dictionnaire-test"))

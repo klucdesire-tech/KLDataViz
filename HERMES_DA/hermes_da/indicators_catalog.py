@@ -328,6 +328,30 @@ def _period_col(df):
     return None
 
 
+_MOIS = {"janvier": 1, "fevrier": 2, "mars": 3, "avril": 4, "mai": 5, "juin": 6, "juillet": 7, "aout": 8,
+         "septembre": 9, "octobre": 10, "novembre": 11, "decembre": 12, "january": 1, "february": 2,
+         "march": 3, "april": 4, "may": 5, "june": 6, "july": 7, "august": 8, "september": 9,
+         "october": 10, "november": 11, "december": 12}
+
+
+def _pkey(v):
+    """Clé de tri chronologique d'une période (« 2025-04 », « 2025Q3 », « T4 2025 », « Avril 2025 »…).
+
+    Le tri alphabétique placerait « Avril 2025 » avant « Mars 2025 » : on lit l'année puis le mois."""
+    n = _norm(v)
+    y = re.search(r"(19|20)\d\d", n)
+    year = int(y.group(0)) if y else 0
+    rest = n.replace(y.group(0), " ") if y else n
+    q = re.search(r"\b(?:t|q|trimestre\s*)([1-4])\b|(?:t|q)([1-4])\b", rest)
+    if q:
+        return (year, int(q.group(1) or q.group(2)) * 3, n)
+    m = next((num for nom, num in _MOIS.items() if nom in rest.split()), None)
+    if m is None:
+        d = re.search(r"\b(0?[1-9]|1[0-2])\b", rest)
+        m = int(d.group(1)) if d else 0
+    return (year, m, n)
+
+
 def _is_snapshot(ind):
     """Un indicateur « instantané » (snapshot) : on prend la valeur de fin de période, on n'additionne pas."""
     t = (ind.get("total") or "").lower()
@@ -398,9 +422,13 @@ def _compute_from_mapping(df, mapping, indicators):
 def match_and_compute_llm(df, indicators, llm):
     """Matching via le LLM : renvoie la même structure que match_and_compute, ou None en cas d'échec.
 
-    ``llm(messages, max_tokens) -> texte`` est fourni par l'appelant (console / orchestrateur)."""
+    ``llm(messages, max_tokens) -> texte`` est fourni par l'appelant (console / orchestrateur).
+    Fichier où les indicateurs sont explicites (format long ou large) : None — le calcul déterministe fait foi,
+    le LLM ne sait pas filtrer une colonne « indicateur » (il additionnerait toute la colonne « valeur »)."""
     import json
     import pandas as pd
+    if _as_long(df, indicators)[1] is not None:
+        return None
     cols = []
     for c in df.columns:
         entry = {"nom": str(c), "type": "numerique" if pd.api.types.is_numeric_dtype(df[c]) else "texte"}
@@ -410,7 +438,7 @@ def match_and_compute_llm(df, indicators, llm):
                 and not _IDLIKE.search(_norm(str(c))):  # jamais un identifiant, même à peu de valeurs
             vals = [str(v).strip() for v in df[c].dropna().astype(str).unique()
                     if str(v).strip().lower() not in ("", "nan", "none", "null", "nat")]
-            if 2 <= len(vals) <= 8:
+            if 2 <= len(vals) <= 8 and len(df) >= 5 * len(vals):
                 entry["categorie"] = vals
         cols.append(entry)
     payload = json.dumps({
@@ -435,6 +463,26 @@ def match_and_compute_llm(df, indicators, llm):
     return _compute_from_mapping(df, mapping, indicators)
 
 
+def _as_long(df, indicators):
+    """(df, colonne indicateur, colonne valeur) si les indicateurs sont explicites dans le fichier.
+
+    Format long : colonnes « indicateur » + « valeur ». Format large : une colonne numérique par code
+    (TX_CURR, TX_PVLS…), ramenée au format long. Sinon (liste d'observations) : (df, None, None)."""
+    import pandas as pd
+    ic = next((c for c in df.columns if _norm(c) in ("indicator", "indicateur", "indicateurs",
+                                                     "code", "libelle", "libellé")), None)
+    vc = next((c for c in df.columns if _norm(c) in ("value", "valeur", "val", "montant", "mesure", "total")
+               and pd.to_numeric(df[c], errors="coerce").notna().any()), None)
+    if ic is not None and vc is not None:
+        return df, ic, vc
+    codes = {_norm(i["code"]) for i in indicators if i.get("code")}
+    wide = [c for c in df.columns if _norm(c) in codes and pd.api.types.is_numeric_dtype(df[c])]
+    if wide:
+        keep = [c for c in df.columns if c not in wide and not pd.api.types.is_numeric_dtype(df[c])]
+        return df.melt(id_vars=keep, value_vars=wide, var_name="indicateur", value_name="valeur"), "indicateur", "valeur"
+    return df, None, None
+
+
 def match_and_compute(df, indicators):
     """Pour chaque indicateur du dictionnaire : présent dans les données ? et valeur selon son type.
 
@@ -447,10 +495,7 @@ def match_and_compute(df, indicators):
     Renvoie une liste de dicts {code, libelle, type, present, valeur, detail}.
     """
     import pandas as pd
-    ic = next((c for c in df.columns if _norm(c) in ("indicator", "indicateur", "indicateurs",
-                                                     "code", "libelle", "libellé")), None)
-    vc = next((c for c in df.columns if _norm(c) in ("value", "valeur", "val", "montant", "mesure", "total")
-               and pd.to_numeric(df[c], errors="coerce").notna().any()), None)
+    df, ic, vc = _as_long(df, indicators)
 
     def _kw(ind):
         return _keywords(ind["code"], ind["libelle"])
@@ -466,7 +511,7 @@ def match_and_compute(df, indicators):
         pcol = _period_col(df)
         for ind in indicators:
             code = ind["code"].strip().lower()
-            mask = labels.str.strip().str.lower().eq(code)
+            mask = labels.map(_norm).eq(_norm(code))
             if not mask.any():
                 tous, _ = _kw(ind)
                 ln = labels.str.lower().str.replace(r"\s+", " ", regex=True)
@@ -480,23 +525,29 @@ def match_and_compute(df, indicators):
             if pcol is not None and df.loc[mask, pcol].notna().any():
                 sub = df.loc[mask].copy()
                 sub["__v"] = pd.to_numeric(sub[vc], errors="coerce")
-                g = sub.dropna(subset=["__v"]).groupby(sub[pcol].astype(str))["__v"].sum()
+                sub = sub.dropna(subset=["__v"])
+                per = sub.groupby(sub[pcol].astype(str))["__v"]
+                # Plusieurs sites par période : un taux se moyenne, un comptage s'additionne
+                g = per.mean() if is_rate else per.sum()
+                g = g.loc[sorted(g.index, key=_pkey)]
                 if g.empty:
                     out.append({"code": ind["code"], "libelle": ind["libelle"], "type": ind["type"],
                                 "present": False, "valeur": None, "detail": None})
                     continue
                 if is_rate or snapshot:
                     # un taux ne se somme pas ; un instantané = valeur de fin de période
-                    val = float(g.iloc[-1])
-                    detail = f"valeur {g.index[-1]}"
+                    val = round(float(g.iloc[-1]), 1) if is_rate else float(g.iloc[-1])
+                    n_sites = int((sub[pcol].astype(str) == g.index[-1]).sum())
+                    detail = (f"moyenne de {n_sites} lignes, {g.index[-1]}" if is_rate and n_sites > 1
+                              else f"valeur {g.index[-1]}")
                 else:
                     val = float(g.sum())
                     detail = f"somme {len(g)} périodes"
             else:
                 vals = pd.to_numeric(df.loc[mask, vc], errors="coerce")
                 if is_rate:
-                    val = float(vals.dropna().iloc[-1]) if vals.notna().any() else None
-                    detail = "dernière valeur (taux non sommé)"
+                    val = round(float(vals.mean()), 1) if vals.notna().any() else None
+                    detail = f"moyenne de {int(vals.notna().sum())} valeurs (taux non sommé)"
                 else:
                     val = float(vals.sum(min_count=1)) if vals.notna().any() else None
                     detail = f"somme de « {vc} »"

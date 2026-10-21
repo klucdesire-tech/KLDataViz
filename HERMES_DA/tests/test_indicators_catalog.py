@@ -195,8 +195,9 @@ def test_period_col_skips_identifier():
 
 # --- Confidentialité du matching LLM : jamais de codes patients ni de valeurs brutes ---
 def test_llm_payload_never_sends_identifiers():
-    df = pd.DataFrame({"code patient": ["P001", "P002", "P003", "P004"],
-                       "statut resultat": ["SUPPRIME"] * 2 + ["NON-SUPPRIME"] * 2})
+    # 12 lignes : le statut se répète (vraie catégorie) ; le code patient, lui, est un identifiant
+    df = pd.DataFrame({"code patient": [f"P{i:03}" for i in range(1, 13)],
+                       "statut resultat": ["SUPPRIME"] * 8 + ["NON-SUPPRIME"] * 4})
     inds = [{"domaine": "S", "code": "TX_PVLS", "libelle": "charge virale supprimée",
              "type": "Pourcentage", "numerateur": "", "denominateur": ""}]
     captured = {}
