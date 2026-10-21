@@ -104,6 +104,36 @@ def _llm_dashboard(profile_json: str, llm=None) -> dict | None:
         return None
 
 
+def _resolve_llm(llm):
+    """Transforme le paramètre `llm` en callable (messages, max_tokens) -> texte, ou None si IA indisponible.
+
+    `llm` = False → pas d'IA ; None → clé dans llm_config.json ; callable → utilisé tel quel."""
+    if llm is False:
+        return None
+    if callable(llm):
+        return llm
+    cfg_path = os.path.join(config.CONSOLE_DIR, "llm_config.json")
+    if not os.path.isfile(cfg_path):
+        return None
+    try:
+        with open(cfg_path, encoding="utf-8") as fh:
+            cfg = json.load(fh)
+        key = cfg.get("api_key", "")
+        if not key or "VOTRE_CLE" in str(key):
+            return None
+        def call(messages, max_tokens):
+            body = json.dumps({"model": cfg.get("model", "deepseek-v4-pro"), "messages": messages,
+                               "max_tokens": max_tokens, "temperature": 0}).encode("utf-8")
+            req = urllib.request.Request(cfg["base_url"], data=body, method="POST",
+                                         headers={"Content-Type": "application/json",
+                                                  "Authorization": f"Bearer {key}"})
+            r = json.loads(urllib.request.urlopen(req, timeout=300).read().decode())
+            return (r.get("choices") or [{}])[0].get("message", {}).get("content", "")
+        return call
+    except Exception:
+        return None
+
+
 def _profile(df) -> dict:
     """Profil compact du dataset (colonnes, types, exemples, répartition)."""
     import pandas as pd
@@ -327,7 +357,13 @@ def _plabel(k: str, yearly: bool = False) -> str:
 def _period(df):
     """Première colonne de période (dates, « 2025-04 », « Avril 2025 ») → (nom, série « AAAA-MM ») ; (None, None) sinon."""
     import pandas as pd
+    idlike = re.compile(r"(^|[\s_.])(n°|no|num(ero|éro)?|id|code|matricule|ref|référence|reference|labno|datim)($|[\s_.])", re.I)
+    dateword = re.compile(r"\b(date|periode|quarter|trimestre|mois|annee|an|year|month)\b", re.I)
     for c in df.columns:
+        n = _norm(c)
+        # une colonne « date … » (même « date de référence », « date_debut_pec ») n'est jamais un identifiant
+        if not dateword.search(n) and idlike.search(re.sub(r"\(.*?\)", "", n)):
+            continue  # identifiant (code site, labno, code patient…) : jamais une période
         s = df[c]
         if pd.api.types.is_numeric_dtype(s) and not pd.api.types.is_datetime64_any_dtype(s):
             v = pd.to_numeric(s, errors="coerce").dropna()
@@ -502,21 +538,34 @@ def _col(df, names, numeric=False):
     return None
 
 
-def _detect_domaine(df) -> dict | None:
-    """Domaine/programme le plus représenté dans les noms de colonnes et les libellés d'indicateurs (mots entiers)."""
+def _detect_domaine(df, catalogue: dict | None = None) -> dict | None:
+    """Domaine/programme le plus représenté dans les noms de colonnes et les libellés d'indicateurs (mots entiers).
+
+    `catalogue` : domaines tirés d'un dictionnaire d'indicateurs importé (Mode B) ; normes intégrées sinon (Mode A)."""
     words = " " + _norm(" ".join(str(c) for c in df.columns))
     ic = _col(df, _IND_COLS)
     if ic is not None:
         words += " " + _norm(" ".join(df[ic].dropna().astype(str).unique()[:300]))
+    # Fichiers « une ligne par patient » (liste) : le domaine se lit aussi dans les VALEURS des
+    # colonnes catégorielles (motif, régime, statut…), pas seulement dans les noms de colonnes.
+    import pandas as pd
+    for c in df.columns:
+        if c == ic or pd.api.types.is_numeric_dtype(df[c]) or pd.api.types.is_datetime64_any_dtype(df[c]):
+            continue
+        vals = df[c].dropna().astype(str).unique()
+        if len(vals) > 60:
+            continue
+        words += " " + _norm(" ".join(vals[:60]))
     words += " "
+    cat = catalogue or DOMAINES
     best, score = None, 0
-    for cle, dom in DOMAINES.items():
+    for cle, dom in cat.items():
         n = sum(words.count(" " + m + " ") for m in dom["mots"])
         if n > score:
             best, score = cle, n
     if not best:
         return None
-    return {"cle": best, "nom": DOMAINES[best]["nom"], "indicateurs": DOMAINES[best]["indicateurs"]}
+    return {"cle": best, "nom": cat[best]["nom"], "indicateurs": cat[best]["indicateurs"]}
 
 
 def _match(label_norm: str, ki: dict) -> bool:
@@ -764,12 +813,22 @@ body.embedded{min-height:0;overflow:hidden}html:has(body.embedded){overflow:hidd
 .gaps-chart{display:flex;flex-direction:column;min-width:0}.gaps-chart .box{height:auto;flex:1;min-height:200px}
 .gaps-ct{font-size:11.5px;color:var(--muted);margin:0 0 6px}
 @media (max-width:900px){.gaps-body{grid-template-columns:minmax(0,1fr)}}
+.dc{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.02em;color:var(--navy);background:rgba(255,255,255,.75);border-radius:6px;padding:1px 7px;margin:0 0 4px}
+#dict .n{display:flex;flex-direction:column;align-items:flex-start}
+.dl{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;font-size:12px;line-height:1.3}
+.hd{font-size:10px;color:#B45309;background:#FEF3C7;border-radius:10px;padding:1px 7px;margin-left:6px;font-weight:600;vertical-align:1px}
+.dict{margin-bottom:14px}.dict[hidden]{display:none}
+.dict-abs{margin-top:12px;font-size:12px;color:var(--muted,#667085)}
+.dict-abs summary{cursor:pointer;font-weight:600;padding:6px 0;list-style-position:inside}
+.dict-abs ul{margin:6px 0 0;padding-left:18px;columns:2 320px;column-gap:24px}
+.dict-abs li{margin:2px 0;break-inside:avoid;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 </style></head><body>
 <header class="top"><div class="title"><h1>Tableau de bord</h1><p id="objective"></p></div>
   <span class="chip" id="range" hidden><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg><span></span></span></header>
 <div class="filters" id="filters"></div>
 <section class="kpis" id="kpis" aria-label="Indicateurs clés"></section>
 <section class="gaps card" id="gaps" hidden></section>
+<section class="dict card" id="dict" hidden></section>
 <section class="row2" id="row2"></section>
 <section class="row3" id="row3"></section>
 <script>
@@ -844,7 +903,7 @@ function buildFilters(){var el=document.getElementById('filters');el.innerHTML='
 function renderKpis(rows){document.getElementById('kpis').innerHTML=KPIDEFS.slice(0,5).map(function(k,i){var v=agg(rows,k.colonne,k.agregation),sub='';
   var u=isRate(k.agregation)&&v!=null?' %':'';
   if(k.dimension){var t=ranked(rows,k.colonne,k.agregation,k.dimension,1)[0];if(t)sub='En tête : '+esc(label(t[0]))+'<br>'+fmt(t[1])+u}
-  return '<div class="kpi k'+i+'"><div class="n">'+esc(k.nom)+'</div><div class="row"><div class="v">'+fmt(v)+u+'</div><div class="s">'+sub+'</div></div></div>'}).join('')}
+  return '<div class="kpi k'+i+'"><div class="n">'+esc(k.nom)+(k.hors_dictionnaire?' <span class="hd">hors dictionnaire</span>':'')+'</div><div class="row"><div class="v">'+fmt(v)+u+'</div><div class="s">'+sub+'</div></div></div>'}).join('')}
 
 function card(id,title,sub,extra){return '<div class="card"><div class="card-h"><div><h2>'+esc(nice(title))+'</h2>'+(sub?'<small>'+esc(sub)+'</small>':'')+'</div>'+(extra||'')+'</div>'+id+'</div>'}
 function seg(){return '<div class="seg" role="group" aria-label="Regrouper par">'+(META.grans||['M','Q','Y']).map(function(g){return '<button type="button" data-g="'+g+'" aria-pressed="'+(gran===g)+'">'+GRAN[g]+'</button>'}).join('')+'</div>'}
@@ -995,7 +1054,17 @@ function renderGaps(rows){var el=document.getElementById('gaps'),K=META.keyind,D
     gapChart=new Chart(document.getElementById('c_gap'),{type:'bar',data:{labels:withGap.map(function(g){return g.indicateur}),datasets:[{data:withGap.map(function(g){return g.pct}),backgroundColor:withGap.map(function(g){return col[tone(g)]}),borderRadius:8,borderSkipped:false,barPercentage:.62,maxBarThickness:26}]},
       options:{responsive:true,maintainAspectRatio:false,indexAxis:'y',plugins:{legend:{display:false},tooltip:Object.assign({},navyTip,{callbacks:{label:function(c){var g=withGap[c.dataIndex];return (g.pct>0?'+':'')+Number(g.pct).toFixed(1).replace('.',',')+(g.pts?' pts':' %')+' ('+fmt(g.precedente)+' → '+fmt(g.derniere)+')'}}})},
         scales:{x:{grid:{color:function(c){return c.tick&&c.tick.value===0?'#9CC3EA':'#EEF2F7'},drawTicks:false},border:{display:false},ticks:{padding:6,font:{size:11},callback:function(v){return (v>0?'+':'')+v}}},y:{grid:{display:false},border:{display:false},ticks:{callback:function(v){var l=this.getLabelForValue(v);return l.length>26?l.slice(0,25)+'…':l}}}}}})}}
-function render(){charts.forEach(function(c){c.destroy()});charts=[];var rows=filtered();renderKpis(rows);renderGaps(rows);
+function renderDict(){var el=document.getElementById('dict'),D=META.dictionnaire;if(!D||(!(D.trouves||[]).length&&!(D.absents||[]).length)){el.hidden=true;return}el.hidden=false;
+  /* Même langage que les écarts : tuiles pastel, code + valeur en vedette, libellé officiel limité à 2 lignes (complet au survol) */
+  var t=(D.trouves||[]).map(function(r,i){var isPct=(r.type||'').toLowerCase().indexOf('pourcentage')>=0;
+    var v=r.valeur==null?'—':(isPct?String(r.valeur).replace('.',',')+'<small>%</small>':fmt(r.valeur));
+    return '<div class="kpi gap k'+(i%4+1)+'" title="'+esc(r.libelle||'')+'"><div class="n"><span class="dc">'+esc(r.code||'')+'</span><span class="dl">'+esc(r.libelle||'')+'</span></div>'
+      +'<div class="row"><div class="v">'+v+'</div><div class="s">'+(r.detail?'<span class="gap-p">'+esc(r.detail)+'</span>':'')+'</div></div></div>'}).join('');
+  var A=D.absents||[],a=A.map(function(r){return '<li title="'+esc(r.libelle||'')+'"><b>'+esc(r.code)+'</b> '+esc(r.libelle||'')+'</li>'}).join('');
+  el.innerHTML='<div class="card-h"><div><h2>Indicateurs du dictionnaire</h2><small>Calculés selon le référentiel importé ('+(D.trouves||[]).length+' trouvé'+((D.trouves||[]).length>1?'s':'')+')</small></div></div>'
+    +(t?'<div class="gaps-grid">'+t+'</div>':'<p class="gaps-ct">Aucun indicateur du dictionnaire n\'est calculable avec ces données.</p>')
+    +(A.length?'<details class="dict-abs"><summary>'+A.length+' indicateur'+(A.length>1?'s':'')+' du dictionnaire absent'+(A.length>1?'s':'')+' de ces données</summary><ul>'+a+'</ul></details>':'')}
+function render(){charts.forEach(function(c){c.destroy()});charts=[];var rows=filtered();renderKpis(rows);renderGaps(rows);renderDict();
   var todo=renderMain(rows).concat(renderCards(rows));if(window.Chart)todo.forEach(function(f){f()})}
 document.getElementById('objective').textContent=window.OBJECTIVE;
 try{if(window.self!==window.top)document.body.classList.add('embedded')}catch(e){document.body.classList.add('embedded')}
@@ -1055,13 +1124,16 @@ def _long_to_wide(df):
     return wide, True
 
 
-def generate_dashboard(df, objective: str = "", job_id: str | None = None, llm=None, spec: dict | None = None) -> dict:
+def generate_dashboard(df, objective: str = "", job_id: str | None = None, llm=None, spec: dict | None = None,
+                       dictionnaire: list | None = None) -> dict:
     """Génère un tableau de bord (KPI + HTML interactif) depuis un DataFrame.
 
     Réutilisable par l'orchestrateur HERMES_DA ET par la console KLDataViz (bouton Dashboard).
     Retourne : html (le tableau de bord autonome), path (fichier écrit si job_id), kpis, charts, ia, spec.
     `spec` (facultatif) : indicateurs et graphiques déjà choisis (« spec » d'un appel précédent) → actualisation
     d'une source connectée : mêmes indicateurs sur les nouvelles données, sans appel à l'IA.
+    `dictionnaire` (facultatif) : indicateurs importés par l'espace (Mode B). La console passe celui de
+    l'espace ([] = aucun) ; None = registre PostgreSQL local de HERMES_DA (orchestrateur).
     """
     # Valeurs déjà agrégées : drapeau posé par la source (connecteur DHIS2), ou colonnes exactes du connecteur
     # (si le drapeau s'est perdu en route, ex. copie CSV)
@@ -1069,6 +1141,7 @@ def generate_dashboard(df, objective: str = "", job_id: str | None = None, llm=N
         str(c) for c in df.columns}
     if agrege:
         df.attrs["agrege"] = True
+    df_source = df  # avant pivot : le dictionnaire se calcule sur le format d'origine (indicateur + valeur)
     df, pivoted = _long_to_wide(df)
     profile = _profile(df)
     profile_json = json.dumps(profile, ensure_ascii=False, default=str)[:20000]
@@ -1130,7 +1203,20 @@ def generate_dashboard(df, objective: str = "", job_id: str | None = None, llm=N
     filter_cols = [str(c) for c in df.columns if 1 < int(df[c].nunique(dropna=True)) <= 30]
     period_col, period_series = _period(df)
     meta = _meta(df, kpi_defs, spec, filter_cols, period_col, period_series)
-    domaine = _detect_domaine(df)
+    if dictionnaire is None:
+        try:
+            from hermes_da import indicators_catalog as _cat
+            dictionnaire = _cat.load_dictionary()
+        except Exception:
+            dictionnaire = []
+    dict_domains = None
+    if dictionnaire:
+        try:
+            from hermes_da import indicators_catalog as _cat
+            dict_domains = _cat.to_domains(dictionnaire)
+        except Exception:
+            dictionnaire = []
+    domaine = _detect_domaine(df, dict_domains)
     ic, vc, kis = _keyind(df, domaine)
     keys = _period_key(df, period_col, period_series) if kis else None
     gaps = _gaps(df, keys, ic, vc, kis)
@@ -1140,6 +1226,37 @@ def generate_dashboard(df, objective: str = "", job_id: str | None = None, llm=N
         gaps = _patient_gaps(df, keys, kis)
     if domaine:
         meta["domaine"] = {"cle": domaine["cle"], "nom": domaine["nom"]}
+    # Dictionnaire d'indicateurs importé (Mode B) : source de vérité. Indicateurs calculés selon leur
+    # type (Nombre/%), absents signalés, et KPI auto-détectés hors dictionnaire marqués.
+    if dictionnaire:
+        try:
+            from hermes_da import indicators_catalog as _cat
+            dict_inds = dictionnaire
+            if dict_inds:
+                res = _cat.match_and_compute(df_source, dict_inds)
+                llm_fn = _resolve_llm(llm)
+                if llm_fn:
+                    try:
+                        absents = [i for i, r in zip(dict_inds, res) if not r["present"]]
+                        res_llm = _cat.match_and_compute_llm(df_source, absents, llm_fn) if absents else None
+                        # Le LLM complète seulement ce que le calcul déterministe n'a pas trouvé, sans l'écraser
+                        trouves = {r["code"]: r for r in (res_llm or []) if r["present"]}
+                        res = [trouves.get(r["code"], r) if not r["present"] else r for r in res]
+                    except Exception:
+                        pass
+                dict_codes = {i["code"].strip().lower() for i in dict_inds}
+                dict_lib = {_norm(i["libelle"]) for i in dict_inds}
+                meta["dictionnaire"] = _json_safe({
+                    "trouves": [{"code": r["code"], "libelle": r["libelle"], "type": r["type"],
+                                 "valeur": r["valeur"], "detail": r["detail"]} for r in res if r["present"]],
+                    "absents": [{"code": r["code"], "libelle": r["libelle"]} for r in res if not r["present"]],
+                })
+                for kd, k in zip(kpi_defs, kpis):
+                    kd["hors_dictionnaire"] = (_norm(str(k.get("nom"))) not in dict_lib
+                                               and str(k.get("nom", "")).strip().lower() not in dict_codes)
+        except Exception as exc:  # le tableau de bord reste affiché, mais l'échec laisse une trace
+            import sys
+            print(f"[AGT-11] dictionnaire d'indicateurs ignoré : {type(exc).__name__} : {exc}", file=sys.stderr, flush=True)
     data = df.assign(__p=period_series) if period_series is not None else df
     if gaps:
         # Recalculés dans la page selon les filtres (sauf si l'échantillon de 6000 lignes fausserait les sommes)
@@ -1165,7 +1282,8 @@ def generate_dashboard(df, objective: str = "", job_id: str | None = None, llm=N
     return {"html": html, "path": str(path) if path else None,
             "kpis": _json_safe(kpis), "charts": charts_count, "ia": ia,
             "filter_cols": filter_cols, "kpi_defs": kpi_defs, "format_long": pivoted,
-            "domaine": _json_safe(domaine), "gaps": _json_safe(gaps), "spec": _json_safe(dict(spec, _ia=ia))}
+            "domaine": _json_safe(domaine), "gaps": _json_safe(gaps), "spec": _json_safe(dict(spec, _ia=ia)),
+            "dictionnaire": _json_safe(meta.get("dictionnaire"))}
 
 
 def run(env, db, jobs) -> dict:

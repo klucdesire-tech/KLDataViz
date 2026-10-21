@@ -611,6 +611,18 @@ tr.versions td{background:var(--surface-2);font-size:13px}
             </div></div>
           <div class="actions"><button class="btn primary" type="submit">Enregistrer</button></div>
         </form>
+        <div class="card" id="dictCard"><h2>Dictionnaire d'indicateurs <span class="tag" id="dictTag"></span></h2>
+          <p class="sub">Facultatif. Importez le référentiel de votre organisation (ex. indicateurs MER PEPFAR) : une ligne par indicateur,
+            avec au moins les colonnes <b>Code</b> et <b>Indicateur</b> ; <b>Type</b> (Nombre / Pourcentage) et <b>Calcul du total annuel</b> rendent les calculs exacts.
+            Les tableaux de bord de l'espace calculent alors ces indicateurs, signalent ceux absents des données et marquent les tuiles « hors dictionnaire ».
+            Sans dictionnaire, Hermes applique les normes internationales du domaine.</p>
+          <div id="dictInfo" class="sub" style="margin-top:10px"></div>
+          <div class="actions" style="margin-top:10px;justify-content:flex-start;gap:8px">
+            <button class="btn primary sm" type="button" id="dictImport">Importer un dictionnaire</button>
+            <button class="btn ghost sm" type="button" id="dictDelete" hidden>Retirer</button>
+            <input type="file" id="dictFile" accept=".xlsx,.xlsm,.xls,.csv" hidden>
+          </div>
+        </div>
         <div class="card"><h2>Apparence</h2>
           <div class="setrow"><div><b>Thème</b><span>Suivre le système, ou forcer clair ou sombre</span></div>
             <select id="themeSel" style="width:auto"><option value="">Système</option><option value="light">Clair</option><option value="dark">Sombre</option></select></div>
@@ -1729,6 +1741,26 @@ async function loadTasks(){
 
 /* ================= réglages ================= */
 async function loadSettingsData(){const s=await api('/api/settings');if(!s.error){state.settings=s;$('#orgName').textContent=s.org||'Équipe Data'}return s}
+// ---- Dictionnaire d'indicateurs de l'espace (Mode B du tableau de bord)
+function renderDict(d){const on=!!d?.actif,canEdit=!CLOUD||['owner','analyst'].includes(state.me?.role);
+  $('#dictTag').className='tag '+(on?'ok':'type');$('#dictTag').textContent=on?'Actif':'Aucun';
+  $('#dictImport').hidden=!canEdit;$('#dictDelete').hidden=!(on&&canEdit);$('#dictImport').textContent=on?'Remplacer':'Importer un dictionnaire';
+  $('#dictInfo').innerHTML=on?`<b>${esc(d.nom||'Dictionnaire')}</b> · ${nf(d.indicateurs)} indicateurs · importé le ${when(d.importe_le)}
+    <div style="margin-top:6px">${Object.entries(d.domaines||{}).map(([k,n])=>`<span class="tag type" style="margin:2px 4px 2px 0">${esc(k)} · ${n}</span>`).join('')}</div>
+    <div style="margin-top:6px">${(d.apercu||[]).map(i=>`<code>${esc(i.code)}</code> ${esc(i.libelle)}`).join('<br>')}${d.indicateurs>(d.apercu||[]).length?'<br>…':''}</div>`
+    :(canEdit?'':'Seuls les propriétaires et analystes peuvent importer un dictionnaire.')}
+async function loadDict(){const d=await api('/api/dictionnaire');if(!d.error)renderDict(d)}
+$('#dictImport').onclick=()=>$('#dictFile').click();
+$('#dictFile').addEventListener('change',e=>{const f=e.target.files[0];e.target.value='';if(!f)return;
+  if(f.size>1024*1024)return toast('Dictionnaire trop volumineux (1 Mo maximum).');
+  const b=$('#dictImport'),r=new FileReader();b.disabled=true;b.innerHTML='<span class="spin"></span> Import…';
+  r.onload=async()=>{const d=await api('/api/dictionnaire/import',{name:f.name,data:String(r.result).split(',')[1]||''});b.disabled=false;
+    if(d.error){toast('Import impossible : '+d.error);loadDict();return}
+    renderDict(d);toast(`Dictionnaire importé : ${d.indicateurs} indicateurs. Il s'applique aux prochains tableaux de bord.`)};
+  r.onerror=()=>{b.disabled=false;toast('Lecture du fichier impossible.');loadDict()};r.readAsDataURL(f)});
+$('#dictDelete').onclick=async e=>{const b=e.currentTarget;if(b.dataset.ok!=='1'){b.dataset.ok='1';b.textContent='Confirmer le retrait';return}
+  b.dataset.ok='';b.textContent='Retirer';const d=await api('/api/dictionnaire/delete',{});if(d.error){toast(d.error);return}
+  renderDict(d);toast('Dictionnaire retiré : les normes intégrées s\'appliquent de nouveau.')};
 async function loadSettings(){
   $('#themeSel').value=document.documentElement.dataset.theme||'';
   const s=await loadSettingsData();
@@ -1740,6 +1772,7 @@ async function loadSettings(){
     $('#smtpTag').className='tag '+(s.smtp_ready?'ok':'type');$('#smtpTag').textContent=s.smtp_ready?'Configuré':'Non configuré';
   }
   if(CLOUD){loadTeam();loadAdmin()}
+  loadDict();
   const reg=await api('/api/ingest/list');
   $('#services').innerHTML=`
     <div class="setrow"><div><b>Registre des données</b><span>${reg.error?esc(reg.error):'Stockage : '+esc(reg.backend||'')}</span></div><span class="tag ${reg.error?'bad':'ok'}">${reg.error?'Indisponible':'Disponible'}</span></div>
