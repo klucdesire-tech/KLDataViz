@@ -41,8 +41,11 @@ BANNED_ATTRS = {
 }
 # Méthodes appelables par leur NOM en texte (df.apply('to_csv', …), df.agg('eval', …)) : refusées aussi
 # quand elles apparaissent comme chaîne de caractères.
-BANNED_STRINGS = BANNED_ATTRS | {"open", "exec", "compile", "getattr", "setattr", "delattr", "globals", "locals",
-                                 "vars", "pipe", "transform_file"}
+BANNED_STRINGS = {  # seulement des noms de MÉTHODES (les valeurs de données ordinaires restent permises)
+    "eval", "load", "loads", "save", "savez", "savez_compressed", "savetxt", "loadtxt", "genfromtxt", "fromfile",
+    "tofile", "memmap", "fromregex", "dump", "dumps", "system", "popen", "pipe", "ExcelFile", "ExcelWriter",
+    "HDFStore", "DataSource", "open", "exec", "compile", "getattr", "setattr", "delattr", "globals", "locals", "vars",
+}
 SAFE_TO = {"to_dict", "to_list", "to_numpy", "to_frame", "to_period", "to_timestamp", "to_datetime",
            "to_numeric", "to_string", "to_records", "to_flat_index", "to_series", "to_timedelta",
            "to_pydatetime", "to_offset", "tolist"}

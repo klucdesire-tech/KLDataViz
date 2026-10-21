@@ -82,3 +82,12 @@ def test_validate_refuse_les_chaines_de_sous_modules():
         with pytest.raises(sandbox.UnsafeCode):
             sandbox.validate(f"x = np.{attr}")
     sandbox.validate("result = data['x']['code'].nunique()")  # une colonne « code » reste utilisable
+
+
+def test_valeurs_de_donnees_ordinaires_permises():
+    reset_app_modules()
+    import sandbox  # noqa: PLC0415
+    for v in ("operator", "inspect", "char", "builtins", "socket"):
+        sandbox.validate(f"result = data['x'][data['x']['role'] == '{v}']")
+    with pytest.raises(sandbox.UnsafeCode):
+        sandbox.validate("data['x'].apply('to_csv', 'f.csv')")
