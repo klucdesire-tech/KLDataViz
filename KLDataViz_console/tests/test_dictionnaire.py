@@ -197,3 +197,39 @@ def test_tx_curr_ne_prend_pas_tx_curr_nat():
     df = pd.DataFrame({"indicateur": ["TX_CURR_NAT"], "periode": ["2025"], "valeur": [99]})
     r = {x["code"]: x for x in cat.match_and_compute(df, dico)}["TX_CURR"]
     assert r["present"] is False
+
+
+def test_categorie_envoyee_seulement_si_valeurs_repetees():
+    cat, dico = _cat_et_dico()
+    vus = []
+    df = pd.DataFrame({"statut": ["S"] * 3 + ["NS"] * 6, "nom": [f"N{i}" for i in range(9)],
+                       "rare": ["X"] * 8 + ["Y"]})
+    cat.match_and_compute_llm(df, dico, lambda m, n: vus.append(m[1]["content"]) or '{"matches":[]}')
+    import json  # noqa: PLC0415
+    cols = {c["nom"]: c for c in json.loads(vus[0])["colonnes"]}
+    assert sorted(cols["statut"]["categorie"]) == ["NS", "S"]
+    assert "categorie" not in cols["nom"] and "categorie" not in cols["rare"]  # valeurs uniques : jamais envoyées
+
+
+def test_echec_du_dictionnaire_journalise(capsys, monkeypatch):
+    cat, dico = _cat_et_dico()
+    from hermes_da.adapters.dashboard import generate_dashboard  # noqa: PLC0415
+
+    def casse(*a, **k):
+        raise RuntimeError("panne simulée")
+    monkeypatch.setattr(cat, "match_and_compute", casse)
+    out = generate_dashboard(_long(), "test", llm=False, dictionnaire=dico)
+    assert "<html" in out["html"].lower() and out["dictionnaire"] is None   # le tableau de bord reste affiché
+    assert "panne simulée" in capsys.readouterr().err
+
+
+def test_import_trop_volumineux_refuse_avant_decodage():
+    reset_app_modules()
+    import server  # noqa: PLC0415
+    from _harness import start, call  # noqa: PLC0415
+    httpd, base = start(server)
+    try:
+        code, rep = call(base, "/api/dictionnaire/import", {"name": "gros.xlsx", "data": "A" * (1500 * 1024)})
+        assert code == 400 and "1 Mo" in rep["error"]
+    finally:
+        httpd.shutdown()
