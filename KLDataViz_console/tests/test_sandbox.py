@@ -100,3 +100,29 @@ def test_autres_imports_toujours_refuses():
                  "from numpy import *\nresult = 1"):
         with pytest.raises(sandbox.UnsafeCode):
             sandbox.run(code, {})
+
+
+# --- Audit de sécurité (octobre 2026) : contournements par nom de méthode en texte et lecteurs oubliés
+@pytest.mark.parametrize("code", [
+    "result = pd.ExcelFile('autre.xlsx').parse()",
+    "data['x'].apply('to_csv', path_or_buf='vol.csv')",
+    "data['x'].agg('to_pickle', 'vol.pkl')",
+])
+def test_contournements_refuses_par_le_controle(code):
+    with pytest.raises(sandbox.UnsafeCode):
+        sandbox.validate(code)
+
+
+def test_garde_fou_d_execution_bloque_l_ecriture_et_la_lecture(tmp_path):
+    """Même si le contrôle du code est contourné (nom construit morceau par morceau), le processus de calcul
+    ne peut ni écrire un fichier ni lire un fichier hors de l'espace."""
+    src = tmp_path / "x.csv"
+    pd.DataFrame({"a": [1, 2]}).to_csv(src, index=False)
+    autre = tmp_path / "autre_espace.csv"
+    autre.write_text("secret\nAUTRE_ESPACE\n", encoding="utf-8")
+    cible = tmp_path / "vol.csv"
+    ecrit = sandbox.run(f"m = 'to' + '_csv'\ndata['x'].apply(m, path_or_buf={str(cible)!r})\nresult = 1",
+                        {"x": str(src)})
+    assert "error" in ecrit and not cible.exists()
+    ok = sandbox.run("result = int(data['x']['a'].sum())", {"x": str(src)})
+    assert ok["result"]["value"] == "3"   # les calculs normaux restent possibles

@@ -2028,8 +2028,6 @@ class Handler(http.server.BaseHTTPRequestHandler):
         data = obj.encode("utf-8") if isinstance(obj, str) else obj
         self.send_response(code)
         self.send_header("Content-Type", ctype + "; charset=utf-8")
-        if not T.CLOUD:
-            self.send_header("Access-Control-Allow-Origin", "*")
         if ctype == "application/json":
             self.send_header("Cache-Control", "no-store")
         elif ctype in ("text/html", "application/javascript"):  # toujours la dernière version après une mise à jour
@@ -2059,9 +2057,21 @@ class Handler(http.server.BaseHTTPRequestHandler):
         pass
 
     # ---- aiguillage : fichiers publics, puis connexion, puis organisation
+    def _local_origin_ok(self):
+        """Version locale (sans comptes) : seules les pages servies par la console elle-même peuvent l'appeler.
+        Bloque un site web malveillant ouvert dans le navigateur (requête vers 127.0.0.1) et le « DNS rebinding »."""
+        local = ("127.0.0.1", "localhost", "::1")
+        host = urlparse("//" + (self.headers.get("Host") or "")).hostname
+        if host not in local:
+            return False
+        origin = self.headers.get("Origin")
+        return not origin or urlparse(origin).hostname in local
+
     def _dispatch(self, method):
         path = urlparse(self.path).path
         try:
+            if not T.CLOUD and (path.startswith(("/api/", "/download/"))) and not self._local_origin_ok():
+                return self._send(403, {"error": "Requête refusée : la console locale n'accepte que ses propres pages."})
             if method == "GET" and path in STATIC:
                 fn, ctype = STATIC[path]
                 with open(os.path.join(BASE, fn), "rb") as f:

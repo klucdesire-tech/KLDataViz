@@ -33,7 +33,18 @@ BANNED_ATTRS = {
     "fromfile", "tofile", "memmap", "fromregex", "dump", "dumps", "io", "lib", "ctypeslib", "f2py",
     "distutils", "testing", "os", "sys", "system", "popen", "format", "format_map", "plot", "plotting",
     "style", "api", "core", "compat", "util", "errors", "options", "set_option", "get_option",
-    "pipe", "ExcelWriter", "HDFStore", "describe_option",
+    "pipe", "ExcelWriter", "HDFStore", "describe_option", "ExcelFile", "DataSource",
+    # chaînes de sous-modules menant aux fonctions intégrées ou au chargement de modules
+    "builtins", "importlib", "inspect", "overrides", "getattr", "setattr", "delattr", "modules",
+    "char", "ctypes", "typing", "functools", "operator", "warnings", "linecache", "pathlib", "shutil",
+    "subprocess", "socket", "pickle", "marshal",
+}
+# Méthodes appelables par leur NOM en texte (df.apply('to_csv', …), df.agg('eval', …)) : refusées aussi
+# quand elles apparaissent comme chaîne de caractères.
+BANNED_STRINGS = {  # seulement des noms de MÉTHODES (les valeurs de données ordinaires restent permises)
+    "eval", "load", "loads", "save", "savez", "savez_compressed", "savetxt", "loadtxt", "genfromtxt", "fromfile",
+    "tofile", "memmap", "fromregex", "dump", "dumps", "system", "popen", "pipe", "ExcelFile", "ExcelWriter",
+    "HDFStore", "DataSource", "open", "exec", "compile", "getattr", "setattr", "delattr", "globals", "locals", "vars",
 }
 SAFE_TO = {"to_dict", "to_list", "to_numpy", "to_frame", "to_period", "to_timestamp", "to_datetime",
            "to_numeric", "to_string", "to_records", "to_flat_index", "to_series", "to_timedelta",
@@ -104,8 +115,12 @@ def validate(code: str) -> None:
                 raise UnsafeCode(f"attribut interdit : {a}")
             if (a.startswith("read_") or (a.startswith("to_") and a not in SAFE_TO)):
                 raise UnsafeCode(f"lecture/écriture de fichier interdite : {a}")
-        if isinstance(node, ast.Constant) and isinstance(node.value, str) and "__" in node.value:
-            raise UnsafeCode("chaîne suspecte")
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            v = node.value.strip()
+            if "__" in v:
+                raise UnsafeCode("chaîne suspecte")
+            if v in BANNED_STRINGS or (re.fullmatch(r"(to|read)_\w+", v) and v not in SAFE_TO):
+                raise UnsafeCode(f"méthode interdite : {v}")
 
 
 # Bibliothèques de calcul limitées à un fil : sinon OpenBLAS/pyarrow tentent d'en créer
