@@ -357,9 +357,12 @@ def _plabel(k: str, yearly: bool = False) -> str:
 def _period(df):
     """Première colonne de période (dates, « 2025-04 », « Avril 2025 ») → (nom, série « AAAA-MM ») ; (None, None) sinon."""
     import pandas as pd
-    idlike = re.compile(r"(^|[\s_.])(n°|no|num(ero|éro)?|id|code|matricule|ref|référence|reference|labno|pec|datim)($|[\s_.])", re.I)
+    idlike = re.compile(r"(^|[\s_.])(n°|no|num(ero|éro)?|id|code|matricule|ref|référence|reference|labno|datim)($|[\s_.])", re.I)
+    dateword = re.compile(r"\b(date|periode|quarter|trimestre|mois|annee|an|year|month)\b", re.I)
     for c in df.columns:
-        if idlike.search(re.sub(r"\(.*?\)", "", _norm(c))):
+        n = _norm(c)
+        # une colonne « date … » (même « date de référence », « date_debut_pec ») n'est jamais un identifiant
+        if not dateword.search(n) and idlike.search(re.sub(r"\(.*?\)", "", n)):
             continue  # identifiant (code site, labno, code patient…) : jamais une période
         s = df[c]
         if pd.api.types.is_numeric_dtype(s) and not pd.api.types.is_datetime64_any_dtype(s):

@@ -313,6 +313,27 @@ def _stem(w):
     return w
 
 
+_PERIOD_NAMES = ("quarter", "period", "periode", "periodname", "periodid", "periodcode",
+                 "trimestre", "mois", "date", "year", "annee")
+
+_IDLIKE = re.compile(r"(^|[\s_.])(n°|no|num(ero|éro)?|id|code|matricule|ref|référence|reference|labno|pec|datim)($|[\s_.])", re.I)
+
+
+def _period_col(df):
+    """Colonne de période simple : nom exact (« period », « trimestre »…) ou préfixe date/période/année…"""
+    for c in df.columns:
+        n = _norm(c)
+        if n in _PERIOD_NAMES or re.match(r"^(date|periode|annee|mois|trimestre|quarter)\b", n):
+            return c
+    return None
+
+
+def _is_snapshot(ind):
+    """Un indicateur « instantané » (snapshot) : on prend la valeur de fin de période, on n'additionne pas."""
+    t = (ind.get("total") or "").lower()
+    return any(m in t for m in ("snapshot", "instantane", "valeur de fin", "ne pas additionner", "sans objet"))
+
+
 
 
 # --------------------------------------------------------------------------
@@ -382,9 +403,16 @@ def match_and_compute_llm(df, indicators, llm):
     import pandas as pd
     cols = []
     for c in df.columns:
-        ex = [str(v) for v in df[c].dropna().astype(str).unique()[:6]]
-        cols.append({"nom": str(c), "type": "numerique" if pd.api.types.is_numeric_dtype(df[c]) else "texte",
-                     "exemples": ex})
+        entry = {"nom": str(c), "type": "numerique" if pd.api.types.is_numeric_dtype(df[c]) else "texte"}
+        # Confidentialité : on n'envoie JAMAIS de valeurs brutes (codes patients, dates, résultats).
+        # Seulement les étiquettes des colonnes catégorielles (2-8 valeurs : SUPPRIME/NON-SUPPRIME, OUI/NON…).
+        if not pd.api.types.is_numeric_dtype(df[c]) and not pd.api.types.is_datetime64_any_dtype(df[c]) \
+                and not _IDLIKE.search(_norm(str(c))):  # jamais un identifiant, même à peu de valeurs
+            vals = [str(v).strip() for v in df[c].dropna().astype(str).unique()
+                    if str(v).strip().lower() not in ("", "nan", "none", "null", "nat")]
+            if 2 <= len(vals) <= 8:
+                entry["categorie"] = vals
+        cols.append(entry)
     payload = json.dumps({
         "indicateurs": [{k: i.get(k, "") for k in ("code", "libelle", "type", "numerateur", "denominateur")}
                         for i in indicators],
@@ -435,6 +463,7 @@ def match_and_compute(df, indicators):
     # --- Format long ---
     if ic is not None and vc is not None:
         labels = df[ic].dropna().astype(str)
+        pcol = _period_col(df)
         for ind in indicators:
             code = ind["code"].strip().lower()
             mask = labels.str.strip().str.lower().eq(code)
@@ -446,10 +475,33 @@ def match_and_compute(df, indicators):
                 out.append({"code": ind["code"], "libelle": ind["libelle"], "type": ind["type"],
                             "present": False, "valeur": None, "detail": None})
                 continue
-            vals = pd.to_numeric(df.loc[mask, vc], errors="coerce")
-            val = float(vals.sum(min_count=1)) if vals.notna().any() else None
+            is_rate = (ind["type"] or "").strip().lower() in ("pourcentage", "proportion", "taux", "%", "rate", "pct")
+            snapshot = _is_snapshot(ind)
+            if pcol is not None and df.loc[mask, pcol].notna().any():
+                sub = df.loc[mask].copy()
+                sub["__v"] = pd.to_numeric(sub[vc], errors="coerce")
+                g = sub.dropna(subset=["__v"]).groupby(sub[pcol].astype(str))["__v"].sum()
+                if g.empty:
+                    out.append({"code": ind["code"], "libelle": ind["libelle"], "type": ind["type"],
+                                "present": False, "valeur": None, "detail": None})
+                    continue
+                if is_rate or snapshot:
+                    # un taux ne se somme pas ; un instantané = valeur de fin de période
+                    val = float(g.iloc[-1])
+                    detail = f"valeur {g.index[-1]}"
+                else:
+                    val = float(g.sum())
+                    detail = f"somme {len(g)} périodes"
+            else:
+                vals = pd.to_numeric(df.loc[mask, vc], errors="coerce")
+                if is_rate:
+                    val = float(vals.dropna().iloc[-1]) if vals.notna().any() else None
+                    detail = "dernière valeur (taux non sommé)"
+                else:
+                    val = float(vals.sum(min_count=1)) if vals.notna().any() else None
+                    detail = f"somme de « {vc} »"
             out.append({"code": ind["code"], "libelle": ind["libelle"], "type": ind["type"],
-                        "present": True, "valeur": val, "detail": f"somme de « {vc} »"})
+                        "present": True, "valeur": val, "detail": detail})
         return out
 
     # --- Format liste (une ligne par observation) ---

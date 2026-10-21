@@ -150,3 +150,75 @@ def test_match_compute_llm_garbage_returns_none():
     inds = [{"domaine": "X", "code": "A", "libelle": "a", "type": "Nombre",
              "numerateur": "", "denominateur": ""}]
     assert cat.match_and_compute_llm(df, inds, lambda m, t: "pas du json") is None
+
+
+# --- Règle « total » (Somme vs Snapshot) et « % jamais sommé » ---
+def test_long_format_rate_not_summed():
+    # TX_PVLS (Pourcentage) sur 4 trimestres : 80+85+90+88 = 343 serait FAUX → on prend la dernière (88)
+    df = pd.DataFrame({"indicateur": ["TX_PVLS"] * 4, "periode": ["2025T1", "2025T2", "2025T3", "2025T4"],
+                       "valeur": [80, 85, 90, 88]})
+    inds = [{"domaine": "S", "code": "TX_PVLS", "libelle": "charge virale supprimée", "type": "Pourcentage",
+             "numerateur": "", "denominateur": "", "total": "Indicateur instantané (snapshot) : valeur de fin de période"}]
+    res = cat.match_and_compute(df, inds)
+    assert res[0]["valeur"] == 88.0  # pas 343
+
+
+def test_long_format_snapshot_takes_last():
+    # TX_CURR (instantané) : 1000+1050+1100+1150 = 4300 serait FAUX → dernière = 1150
+    df = pd.DataFrame({"indicateur": ["TX_CURR"] * 4, "periode": ["2025T1", "2025T2", "2025T3", "2025T4"],
+                       "valeur": [1000, 1050, 1100, 1150]})
+    inds = [{"domaine": "T", "code": "TX_CURR", "libelle": "actifs sous TARV", "type": "Nombre",
+             "numerateur": "", "denominateur": "", "total": "Indicateur instantané (snapshot) : valeur de fin de période"}]
+    res = cat.match_and_compute(df, inds)
+    assert res[0]["valeur"] == 1150.0
+
+
+def test_long_format_somme_sums():
+    # TX_NEW (additionnable) : somme des 4 trimestres
+    df = pd.DataFrame({"indicateur": ["TX_NEW"] * 4, "periode": ["2025T1", "2025T2", "2025T3", "2025T4"],
+                       "valeur": [10, 20, 30, 40]})
+    inds = [{"domaine": "T", "code": "TX_NEW", "libelle": "nouveaux sous TARV", "type": "Nombre",
+             "numerateur": "", "denominateur": "", "total": "Somme des résultats trimestriels (T1+T2+T3+T4)"}]
+    res = cat.match_and_compute(df, inds)
+    assert res[0]["valeur"] == 100.0
+
+
+def test_period_col_recognizes_date_debut_pec():
+    df = pd.DataFrame({"date_debut_pec": ["01/01/2025", "01/02/2025"], "x": [1, 2]})
+    assert cat._period_col(df) == "date_debut_pec"
+
+
+def test_period_col_skips_identifier():
+    df = pd.DataFrame({"code site": ["1226", "367"], "x": [1, 2]})
+    assert cat._period_col(df) is None
+
+
+# --- Confidentialité du matching LLM : jamais de codes patients ni de valeurs brutes ---
+def test_llm_payload_never_sends_identifiers():
+    df = pd.DataFrame({"code patient": ["P001", "P002", "P003", "P004"],
+                       "statut resultat": ["SUPPRIME"] * 2 + ["NON-SUPPRIME"] * 2})
+    inds = [{"domaine": "S", "code": "TX_PVLS", "libelle": "charge virale supprimée",
+             "type": "Pourcentage", "numerateur": "", "denominateur": ""}]
+    captured = {}
+
+    def fake_llm(messages, max_tokens):
+        captured["user"] = messages[1]["content"]
+        return '{"matches":[]}'
+
+    cat.match_and_compute_llm(df, inds, fake_llm)
+    assert "P001" not in captured["user"]  # code patient jamais envoyé (même à 4 valeurs)
+    assert "SUPPRIME" in captured["user"]   # étiquette de catégorie, elle, est envoyée
+
+
+def test_llm_payload_never_sends_numeric_values():
+    df = pd.DataFrame({"resultat cpml": [42, 17, 9], "statut": ["S"] * 2 + ["NS"]})
+    inds = [{"domaine": "S", "code": "TX_PVLS", "libelle": "charge virale supprimée",
+             "type": "Pourcentage", "numerateur": "", "denominateur": ""}]
+    captured = {}
+
+    def fake_llm(messages, max_tokens):
+        captured["user"] = messages[1]["content"]
+        return '{"matches":[]}'
+
+    cat.match_and_compute_llm(df, inds, fake_llm)
+    assert "42" not in captured["user"]  # la valeur numérique n'est pas envoyée
