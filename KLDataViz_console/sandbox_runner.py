@@ -72,6 +72,61 @@ STAT_FUNCS = ("ttest_ind", "ttest_rel", "mannwhitneyu", "chi2_contingency", "fis
               "spearmanr", "linregress", "f_oneway", "kruskal", "shapiro", "wilcoxon")
 
 
+_WRITE_FLAGS = 0
+for _f in ("O_WRONLY", "O_RDWR", "O_APPEND", "O_CREAT", "O_TRUNC"):
+    _WRITE_FLAGS |= getattr(__import__("os"), _f, 0)
+_BLOCKED_PREFIXES = ("os.", "subprocess.", "socket.", "ctypes.", "shutil.", "_winapi.", "winreg.", "urllib.",
+                     "http.", "ftplib.", "smtplib.", "poplib.", "imaplib.", "nntplib.", "telnetlib.", "webbrowser.",
+                     "sqlite3.", "glob.", "pty.", "resource.", "signal.", "mmap.", "fcntl.", "syslog.", "_posixsubprocess.",
+                     "sys.addaudithook", "sys.settrace", "sys.setprofile", "cpython.", "msvcrt.")
+
+
+def _install_guard(dataset_paths):
+    """Barrière d'exécution, en plus du contrôle du code (sandbox.validate) : un « audit hook » Python,
+    impossible à retirer depuis le code exécuté, qui refuse toute écriture de fichier, toute lecture hors
+    des fichiers de l'espace et de la bibliothèque Python, tout accès réseau et tout lancement de programme.
+    Il ferme les contournements par appel de méthode en texte (df.apply('to_csv', …), pd.ExcelFile(…))."""
+    import os
+    import site
+
+    def norm(p):
+        return os.path.normcase(os.path.realpath(p))
+
+    # Lecture seule, sous Linux : bibliothèques système, fuseaux horaires, /sys et /proc/self (le processus de
+    # calcul lui-même, dont l'environnement est vide). Jamais /proc/<autre> : l'environnement du serveur (clés).
+    roots = {sys.prefix, sys.base_prefix, sys.exec_prefix, "/usr/share/zoneinfo", "/usr/lib", "/lib", "/lib64",
+             "/usr/local/lib", "/sys", "/proc/self", "/proc/" + str(os.getpid())}
+    try:
+        roots.update(site.getsitepackages())
+    except Exception:
+        pass
+    roots = tuple(norm(r) + os.sep for r in roots if r)
+    files = {norm(p) for p in dataset_paths if p}
+    files |= {norm("/etc/localtime"), norm("/dev/urandom"), norm("/dev/null")}
+
+    def readable(path):
+        if isinstance(path, int):
+            return True
+        n = norm(os.fsdecode(path))
+        return n in files or n.startswith(roots)
+
+    def hook(event, args):
+        if event == "open":
+            path, mode, flags = (list(args) + [None, None, 0])[:3]
+            writes = (isinstance(mode, str) and any(c in mode for c in "wax+")) or bool((flags or 0) & _WRITE_FLAGS)
+            if writes or not readable(path):
+                raise PermissionError("accès fichier interdit dans le calcul")
+            return
+        if event in ("os.listdir", "os.scandir"):
+            if args and args[0] is not None and not readable(args[0]):
+                raise PermissionError("accès fichier interdit dans le calcul")
+            return
+        if event.startswith(_BLOCKED_PREFIXES):
+            raise PermissionError(f"opération interdite dans le calcul : {event}")
+
+    sys.addaudithook(hook)
+
+
 def main():
     sys.stdout.reconfigure(encoding="utf-8")  # le parent relit en UTF-8 (« Soubré », pas « Soubr� »)
     sys.stdin.reconfigure(encoding="utf-8")
@@ -91,6 +146,7 @@ def main():
         from scipy import stats
         ns["stats"] = stats
         ns.update({f: getattr(stats, f) for f in STAT_FUNCS})  # aussi utilisables sans « stats. »
+    _install_guard(list((job.get("datasets") or {}).values()))
     try:
         exec(compile(job["code"], "<ia>", "exec"), ns)
         chart = ns.get("chart")

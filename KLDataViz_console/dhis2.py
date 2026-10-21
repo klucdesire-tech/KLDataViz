@@ -199,7 +199,8 @@ def _fetch_json(url: str, user: str, password: str, allow_private: bool = False)
     token = base64.b64encode(f"{user}:{password}".encode("utf-8")).decode("ascii")
     req.add_header("Authorization", f"Basic {token}")
     opener = urllib.request.build_opener(
-        _SameHostRedirect(urllib.parse.urlparse(url).netloc.lower(), allow_private))
+        _SameHostRedirect(urllib.parse.urlparse(url).netloc.lower(), allow_private),
+        *netguard.handlers(allow_private))
     with opener.open(req, timeout=netguard.TIMEOUT_S) as resp:
         data = resp.read(netguard.MAX_BYTES + 1)
     if len(data) > netguard.MAX_BYTES:
