@@ -27,7 +27,7 @@ SYSTEM = """Tu es le DATA VISUALIZATION & DASHBOARD AGENT d'Hermes (santé publi
 On te donne le PROFIL d'un dataset (colonnes, types, valeurs d'exemple, répartition)
 et un OBJECTIF MÉTIER. Propose les KPI les plus pertinents et les graphiques adaptés.
 Réponds en JSON STRICT, sans aucun texte hors du JSON, exactement sous cette forme :
-{"kpis":[{"nom":"...","agregation":"somme|moyenne|compte|max|min|taux","colonne":"...","dimension":"...","justification":"..."}],"graphiques":[{"colonne":"...","type":"bar|line|pie|hist|scatter|box","justification":"..."}]}
+{"kpis":[{"nom":"...","agregation":"somme|moyenne|mediane|compte|max|min|taux","colonne":"...","dimension":"...","justification":"..."}],"graphiques":[{"colonne":"...","type":"bar|line|pie|hist|scatter|box","justification":"..."}]}
 Règles absolues :
 - Analyse les colonnes réellement disponibles ; ne suppose jamais une colonne ou dimension prédéfinie.
 - Ne propose QUE des colonnes qui existent réellement dans le profil (respecte leur nom exact).
@@ -42,7 +42,13 @@ Règles absolues :
   « compte » pour des effectifs, « taux » pour des proportions (0 à 1, sens clair).
 - « taux » UNIQUEMENT sur une colonne Oui/Non (vrai/faux, positif/négatif) ou déjà chiffrée entre 0 et 1 ;
   jamais sur une date, un texte libre ou un statut à plusieurs valeurs (utilise alors « compte » avec une dimension).
-- « somme », « moyenne », « max », « min » UNIQUEMENT sur des colonnes chiffrées."""
+- « somme », « moyenne », « mediane », « max », « min » UNIQUEMENT sur des colonnes chiffrées.
+- JAMAIS « somme » d'un prix unitaire, d'un taux, d'une note, d'un âge ou d'une autre grandeur « par unité » :
+  « moyenne » (ou « mediane » si les valeurs sont très dispersées, ex. délais, charges virales, montants).
+- Une année, un mois ou un numéro de période n'est JAMAIS un indicateur (ni somme ni moyenne) : c'est un axe.
+- Un stock (population, effectif présent, file active, superficie, solde) ne s'additionne pas d'une période à
+  l'autre : « somme » est alors ramenée automatiquement à la dernière période.
+- Pas de camembert (« pie ») pour une période ni pour plus de 6 catégories."""
 
 
 def _parse_spec(content: str) -> dict | None:
@@ -152,6 +158,7 @@ def _profile(df) -> dict:
         if pd.api.types.is_numeric_dtype(s):
             try:
                 info["min"] = float(s.min()); info["max"] = float(s.max()); info["moyenne"] = round(float(s.mean()), 2)
+                info["mediane"] = round(float(s.median()), 2)
             except Exception:
                 pass
         cols.append(info)
@@ -159,8 +166,14 @@ def _profile(df) -> dict:
 
 
 _ID_RE = re.compile(r"(^|[\s_])(id|code|n°|no|num|numero|identifiant|matricule)([\s_]|$)", re.I)
-_MESURE_RE = re.compile(r"delai|duree|age\b|cd4|cv\b|charge|copies|score|poids|taille|taux|pourcent|moyenne|imc", re.I)
-_VOLUME_RE = re.compile(r"nombre|\bnb\b|effectif|total|volume|montant|quantite|valeur|cout|prix|recette|depense", re.I)
+_MESURE_RE = re.compile(r"delai|duree|age\b|cd4|cv\b|charge|copies|score|poids|taille|taux|pourcent|moyenne|imc|"
+                        r"prix|tarif|unitaire|\bpar\b|_kg\b|\bkg\b|pct|ratio|note|humidite|temperature|anciennete|"
+                        r"latitude|longitude|densite|rendement", re.I)
+# Colonnes de temps chiffrées (année, mois…) : un axe, jamais un indicateur (« moyenne des années » n'a pas de sens)
+_TEMPS_RE = re.compile(r"^(annee|an|year|mois|month|trimestre|quarter|semaine|week|jour|day|periode|period)s?\b", re.I)
+_VOLUME_RE = re.compile(r"nombre|\bnb\b|effectif|total|volume|montant|quantite|valeur|cout|recette|depense|chiffre|"
+                        r"affaires|marge|revenu|vente|benefice|naissance|deces|cas\b|visite|consultation|admission|"
+                        r"nuit|livraison|tonnage|production|salaire", re.I)
 
 
 def _rule_dashboard(profile: dict) -> dict:
@@ -175,12 +188,18 @@ def _rule_dashboard(profile: dict) -> dict:
     yesno = [c for c in cols if not is_num(c) and c.get("exemples") and (c.get("n_distinct") or 0) <= 2
              and all(_norm(x) in _YES | _NO for x in c["exemples"])]
     cats = [c for c in cols if not is_num(c) and not is_id(c) and not is_date(c) and c not in yesno
-            and 2 <= (c.get("n_distinct") or 0) <= 30]
-    nums = [c for c in cols if is_num(c) and not is_id(c)]
+            and 2 <= (c.get("n_distinct") or 0) <= 30 and not _TEMPS_RE.search(name(c))
+            and not re.search(r"period|periode|mois|trimestre", name(c))]
+    # « part de … (%) » : une part d'un total par ligne — ni sa somme ni sa moyenne ne sont des indicateurs
+    nums = [c for c in cols if is_num(c) and not is_id(c) and not _TEMPS_RE.search(name(c))
+            and not re.search(r"(^|\s)part(\s|$)", name(c))]
     dim = next((c["colonne"] for c in sorted(cats, key=lambda c: 0 if re.search(r"region|district|sexe|genre", name(c)) else 1)), None)
     is_vol = lambda c: bool(re.match(r"(nombre|nb|effectif|total|volume)\b", name(c))) or (  # noqa: E731
         bool(_VOLUME_RE.search(name(c))) and not _MESURE_RE.search(name(c)))
-    if not any(is_vol(c) for c in nums):  # données déjà agrégées (« Nombre de … ») : compter les lignes n'a pas de sens
+    # Données déjà agrégées (« Nombre de … », « Total … ») : compter les lignes n'a pas de sens. Un fichier de
+    # transactions ou de personnes avec des montants (salaires, ventes) garde son effectif.
+    # (une colonne de stock comme « population » signale aussi un fichier par strate, pas par individu)
+    if not any(re.match(r"(nombre|nb|effectif|total)\b", name(c)) or _STOCK_RE.search(name(c)) for c in nums):
         kpis.append({"nom": "Effectif total", "agregation": "compte", "colonne": None, "dimension": dim,
                      "justification": "nombre de lignes du fichier"})
     for c in yesno[:2]:
@@ -189,11 +208,20 @@ def _rule_dashboard(profile: dict) -> dict:
     for c in nums:
         if len(kpis) >= 5:
             break
-        vol = is_vol(c)
-        agg = "somme" if vol else "moyenne"
         lib = re.sub(r"^\s*(nombre|nb)\s+(de |d')\s*", "", c["colonne"].replace("_", " "), flags=re.I)
-        kpis.append({"nom": f"{'Total' if vol else 'Moyenne'} : {lib}", "agregation": agg,
-                     "colonne": c["colonne"], "dimension": dim, "justification": "volume" if vol else "mesure moyenne"})
+        if _STOCK_RE.search(name(c)) and not _MESURE_RE.search(name(c)):  # « part de la population (%) » = un taux
+            # Stock (population, superficie…) : jamais additionné d'une période à l'autre → « dernier » plus loin
+            kpis.append({"nom": lib[:1].upper() + lib[1:], "agregation": "somme", "colonne": c["colonne"],
+                         "dimension": dim, "justification": "stock : valeur de la dernière période"})
+            continue
+        vol = is_vol(c)
+        skew = (not vol and c.get("moyenne") is not None and c.get("mediane") is not None
+                and abs(c["moyenne"]) > 1.5 * abs(c["mediane"]) + 1e-9)
+        agg = "somme" if vol else "mediane" if skew else "moyenne"
+        nom = "Total" if vol else "Médiane" if skew else "Moyenne"
+        kpis.append({"nom": f"{nom} : {lib}", "agregation": agg, "colonne": c["colonne"], "dimension": dim,
+                     "justification": "volume" if vol else
+                     "valeurs très dispersées : la médiane résume mieux que la moyenne" if skew else "mesure moyenne"})
     for c in cats[:3]:
         graphiques.append({"colonne": c["colonne"], "type": "pie" if (c.get("n_distinct") or 0) <= 5 else "bar",
                            "justification": "répartition par catégorie"})
@@ -231,6 +259,8 @@ def _agg(df, colonne: str | None, agregation: str) -> float | int | None:
         return float(s.sum())
     if a in ("moyenne", "mean", "avg", "moyenne de"):
         return round(float(s.mean()), 2) if s.notna().any() else None
+    if a in ("mediane", "médiane", "median"):
+        return round(float(s.median()), 2) if s.notna().any() else None
     if a in ("max", "maximum"):
         return float(s.max()) if s.notna().any() else None
     if a in ("min", "minimum"):
@@ -255,6 +285,8 @@ def _agg_grouped(df, colonne: str | None, agregation: str, dimension: str, top: 
     s = _rate_values(df[colonne]) if a in ("taux", "rate", "pct", "proportion") else pd.to_numeric(df[colonne], errors="coerce")
     if a in ("moyenne", "mean", "avg"):
         g = df.assign(_v=s).groupby(dimension)["_v"].mean()
+    elif a in ("mediane", "médiane", "median"):
+        g = df.assign(_v=s).groupby(dimension)["_v"].median()
     elif a in ("max", "maximum"):
         g = df.assign(_v=s).groupby(dimension)["_v"].max()
     elif a in ("min", "minimum"):
@@ -359,8 +391,12 @@ def _period(df):
     import pandas as pd
     idlike = re.compile(r"(^|[\s_.])(n°|no|num(ero|éro)?|id|code|matricule|ref|référence|reference|labno|datim)($|[\s_.])", re.I)
     dateword = re.compile(r"\b(date|periode|quarter|trimestre|mois|annee|an|year|month)\b", re.I)
-    for c in df.columns:
+    attribut = re.compile(r"naissance|birth|embauche|hire|creation|ouverture|expiration|peremption")
+    for c in sorted(df.columns, key=lambda c: 1 if attribut.search(_norm(c)) else 0):
         n = _norm(c)
+        if attribut.search(n) and any(re.search(r"date|mois|periode|annee", _norm(o)) and not attribut.search(_norm(o))
+                                      for o in df.columns):
+            continue  # une autre colonne de temps existe : la date de naissance/d'embauche n'est pas la période suivie
         # une colonne « date … » (même « date de référence », « date_debut_pec ») n'est jamais un identifiant
         if not dateword.search(n) and idlike.search(re.sub(r"\(.*?\)", "", n)):
             continue  # identifiant (code site, labno, code patient…) : jamais une période
@@ -398,13 +434,13 @@ def _meta(df, kpis, spec, filter_cols, period_col, period_series):
     """Ce que le gabarit dessine : mesure principale, période, catégories empilées, graphiques choisis."""
     import pandas as pd
     cols = set(df.columns)
-    labels = {"somme": "Somme", "moyenne": "Moyenne", "compte": "Nombre", "taux": "Taux moyen", "max": "Maximum",
-              "min": "Minimum"}
+    labels = {"somme": "Somme", "moyenne": "Moyenne", "mediane": "Médiane", "compte": "Nombre", "taux": "Taux moyen",
+              "max": "Maximum", "min": "Minimum"}
     measure = None
     for k in kpis:
         col = k.get("colonne")
         if col in cols and pd.api.types.is_numeric_dtype(pd.to_numeric(df[col], errors="coerce")) \
-                and (k.get("agregation") or "").lower() in ("somme", "moyenne", "taux", "max", "min", "dernier"):
+                and (k.get("agregation") or "").lower() in ("somme", "moyenne", "mediane", "taux", "max", "min", "dernier"):
             measure = k
             break
     measure = measure or (kpis[0] if kpis else None)
@@ -693,7 +729,7 @@ def _patient_items(df, kpi_defs, domaine, period_col, aggregated=False):
     # pas de compteur de lignes, mais les sommes du mois restent comparées au mois précédent
     items = [] if aggregated else [{"nom": "Nouveaux patients" if domaine else "Nouveaux enregistrements",
                                     "kind": "count", "bon": 1, "libelle": f"Lignes par mois de « {period_col} »"}]
-    kept = ("taux", "rate", "pct", "proportion", "moyenne", "mean") + (("somme", "sum") if aggregated else ())
+    kept = ("taux", "rate", "pct", "proportion", "moyenne", "mean", "mediane") + (("somme", "sum") if aggregated else ())
     for k in kpi_defs:
         a, col = (k.get("agregation") or "").lower(), k.get("colonne")
         if col in df.columns and col != period_col and a in kept:
@@ -871,7 +907,7 @@ function agg(rows,col,a){a=(a||'').toLowerCase();
   if(isRate(a))return rate(rows,col);
   var v=rows.map(function(r){return num(r[col])}).filter(function(x){return x!=null});if(!v.length)return null;
   var s=v.reduce(function(p,q){return p+q},0);
-  if(a==='moyenne'||a==='taux')return s/v.length;if(a==='max')return Math.max.apply(null,v);if(a==='min')return Math.min.apply(null,v);return s}
+  if(a==='moyenne'||a==='taux')return s/v.length;if(a==='mediane'||a==='médiane'||a==='median'){v.sort(function(x,y){return x-y});var h=v.length>>1;return v.length%2?v[h]:(v[h-1]+v[h])/2}if(a==='max')return Math.max.apply(null,v);if(a==='min')return Math.min.apply(null,v);return s}
 function groupBy(rows,key){var g={};rows.forEach(function(r){var k=typeof key==='function'?key(r):r[key];if(isNull(k))return;k=String(k);(g[k]=g[k]||[]).push(r)});return g}
 function ranked(rows,col,a,dim,top){var g=groupBy(rows,dim);return Object.keys(g).map(function(k){return [k,agg(g[k],col,a)]}).filter(function(e){return e[1]!=null}).sort(function(x,y){return y[1]-x[1]}).slice(0,top||8)}
 // Périodes : __p = « AAAA-MM » ; regroupement par mois, trimestre ou année

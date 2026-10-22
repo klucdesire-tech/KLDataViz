@@ -220,7 +220,10 @@ def interpret_chart(c):
             tot = sum(v) or 1
             pairs = sorted(zip(labels, v), key=lambda x: -x[1])
             (l1, v1), (ln, vn) = pairs[0], pairs[-1]
-            s = f"<b>{esc(l1)}</b> arrive en tête avec {nf(v1)}, soit {pct(v1 / tot * 100)} du total affiché"
+            # Une moyenne, une médiane ou un taux par groupe ne se « partage » pas : pas de « % du total »
+            sub = re.sub(r"^.*?·\s*(?=(Somme|Moyenne|Médiane|Taux))", "", str(c.get("subtitle") or ""))
+            additive = c.get("agg", "sum") == "sum" and not re.match(r"(Moyenne|Médiane|Taux)", sub) and c.get("unit") != "%"
+            s = f"<b>{esc(l1)}</b> arrive en tête avec {nf(v1)}" + (f", soit {pct(v1 / tot * 100)} du total affiché" if additive else "")
             s += f" ; <b>{esc(ln)}</b> ferme la marche avec {nf(vn)}." if len(pairs) > 1 else "."
             if len(pairs) > 1 and vn > 0:
                 s += f" L'écart entre le premier et le dernier est de 1 à {nf(v1 / vn, 1)}."
@@ -229,7 +232,7 @@ def interpret_chart(c):
             if ref:
                 above = sum(1 for x in v if x > ref)
                 out.append(f"{above} élément(s) sur {len(v)} se situent au-dessus de la moyenne ({nf(ref)}).")
-            if len(pairs) > 3:
+            if len(pairs) > 3 and additive:
                 top3 = sum(x for _, x in pairs[:3])
                 out.append(f"Les 3 premiers concentrent {pct(top3 / tot * 100)} du total.")
     elif kind == "share":
@@ -263,7 +266,9 @@ def interpret_chart(c):
             force = "forte" if abs(r) >= 0.7 else "modérée" if abs(r) >= 0.4 else "faible"
             sens = "augmente" if r > 0 else "diminue"
             out.append(f"Relation {force} (r = {nf(r, 2)}) : quand {esc(c.get('xTitle', 'la première variable'))} augmente, "
-                       f"{esc(c.get('yTitle', 'la seconde'))} {sens} en général. Une corrélation ne prouve pas un lien de cause à effet.")
+                       f"{esc(c.get('yTitle', 'la seconde'))} {sens} en général. Une corrélation ne prouve pas un lien de cause à effet"
+                       + (" ; une relation aussi forte vient souvent d'un calcul (ex. montant = quantité × prix) plutôt que d'un constat de terrain."
+                          if abs(r) >= 0.85 else "."))
     return " ".join(out)
 
 
