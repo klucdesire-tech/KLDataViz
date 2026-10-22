@@ -258,7 +258,8 @@ tr.versions td{background:var(--surface-2);font-size:13px}
 .m td,.m th{padding:6px 8px}
 .m .ctitle{font-size:12px;font-weight:600;color:var(--brand-strong);margin-top:10px}
 .m .mcbox{position:relative;height:220px;margin-top:6px;background:var(--surface);border-radius:8px;padding:6px}
-.sugs{display:flex;flex-wrap:wrap;gap:6px;padding:0 18px 10px}
+.sugs{display:flex;flex-wrap:wrap;gap:6px;padding:0 18px 10px}.sugs[hidden]{display:none}
+.sugbtn{flex:none;align-self:center}.sugbtn[aria-expanded="true"]{color:var(--brand);background:var(--surface-2)}
 .sug{border:1px solid var(--line);background:var(--surface);border-radius:99px;padding:6px 12px;font-size:12.5px;min-height:34px;text-align:left}
 .sug:hover{border-color:var(--brand);color:var(--brand-strong)}
 .composer{display:flex;gap:8px;padding:12px 18px 16px;border-top:1px solid var(--line)}
@@ -662,8 +663,9 @@ tr.versions td{background:var(--surface-2);font-size:13px}
     </header>
     <div class="grip" id="chatGrip" role="separator" aria-orientation="vertical" aria-label="Redimensionner la discussion" tabindex="0"></div>
     <div class="msgs" id="msgs" aria-live="polite"></div>
-    <div class="sugs" id="sugs"></div>
+    <div class="sugs" id="sugs" hidden></div>
     <form class="composer" id="composer">
+      <button type="button" class="iconbtn sugbtn" id="sugToggle" aria-controls="sugs" aria-expanded="false" aria-label="Afficher des suggestions de questions" title="Suggestions de questions"><svg class="i" viewBox="0 0 24 24"><path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-3.6 10.8c.6.5 1 1.2 1 2V16h5.2v-.2c0-.8.4-1.5 1-2A6 6 0 0 0 12 3z"/></svg></button>
       <label for="q" hidden>Votre question</label>
       <input type="text" id="q" placeholder="Ex. top 5 districts par valeur" autocomplete="off">
       <button class="btn primary" aria-label="Envoyer"><svg class="i" viewBox="0 0 24 24"><path d="M4 12 20 4l-6 16-3-7z"/></svg></button>
@@ -1896,7 +1898,10 @@ function renderSugs(){
   }
   $('#sugs').innerHTML=list.slice(0,4).map(s=>`<button class="sug">${esc(s)}</button>`).join('');
 }
-$('#sugs').addEventListener('click',e=>{const b=e.target.closest('.sug');if(!b)return;
+// Suggestions repliées par défaut : l'ampoule les affiche à la demande, un choix les replie
+const setSugs=o=>{$('#sugs').hidden=!o;$('#sugToggle').setAttribute('aria-expanded',o);$('#sugToggle').setAttribute('aria-label',(o?'Masquer':'Afficher')+' les suggestions de questions')};
+$('#sugToggle').onclick=()=>setSugs($('#sugs').hidden);
+$('#sugs').addEventListener('click',e=>{const b=e.target.closest('.sug');if(!b)return;setSugs(false);
   if(!state.analysis&&b.textContent==='Que peux-tu faire ?'){addMsg('user',b.textContent);say('Je lis vos fichiers CSV, Excel, JSON ou vos tables PostgreSQL, je repère les erreurs et propose des corrections, je calcule les statistiques, les corrélations et les anomalies, puis je prépare des rapports PDF, Excel ou HTML, envoyés automatiquement si vous le souhaitez. Une fois un fichier analysé, posez-moi vos questions en français.');return}
   ask(b.textContent)});
 document.addEventListener('click',e=>{const b=e.target.closest('[data-ask]');if(b)ask(b.dataset.ask)});
