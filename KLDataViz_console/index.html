@@ -1361,7 +1361,22 @@ function renderAnalyze(){
   $('#details').innerHTML=h;
 }
 const detailsBlock=(t,html)=>`<details class="more"><summary>${t}</summary><div class="tablewrap">${html}</div></details>`;
-const perVarCharts=a=>[...(a.bivariate?.groupes||[]).map(g=>({title:`${g.num} moyen par ${g.cat}`,subtitle:'Moyenne par groupe',type:'bar',labels:g.labels,values:[g.moyennes]})),...(a.charts||[]).map(c=>({...c,subtitle:c.subtitle||'Vue par variable'}))];
+// Lecture chiffrée d'une comparaison de moyennes (sans IA) : groupe le plus haut / le plus bas, écart, effectifs fragiles
+function groupReading(g){
+  const P=g.labels.map((l,i)=>({l,m:g.moyennes[i],n:(g.effectifs||[])[i]})).filter(x=>x.m!=null&&isFinite(x.m));
+  if(P.length<2)return {ecart:0,txt:''};
+  P.sort((x,y)=>y.m-x.m);const hi=P[0],lo=P[P.length-1],f=v=>nf(Math.round(v*10)/10);
+  const ecart=lo.m?Math.abs((hi.m-lo.m)/lo.m)*100:(hi.m?100:0);
+  let txt=ecart<5?`Pas de différence marquée : le ${g.num} moyen varie peu selon ${g.cat} (de ${f(lo.m)} à ${f(hi.m)}).`
+    :`Le ${g.num} moyen est le plus élevé pour **${hi.l}** (${f(hi.m)}) et le plus bas pour **${lo.l}** (${f(lo.m)}), soit ${lo.m>0&&hi.m/lo.m>=3?`environ ${nf(Math.round(hi.m/lo.m))} fois plus`:`un écart de ${nf(Math.round(ecart))} %`}.`;
+  const petits=P.filter(x=>x.n!=null&&x.n<30);
+  if(petits.length)txt+=` Prudence : ${petits.slice(0,2).map(x=>`« ${x.l} » ne compte que ${nf(x.n)} ligne${x.n>1?'s':''}`).join(', ')} — l'écart peut être dû au hasard.`;
+  return {ecart,txt};
+}
+// « Voir tous les graphiques » : comparaisons utiles d'abord (plus grand écart), jamais un seul groupe
+const perVarCharts=a=>[...(a.bivariate?.groupes||[]).filter(g=>(g.labels||[]).length>=2).map(g=>{const r=groupReading(g);
+    return {title:`${g.num} moyen par ${g.cat}`,subtitle:'Moyenne par groupe',type:'bar',labels:g.labels,values:[g.moyennes],lecture_auto:r.txt,_ecart:r.ecart}}).sort((x,y)=>y._ecart-x._ecart),
+  ...(a.charts||[]).map(c=>({...c,subtitle:c.subtitle||'Vue par variable'}))];
 const hermesReady=a=>state.hermes?.for===a&&state.hermes.ia&&(state.hermes.charts||[]).length;
 const baseCharts=a=>hermesReady(a)?state.hermes.charts:(a.smart_charts||[]).length?a.smart_charts:perVarCharts(a).slice(0,6);
 // Graphiques du rapport PDF : les mêmes que l'écran Analyser, redessinés hors écran en thème clair (2×) puis envoyés en JPEG.

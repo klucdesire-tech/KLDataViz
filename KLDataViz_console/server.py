@@ -178,6 +178,8 @@ def _auto_charts(df):
         vc = s.value_counts(dropna=True)
         if len(vc) == 0:
             continue
+        if len(vc) > 20 and vc.iloc[0] <= 1:  # identifiant (une valeur par ligne) : un classement n'a pas de sens
+            continue
         top = vc.head(12)
         charts.append({"title": name, "type": "bar",
                        "labels": [str(k)[:40] for k in top.index], "values": [list(map(int, top.values))]})
@@ -458,6 +460,28 @@ def _cumul_rows(df):
         return {"lignes": 0, "libelles": []}
     labels = sorted({str(v).strip() for c in txt for v in df.loc[hits[c], c]})
     return {"lignes": int(mask.sum()), "libelles": labels[:5]}
+
+
+def _infer_kind(c):
+    """Graphiques « par variable » (_auto_charts) : type de lecture déduit du type de graphique."""
+    if c.get("kind"):
+        return c
+    typ, title = c.get("type"), str(c.get("title") or "")
+    if typ == "scatter":
+        m = re.match(r"^(.*?) vs (.*?) \(r=(-?[\d.]+)\)$", title)
+        return dict(c, kind="relation", subtitle=c.get("subtitle") or (f"r = {m.group(3)}" if m else ""),
+                    xTitle=m.group(1) if m else "", yTitle=m.group(2) if m else "") if m else c
+    if typ == "line":
+        return dict(c, kind="trend", seriesNames=c.get("seriesNames") or [f"Le nombre d'enregistrements ({title})"])
+    if typ == "histogram":
+        return dict(c, kind="distribution")
+    if typ in ("pie", "doughnut"):
+        return dict(c, kind="share")
+    if typ == "bar":
+        labels = [str(x) for x in c.get("labels") or []]
+        numeric = labels and all(re.fullmatch(r"-?[\d.,]+", x) for x in labels)
+        return dict(c, kind="distribution" if numeric else "ranking")
+    return c
 
 
 def _with_rule_readings(charts):
@@ -775,7 +799,7 @@ def analyze(file_path):
         "anomalies": anomalies,
         "bivariate": bivariate_stats(df),
         "lignes_cumul": _cumul_rows(df),
-        "charts": [] if _is_report(df) else _auto_charts(df),
+        "charts": [] if _is_report(df) else _with_rule_readings([_infer_kind(c) for c in _auto_charts(df)]),
         "smart_charts": _with_rule_readings(_report_charts(df) if _is_report(df) else _smart_charts(df)),
         **({"controles": report_checks(df)[:200]} if _is_report(df) else {}),
         **({"feuille": {"lue": lu["feuille"], "autres": [n for n in lu["feuilles"] if n != lu["feuille"]]}}
