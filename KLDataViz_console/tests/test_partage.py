@@ -117,3 +117,19 @@ def test_envoyer_maintenant_avec_le_texte_du_champ(monkeypatch):
         assert envois[-1] == ["chef@exemple.org", "collegue@exemple.org"]
         with pytest.raises(ValueError, match="invalide"):
             sources.send_mail_now(s["id"], None, None, to="chef@exemple.org, pas-une-adresse")
+
+
+def test_supprimer_un_tableau_et_ses_liens(tmp_path):
+    reset_app_modules()
+    import sources  # noqa: PLC0415
+    import shares  # noqa: PLC0415
+    s = _tableau(sources)
+    lien = shares.create(s["id"], 7)
+    victime = tmp_path / "autre_espace.html"
+    victime.write_text("tableau d'un autre espace", encoding="utf-8")
+    with pytest.raises(KeyError):  # identifiant hors registre : rien n'est effacé, même par un chemin « ../ »
+        sources.delete(os.path.relpath(str(victime.with_suffix("")), sources._dir()))
+    assert victime.exists()
+    sources.delete(s["id"])
+    shares.revoke_all(s["id"])
+    assert sources.list_sources() == [] and shares.resolve(lien["token"]) is None

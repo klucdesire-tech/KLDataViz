@@ -292,6 +292,9 @@ tr.versions td{background:var(--surface-2);font-size:13px}
 }
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01ms!important;transition-duration:.01ms!important}}
 .shgrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:22px}@media (max-width:900px){.shgrid{grid-template-columns:1fr}}
+.shmeta{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.shact{display:flex;gap:8px;flex:none;margin-left:auto}
+.shname{flex:1 1 160px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.shrow .del{color:var(--muted)}.shrow .del:hover,.shrow .del:focus-visible,.shrow .del[data-ok="1"]{color:var(--red);border-color:var(--red)}
 .shrow{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 0;border-top:1px solid var(--line)}.shrow code{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12.5px}
 .actmenu{position:relative}
 .actmenu #dbActBtn svg{width:16px;height:16px;transition:transform .2s}
@@ -1471,10 +1474,17 @@ $('#shSendNow').onclick=async ev=>{const s=state.dash?.source;if(!s)return;const
 // ---- C. Tableaux de bord de l'espace (enregistrés, visibles par les membres)
 async function loadSaved(){const L=await api('/api/sources');if(!Array.isArray(L)||!L.length){$('#dbSaved').hidden=true;return}
   $('#dbSaved').hidden=false;
-  $('#dbSavedList').innerHTML=L.map(x=>`<div class="shrow"><b style="flex:1;min-width:0">${esc(x.name||'Tableau')}</b>
-    <span class="sub">${x.connected?'Source connectée':'Fichier importé'} · ${nf(x.rows||0)} lignes · ${when(x.changed_at||x.refreshed_at)}</span>
-    <button class="btn ghost sm" data-open-db="${esc(x.id)}">Ouvrir</button></div>`).join('')}
-$('#dbSavedList').addEventListener('click',async e=>{const b=e.target.closest('[data-open-db]');if(!b)return;
+  $('#dbSavedList').innerHTML=L.map(x=>`<div class="shrow"><b class="shname" title="${esc(x.name||'Tableau')}">${esc(x.name||'Tableau')}</b>
+    <span class="sub shmeta">${x.connected?'Source connectée':'Fichier importé'} · ${nf(x.rows||0)} lignes · ${when(x.changed_at||x.refreshed_at)}</span>
+    <span class="shact"><button class="btn ghost sm" data-open-db="${esc(x.id)}">Ouvrir</button>${CAN_DEL()?`<button class="btn ghost sm del" data-del-db="${esc(x.id)}" title="Supprimer ce tableau de bord (ses liens de partage cessent de fonctionner)">Supprimer</button>`:''}</span></div>`).join('')}
+const CAN_DEL=()=>!CLOUD||['owner','analyst'].includes(state.me?.role);
+$('#dbSavedList').addEventListener('click',async e=>{const d=e.target.closest('[data-del-db]');
+  if(d){if(d.dataset.ok!=='1'){d.dataset.ok='1';d.textContent='Confirmer la suppression';setTimeout(()=>{if(d.isConnected){d.dataset.ok='';d.textContent='Supprimer'}},5000);return}
+    d.disabled=true;const r=await api('/api/sources/delete',{id:d.dataset.delDb});if(r.error){d.disabled=false;toast(r.error);return}
+    if(state.dash?.source?.id===d.dataset.delDb){state.dash=null;$('#dbBar').hidden=true;$('#dbShare').hidden=true;
+      $('#dbBody').innerHTML='<div class="card empty">Tableau de bord supprimé. Ouvrez-en un autre ci-dessous ou analysez un fichier.</div>'}
+    toast('Tableau de bord supprimé (ses liens de partage ne fonctionnent plus).');loadSaved();return}
+  const b=e.target.closest('[data-open-db]');if(!b)return;
   const r=await api('/api/sources/get?id='+encodeURIComponent(b.dataset.openDb));if(r.error||!r.html){toast(r.error||'Tableau introuvable.');return}
   state.dash={saved:true,html:r.html,ia:true,source:r};$('#dbLead').textContent=`${r.name} · tableau enregistré`;$('#dbShare').hidden=true;showDashboard();
   window.scrollTo({top:0,behavior:'smooth'})});
