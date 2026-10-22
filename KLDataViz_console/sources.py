@@ -153,10 +153,16 @@ def set_freq(source_id: str, freq: str):
 
 
 def delete(source_id: str):
+    """Supprime un tableau de bord de l'espace. L'identifiant doit exister dans le registre de l'espace :
+    il n'est jamais utilisé tel quel pour construire un chemin (pas de « ../ » vers un autre espace)."""
     with _lock:
-        _save([x for x in _load() if x["id"] != source_id])
+        items = _load()
+        s = next((x for x in items if x["id"] == source_id), None)
+        if s is None:
+            raise KeyError("Tableau de bord introuvable.")
+        _save([x for x in items if x["id"] != s["id"]])
     try:
-        os.remove(os.path.join(_dir(), source_id + ".html"))
+        os.remove(os.path.join(_dir(), s["id"] + ".html"))
     except OSError:
         pass
 
