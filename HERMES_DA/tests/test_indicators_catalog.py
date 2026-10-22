@@ -129,20 +129,53 @@ def test_match_compute_llm_taux():
     assert res[0]["detail"] == "3 / 4"
 
 
-def test_match_compute_llm_somme_et_absent():
-    df = pd.DataFrame({"valeur": [10, 5]})
-    inds = [{"domaine": "T", "code": "TX_NEW", "libelle": "nouveaux", "type": "Nombre",
-             "numerateur": "", "denominateur": ""},
-            {"domaine": "T", "code": "TX_CURR", "libelle": "actifs", "type": "Nombre",
-             "numerateur": "", "denominateur": ""}]
+def test_match_compute_llm_comptage_exige_une_valeur_reelle():
+    # Liste d'observations : l'IA doit citer la valeur exacte à compter ; une somme de colonne est refusée
+    df = pd.DataFrame({"statut": ["Actif"] * 6 + ["Perdu de vue"] * 2, "age": [30, 41, 25, 52, 37, 44, 29, 61]})
+    inds = [{"domaine": "T", "code": "TX_ML", "libelle": "perdus de vue", "type": "Nombre"},
+            {"domaine": "T", "code": "AGE_MOY", "libelle": "age moyen", "type": "Nombre"},
+            {"domaine": "T", "code": "TX_CURR", "libelle": "actifs", "type": "Nombre"},
+            {"domaine": "T", "code": "TX_NEW", "libelle": "nouveaux", "type": "Nombre"}]
 
     def fake_llm(messages, max_tokens):
-        return ('{"matches":[{"code":"TX_NEW","present":true,"colonne":"valeur","calcul":"somme"},'
-                '{"code":"TX_CURR","present":false}]}')
+        return ('{"matches":[{"code":"TX_ML","present":true,"colonne":"statut","calcul":"comptage","positif":"Perdu de vue"},'
+                '{"code":"AGE_MOY","present":true,"colonne":"age","calcul":"somme"},'
+                '{"code":"TX_CURR","present":true,"colonne":"statut","calcul":"comptage"},'
+                '{"code":"TX_NEW","present":true,"colonne":"statut","calcul":"comptage","positif":"Nouveau"}]}')
 
-    res = cat.match_and_compute_llm(df, inds, fake_llm)
-    assert res[0]["present"] and res[0]["valeur"] == 15.0
-    assert res[1]["present"] is False
+    res = {r["code"]: r for r in cat.match_and_compute_llm(df, inds, fake_llm)}
+    assert res["TX_ML"]["present"] and res["TX_ML"]["valeur"] == 2.0
+    assert res["AGE_MOY"]["present"] is False      # somme d'une colonne de liste : refusée
+    assert res["TX_CURR"]["present"] is False  # « comptage » de toute la colonne, sans valeur : refusé
+    assert res["TX_NEW"]["present"] is False   # valeur inventée, absente des données
+
+
+def test_liste_patients_sans_faux_positifs():
+    # Cas vus sur un vrai tableau : des mots seulement voisins ne doivent plus « trouver » d'indicateur
+    inds = [{"domaine": "S", "code": "TX_PVLS", "libelle": "% de patients avec une charge virale supprimée",
+             "type": "Pourcentage"},
+            {"domaine": "P", "code": "KP_MAT", "libelle": "Nombre de personnes sous traitement de substitution",
+             "type": "Nombre"},
+            {"domaine": "P", "code": "KP_PREV", "libelle": "Nombre de populations clés atteintes", "type": "Nombre"},
+            {"domaine": "P", "code": "VMMC_CIRC", "libelle": "Nombre d'hommes circoncis (circoncision médicale volontaire)",
+             "type": "Nombre"},
+            {"domaine": "T", "code": "TX_CURR", "libelle": "Nombre d'adultes et d'enfants sous traitement",
+             "type": "Nombre"},
+            {"domaine": "T", "code": "TX_NEW", "libelle": "Nombre d'adultes et d'enfants nouvellement sous traitement",
+             "type": "Nombre"},
+            {"domaine": "O", "code": "OVC_SERV", "libelle": "Nombre d'orphelins et enfants vulnérables servis",
+             "type": "Nombre"}]
+    n = 40
+    df = pd.DataFrame({
+        "statut_actuel": (["Actif"] * 30 + ["Arrêt de traitement"] * 10)[:n],
+        "population": (["Population générale"] * 35 + ["Travailleuse du sexe"] * 5)[:n],
+        "porte_entree": (["Consultation médicale"] * 20 + ["Dépistage volontaire"] * 20)[:n],
+        "tranche": (["Adulte"] * 25 + ["Enfant"] * 15)[:n],
+        "resultat_cv": (["SUPPRIME"] * 32 + ["NON SUPPRIME"] * 8)[:n],
+    })
+    res = {r["code"]: r for r in cat.match_and_compute(df, inds)}
+    assert res["TX_PVLS"]["present"] and res["TX_PVLS"]["valeur"] == 80.0
+    assert [c for c, r in res.items() if r["present"]] == ["TX_PVLS"]
 
 
 def test_match_compute_llm_garbage_returns_none():
