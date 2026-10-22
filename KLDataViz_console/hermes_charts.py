@@ -265,6 +265,73 @@ def _compact(c):
     return out
 
 
+def _reading_fallback(c):
+    """Lecture déterministe (texte) d'un graphique que l'IA n'a pas commenté. Lit les vraies valeurs."""
+    kind = c.get("kind")
+    labels = [str(x) for x in (c.get("labels") or [])]
+    values = c.get("values") or []
+    names = c.get("seriesNames") or []
+
+    def nf(x):
+        try:
+            x = float(x)
+        except (TypeError, ValueError):
+            return "—"
+        if not np.isfinite(x):
+            return "—"
+        if abs(x) >= 1e6:
+            return f"{x / 1e6:.1f} M".replace(".", ",")
+        if abs(x) >= 1000:
+            return f"{x / 1e3:.0f} k".replace(".", ",")
+        s = f"{x:,.1f}".replace(",", "\u202f").replace(".", ",")
+        return s[:-2] if s.endswith(",0") else s
+
+    def vals(i):
+        return [v for v in (values[i] if i < len(values) else []) if v is not None]
+
+    if kind == "trend":
+        name = names[0] if names else "La mesure"
+        v = vals(0)
+        if len(v) >= 2 and len(labels) >= 2:
+            first, last = v[0], v[-1]
+            chg = (last - first) / first * 100 if first else 0
+            sens = "progresse" if chg > 5 else "recule" if chg < -5 else "reste globalement stable"
+            txt = f"{name} {sens} entre {labels[0]} et {labels[-1]} (de {nf(first)} à {nf(last)}"
+            txt += f", soit {'+' if chg >= 0 else ''}{nf(chg)} %)" if chg else ")"
+            hi, lo = max(v), min(v)
+            if hi != lo:
+                txt += f". Le pic est en {labels[v.index(hi)]} ({nf(hi)}), le plus bas en {labels[v.index(lo)]} ({nf(lo)})."
+            else:
+                txt += "."
+            return txt
+    if kind in ("ranking", "report", "share"):
+        v = vals(0)
+        if v and labels:
+            pairs = sorted(zip(labels, v), key=lambda x: -x[1])
+            tot = sum(v) or 1
+            l1, v1 = pairs[0]
+            if kind == "share":
+                return f"{l1} représente la plus grande part ({nf(v1 / tot * 100)} % du total)."
+            txt = f"{l1} arrive en tête ({nf(v1)})"
+            if len(pairs) > 1:
+                ln, vn = pairs[-1]
+                txt += f", {ln} ferme la marche ({nf(vn)})"
+            return txt + "."
+    if kind == "distribution":
+        v = vals(0)
+        if v and labels:
+            j = v.index(max(v))
+            return f"La tranche la plus représentée est {labels[j]} ({int(max(v))} lignes)."
+    if kind == "relation":
+        m = re.search(r"r = (-?[\d.,]+)", str(c.get("subtitle") or "").replace(",", "."))
+        if m:
+            r = float(m.group(1))
+            sens = "positive" if r > 0.3 else "négative" if r < -0.3 else "faible"
+            return f"La corrélation entre {c.get('xTitle', 'x')} et {c.get('yTitle', 'y')} est {sens} (r = {r:.2f})."
+        return f"Nuage de points entre {c.get('xTitle', 'x')} et {c.get('yTitle', 'y')}."
+    return "Voir le graphique."
+
+
 def run(df, file_name, base_charts, llm, parse, period_of, progress=lambda _t: None, comprehension=None):
     """Graphiques choisis et commentés par Hermes ; repli sur base_charts (graphiques automatiques)."""
     if llm is None:
@@ -294,5 +361,9 @@ def run(df, file_name, base_charts, llm, parse, period_of, progress=lambda _t: N
             continue
         if 0 <= i < len(charts) and it.get("lecture"):
             charts[i] = dict(charts[i], lecture=re.sub(r"\s+", " ", str(it["lecture"])).strip()[:900])
+    # Garantie : CHAQUE graphique a une lecture. Si l'IA en a oublié un, lecture déterministe calculée ici.
+    for i, c in enumerate(charts):
+        if not c.get("lecture"):
+            charts[i] = dict(c, lecture=_reading_fallback(c))
     synthese = str(data.get("synthese") or "")[:900] if isinstance(data, dict) else ""
     return {"charts": charts, "ia": True, "source": source, "synthese": synthese, "erreurs": errors}

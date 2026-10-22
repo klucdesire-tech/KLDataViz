@@ -88,3 +88,20 @@ def test_lecture_par_regles_des_graphiques_automatiques():
         rank = next(c for c in charts if c["kind"] == "ranking")
         assert rank["subtitle"].startswith("Dernière période (2025-03)")              # file active = stock
         assert rank["values"][0][0] == 153                                             # Site 5 en mars, pas la somme
+
+
+def test_tous_les_graphiques_sont_interpretes():
+    """Chaque graphique généré a une lecture, même si l'IA n'en renvoie aucune (fallback déterministe)."""
+    server, HC = _load()
+    calls = []
+
+    def llm(messages, max_tokens):
+        calls.append(messages)
+        if len(calls) == 1:
+            return json.dumps(SPECS)
+        return json.dumps({"lectures": [], "synthese": ""})  # l'IA n'interprète rien
+
+    r = HC.run(_df(), "fa.csv", [], llm, server._parse_llm_json, server._period_series)
+    assert len(r["charts"]) == 3
+    assert all(c.get("lecture") for c in r["charts"])  # aucun graphique sans lecture
+    assert "tête" in r["charts"][1]["lecture"] or "arrive en tête" in r["charts"][1]["lecture"]
