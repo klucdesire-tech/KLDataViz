@@ -248,7 +248,7 @@ tr.versions td{background:var(--surface-2);font-size:13px}
 .chat header{display:flex;align-items:center;gap:10px;padding:16px 18px;border-bottom:1px solid var(--line)}
 .chat header .av{width:34px;height:34px;border-radius:50%;background:var(--brand-soft);color:var(--brand-strong);display:grid;place-items:center}
 .chat header b{font-size:14.5px;display:block}.chat header small{color:var(--muted);font-size:12px}
-.chat header #chatClose{display:none}
+.chat header #chatClose{display:grid}
 .msgs{flex:1;overflow:auto;padding:16px 18px;display:flex;flex-direction:column;gap:12px}
 .m{max-width:94%;font-size:14px;line-height:1.55;padding:10px 13px;border-radius:12px;overflow-wrap:anywhere;min-width:0}
 .m.agent{background:var(--surface-2);border-top-left-radius:4px;align-self:flex-start}
@@ -265,13 +265,17 @@ tr.versions td{background:var(--surface-2);font-size:13px}
 .composer{display:flex;gap:8px;padding:12px 18px 16px;border-top:1px solid var(--line)}
 .composer input{flex:1;min-width:0}
 .composer .btn{padding:0 14px}
-.fab{display:none}
+.fab{display:none;position:relative}
+/* Chat masquable sur grand écran : le contenu prend toute la largeur ; le bouton « Hermes » le rouvre */
+.app.nochat{grid-template-columns:232px minmax(0,1fr) 0}.app.nochat .chat{display:none}.app.nochat .fab{display:inline-flex}
+.fab .dot{position:absolute;top:-3px;right:-3px;width:10px;height:10px;border-radius:50%;background:var(--brand);border:2px solid var(--surface)}
 .toast{position:fixed;left:50%;bottom:calc(24px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--fg);color:var(--bg);padding:10px 16px;border-radius:10px;font-size:13.5px;box-shadow:var(--shadow);z-index:50;max-width:calc(100% - 32px)}
 
 @media (max-width:1240px){
   .app{grid-template-columns:220px minmax(0,1fr)}
   .chat{position:fixed;top:0;right:0;bottom:0;width:min(max(400px,var(--chat-w)),100%);z-index:40;box-shadow:-10px 0 40px rgba(0,0,0,.18);transform:translateX(105%);transition:transform .25s ease}
   .chat.open{transform:none}
+  .app.nochat .chat{display:flex}
   .chat header #chatClose{display:grid}
   .fab{display:inline-flex}
 }
@@ -659,7 +663,7 @@ tr.versions td{background:var(--surface-2);font-size:13px}
       <div class="av"><svg class="i" viewBox="0 0 24 24"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"/></svg></div>
       <div><b>Hermes</b><small>Posez vos questions sur les données</small></div>
       <div class="hbtns"><button class="iconbtn" id="chatWide" aria-label="Agrandir la discussion" title="Agrandir"><svg class="i" viewBox="0 0 24 24"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg></button>
-      <button class="iconbtn" id="chatClose" aria-label="Fermer la discussion"><svg class="i" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button></div>
+      <button class="iconbtn" id="chatClose" aria-label="Masquer la discussion" title="Masquer"><svg class="i" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button></div>
     </header>
     <div class="grip" id="chatGrip" role="separator" aria-orientation="vertical" aria-label="Redimensionner la discussion" tabindex="0"></div>
     <div class="msgs" id="msgs" aria-live="polite"></div>
@@ -1808,8 +1812,12 @@ async function loadCounts(){
 
 /* ================= chat ================= */
 function say(text){return addMsg('agent',text)}
+let chatDotReady=false;addEventListener('load',()=>setTimeout(()=>{chatDotReady=true},1500));  // pas de point pour l'accueil
 function addMsg(role,text,table,charts){
   const m=document.createElement('div');m.className='m '+role;
+  // Réponse arrivée chat masqué : point sur le bouton « Hermes »
+  if(role!=='user'&&chatDotReady&&!$('#chat').classList.contains('open')&&($('.app').classList.contains('nochat')||innerWidth<=1240)&&!$('#chatOpen .dot'))
+    $('#chatOpen').insertAdjacentHTML('beforeend','<span class="dot" aria-label="Nouveau message"></span>');
   if(role==='user')m.textContent=text;
   else{
     const list=Array.isArray(charts)?charts.filter(c=>c&&c.labels&&c.values):(charts&&charts.labels&&charts.values?[charts]:[]);
@@ -1906,8 +1914,12 @@ $('#sugs').addEventListener('click',e=>{const b=e.target.closest('.sug');if(!b)r
   ask(b.textContent)});
 document.addEventListener('click',e=>{const b=e.target.closest('[data-ask]');if(b)ask(b.dataset.ask)});
 $('#composer').addEventListener('submit',e=>{e.preventDefault();const q=$('#q').value.trim();if(!q)return;$('#q').value='';ask(q)});
-function openChat(){$('#chat').classList.add('open')}
-$('#chatOpen').onclick=openChat;$('#chatClose').onclick=()=>$('#chat').classList.remove('open');
+// Afficher / masquer le chat (mémorisé dans ce navigateur) ; masqué par défaut sur grand écran
+function setChatShown(on){$('.app').classList.toggle('nochat',!on);$('#chat').classList.toggle('open',on);
+  if(on)$('#chatOpen .dot')?.remove();try{localStorage.setItem('kldv_chat',on?'1':'0')}catch(e){}}
+function openChat(){setChatShown(true)}
+$('#chatOpen').onclick=openChat;$('#chatClose').onclick=()=>{setChatShown(false);$('#chatOpen').focus()};
+(()=>{let pref=null;try{pref=localStorage.getItem('kldv_chat')}catch(e){}$('.app').classList.toggle('nochat',pref!=='1')})();
 // Largeur de la discussion : bouton Agrandir/Réduire + poignée à glisser (mémorisée dans ce navigateur)
 const CHAT_MIN=320,CHAT_STD=372;
 const chatMax=()=>Math.max(CHAT_MIN,innerWidth-(innerWidth>1240?232+420:0));
