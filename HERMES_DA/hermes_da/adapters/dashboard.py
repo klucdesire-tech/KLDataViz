@@ -816,7 +816,6 @@ body.embedded{min-height:0;overflow:hidden}html:has(body.embedded){overflow:hidd
 .dc{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.02em;color:var(--navy);background:rgba(255,255,255,.75);border-radius:6px;padding:1px 7px;margin:0 0 4px}
 #dict .n{display:flex;flex-direction:column;align-items:flex-start}
 .dl{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;font-size:12px;line-height:1.3}
-.hd{font-size:10px;color:#B45309;background:#FEF3C7;border-radius:10px;padding:1px 7px;margin-left:6px;font-weight:600;vertical-align:1px}
 .dict{margin-bottom:14px}.dict[hidden]{display:none}
 .dict-abs{margin-top:12px;font-size:12px;color:var(--muted,#667085)}
 .dict-abs summary{cursor:pointer;font-weight:600;padding:6px 0;list-style-position:inside}
@@ -1233,7 +1232,7 @@ def generate_dashboard(df, objective: str = "", job_id: str | None = None, llm=N
     if domaine:
         meta["domaine"] = {"cle": domaine["cle"], "nom": domaine["nom"]}
     # Dictionnaire d'indicateurs importé (Mode B) : source de vérité. Indicateurs calculés selon leur
-    # type (Nombre/%), absents signalés, et KPI auto-détectés hors dictionnaire marqués.
+    # type (Nombre/%) et selon le total annuel ; absents signalés ; dans le doute, absent plutôt que faux.
     if dictionnaire:
         try:
             from hermes_da import indicators_catalog as _cat

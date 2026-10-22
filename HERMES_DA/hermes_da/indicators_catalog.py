@@ -298,7 +298,7 @@ def catalogue(structure: str = "default"):
 
 
 # --------------------------------------------------------------------------
-# Matching indicateur → données + calcul par type (Nombre = somme/comptage, Pourcentage = taux)
+# Matching indicateur → données + calcul par type (Nombre = somme selon le total annuel ou comptage d'une valeur, Pourcentage = taux)
 # --------------------------------------------------------------------------
 def _stem(w):
     """Racine simple pour rapprocher « supprimée / supprimé / SUPPRIME / patients ».
