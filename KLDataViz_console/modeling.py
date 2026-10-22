@@ -378,6 +378,7 @@ def bivariate_stats(df: pd.DataFrame):
                             "num": str(nc), "cat": str(cc),
                             "labels": [str(x) for x in grp[cc].tolist()],
                             "moyennes": [round(float(m), 3) for m in grp["mean"].tolist()],
+                            "effectifs": [int(n) for n in grp["count"].tolist()],
                         })
                 except Exception:
                     continue
