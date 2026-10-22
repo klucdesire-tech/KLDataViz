@@ -298,7 +298,7 @@ def catalogue(structure: str = "default"):
 
 
 # --------------------------------------------------------------------------
-# Matching indicateur → données + calcul par type (Nombre = somme/comptage, Pourcentage = taux)
+# Matching indicateur → données + calcul par type (Nombre = somme selon le total annuel ou comptage d'une valeur, Pourcentage = taux)
 # --------------------------------------------------------------------------
 def _stem(w):
     """Racine simple pour rapprocher « supprimée / supprimé / SUPPRIME / patients ».
@@ -366,12 +366,14 @@ def _is_snapshot(ind):
 MATCH_SYSTEM = """Tu relies un fichier de données à un dictionnaire d'indicateurs métier.
 Pour CHAQUE indicateur, détermine s'il est calculable depuis les colonnes du fichier, et comment.
 Réponds en JSON STRICT (aucun texte avant ni après) :
-{"matches":[{"code":"...","present":true,"colonne":"...","calcul":"taux"|"somme"|"comptage","positif":"...","negatif":"..."}]}
+{"matches":[{"code":"...","present":true,"colonne":"...","calcul":"taux"|"comptage","positif":"...","negatif":"..."}]}
 
 Règles :
 - « Pourcentage »/« taux » : present=true seulement si une colonne catégorielle porte le résultat
   (ex. SUPPRIME / NON-SUPPRIME). « calcul »="taux", « positif »=la valeur positive, « negatif »=l'autre.
-- « Nombre » : « calcul »="somme" si une colonne numérique porte la valeur, sinon "comptage".
+- « Nombre » : « calcul »="comptage" ET « positif » = la valeur exacte de la colonne à compter
+  (ex. « Perdu de vue »). Jamais de somme d'une colonne numérique d'une liste d'observations.
+- Dans le doute (mot seulement voisin, colonne générique), « present »=false : mieux vaut absent que faux.
 - Indicateur non calculable (colonnes/valeurs absentes) : « present »=false.
 - Ne cite que des colonnes qui existent réellement dans le fichier."""
 
@@ -395,27 +397,24 @@ def _compute_from_mapping(df, mapping, indicators):
             out.append(dict(base, present=False, valeur=None, detail=None))
             continue
         calcul = str(m.get("calcul") or "").lower()
+        s_col = df[col].astype(str).str.strip()
+        present_vals = set(s_col.unique())
+        pos, neg = str(m.get("positif") or "").strip(), str(m.get("negatif") or "").strip()
+        # Une liste d'observations ne s'additionne pas et ne se compte pas « en entier » : il faut une valeur
+        # précise de la colonne (« Perdu de vue », « SUPPRIME »), réellement présente dans les données.
+        if pos not in present_vals or pd.api.types.is_numeric_dtype(df[col]):
+            out.append(dict(base, present=False, valeur=None, detail=None))
+            continue
+        n_pos = int((s_col == pos).sum())
         if calcul in ("taux", "pourcentage", "rate", "pct", "proportion"):
-            pos, neg = str(m.get("positif") or ""), str(m.get("negatif") or "")
-            s = df[col].astype(str).str.strip()
-            n_pos = int((s == pos).sum()) if pos else 0
-            n_neg = int((s == neg).sum()) if neg else 0
-            if not pos:  # positif non précisé : on prend les 2 valeurs de la colonne
-                vals = [v for v in df[col].dropna().astype(str).unique()
-                        if str(v).strip().lower() not in ("", "nan", "none", "null")]
-                if len(vals) == 2:
-                    pos, neg = vals[0], vals[1]
-                    n_pos, n_neg = int((s == pos).sum()), int((s == neg).sum())
+            # dénominateur = les seules valeurs renseignées (une cellule vide n'est ni « oui » ni « non »)
+            filled = df[col].dropna().astype(str).str.strip()
+            filled = filled[~filled.str.lower().isin(("", "nan", "none", "null", "nat"))]
+            n_neg = int((filled == neg).sum()) if neg in present_vals else int(filled.ne(pos).sum())
             val = round(n_pos / (n_pos + n_neg) * 100, 1) if (n_pos + n_neg) else None
             out.append(dict(base, present=True, valeur=val, detail=f"{n_pos} / {n_pos + n_neg}"))
-        else:  # somme / comptage
-            if pd.api.types.is_numeric_dtype(df[col]):
-                val = float(pd.to_numeric(df[col], errors="coerce").sum())
-                detail = f"somme de « {col} »"
-            else:
-                val = float(df[col].dropna().shape[0])
-                detail = f"comptage de « {col} »"
-            out.append(dict(base, present=True, valeur=val, detail=detail))
+        else:
+            out.append(dict(base, present=True, valeur=float(n_pos), detail=f"lignes « {pos} » (IA)"))
     return out
 
 
@@ -509,6 +508,18 @@ def _as_long(df, indicators):
     return df, None, None
 
 
+# Mots de contexte des libellés (« dans le cadre du programme », « 1er test », « contact clinique »…) : présents
+# dans les libellés mais trop banals dans les données pour désigner à eux seuls un indicateur.
+_CONTEXTE = {_stem(w) for w in (
+    "cadre", "programme", "programmes", "contact", "contacts", "test", "tests", "inscription", "inscrit", "stock",
+    "laboratoire", "site", "sites", "service", "services", "clinique", "cliniques", "resultat", "resultats", "periode",
+    "statut", "personnes", "patients", "nombre", "total", "categorie", "type", "zone", "niveau", "point", "points",
+    "prestation", "suivi", "dernier", "derniers", "derniere", "mois", "annee", "trimestre", "semestre", "cours",
+    "fin", "debut", "date", "valeur", "pepfar", "appuyes", "appuye", "national", "nationales", "normes", "selon",
+    "medicale", "medical", "volontaire", "generale", "population", "populations", "traitement", "enfants", "enfant",
+    "adultes", "adulte", "femmes", "femme", "hommes", "homme", "sante", "agents", "dossier", "formation")}
+
+
 def match_and_compute(df, indicators):
     """Pour chaque indicateur du dictionnaire : présent dans les données ? et valeur selon son type.
 
@@ -582,37 +593,60 @@ def match_and_compute(df, indicators):
         return out
 
     # --- Format liste (une ligne par observation) ---
-    cat_cols = []
+    cat_cols, yes_no = [], []
+    _OUI, _NON = {"oui", "o", "yes", "y", "true", "vrai", "1", "1 0"}, {"non", "n", "no", "false", "faux", "0", "0 0"}
     for c in df.columns:
-        if pd.api.types.is_numeric_dtype(df[c]) or pd.api.types.is_datetime64_any_dtype(df[c]):
+        if pd.api.types.is_datetime64_any_dtype(df[c]):
+            continue
+        uniq = {_norm(v) for v in df[c].dropna().astype(str).unique()} - {""}
+        if uniq and uniq <= (_OUI | _NON) and uniq & _OUI and uniq & _NON:
+            # Colonne Oui/Non (ou 1/0) : c'est son NOM qui dit ce qu'elle mesure (« cv_supprimee »)
+            yes_no.append((c, [v for v in df[c].dropna().astype(str).str.strip().unique() if _norm(v) in _OUI]))
+            continue
+        if pd.api.types.is_numeric_dtype(df[c]):
             continue
         vals = [str(v).strip() for v in df[c].dropna().unique()
                 if str(v).strip().lower() not in ("", "nan", "none", "null", "nat")]
         if 2 <= len(vals) <= 8:
             cat_cols.append((c, vals))
 
+    # Une valeur ne désigne un indicateur que si TOUS ses mots significatifs appartiennent au libellé de
+    # l'indicateur ET qu'au moins un de ces mots est distinctif (présent dans 2 indicateurs du dictionnaire au plus).
+    # « SUPPRIMÉ » → TX_PVLS ; mais « Arrêt de traitement », « Population générale », « Consultation médicale » ou
+    # « Enfant » ne désignent aucun indicateur (mots génériques ou étrangers au libellé) : dans le doute, absent.
+    from collections import Counter
+    stems_by = {id(i): _stems(i) for i in indicators}
+    freq = Counter(st for sts in stems_by.values() for st in sts)
+
+    def _negated(v):
+        n = _norm(v)
+        return n.startswith("non ") or n == "non" or n.startswith("pas ") or n == "pas"
+
+    def _designates(v, stems):
+        words = {_stem(w) for w in _norm(v).split() if len(w) >= 3 and w not in _STOP}
+        # au moins un mot PORTEUR : distinctif (2 indicateurs au plus) et pas un mot de contexte du libellé
+        return bool(words) and words <= stems and any(freq[w] <= 2 and w not in _CONTEXTE for w in words)
+
     for ind in indicators:
-        stems = _stems(ind)
+        stems = stems_by[id(ind)]
         is_rate = (ind["type"] or "").strip().lower() in ("pourcentage", "proportion", "taux", "%", "rate", "pct")
-        cands = cat_cols
-        if is_rate:
-            cands = [(c, v) for c, v in cat_cols if len(v) == 2] or cat_cols  # taux : colonne binaire d'abord
+        cands = [(c, v) for c, v in cat_cols if len(v) == 2] if is_rate else cat_cols  # un taux : colonne binaire
         hit = None
         for c, vals in cands:
-            vstem = {_stem(w) for v in vals for w in _norm(v).split() if len(w) >= 3}
-            if stems & vstem:
-                hit = (c, vals)
+            pos = [v for v in vals if not _negated(v) and _designates(v, stems)]
+            if pos:
+                hit = (c, vals, pos)
                 break
+        if hit is None:
+            for c, oui in yes_no:
+                if _designates(str(c), stems):
+                    hit = (c, [v for v in df[c].dropna().astype(str).str.strip().unique()], oui)
+                    break
         if hit is None:
             out.append({"code": ind["code"], "libelle": ind["libelle"], "type": ind["type"],
                         "present": False, "valeur": None, "detail": None})
             continue
-        c, vals = hit
-        def _negated(v):
-            n = _norm(v)
-            return n.startswith("non ") or n == "non" or n.startswith("pas ") or n == "pas"
-        pos = [v for v in vals if not _negated(v)
-               and stems & {_stem(w) for w in _norm(v).split() if len(w) >= 3}]
+        c, vals, pos = hit
         neg = [v for v in vals if v not in pos]
         n_pos = int(df[c].astype(str).str.strip().isin(pos).sum())
         n_neg = int(df[c].astype(str).str.strip().isin(neg).sum())
@@ -621,7 +655,7 @@ def match_and_compute(df, indicators):
             detail = f"{n_pos} / {n_pos + n_neg}"
         else:
             val = float(n_pos)
-            detail = f"comptage {c} = {pos}"
+            detail = f"lignes « {', '.join(pos)} »"
         out.append({"code": ind["code"], "libelle": ind["libelle"], "type": ind["type"],
                     "present": True, "valeur": val, "detail": detail})
     return out

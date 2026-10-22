@@ -816,7 +816,6 @@ body.embedded{min-height:0;overflow:hidden}html:has(body.embedded){overflow:hidd
 .dc{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.02em;color:var(--navy);background:rgba(255,255,255,.75);border-radius:6px;padding:1px 7px;margin:0 0 4px}
 #dict .n{display:flex;flex-direction:column;align-items:flex-start}
 .dl{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;font-size:12px;line-height:1.3}
-.hd{font-size:10px;color:#B45309;background:#FEF3C7;border-radius:10px;padding:1px 7px;margin-left:6px;font-weight:600;vertical-align:1px}
 .dict{margin-bottom:14px}.dict[hidden]{display:none}
 .dict-abs{margin-top:12px;font-size:12px;color:var(--muted,#667085)}
 .dict-abs summary{cursor:pointer;font-weight:600;padding:6px 0;list-style-position:inside}
@@ -903,7 +902,7 @@ function buildFilters(){var el=document.getElementById('filters');el.innerHTML='
 function renderKpis(rows){document.getElementById('kpis').innerHTML=KPIDEFS.slice(0,5).map(function(k,i){var v=agg(rows,k.colonne,k.agregation),sub='';
   var u=isRate(k.agregation)&&v!=null?' %':'';
   if(k.dimension){var t=ranked(rows,k.colonne,k.agregation,k.dimension,1)[0];if(t)sub='En tête : '+esc(label(t[0]))+'<br>'+fmt(t[1])+u}
-  return '<div class="kpi k'+i+'"><div class="n">'+esc(k.nom)+(k.hors_dictionnaire?' <span class="hd">hors dictionnaire</span>':'')+'</div><div class="row"><div class="v">'+fmt(v)+u+'</div><div class="s">'+sub+'</div></div></div>'}).join('')}
+  return '<div class="kpi k'+i+'"><div class="n">'+esc(k.nom)+'</div><div class="row"><div class="v">'+fmt(v)+u+'</div><div class="s">'+sub+'</div></div></div>'}).join('')}
 
 function card(id,title,sub,extra){return '<div class="card"><div class="card-h"><div><h2>'+esc(nice(title))+'</h2>'+(sub?'<small>'+esc(sub)+'</small>':'')+'</div>'+(extra||'')+'</div>'+id+'</div>'}
 function seg(){return '<div class="seg" role="group" aria-label="Regrouper par">'+(META.grans||['M','Q','Y']).map(function(g){return '<button type="button" data-g="'+g+'" aria-pressed="'+(gran===g)+'">'+GRAN[g]+'</button>'}).join('')+'</div>'}
@@ -969,7 +968,7 @@ function pyramidDraw(id,rows,col,C,cs){return function(){var ks=Object.keys(grou
 function renderCards(rows){var el=document.getElementById('row3'),html='',todo=[],n=0,used={};
   // Effectifs déjà classés par un KPI « compte » (ex. « Patients dépistés par région ») : pas de second classement identique
   KCOUNT={};KPIDEFS.forEach(function(k){if(/^(compte|count|effectif)$/.test((k.agregation||'').toLowerCase())&&k.dimension)KCOUNT[k.dimension]=1});
-  function add(h){if(n<6){html+=h;n++}}
+  function add(h){if(n<4){html+=h;n++}}
   (META.charts||[]).forEach(function(c,i){var col=c.colonne;
     if(c.type==='bar'&&Object.keys(groupBy(rows,col)).length<=3&&rows.some(function(r){return !isNull(r[col])&&num(r[col])==null}))c=Object.assign({},c,{type:'pie'});
     // Anneau demandé sur une colonne chiffrée (ex. « Nombre de dépistés ») : total par catégorie, pas une répartition des valeurs
@@ -1039,14 +1038,18 @@ function renderGaps(rows){var el=document.getElementById('gaps'),K=META.keyind,D
   var warn=K.partial&&cur===K.partial?esc(gkey(cur))+' est incomplet : les effectifs sont sous-estimés':'';
   // Vert = évolution souhaitée (ex. baisse des décès), rouge = dégradation
   var tone=function(g){if(g.pct==null)return '';var good=g.pct*(g.bon||1);return g.sens==='stable'?'flat':good>0?'up':'down'};
-  var tiles=G.map(function(g,i){var badge='',prev='';
+  var gn=function(x){return String(x||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]+/g,' ').trim()};
+  var KN={};KPIDEFS.slice(0,5).forEach(function(k){KN[gn(k.nom)]=1});
+  var T=G.filter(function(g){return !KN[gn(g.indicateur)]});
+  var tiles=T.map(function(g,i){var badge='',prev='';
     if(g.pct!=null){var a=g.sens==='hausse'?'▲':g.sens==='baisse'?'▼':'—';badge='<span class="gap-d '+tone(g)+'">'+a+' '+(g.pct>0?'+':'')+Number(g.pct).toFixed(1).replace('.',',')+(g.pts?' pts':' %')+'</span>';
       prev='<span class="gap-p">'+esc(gkey(ref))+' : '+fmt(g.precedente)+(g.pts?' %':'')+'</span>'}
     return '<div class="kpi gap k'+(i%5+1)+'" title="'+esc(g.libelle||'')+'"><div class="n">'+esc(g.indicateur)+'</div><div class="row"><div class="v">'+fmt(g.derniere)+(g.pts?'<small>%</small>':'')+'</div><div class="s">'+badge+prev+'</div></div></div>'}).join('');
   var withGap=G.filter(function(g){return g.pct!=null});
+  if(!T.length&&withGap.length<2){el.hidden=true;return}  // tout est déjà en tête de page, sans écart à montrer
   var title='Indicateurs clés de suivi'+(D?' · '+D.nom:'');
   el.innerHTML='<div class="card-h"><div><h2>'+esc(title)+'</h2><small>'+sub+'</small></div>'+ctl+'</div>'+(warn?'<p class="gaps-note">'+warn+'</p>':'')
-    +'<div class="gaps-body'+(withGap.length>=2?'':' solo')+'"><div class="gaps-grid" style="grid-template-columns:repeat('+(withGap.length>=2?(G.length===4||G.length<=2?2:3):Math.min(G.length,5))+',minmax(0,1fr))">'+tiles+'</div>'
+    +'<div class="gaps-body'+(withGap.length>=2&&T.length?'':' solo')+'">'+(T.length?'<div class="gaps-grid" style="grid-template-columns:repeat('+(withGap.length>=2?(T.length===4||T.length<=2?2:3):Math.min(T.length,5))+',minmax(0,1fr))">'+tiles+'</div>':'')
     +(withGap.length>=2?'<div class="gaps-chart"><p class="gaps-ct">Écart par indicateur, vs '+esc(gkey(ref))+'</p><div class="box"><canvas id="c_gap" role="img" aria-label="Écarts par indicateur"></canvas></div></div>':'')+'</div>';
   var sel=document.getElementById('gapP');if(sel)sel.onchange=function(){GAP.p=sel.value;renderGaps(filtered())};
   [].forEach.call(el.querySelectorAll('.gaps-ctl .seg button'),function(b){b.onclick=function(){GAP.mode=b.dataset.m;renderGaps(filtered())}});
@@ -1055,15 +1058,17 @@ function renderGaps(rows){var el=document.getElementById('gaps'),K=META.keyind,D
       options:{responsive:true,maintainAspectRatio:false,indexAxis:'y',plugins:{legend:{display:false},tooltip:Object.assign({},navyTip,{callbacks:{label:function(c){var g=withGap[c.dataIndex];return (g.pct>0?'+':'')+Number(g.pct).toFixed(1).replace('.',',')+(g.pts?' pts':' %')+' ('+fmt(g.precedente)+' → '+fmt(g.derniere)+')'}}})},
         scales:{x:{grid:{color:function(c){return c.tick&&c.tick.value===0?'#9CC3EA':'#EEF2F7'},drawTicks:false},border:{display:false},ticks:{padding:6,font:{size:11},callback:function(v){return (v>0?'+':'')+v}}},y:{grid:{display:false},border:{display:false},ticks:{callback:function(v){var l=this.getLabelForValue(v);return l.length>26?l.slice(0,25)+'…':l}}}}}})}}
 function renderDict(){var el=document.getElementById('dict'),D=META.dictionnaire;if(!D||(!(D.trouves||[]).length&&!(D.absents||[]).length)){el.hidden=true;return}el.hidden=false;
-  /* Même langage que les écarts : tuiles pastel, code + valeur en vedette, libellé officiel limité à 2 lignes (complet au survol) */
-  var t=(D.trouves||[]).map(function(r,i){var isPct=(r.type||'').toLowerCase().indexOf('pourcentage')>=0;
+  var F=D.trouves||[],A=D.absents||[],VIS=6;
+  function tile(r,i){var isPct=(r.type||'').toLowerCase().indexOf('pourcentage')>=0;
     var v=r.valeur==null?'—':(isPct?String(r.valeur).replace('.',',')+'<small>%</small>':fmt(r.valeur));
-    return '<div class="kpi gap k'+(i%4+1)+'" title="'+esc(r.libelle||'')+'"><div class="n"><span class="dc">'+esc(r.code||'')+'</span><span class="dl">'+esc(r.libelle||'')+'</span></div>'
-      +'<div class="row"><div class="v">'+v+'</div><div class="s">'+(r.detail?'<span class="gap-p">'+esc(r.detail)+'</span>':'')+'</div></div></div>'}).join('');
-  var A=D.absents||[],a=A.map(function(r){return '<li title="'+esc(r.libelle||'')+'"><b>'+esc(r.code)+'</b> '+esc(r.libelle||'')+'</li>'}).join('');
-  el.innerHTML='<div class="card-h"><div><h2>Indicateurs du dictionnaire</h2><small>Calculés selon le référentiel importé ('+(D.trouves||[]).length+' trouvé'+((D.trouves||[]).length>1?'s':'')+')</small></div></div>'
-    +(t?'<div class="gaps-grid">'+t+'</div>':'<p class="gaps-ct">Aucun indicateur du dictionnaire n\'est calculable avec ces données.</p>')
-    +(A.length?'<details class="dict-abs"><summary>'+A.length+' indicateur'+(A.length>1?'s':'')+' du dictionnaire absent'+(A.length>1?'s':'')+' de ces données</summary><ul>'+a+'</ul></details>':'')}
+    var tip=(r.libelle||'')+(r.detail?'\n'+r.detail:'');
+    return '<div class="kpi gap k'+(i%4+1)+'" title="'+esc(tip)+'"><div class="n"><span class="dc">'+esc(r.code||'')+'</span><span class="dl">'+esc(r.libelle||'')+'</span></div>'
+      +'<div class="row"><div class="v">'+v+'</div>'+(r.detail&&/^\d/.test(r.detail)?'<div class="s"><span class="gap-p">'+esc(r.detail)+'</span></div>':'')+'</div></div>'}
+  var more=F.slice(VIS),li=function(r){return '<li title="'+esc(r.libelle||'')+'"><b>'+esc(r.code)+'</b> '+esc(r.libelle||'')+'</li>'};
+  el.innerHTML='<div class="card-h"><div><h2>Indicateurs du dictionnaire</h2><small>'+F.length+' calculé'+(F.length>1?'s':'')+' selon votre référentiel · les indicateurs clés du haut sont choisis par Hermes</small></div></div>'
+    +(F.length?'<div class="gaps-grid">'+F.slice(0,VIS).map(tile).join('')+'</div>':'<p class="gaps-ct">Aucun indicateur du dictionnaire n\'est calculable de façon sûre avec ces données.</p>')
+    +(more.length?'<details class="dict-abs"><summary>'+more.length+' autre'+(more.length>1?'s':'')+' indicateur'+(more.length>1?'s':'')+' calculé'+(more.length>1?'s':'')+'</summary><div class="gaps-grid" style="margin-top:10px">'+more.map(function(r,i){return tile(r,i+VIS)}).join('')+'</div></details>':'')
+    +(A.length?'<details class="dict-abs"><summary>'+A.length+' indicateur'+(A.length>1?'s':'')+' du dictionnaire absent'+(A.length>1?'s':'')+' de ces données</summary><ul>'+A.map(li).join('')+'</ul></details>':'')}
 function render(){charts.forEach(function(c){c.destroy()});charts=[];var rows=filtered();renderKpis(rows);renderGaps(rows);renderDict();
   var todo=renderMain(rows).concat(renderCards(rows));if(window.Chart)todo.forEach(function(f){f()})}
 document.getElementById('objective').textContent=window.OBJECTIVE;
@@ -1227,7 +1232,7 @@ def generate_dashboard(df, objective: str = "", job_id: str | None = None, llm=N
     if domaine:
         meta["domaine"] = {"cle": domaine["cle"], "nom": domaine["nom"]}
     # Dictionnaire d'indicateurs importé (Mode B) : source de vérité. Indicateurs calculés selon leur
-    # type (Nombre/%), absents signalés, et KPI auto-détectés hors dictionnaire marqués.
+    # type (Nombre/%) et selon le total annuel ; absents signalés ; dans le doute, absent plutôt que faux.
     if dictionnaire:
         try:
             from hermes_da import indicators_catalog as _cat
@@ -1244,16 +1249,16 @@ def generate_dashboard(df, objective: str = "", job_id: str | None = None, llm=N
                         res = [trouves.get(r["code"], r) if not r["present"] else r for r in res]
                     except Exception:
                         pass
-                dict_codes = {i["code"].strip().lower() for i in dict_inds}
-                dict_lib = {_norm(i["libelle"]) for i in dict_inds}
+                # Variante nationale (« _NAT ») donnant exactement le même calcul qu'un indicateur de base (VL_SUPPRESSION_NAT = TX_PVLS) : un seul affichage
+                base_vals = {(r["valeur"], r["detail"]) for r in res
+                             if r["present"] and not str(r["code"]).upper().endswith("_NAT")}
+                res = [r for r in res if not (r["present"] and str(r["code"]).upper().endswith("_NAT")
+                                              and (r["valeur"], r["detail"]) in base_vals)]
                 meta["dictionnaire"] = _json_safe({
                     "trouves": [{"code": r["code"], "libelle": r["libelle"], "type": r["type"],
                                  "valeur": r["valeur"], "detail": r["detail"]} for r in res if r["present"]],
                     "absents": [{"code": r["code"], "libelle": r["libelle"]} for r in res if not r["present"]],
                 })
-                for kd, k in zip(kpi_defs, kpis):
-                    kd["hors_dictionnaire"] = (_norm(str(k.get("nom"))) not in dict_lib
-                                               and str(k.get("nom", "")).strip().lower() not in dict_codes)
         except Exception as exc:  # le tableau de bord reste affiché, mais l'échec laisse une trace
             import sys
             print(f"[AGT-11] dictionnaire d'indicateurs ignoré : {type(exc).__name__} : {exc}", file=sys.stderr, flush=True)

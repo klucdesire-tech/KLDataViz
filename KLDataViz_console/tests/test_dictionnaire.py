@@ -233,3 +233,21 @@ def test_import_trop_volumineux_refuse_avant_decodage():
         assert code == 400 and "1 Mo" in rep["error"]
     finally:
         httpd.shutdown()
+
+
+def test_liste_patients_oui_non_et_variante_nationale_unique():
+    """Colonne Oui/Non nommée « cv_supprimee » → TX_PVLS ; sa variante nationale identique n'est pas affichée en double."""
+    reset_app_modules()
+    import dictionnaire  # noqa: PLC0415
+    sys.path.insert(0, os.path.join(os.path.dirname(dictionnaire.__file__), "..", "HERMES_DA"))
+    from hermes_da.adapters.dashboard import generate_dashboard  # noqa: PLC0415
+    dico = DICO.copy()
+    dico.loc[len(dico)] = {"Domaine": "Pays", "Code": "VL_SUPPRESSION_NAT", "Indicateur": "% de PVVIH ayant une charge virale supprimée",
+                           "Type": "Pourcentage", "Calcul du total annuel": "Annuel"}
+    dictionnaire.importer(_xlsx(dico), "mer.xlsx")
+    n = 40
+    df = pd.DataFrame({"id_patient": [f"P{i}" for i in range(n)], "sexe": ["F", "M"] * (n // 2),
+                       "statut_actuel": ["Actif"] * 30 + ["Arrêt de traitement"] * 10,
+                       "cv_supprimee": ["Oui"] * 30 + ["Non"] * 10})
+    out = generate_dashboard(df, "test", llm=False, dictionnaire=dictionnaire.charger())
+    assert [(r["code"], r["valeur"]) for r in out["dictionnaire"]["trouves"]] == [("TX_PVLS", 75.0)]
