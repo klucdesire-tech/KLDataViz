@@ -1366,9 +1366,10 @@ function groupReading(g){
   const P=g.labels.map((l,i)=>({l,m:g.moyennes[i],n:(g.effectifs||[])[i]})).filter(x=>x.m!=null&&isFinite(x.m));
   if(P.length<2)return {ecart:0,txt:''};
   P.sort((x,y)=>y.m-x.m);const hi=P[0],lo=P[P.length-1],f=v=>nf(Math.round(v*10)/10);
-  const ecart=lo.m?Math.abs((hi.m-lo.m)/lo.m)*100:(hi.m?100:0);
+  // écart relatif seulement si la base est positive ; sinon (0 ou négatif) l'écart se lit en unités
+  const ecart=lo.m>0?(hi.m-lo.m)/lo.m*100:(hi.m-lo.m)/Math.max(Math.abs(hi.m),1e-9)*100;
   let txt=ecart<5?`Pas de différence marquée : le ${g.num} moyen varie peu selon ${g.cat} (de ${f(lo.m)} à ${f(hi.m)}).`
-    :`Le ${g.num} moyen est le plus élevé pour **${hi.l}** (${f(hi.m)}) et le plus bas pour **${lo.l}** (${f(lo.m)}), soit ${lo.m>0&&hi.m/lo.m>=3?`environ ${nf(Math.round(hi.m/lo.m))} fois plus`:`un écart de ${nf(Math.round(ecart))} %`}.`;
+    :`Le ${g.num} moyen est le plus élevé pour **${hi.l}** (${f(hi.m)}) et le plus bas pour **${lo.l}** (${f(lo.m)}), soit ${lo.m<=0?`un écart de ${f(hi.m-lo.m)}`:hi.m/lo.m>=3?`environ ${nf(Math.round(hi.m/lo.m))} fois plus`:`un écart de ${nf(Math.round(ecart))} %`}.`;
   const petits=P.filter(x=>x.n!=null&&x.n<30);
   if(petits.length)txt+=` Prudence : ${petits.slice(0,2).map(x=>`« ${x.l} » ne compte que ${nf(x.n)} ligne${x.n>1?'s':''}`).join(', ')} — l'écart peut être dû au hasard.`;
   return {ecart,txt};

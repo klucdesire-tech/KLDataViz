@@ -760,8 +760,10 @@ def build(result, path):
     # Moyennes par groupe : un groupe « Total » n'est pas une catégorie
     groupes = []
     for g in bv.get("groupes") or []:
-        kept = [(l, m) for l, m in zip(g.get("labels", []), g.get("moyennes", [])) if not TOTAL_RE.match(str(l))]
-        groupes.append(dict(g, labels=[l for l, _ in kept], moyennes=[m for _, m in kept]))
+        n = g.get("effectifs") or [None] * len(g.get("labels", []))
+        kept = [(l, m, k) for l, m, k in zip(g.get("labels", []), g.get("moyennes", []), n) if not TOTAL_RE.match(str(l))]
+        groupes.append(dict(g, labels=[l for l, _, _ in kept], moyennes=[m for _, m, _ in kept],
+                            effectifs=[k for _, _, k in kept]))
     bv = dict(bv, groupes=groupes)
     n_num = sum(1 for c in cols if dtype_fr(c.get("dtype")) in ("Nombre entier", "Nombre décimal"))
     n_date = sum(1 for c in cols if dtype_fr(c.get("dtype")) == "Date")
