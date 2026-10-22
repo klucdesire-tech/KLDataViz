@@ -88,3 +88,53 @@ def test_lecture_par_regles_des_graphiques_automatiques():
         rank = next(c for c in charts if c["kind"] == "ranking")
         assert rank["subtitle"].startswith("Dernière période (2025-03)")              # file active = stock
         assert rank["values"][0][0] == 153                                             # Site 5 en mars, pas la somme
+
+
+def test_tous_les_graphiques_sont_interpretes():
+    """Chaque graphique généré a une lecture, même si l'IA n'en renvoie aucune (fallback déterministe)."""
+    server, HC = _load()
+    calls = []
+
+    def llm(messages, max_tokens):
+        calls.append(messages)
+        if len(calls) == 1:
+            return json.dumps(SPECS)
+        return json.dumps({"lectures": [], "synthese": ""})  # l'IA n'interprète rien
+
+    r = HC.run(_df(), "fa.csv", [], llm, server._parse_llm_json, server._period_series)
+    assert len(r["charts"]) == 3
+    assert all(c.get("lecture") for c in r["charts"])  # aucun graphique sans lecture
+    assert "tête" in r["charts"][1]["lecture"] or "arrive en tête" in r["charts"][1]["lecture"]
+
+
+def test_lecture_hallucinee_remplacee():
+    """L'IA cite un nombre absent des vraies valeurs → la lecture déterministe (fidèle) la remplace."""
+    server, HC = _load()
+    calls = []
+
+    def llm(messages, max_tokens):
+        calls.append(messages)
+        if len(calls) == 1:
+            return json.dumps(SPECS)
+        return json.dumps({"lectures": [{"index": 0, "lecture": "La file active passe de 100 à 999."}], "synthese": ""})
+
+    r = HC.run(_df(), "fa.csv", [], llm, server._parse_llm_json, server._period_series)
+    evo = r["charts"][0]
+    assert "999" not in evo["lecture"]          # le chiffre inventé a disparu
+    assert "750" in evo["lecture"]              # remplacé par la lecture déterministe (vraies valeurs)
+
+
+def test_lecture_fidele_conservee():
+    """Une lecture aux chiffres cohérents est conservée telle quelle."""
+    server, HC = _load()
+    calls = []
+
+    def llm(messages, max_tokens):
+        calls.append(messages)
+        if len(calls) == 1:
+            return json.dumps(SPECS)
+        # valeurs du fichier _df : file active = 750 → 768 sur les 4 mois
+        return json.dumps({"lectures": [{"index": 0, "lecture": "La file active progresse de 750 à 768."}], "synthese": ""})
+
+    r = HC.run(_df(), "fa.csv", [], llm, server._parse_llm_json, server._period_series)
+    assert "750" in r["charts"][0]["lecture"]   # lecture fidèle conservée
