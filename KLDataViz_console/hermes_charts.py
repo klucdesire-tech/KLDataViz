@@ -332,6 +332,54 @@ def _reading_fallback(c):
     return "Voir le graphique."
 
 
+def _nombres(text):
+    """Nombres cités dans un texte français (« 1 234,5 », « 12,5 % », « -10 ») → flottants."""
+    norm = str(text).replace("\u202f", "").replace("\u00a0", "").replace(" ", "")
+    out = []
+    for m in re.finditer(r"-?\d+(?:[.,]\d+)?", norm):
+        x = float(m.group(0).replace(",", "."))
+        if 1900 <= x <= 2100 and x == int(x):  # une année (libellé de période), pas une donnée
+            continue
+        out.append(x)
+    return out
+
+
+def _valeurs_legitimes(c):
+    """Valeurs qu'une lecture honnête peut citer : valeurs brutes, pourcentages dérivés, moyenne de référence."""
+    legit, vals = set(), []
+    for series in (c.get("values") or []):
+        for v in series:
+            if v is not None and np.isfinite(float(v)):
+                fv = float(v)
+                legit.add(round(fv, 1))
+                vals.append(fv)
+    tot = sum(vals)
+    if tot:
+        for v in vals:
+            legit.add(round(v / tot * 100, 1))        # parts du total
+    if c.get("kind") == "trend" and len(vals) >= 2 and vals[0]:
+        legit.add(round((vals[-1] - vals[0]) / vals[0] * 100, 1))  # variation première→dernière
+    ref = (c.get("ref") or {}).get("value")
+    if ref is not None and np.isfinite(float(ref)):
+        legit.add(round(float(ref), 1))
+    return legit
+
+
+def _lecture_est_fidele(c, lecture):
+    """Faux si l'IA cite un nombre substantiel absent des vraies valeurs (hallucination chiffrée).
+
+    Tolérance ~3 % ; les petits nombres (< 10, comptages « 6 sites ») et les années sont ignorés."""
+    legit = _valeurs_legitimes(c)
+    if not legit:
+        return True  # rien à vérifier (relation, distribution sans part…)
+    for x in _nombres(lecture):
+        if abs(x) < 10 and x == int(x):
+            continue  # comptage de catégories, pas une valeur
+        if not any(abs(x - v) <= max(1.0, abs(v) * 0.03) for v in legit):
+            return False
+    return True
+
+
 def run(df, file_name, base_charts, llm, parse, period_of, progress=lambda _t: None, comprehension=None):
     """Graphiques choisis et commentés par Hermes ; repli sur base_charts (graphiques automatiques)."""
     if llm is None:
@@ -361,9 +409,10 @@ def run(df, file_name, base_charts, llm, parse, period_of, progress=lambda _t: N
             continue
         if 0 <= i < len(charts) and it.get("lecture"):
             charts[i] = dict(charts[i], lecture=re.sub(r"\s+", " ", str(it["lecture"])).strip()[:900])
-    # Garantie : CHAQUE graphique a une lecture. Si l'IA en a oublié un, lecture déterministe calculée ici.
+    # Garantie : CHAQUE graphique a une lecture FIDÈLE. Si l'IA en a oublié un, ou a cité un nombre
+    # absent des vraies valeurs (hallucination), on reprend la lecture déterministe (toujours correcte).
     for i, c in enumerate(charts):
-        if not c.get("lecture"):
+        if not c.get("lecture") or not _lecture_est_fidele(c, c["lecture"]):
             charts[i] = dict(c, lecture=_reading_fallback(c))
     synthese = str(data.get("synthese") or "")[:900] if isinstance(data, dict) else ""
     return {"charts": charts, "ia": True, "source": source, "synthese": synthese, "erreurs": errors}
