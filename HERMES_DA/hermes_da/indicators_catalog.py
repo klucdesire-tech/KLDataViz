@@ -366,7 +366,7 @@ def _is_snapshot(ind):
 MATCH_SYSTEM = """Tu relies un fichier de données à un dictionnaire d'indicateurs métier.
 Pour CHAQUE indicateur, détermine s'il est calculable depuis les colonnes du fichier, et comment.
 Réponds en JSON STRICT (aucun texte avant ni après) :
-{"matches":[{"code":"...","present":true,"colonne":"...","calcul":"taux"|"somme"|"comptage","positif":"...","negatif":"..."}]}
+{"matches":[{"code":"...","present":true,"colonne":"...","calcul":"taux"|"comptage","positif":"...","negatif":"..."}]}
 
 Règles :
 - « Pourcentage »/« taux » : present=true seulement si une colonne catégorielle porte le résultat
@@ -407,7 +407,10 @@ def _compute_from_mapping(df, mapping, indicators):
             continue
         n_pos = int((s_col == pos).sum())
         if calcul in ("taux", "pourcentage", "rate", "pct", "proportion"):
-            n_neg = int((s_col == neg).sum()) if neg in present_vals else int(s_col.ne(pos).sum())
+            # dénominateur = les seules valeurs renseignées (une cellule vide n'est ni « oui » ni « non »)
+            filled = df[col].dropna().astype(str).str.strip()
+            filled = filled[~filled.str.lower().isin(("", "nan", "none", "null", "nat"))]
+            n_neg = int((filled == neg).sum()) if neg in present_vals else int(filled.ne(pos).sum())
             val = round(n_pos / (n_pos + n_neg) * 100, 1) if (n_pos + n_neg) else None
             out.append(dict(base, present=True, valeur=val, detail=f"{n_pos} / {n_pos + n_neg}"))
         else:
@@ -503,6 +506,18 @@ def _as_long(df, indicators):
         keep = [c for c in df.columns if c not in wide]
         return df.melt(id_vars=keep, value_vars=wide, var_name="indicateur", value_name="valeur"), "indicateur", "valeur"
     return df, None, None
+
+
+# Mots de contexte des libellés (« dans le cadre du programme », « 1er test », « contact clinique »…) : présents
+# dans les libellés mais trop banals dans les données pour désigner à eux seuls un indicateur.
+_CONTEXTE = {_stem(w) for w in (
+    "cadre", "programme", "programmes", "contact", "contacts", "test", "tests", "inscription", "inscrit", "stock",
+    "laboratoire", "site", "sites", "service", "services", "clinique", "cliniques", "resultat", "resultats", "periode",
+    "statut", "personnes", "patients", "nombre", "total", "categorie", "type", "zone", "niveau", "point", "points",
+    "prestation", "suivi", "dernier", "derniers", "derniere", "mois", "annee", "trimestre", "semestre", "cours",
+    "fin", "debut", "date", "valeur", "pepfar", "appuyes", "appuye", "national", "nationales", "normes", "selon",
+    "medicale", "medical", "volontaire", "generale", "population", "populations", "traitement", "enfants", "enfant",
+    "adultes", "adulte", "femmes", "femme", "hommes", "homme", "sante", "agents", "dossier", "formation")}
 
 
 def match_and_compute(df, indicators):
@@ -609,7 +624,8 @@ def match_and_compute(df, indicators):
 
     def _designates(v, stems):
         words = {_stem(w) for w in _norm(v).split() if len(w) >= 3 and w not in _STOP}
-        return bool(words) and words <= stems and any(freq[w] <= 2 for w in words)
+        # au moins un mot PORTEUR : distinctif (2 indicateurs au plus) et pas un mot de contexte du libellé
+        return bool(words) and words <= stems and any(freq[w] <= 2 and w not in _CONTEXTE for w in words)
 
     for ind in indicators:
         stems = stems_by[id(ind)]

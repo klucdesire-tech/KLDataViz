@@ -256,3 +256,28 @@ def test_llm_payload_never_sends_numeric_values():
 
     cat.match_and_compute_llm(df, inds, fake_llm)
     assert "42" not in captured["user"]  # la valeur numérique n'est pas envoyée
+
+
+def test_mots_de_contexte_ne_designent_rien():
+    # Relecture de Hermes : « Cadre », « Test », « Contact »… sont dans des libellés mais ne désignent pas l'indicateur
+    inds = [{"domaine": "P", "code": "VMMC_CIRC", "type": "Nombre",
+             "libelle": "Nombre d'hommes circoncis dans le cadre du programme de circoncision médicale masculine"},
+            {"domaine": "D", "code": "PMTCT_EID", "type": "Pourcentage",
+             "libelle": "% de nourrissons nés de mères VIH+ ayant eu un 1er test virologique"},
+            {"domaine": "T", "code": "TX_ML", "type": "Nombre",
+             "libelle": "Nombre de patients sans contact clinique depuis leur dernier contact prévu"},
+            {"domaine": "S", "code": "LAB_PTCQI", "type": "Nombre",
+             "libelle": "Nombre de sites de laboratoire engagés dans l'amélioration continue de la qualité"},
+            {"domaine": "S", "code": "SC_CURR", "type": "Nombre", "libelle": "Nombre d'unités d'ARV en stock"}]
+    n = 40
+    df = pd.DataFrame({"fonction": ["Cadre", "Agent"] * (n // 2), "etape": ["Test", "Inscription"] * (n // 2),
+                       "suivi": ["Contact", "Programme"] * (n // 2), "lieu": ["Laboratoire", "Stock"] * (n // 2)})
+    assert not [r["code"] for r in cat.match_and_compute(df, inds) if r["present"]]
+
+
+def test_taux_llm_ignore_les_cellules_vides():
+    df = pd.DataFrame({"resultat": ["SUPPRIME"] * 10 + [None] * 10})
+    inds = [{"domaine": "S", "code": "TX_PVLS", "libelle": "charge virale supprimée", "type": "Pourcentage"}]
+    res = cat.match_and_compute_llm(df, inds, lambda m, t: '{"matches":[{"code":"TX_PVLS","present":true,'
+                                    '"colonne":"resultat","calcul":"taux","positif":"SUPPRIME"}]}')
+    assert res[0]["valeur"] == 100.0   # 10 / 10 : une cellule vide n'est pas un « non »

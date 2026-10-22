@@ -1255,16 +1255,11 @@ def generate_dashboard(df, objective: str = "", job_id: str | None = None, llm=N
                              if r["present"] and not str(r["code"]).upper().endswith("_NAT")}
                 res = [r for r in res if not (r["present"] and str(r["code"]).upper().endswith("_NAT")
                                               and (r["valeur"], r["detail"]) in base_vals)]
-                dict_codes = {i["code"].strip().lower() for i in dict_inds}
-                dict_lib = {_norm(i["libelle"]) for i in dict_inds}
                 meta["dictionnaire"] = _json_safe({
                     "trouves": [{"code": r["code"], "libelle": r["libelle"], "type": r["type"],
                                  "valeur": r["valeur"], "detail": r["detail"]} for r in res if r["present"]],
                     "absents": [{"code": r["code"], "libelle": r["libelle"]} for r in res if not r["present"]],
                 })
-                for kd, k in zip(kpi_defs, kpis):
-                    kd["hors_dictionnaire"] = (_norm(str(k.get("nom"))) not in dict_lib
-                                               and str(k.get("nom", "")).strip().lower() not in dict_codes)
         except Exception as exc:  # le tableau de bord reste affiché, mais l'échec laisse une trace
             import sys
             print(f"[AGT-11] dictionnaire d'indicateurs ignoré : {type(exc).__name__} : {exc}", file=sys.stderr, flush=True)
