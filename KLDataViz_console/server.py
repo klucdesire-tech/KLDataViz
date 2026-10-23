@@ -516,6 +516,16 @@ def _smart_charts(df, max_charts=6):
         cumul = df[txt].astype(str).apply(lambda s: s.str.match(TOTAL_LABEL)).any(axis=1)
         if cumul.any() and (~cumul).sum() >= 2:
             df = df[~cumul]
+    # Réservations annulées, opérations rejetées : hors des montants et des volumes (sinon chiffre d'affaires gonflé)
+    excl = ""
+    for c in df.columns:
+        if re.search(r"annul|cancel|rejet|refus", str(c), re.I):
+            low = df[c].dropna().astype(str).str.strip().str.lower()
+            yes = {"oui", "yes", "true", "vrai", "1", "y"}
+            if low.isin(yes).any() and (~low.isin(yes)).any():
+                df = df[~df[c].astype(str).str.strip().str.lower().isin(yes)]
+                excl = f"Hors {str(c).replace('_', ' ')} · "
+                break
     n = len(df)
     if n == 0:
         return []
@@ -548,7 +558,7 @@ def _smart_charts(df, max_charts=6):
         return "sum"
 
     def lab(a):
-        return {"sum": "Somme", "mean": "Moyenne", "median": "Médiane"}[a]
+        return {"sum": "Somme", "mean": "Moyenne", "median": "Médiane", "count": "Nombre de lignes"}[a]
 
     units = re.compile(r"(fcfa|xof|eur|usd|dollars?|ha|hectares?|kg|tonnes?|(?<=_)t$|jours?|nuits?|pct|pourcent|%|"
                        r"patients?|personnes?|habitants?|lignes?)", re.I)
@@ -616,8 +626,11 @@ def _smart_charts(df, max_charts=6):
 
     # 1. Évolution
     if period is not None and num:
-        same = [c for c in num[1:] if agg_of(c) == agg_of(num[0]) and unit_tokens(c) == unit_tokens(num[0])]
-        metrics = [num[0]] + same[:1]
+        # Mesure individuelle (CV, CD4, âge…) : sa médiane mensuelle sur ~60 lignes n'est que du bruit ;
+        # l'évolution utile est le nombre d'enregistrements (patients dépistés, ventes…) par période.
+        count_mode = agg_of(num[0]) != "sum"
+        same = [] if count_mode else [c for c in num[1:] if agg_of(c) == agg_of(num[0]) and unit_tokens(c) == unit_tokens(num[0])]
+        metrics = [] if count_mode else [num[0]] + same[:1]
         if period_dt is not None:
             span = (period_dt.max() - period_dt.min()).days if period_dt.notna().any() else 0
             freq = "D" if span <= 62 else "W" if span <= 200 else "M"
@@ -635,6 +648,10 @@ def _smart_charts(df, max_charts=6):
             key = df[period].astype(str)
         g = df.assign(_k=key).dropna(subset=["_k"]).groupby("_k")
         vals, names, aggs = [], [], []
+        if count_mode:
+            vals.append(series(g.size()))
+            names.append("Nombre d'enregistrements")
+            aggs.append("count")
         for m in metrics:
             a = agg_of(m)
             vals.append(series(getattr(g[m], a)()))
@@ -661,12 +678,14 @@ def _smart_charts(df, max_charts=6):
             charts.append({"kind": "trend", "type": "line", "title": "Évolution de " + " et ".join(names).lower(),
                            "subtitle": lab(aggs[0]) + " par " + str(period).replace("_", " ") + partial, "agg": aggs[0],
                            "labels": labels, "values": vals, "seriesNames": names, "axis2": two_axes,
-                           "unit": unit_of(metrics[0])})
+                           "unit": unit_of(metrics[0]) if metrics else ""})
 
     # Indicateurs de stock (file active, TX_CURR…) : jamais additionnés d'une période à l'autre ; les classements
     # et répartitions portent alors sur la dernière période.
     stock_hint = re.compile(r"(file_?active|tx_?curr|actifs?|sous_?(arv|traitement)|stock|effectif_?present|patients?_?suivis?|"
-                            r"population|habitants|superficie|cheptel|parc_|capacite|solde|encours)", re.I)
+                            r"population|habitants|superficie|cheptel|parc_|capacite|solde|encours|charge_?virale|"
+                            r"cv_?supprim|tx_?pvls|actuellement)", re.I)
+    flux_hint = re.compile(r"nouve|initi|d[ée]c[èe]s|d[ée]pist", re.I)  # « nouvellement initiés sous TARV » : un flux
     last, last_txt = None, ""
     if period_dt is not None and period_dt.notna().any():
         last = df[period_dt == period_dt.max()]
@@ -678,7 +697,8 @@ def _smart_charts(df, max_charts=6):
             last, last_txt = df[df[year_col] == ymax], f"Année {ymax} · "
 
     def frame_for(m):
-        return (last, last_txt) if last is not None and len(last) and stock_hint.search(str(m)) else (df, "")
+        stock = stock_hint.search(str(m)) and not flux_hint.search(str(m))
+        return (last, last_txt) if last is not None and len(last) and stock else (df, "")
 
     # 2. Classements par groupe
     pairs = []
@@ -688,18 +708,40 @@ def _smart_charts(df, max_charts=6):
             pairs.append((cats[1], num[0]))
         if len(num) > 1:
             pairs.append((cats[0], num[1]))
-    for cat, m in pairs[:2]:
+    kept = 0
+    for cat, m in pairs[:3]:
+        if kept >= 2:
+            break
         a = agg_of(m)
         src, pre = frame_for(m)
         g = getattr(src.groupby(cat)[m], a)().dropna().sort_values(ascending=False)
         if len(g) < 2 or (g != 0).sum() < 2:  # une seule catégorie non nulle : rien à comparer
             continue
+        if a != "sum" and float(g.max() - g.min()) <= 0.02 * abs(float(g.mean())):
+            continue  # moyennes quasi identiques (87,6 vs 87,5) : un graphique sans information
+        kept += 1
         top = g.head(12)
         charts.append({"kind": "ranking", "type": "bar", "title": f"{_pretty(m)} par {str(cat).replace('_', ' ')}",
                        "subtitle": pre + lab(a) + (f" · {len(top)} premiers sur {len(g)}" if len(g) > 12 else "")
                        + " · ligne : moyenne", "agg": a, "labels": [str(x) for x in top.index], "values": [series(top.values)],
                        "seriesNames": [_pretty(m)], "ref": {"value": round(float(g.mean()), 4), "label": "Moyenne"},
                        "horizontal": True, "unit": unit_of(m)})
+
+    # 2 bis. Taux d'une colonne Oui/Non par groupe (admission, initiation le jour même…)
+    yes_vals = {"oui", "yes", "true", "vrai", "1", "y"}
+    bools = [c for c in df.columns if c not in numeric_all and df[c].nunique() == 2 and is_bool(c)
+             and df[c].astype(str).str.strip().str.lower().isin(yes_vals).any()]
+    if bools and cats:
+        b, cat = bools[0], cats[0]
+        flag = df[b].astype(str).str.strip().str.lower().isin(yes_vals).where(df[b].notna())
+        g = (flag.groupby(df[cat]).mean() * 100).dropna().sort_values(ascending=False)
+        if len(g) >= 2 and float(g.max() - g.min()) >= 1:
+            top = g.head(12)
+            charts.append({"kind": "ranking", "type": "bar", "title": f"Taux « {str(b).replace('_', ' ')} » par {str(cat).replace('_', ' ')}",
+                           "subtitle": "Part de « Oui » · ligne : ensemble", "agg": "mean", "unit": "%",
+                           "labels": [str(x) for x in top.index], "values": [series(top.values)],
+                           "seriesNames": [f"Taux « {str(b).replace('_', ' ')} »"], "horizontal": True,
+                           "ref": {"value": round(float(flag.mean() * 100), 4), "label": "Ensemble"}})
 
     # 3. Répartition
     small = [c for c in cats if 2 <= df[c].nunique() <= 6]
@@ -777,11 +819,16 @@ def _smart_charts(df, max_charts=6):
                            "labels": [float(x) for x in pts[a]], "values": [[float(y) for y in pts[b]]],
                            "seriesNames": [_pretty(b)], "xTitle": _pretty(a), "yTitle": _pretty(b), "trend": True})
 
+    if excl:
+        for c in charts:
+            c["subtitle"] = excl + str(c.get("subtitle") or "")
     return charts[:max_charts]
 
 
 def analyze(file_path):
     df, err = _read_df(file_path)
+    if err and re.search(r"Permission denied|Errno 13|being used by another process", str(err)):
+        return {"error": "Fichier illisible : il est sans doute ouvert dans Excel. Fermez-le et réessayez."}
     if err:
         return {"error": err}
     if df is None:
@@ -824,7 +871,9 @@ def analyze(file_path):
             lq1, lq3 = ls.quantile(0.25), ls.quantile(0.75)
             outliers = s[(ls < lq1 - 3 * (lq3 - lq1)) | (ls > lq3 + 3 * (lq3 - lq1))]
             lo, hi = float(np.expm1(lq1 - 3 * (lq3 - lq1))), float(np.expm1(lq3 + 3 * (lq3 - lq1)))
-        if skip:
+        if skip or len(outliers) > 0.05 * len(s):
+            # Plus de 5 % des valeurs « hors plage » : ce sont des groupes différents (Suites vs Standard,
+            # électroménager vs alimentation), pas des erreurs de saisie
             outliers = s.iloc[0:0]
         lo, hi = max(lo, float(s.min())), min(hi, float(s.max()))
         num_stats[str(c)] = {

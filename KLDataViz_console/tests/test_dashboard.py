@@ -45,7 +45,8 @@ def test_tableau_de_bord_avec_l_ia_de_la_console(monkeypatch):
     with tempfile.TemporaryDirectory() as d:
         out = server.do_dashboard(_src(d))
     assert out["ia"] is True and seen                       # la clé vient de la console, pas de llm_config.json
-    assert out["kpis"][0]["nom"] == "File active" and out["kpis"][0]["valeur"] == 663  # calculée sur les données
+    # File active = stock : valeur du dernier mois (101 + 111 + 121), jamais la somme des deux mois (663)
+    assert out["kpis"][0]["nom"] == "File active (févr. 2025)" and out["kpis"][0]["valeur"] == 333
     # Style « Analytics » : période reconnue (courbe + sélecteur Mois/Trimestre/Année) et graphiques choisis transmis
     assert '"period": "mois"' in out["html"] and '"__p": "2025-01"' in out["html"]
     assert '"type": "bar"' in out["html"] and "janv. 2025 – févr. 2025" in out["html"]
@@ -104,8 +105,8 @@ def test_kpi_incalculable_ecarte(monkeypatch):
     monkeypatch.setattr(server, "_llm_call", fake_llm)
     with tempfile.TemporaryDirectory() as d:
         out = server.do_dashboard(_src(d))
-    assert [k["nom"] for k in out["kpis"]] == ["File active"]
-    assert '"measure": {"nom": "File active"' in out["html"]
+    assert [k["nom"] for k in out["kpis"]] == ["File active (févr. 2025)"]
+    assert '"measure": {"nom": "File active (févr. 2025)"' in out["html"]
 
 
 def test_indicateurs_cles_vih_format_dhis2():
