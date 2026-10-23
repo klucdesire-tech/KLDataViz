@@ -19,7 +19,8 @@ import tempfile
 
 RUNNER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "sandbox_runner.py")
 TIMEOUT_S = int(os.environ.get("KLDV_SANDBOX_TIMEOUT", "20"))
-MEMORY_MB = int(os.environ.get("KLDV_SANDBOX_MEMORY_MB", "1536"))
+# En ligne (Render Starter : 512 Mo pour tout le service), un calcul ne doit jamais pouvoir faire tomber le serveur
+MEMORY_MB = int(os.environ.get("KLDV_SANDBOX_MEMORY_MB", "384" if os.environ.get("KLDV_MODE") == "cloud" else "1536"))
 
 BANNED_NAMES = {
     "open", "exec", "eval", "compile", "__import__", "getattr", "setattr", "delattr", "hasattr",

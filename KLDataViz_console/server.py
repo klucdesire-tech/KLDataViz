@@ -349,9 +349,28 @@ def _read_df_raw(file_path, sheet=None):
 _PERIOD_HINT = None
 
 
+def _libelles():
+    d = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "HERMES_DA")
+    if d not in sys.path:
+        sys.path.insert(0, d)
+    from hermes_da import libelles
+    return libelles
+
+
 def _pretty(name):
-    s = str(name).replace("_", " ").strip()
-    return s[:1].upper() + s[1:]
+    """Libellé lisible d'une colonne (accents, sigles, unité) : « delai_initiation_jours » → « Délai initiation (jours) »."""
+    try:
+        return _libelles().joli(name)
+    except Exception:
+        s = str(name).replace("_", " ").strip()
+        return s[:1].upper() + s[1:]
+
+
+def _pretty_min(name):
+    try:
+        return _libelles().joli_min(name)
+    except Exception:
+        return str(name).replace("_", " ")
 
 
 REPORT_COLS = {"indicateur", "niveau", "sexe", "tranche_age", "site", "valeur"}
@@ -524,7 +543,7 @@ def _smart_charts(df, max_charts=6):
             yes = {"oui", "yes", "true", "vrai", "1", "y"}
             if low.isin(yes).any() and (~low.isin(yes)).any():
                 df = df[~df[c].astype(str).str.strip().str.lower().isin(yes)]
-                excl = f"Hors {str(c).replace('_', ' ')} · "
+                excl = f"Hors « {_pretty_min(c)} » · "
                 break
     n = len(df)
     if n == 0:
@@ -566,8 +585,10 @@ def _smart_charts(df, max_charts=6):
     def unit_tokens(c):
         return {u.lower().rstrip("s") for u in units.findall(str(c))}
 
-    # Volumes additifs d'abord, grandeurs intensives ensuite (jamais choisies pour leur seule ampleur)
-    num.sort(key=lambda c: 0 if agg_of(c) == "sum" else 1)
+    # Volumes d'activité d'abord (consultations, ventes), puis les stocks (population desservie : un contexte, pas
+    # l'activité suivie), puis les grandeurs individuelles — jamais choisis pour leur seule ampleur
+    stock_words = re.compile(r"population|habitants|superficie|cheptel|capacite|solde|encours|file_?active|tx_?curr", re.I)
+    num.sort(key=lambda c: 2 if agg_of(c) != "sum" else 1 if stock_words.search(str(c)) else 0)
 
     def unit_of(c):
         v = df[c].dropna()
@@ -676,8 +697,8 @@ def _smart_charts(df, max_charts=6):
             mx = [max([abs(x) for x in v if x is not None] or [0]) for v in vals]
             two_axes = len(vals) == 2 and min(mx) > 0 and max(mx) / min(mx) > 4
             charts.append({"kind": "trend", "type": "line",
-                           "title": ("Évolution du nombre d'enregistrements" if count_mode else "Évolution de " + " et ".join(names).lower()),
-                           "subtitle": lab(aggs[0]) + " par " + str(period).replace("_", " ") + partial, "agg": aggs[0],
+                           "title": ("Évolution du nombre d'enregistrements" if count_mode else "Évolution de " + " et ".join(_pretty_min(m) for m in metrics)),
+                           "subtitle": lab(aggs[0]) + " par " + _pretty_min(period) + partial, "agg": aggs[0],
                            "labels": labels, "values": vals, "seriesNames": names, "axis2": two_axes,
                            "unit": unit_of(metrics[0]) if metrics else ""})
 
@@ -722,7 +743,7 @@ def _smart_charts(df, max_charts=6):
             continue  # moyennes quasi identiques (87,6 vs 87,5) : un graphique sans information
         kept += 1
         top = g.head(12)
-        charts.append({"kind": "ranking", "type": "bar", "title": f"{_pretty(m)} par {str(cat).replace('_', ' ')}",
+        charts.append({"kind": "ranking", "type": "bar", "title": f"{_pretty(m)} par {_pretty_min(cat)}",
                        "subtitle": pre + lab(a) + (f" · {len(top)} premiers sur {len(g)}" if len(g) > 12 else "")
                        + " · ligne : moyenne", "agg": a, "labels": [str(x) for x in top.index], "values": [series(top.values)],
                        "seriesNames": [_pretty(m)], "ref": {"value": round(float(g.mean()), 4), "label": "Moyenne"},
@@ -738,10 +759,10 @@ def _smart_charts(df, max_charts=6):
         g = (flag.groupby(df[cat]).mean() * 100).dropna().sort_values(ascending=False)
         if len(g) >= 2 and float(g.max() - g.min()) >= 2:  # moins de 2 points d'écart : rien à montrer
             top = g.head(12)
-            charts.append({"kind": "ranking", "type": "bar", "title": f"Taux « {str(b).replace('_', ' ')} » par {str(cat).replace('_', ' ')}",
+            charts.append({"kind": "ranking", "type": "bar", "title": f"Taux « {_pretty_min(b)} » par {_pretty_min(cat)}",
                            "subtitle": "Part de « Oui » · ligne : ensemble", "agg": "mean", "unit": "%",
                            "labels": [str(x) for x in top.index], "values": [series(top.values)],
-                           "seriesNames": [f"Taux « {str(b).replace('_', ' ')} »"], "horizontal": True,
+                           "seriesNames": [f"Taux « {_pretty_min(b)} »"], "horizontal": True,
                            "ref": {"value": round(float(flag.mean() * 100), 4), "label": "Ensemble"}})
 
     # 3. Répartition
@@ -751,10 +772,10 @@ def _smart_charts(df, max_charts=6):
         src, pre = frame_for(num[0]) if num else (df, "")
         if num and agg_of(num[0]) == "sum":
             g = src.groupby(c)[num[0]].sum().sort_values(ascending=False)
-            title = f"Répartition de {str(num[0]).replace('_', ' ')} par {str(c).replace('_', ' ')}"
+            title = f"Répartition de {_pretty_min(num[0])} par {_pretty_min(c)}"
         else:
             g = df[c].value_counts()
-            title = f"Répartition des lignes par {str(c).replace('_', ' ')}"
+            title = f"Répartition des lignes par {_pretty_min(c)}"
         if len(g) >= 2 and float(g.sum()) > 0 and float(g.max()) / float(g.sum()) < 0.98:
             charts.append({"kind": "share", "type": "doughnut", "title": title, "subtitle": pre + "Part du total",
                            "labels": [str(x) for x in g.index], "values": [series(g.values)]})
@@ -774,7 +795,7 @@ def _smart_charts(df, max_charts=6):
             def _p(x):
                 return f"{int(x):,}".replace(",", " ")
             labels = ["0"] + [f"{_p(edges[i])} – {_p(edges[i + 1] - 1)}" for i in range(1, len(edges) - 1)]
-            charts.append({"kind": "distribution", "type": "histogram", "title": f"Distribution de {str(m).replace('_', ' ')}",
+            charts.append({"kind": "distribution", "type": "histogram", "title": f"Distribution de {_pretty_min(m)}",
                            "subtitle": "Nombre de lignes par ordre de grandeur (valeurs très étalées)",
                            "labels": labels, "values": [counts], "seriesNames": ["Lignes"]})
         elif v.nunique() >= 8:
@@ -792,7 +813,7 @@ def _smart_charts(df, max_charts=6):
             def _f(x):
                 x = round(float(x), 6)
                 return (f"{x:,.0f}" if x == int(x) else f"{x:,.2f}".rstrip("0")).replace(",", " ").replace(".", ",")
-            charts.append({"kind": "distribution", "type": "histogram", "title": f"Distribution de {str(m).replace('_', ' ')}",
+            charts.append({"kind": "distribution", "type": "histogram", "title": f"Distribution de {_pretty_min(m)}",
                            "subtitle": "Nombre de lignes par tranche" + (" · valeurs extrêmes (1 %) écartées" if len(v2) < len(v) else ""),
                            "labels": [f"{_f(edges[i])} – {_f(edges[i + 1])}" for i in range(len(counts))],
                            "values": [[int(x) for x in counts]], "seriesNames": ["Lignes"]})
@@ -815,7 +836,7 @@ def _smart_charts(df, max_charts=6):
             pts = df[[a, b]].dropna()
             if len(pts) > 400:
                 pts = pts.sample(400, random_state=0)
-            charts.append({"kind": "relation", "type": "scatter", "title": f"{_pretty(a)} et {str(b).replace('_', ' ')}",
+            charts.append({"kind": "relation", "type": "scatter", "title": f"{_pretty(a)} et {_pretty_min(b)}",
                            "subtitle": f"Chaque point est une ligne · corrélation r = {r:.2f}".replace(".", ",", 1),
                            "labels": [float(x) for x in pts[a]], "values": [[float(y) for y in pts[b]]],
                            "seriesNames": [_pretty(b)], "xTitle": _pretty(a), "yTitle": _pretty(b), "trend": True})
@@ -826,6 +847,33 @@ def _smart_charts(df, max_charts=6):
     return charts[:max_charts]
 
 
+_HEAVY = threading.BoundedSemaphore(int(os.environ.get("KLDV_MAX_HEAVY", "2")))
+_heavy_depth = threading.local()
+_HEAVY_WAIT = float(os.environ.get("KLDV_HEAVY_WAIT", "90"))  # secondes d'attente avant « serveur occupé »
+
+
+def _lourd(fn):
+    """Analyse, tableau de bord, calcul du chat : au plus KLDV_MAX_HEAVY à la fois (2 par défaut). Au-delà, on attend
+    jusqu'à KLDV_HEAVY_WAIT s (90 par défaut) puis on répond « occupé » (HTTP 503) plutôt que de saturer la mémoire et de faire tomber le service."""
+    import functools
+
+    @functools.wraps(fn)
+    def wrap(*a, **k):
+        depth = getattr(_heavy_depth, "n", 0)
+        if depth:  # déjà dans un traitement lourd (même fil) : pas de second jeton
+            return fn(*a, **k)
+        if not _HEAVY.acquire(timeout=_HEAVY_WAIT):
+            raise T.Unavailable("Le serveur traite déjà d'autres analyses. Réessayez dans une minute.")
+        _heavy_depth.n = 1
+        try:
+            return fn(*a, **k)
+        finally:
+            _heavy_depth.n = 0
+            _HEAVY.release()
+    return wrap
+
+
+@_lourd
 def analyze(file_path):
     df, err = _read_df(file_path)
     if err and re.search(r"Permission denied|Errno 13|being used by another process", str(err)):
@@ -835,6 +883,7 @@ def analyze(file_path):
     if df is None:
         return {"error": "Fichier illisible (peut-être ouvert dans Excel ou protégé). Fermez-le et réessayez."}
     lu = dict(df.attrs)  # feuille lue dans un classeur
+    libelles = {str(c): _pretty(c) for c in df.columns}
 
     size = os.path.getsize(file_path) if os.path.exists(file_path) else 0
     rows, cols = df.shape
@@ -912,6 +961,7 @@ def analyze(file_path):
 
     return {
         "file": os.path.basename(file_path) if os.path.exists(file_path) else source_label(file_path),
+        "libelles": libelles,
         "size_kb": round(size / 1024, 1),
         "rows": int(rows),
         "columns": int(cols),
@@ -1060,6 +1110,7 @@ def dhis2_connect(p):
             "indicateurs": int(df["indicateur"].nunique()), "periodes": sorted(df["periode"].dropna().astype(str).unique())[-3:]}
 
 
+@_lourd
 def build_dashboard(df, spec=None):
     """AGT-11 sur un DataFrame. `spec` fournie (source connectée qu'on actualise) : mêmes indicateurs, sans IA."""
     hermes_da_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "HERMES_DA")
@@ -1410,6 +1461,7 @@ def _parse_llm_json(content):
     return None
 
 
+@_lourd
 def _run_ai_code(code, paths):
     try:
         return sandbox.run(code, paths)
@@ -2097,7 +2149,8 @@ def architect_apply(paths, spec):
 
 # ---------------------------------------------------------------- serveur HTTP
 SECRET = (os.environ.get("KLDV_SECRET") or secrets.token_hex(32)).encode()  # signe les liens de téléchargement
-MAX_UPLOAD = int(os.environ.get("KLDV_MAX_UPLOAD_MB", "50")) * 1024 * 1024
+# En ligne, l'envoi arrive en base64 dans du JSON puis est décodé : ~3 fois sa taille en mémoire
+MAX_UPLOAD = int(os.environ.get("KLDV_MAX_UPLOAD_MB", "25" if T.CLOUD else "50")) * 1024 * 1024
 MAX_JSON = 2 * 1024 * 1024
 ALLOWED_EXT = (".csv", ".xlsx", ".xls", ".xlsm", ".json", ".parquet")
 EXPORTERS = {"pdf": export_pdf, "excel": export_excel, "html": export_html}
@@ -2512,6 +2565,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 result = dict(result, _hermes_synthese=str(p["hermes_synthese"])[:900])
             fn = EXPORTERS[path.rsplit("/", 1)[-1]](result)
             return self._send(200, {"url": download_url(fn), "file": fn})
+        if path == "/api/exemple":  # « Essayer avec un exemple » : jeu FICTIF généré à la volée, rien dans le dépôt
+            import exemple
+            return self._send(200, exemple.ecrire(T.uploads_dir()))
         if path == "/api/upload-source":
             name = _safe_name(p.get("name"))
             if T.CLOUD and not name.lower().endswith(ALLOWED_EXT):

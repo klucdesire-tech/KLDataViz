@@ -362,6 +362,7 @@ tr.versions td{background:var(--surface-2);font-size:13px}
           <p>Excel, CSV, JSON ou Parquet</p>
           <div class="acts">
             <label class="btn primary" for="file" tabindex="0" id="fileLabel">Choisir un fichier</label>
+            <button class="btn ghost" type="button" id="demoBtn" title="Données fictives : 12 centres de santé suivis sur 18 mois">Essayer avec un exemple</button>
             <input type="file" id="file" accept=".csv,.xlsx,.xls,.xlsm,.json,.parquet" hidden>
             <button class="btn ghost" id="taskSrcBtn">Source de la tâche assignée</button>
           </div>
@@ -800,6 +801,9 @@ const drop=$('#drop');
 ['dragleave','drop'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.remove('over')}));
 drop.addEventListener('drop',e=>{const f=e.dataTransfer.files[0];if(f)upload(f)});
 $('#file').addEventListener('change',e=>{const f=e.target.files[0];if(f)upload(f);e.target.value=''});
+// Exemple fictif (12 centres de santé, 18 mois) : découvrir l'application sans avoir de fichier sous la main
+$('#demoBtn').onclick=async()=>{importMsg('<span class="spin"></span> Préparation de l’exemple (données fictives)…','alert info');
+  const d=await api('/api/exemple',{});if(d.path){importMsg('');openSource(d.path,d.name,d.size)}else importMsg('Exemple indisponible : '+esc(d.error||'erreur inconnue'))};
 $('#fileLabel').addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();$('#file').click()}});
 function upload(f){
   if(!/\.(csv|xlsx|xls|xlsm|json|parquet)$/i.test(f.name)){importMsg('Format non pris en charge. Utilisez un fichier CSV, Excel (.xlsx, .xls), JSON ou Parquet.');return}
@@ -1368,15 +1372,17 @@ function groupReading(g){
   P.sort((x,y)=>y.m-x.m);const hi=P[0],lo=P[P.length-1],f=v=>nf(Math.round(v*10)/10);
   // écart relatif seulement si la base est positive ; sinon (0 ou négatif) l'écart se lit en unités
   const ecart=lo.m>0?(hi.m-lo.m)/lo.m*100:(hi.m-lo.m)/Math.max(Math.abs(hi.m),1e-9)*100;
-  let txt=ecart<5?`Pas de différence marquée : le ${g.num} moyen varie peu selon ${g.cat} (de ${f(lo.m)} à ${f(hi.m)}).`
-    :`Le ${g.num} moyen est le plus élevé pour **${hi.l}** (${f(hi.m)}) et le plus bas pour **${lo.l}** (${f(lo.m)}), soit ${lo.m<=0?`un écart de ${f(hi.m-lo.m)}`:hi.m/lo.m>=3?`environ ${nf(Math.round(hi.m/lo.m))} fois plus`:`un écart de ${nf(Math.round(ecart))} %`}.`;
+  const L=state.analysis?.libelles||{},bas=c=>{const t=(L[c]||String(c)).replace(/_/g,' ');return /^[A-Z]{2}/.test(t)?t:t.charAt(0).toLowerCase()+t.slice(1)},num=bas(g.num),cat=bas(g.cat);
+  let txt=ecart<5?`Pas de différence marquée : la moyenne « ${num} » varie peu selon ${cat} (de ${f(lo.m)} à ${f(hi.m)}).`
+    :`La moyenne « ${num} » est la plus élevée pour **${hi.l}** (${f(hi.m)}) et la plus basse pour **${lo.l}** (${f(lo.m)}), soit ${lo.m<=0?`un écart de ${f(hi.m-lo.m)}`:hi.m/lo.m>=3?`environ ${nf(Math.round(hi.m/lo.m))} fois plus`:`un écart de ${nf(Math.round(ecart))} %`}.`;
   const petits=P.filter(x=>x.n!=null&&x.n<30);
   if(petits.length)txt+=` Prudence : ${petits.slice(0,2).map(x=>`« ${x.l} » ne compte que ${nf(x.n)} ligne${x.n>1?'s':''}`).join(', ')} — l'écart peut être dû au hasard.`;
   return {ecart,txt};
 }
 // « Voir tous les graphiques » : comparaisons utiles d'abord (plus grand écart), jamais un seul groupe
 const perVarCharts=a=>[...(a.bivariate?.groupes||[]).filter(g=>(g.labels||[]).length>=2).map(g=>{const r=groupReading(g);
-    return {title:`${g.num} moyen par ${g.cat}`,subtitle:'Moyenne par groupe',type:'bar',labels:g.labels,values:[g.moyennes],lecture_auto:r.txt,_ecart:r.ecart}}).sort((x,y)=>y._ecart-x._ecart),
+    const L=a.libelles||{},lib=c=>L[c]||String(c).replace(/_/g,' '),bas=c=>{const t=lib(c);return /^[A-Z]{2}/.test(t)?t:t.charAt(0).toLowerCase()+t.slice(1)};
+    return {title:`${lib(g.num)} moyen par ${bas(g.cat)}`,subtitle:'Moyenne par groupe',type:'bar',labels:g.labels,values:[g.moyennes],lecture_auto:r.txt,_ecart:r.ecart}}).sort((x,y)=>y._ecart-x._ecart),
   ...(a.charts||[]).map(c=>({...c,subtitle:c.subtitle||'Vue par variable'}))];
 const hermesReady=a=>state.hermes?.for===a&&state.hermes.ia&&(state.hermes.charts||[]).length;
 const baseCharts=a=>hermesReady(a)?state.hermes.charts:(a.smart_charts||[]).length?a.smart_charts:perVarCharts(a).slice(0,6);
