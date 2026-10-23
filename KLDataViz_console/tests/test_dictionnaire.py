@@ -251,3 +251,21 @@ def test_liste_patients_oui_non_et_variante_nationale_unique():
                        "cv_supprimee": ["Oui"] * 30 + ["Non"] * 10})
     out = generate_dashboard(df, "test", llm=False, dictionnaire=dictionnaire.charger())
     assert [(r["code"], r["valeur"]) for r in out["dictionnaire"]["trouves"]] == [("TX_PVLS", 75.0)]
+
+
+def test_import_par_la_route_http():
+    """La route importe vraiment le dictionnaire (une erreur d'indentation l'avait transformée en suppression)."""
+    import base64  # noqa: PLC0415
+    reset_app_modules()
+    import server  # noqa: PLC0415
+    from _harness import start, call  # noqa: PLC0415
+    httpd, base = start(server)
+    try:
+        code, rep = call(base, "/api/dictionnaire/import", {"name": "mer.xlsx", "data": base64.b64encode(_xlsx()).decode()})
+        assert code == 200 and rep["actif"] is True and rep["indicateurs"] == 3
+        code, rep = call(base, "/api/dictionnaire")
+        assert rep["actif"] is True
+        code, rep = call(base, "/api/dictionnaire/delete", {})
+        assert rep == {"actif": False}
+    finally:
+        httpd.shutdown()

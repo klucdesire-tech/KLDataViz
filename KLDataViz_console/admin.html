@@ -142,6 +142,9 @@ input:focus,select:focus,textarea:focus{border-color:var(--brand);outline:none}
           <form class="form" id="adminForm"><label class="field" for="adEmail">Adresse e-mail<input type="email" id="adEmail" required placeholder="collegue@exemple.ci"></label><button class="btn primary" type="submit">Ajouter</button></form>
           <p class="sub" style="margin-top:8px">La personne doit ensuite se connecter avec cette adresse. Elle n'a pas besoin d'espace client pour accéder à l'administration.</p></div>
       </div>
+      <div class="card" style="margin-top:16px"><h2>Journal des actions</h2>
+        <p class="sub">Qui a fait quoi, quand : forfaits, suspensions, invitations, administrateurs, suppressions de données.</p>
+        <div class="tablewrap" id="journalList" style="margin-top:8px"><div class="empty">Chargement…</div></div></div>
     </section>
 
     <!-- SITE -->
@@ -359,7 +362,17 @@ function annForm(a){
 }
 
 /* ---- administrateurs ---- */
+const ACTIONS={plan:'Forfait modifié',extend:'Essai prolongé',suspend:'Suspension / réactivation','invite-client':'Client invité',
+  'resend-invite':'Invitation renvoyée','test-mail':'Test d\u2019envoi d\u2019e-mail','plans/save':'Forfait enregistré','plans/delete':'Forfait supprimé',
+  'admins/add':'Administrateur ajouté','admins/remove':'Administrateur retiré','announcements/save':'Annonce publiée',
+  'announcements/delete':'Annonce supprimée',site:'Page d\u2019accueil modifiée'};
+async function loadJournal(){const L=await api('/api/admin/journal');if(!Array.isArray(L)){$('#journalList').innerHTML='<div class="empty">Journal indisponible.</div>';return}
+  $('#journalList').innerHTML=L.length?`<table><thead><tr><th>Date</th><th>Par</th><th>Action</th><th>Détail</th></tr></thead><tbody>${L.slice(0,100).map(j=>{
+    const det=['org_id','plan','email','days','trial_days','suspended','key','id'].filter(k=>j[k]!=null).map(k=>`${k} : ${esc(String(j[k]))}`).join(' · ');
+    return `<tr><td class="sub">${fmtDate(j.date)}</td><td>${esc(j.qui||'')}</td><td>${esc(ACTIONS[j.action]||j.action)}</td><td class="sub">${det}</td></tr>`}).join('')}</tbody></table>`
+    :'<div class="empty">Aucune action enregistrée pour l\u2019instant.</div>'}
 async function loadAdmins(){
+  loadJournal();
   const rows=await api('/api/admin/admins');if(rows.error){toast(rows.error);return}
   $('#adminList').innerHTML=`<table><thead><tr><th>Adresse</th><th>Ajouté par</th><th>Depuis</th><th></th></tr></thead><tbody>${rows.map(a=>`<tr><td>${esc(a.email)}</td><td class="sub">${esc(a.added_by||'')}</td><td>${fmtDate(a.created_at)}</td>
     <td class="r">${a.locked?'<span class="tag">Configuration serveur</span>':`<button class="btn ghost sm" data-rm="${esc(a.email)}">Retirer</button>`}</td></tr>`).join('')}</tbody></table>`;
