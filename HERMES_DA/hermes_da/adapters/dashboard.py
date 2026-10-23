@@ -823,6 +823,13 @@ select{appearance:none;border:1px solid var(--line);background:var(--card) url("
 .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:16px}
 .kpi{border-radius:var(--radius);padding:14px 16px 16px;min-height:104px;display:flex;flex-direction:column;justify-content:space-between;gap:10px}
 .kpi .n{font-size:12.5px;font-weight:500;line-height:1.3}
+.kpi .info{position:relative;display:inline-grid;place-items:center;width:15px;height:15px;border-radius:50%;font:700 10px/1 Georgia,serif;
+  font-style:italic;border:1px solid currentColor;opacity:.65;cursor:help;margin-left:4px;vertical-align:1px}
+.kpi .info:hover,.kpi .info:focus-visible{opacity:1;outline:none}
+.kpi .info .tip{display:none;position:absolute;z-index:20;left:50%;top:22px;transform:translateX(-50%);width:260px;padding:10px 12px;
+  border-radius:10px;background:#0E2A47;color:#fff;font:400 12px/1.45 'Fira Sans',system-ui,-apple-system,'Segoe UI',sans-serif;font-style:normal;text-align:left;box-shadow:0 10px 24px rgba(0,0,0,.22)}
+.kpi .info:hover .tip,.kpi .info:focus .tip{display:block}
+.kpis .kpi:last-child .info .tip{left:auto;right:-8px;transform:none}
 .kpi .row{display:flex;align-items:flex-end;justify-content:space-between;gap:8px}
 .kpi .v{font-size:24px;font-weight:700;letter-spacing:-.3px;line-height:1}
 .kpi .s{font-size:11px;text-align:right;line-height:1.3;max-width:55%}
@@ -960,11 +967,27 @@ function buildFilters(){var el=document.getElementById('filters');el.innerHTML='
   if(F.length>3){el.appendChild(extra);var mb=document.createElement('button');mb.type='button';mb.className='more';mb.setAttribute('aria-expanded',String(showMore));
     mb.textContent=showMore?'Moins de filtres':'Plus de filtres ('+(F.length-3)+')';mb.onclick=function(){showMore=!showMore;buildFilters()};el.appendChild(mb)}}
 
+// « Comment ce chiffre est calculé ? » : la méthode de chaque tuile, en clair (survol, clic ou clavier)
+function howCalc(k,rows){var a=(k.agregation||'').toLowerCase(),c=k.colonne?'« '+nice(k.colonne)+' »':'',n=rows.length,t;
+  var nb=k.colonne?rows.filter(function(r){return !isNull(r[k.colonne])}).length:n;
+  if(a==='dernier'){var lp=null;rows.forEach(function(r){if(r.__p&&(lp==null||r.__p>lp))lp=r.__p});
+    t='Somme de '+c+' au dernier mois disponible'+(lp?' ('+label(lp)+')':'')+'. C’est un stock (valeur à une date) : il ne s’additionne pas d’un mois à l’autre.'}
+  else if(isRate(a))t='Part de « Oui » parmi les '+fmt(nb)+' lignes où '+c+' est renseignée. Les cases vides ne comptent ni pour « Oui » ni pour « Non ».';
+  else if(a==='somme'||a==='sum')t='Somme de '+c+' sur les '+fmt(nb)+' lignes renseignées.';
+  else if(a==='moyenne'||a==='mean')t='Moyenne de '+c+' sur '+fmt(nb)+' valeurs renseignées.';
+  else if(a==='mediane'||a==='médiane'||a==='median')t='Médiane de '+c+' sur '+fmt(nb)+' valeurs : la moitié des valeurs est au-dessous, la moitié au-dessus. Utilisée car les valeurs sont très dispersées.';
+  else if(!k.colonne)t='Nombre de lignes du fichier ('+fmt(n)+').';
+  else t=(a==='max'?'Maximum':a==='min'?'Minimum':'Nombre de valeurs renseignées')+' de '+c+'.';
+  if(k.hors)t+=' Lignes où « '+nice(k.hors.colonne)+' » = Oui exclues.';
+  if(k.dimension)t+=' « En tête » : la catégorie de « '+nice(k.dimension)+' » qui a la valeur la plus haute.';
+  if(n<DATA.length)t+=' Calculé sur les '+fmt(n)+' lignes retenues par les filtres.';
+  return t}
 function renderKpis(all){document.getElementById('kpis').innerHTML=KPIDEFS.slice(0,5).map(function(k,i){
   var rows=k.hors?all.filter(function(r){return k.hors.valeurs.indexOf(String(r[k.hors.colonne]).trim().toLowerCase())<0}):all,v=agg(rows,k.colonne,k.agregation),sub='';
   var u=isRate(k.agregation)&&v!=null?' %':'';
   if(k.dimension){var t=ranked(rows,k.colonne,k.agregation,k.dimension,1)[0];if(t)sub='En tête : '+esc(label(t[0]))+'<br>'+fmt(t[1])+u}
-  return '<div class="kpi k'+i+'"><div class="n">'+esc(k.nom)+'</div><div class="row"><div class="v">'+fmt(v)+u+'</div><div class="s">'+sub+'</div></div></div>'}).join('')}
+  var how=howCalc(k,rows);
+  return '<div class="kpi k'+i+'"><div class="n">'+esc(k.nom)+' <span class="info" tabindex="0" role="note" aria-label="Comment ce chiffre est calculé : '+esc(how)+'">i<span class="tip">'+esc(how)+'</span></span></div><div class="row"><div class="v">'+fmt(v)+u+'</div><div class="s">'+sub+'</div></div></div>'}).join('')}
 
 function card(id,title,sub,extra){return '<div class="card"><div class="card-h"><div><h2>'+esc(nice(title))+'</h2>'+(sub?'<small>'+esc(sub)+'</small>':'')+'</div>'+(extra||'')+'</div>'+id+'</div>'}
 function seg(){return '<div class="seg" role="group" aria-label="Regrouper par">'+(META.grans||['M','Q','Y']).map(function(g){return '<button type="button" data-g="'+g+'" aria-pressed="'+(gran===g)+'">'+GRAN[g]+'</button>'}).join('')+'</div>'}
