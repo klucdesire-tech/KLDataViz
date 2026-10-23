@@ -27,7 +27,7 @@ SYSTEM = """Tu es le DATA VISUALIZATION & DASHBOARD AGENT d'Hermes (santé publi
 On te donne le PROFIL d'un dataset (colonnes, types, valeurs d'exemple, répartition)
 et un OBJECTIF MÉTIER. Propose les KPI les plus pertinents et les graphiques adaptés.
 Réponds en JSON STRICT, sans aucun texte hors du JSON, exactement sous cette forme :
-{"kpis":[{"nom":"...","agregation":"somme|moyenne|compte|max|min|taux","colonne":"...","dimension":"...","justification":"..."}],"graphiques":[{"colonne":"...","type":"bar|line|pie|hist|scatter|box","justification":"..."}]}
+{"kpis":[{"nom":"...","agregation":"somme|moyenne|mediane|compte|max|min|taux","colonne":"...","dimension":"...","justification":"..."}],"graphiques":[{"colonne":"...","type":"bar|line|pie|hist|scatter|box","justification":"..."}]}
 Règles absolues :
 - Analyse les colonnes réellement disponibles ; ne suppose jamais une colonne ou dimension prédéfinie.
 - Ne propose QUE des colonnes qui existent réellement dans le profil (respecte leur nom exact).
@@ -42,7 +42,13 @@ Règles absolues :
   « compte » pour des effectifs, « taux » pour des proportions (0 à 1, sens clair).
 - « taux » UNIQUEMENT sur une colonne Oui/Non (vrai/faux, positif/négatif) ou déjà chiffrée entre 0 et 1 ;
   jamais sur une date, un texte libre ou un statut à plusieurs valeurs (utilise alors « compte » avec une dimension).
-- « somme », « moyenne », « max », « min » UNIQUEMENT sur des colonnes chiffrées."""
+- « somme », « moyenne », « mediane », « max », « min » UNIQUEMENT sur des colonnes chiffrées.
+- JAMAIS « somme » d'un prix unitaire, d'un taux, d'une note, d'un âge ou d'une autre grandeur « par unité » :
+  « moyenne » (ou « mediane » si les valeurs sont très dispersées, ex. délais, charges virales, montants).
+- Une année, un mois ou un numéro de période n'est JAMAIS un indicateur (ni somme ni moyenne) : c'est un axe.
+- Un stock (population, effectif présent, file active, superficie, solde) ne s'additionne pas d'une période à
+  l'autre : « somme » est alors ramenée automatiquement à la dernière période.
+- Pas de camembert (« pie ») pour une période ni pour plus de 6 catégories."""
 
 
 def _parse_spec(content: str) -> dict | None:
@@ -152,6 +158,7 @@ def _profile(df) -> dict:
         if pd.api.types.is_numeric_dtype(s):
             try:
                 info["min"] = float(s.min()); info["max"] = float(s.max()); info["moyenne"] = round(float(s.mean()), 2)
+                info["mediane"] = round(float(s.median()), 2)
             except Exception:
                 pass
         cols.append(info)
@@ -159,8 +166,14 @@ def _profile(df) -> dict:
 
 
 _ID_RE = re.compile(r"(^|[\s_])(id|code|n°|no|num|numero|identifiant|matricule)([\s_]|$)", re.I)
-_MESURE_RE = re.compile(r"delai|duree|age\b|cd4|cv\b|charge|copies|score|poids|taille|taux|pourcent|moyenne|imc", re.I)
-_VOLUME_RE = re.compile(r"nombre|\bnb\b|effectif|total|volume|montant|quantite|valeur|cout|prix|recette|depense", re.I)
+_MESURE_RE = re.compile(r"delai|duree|(^|\s)age\b|cd4|cv\b|charge|copies|score|poids|taille|taux|pourcent|moyenne|imc|"
+                        r"prix|tarif|unitaire|\bpar\b|_kg\b|\bkg\b|pct|ratio|note|humidite|temperature|anciennete|"
+                        r"latitude|longitude|densite|rendement", re.I)
+# Colonnes de temps chiffrées (année, mois…) : un axe, jamais un indicateur (« moyenne des années » n'a pas de sens)
+_TEMPS_RE = re.compile(r"^(annee|an|year|mois|month|trimestre|quarter|semaine|week|jour|day|periode|period)s?\b", re.I)
+_VOLUME_RE = re.compile(r"nombre|\bnb\b|effectif|total|volume|montant|quantite|valeur|cout|recette|depense|chiffre|"
+                        r"affaires|marge|revenu|vente|benefice|naissance|deces|cas\b|visite|consultation|admission|"
+                        r"nuit|livraison|tonnage|production|salaire", re.I)
 
 
 def _rule_dashboard(profile: dict) -> dict:
@@ -175,25 +188,43 @@ def _rule_dashboard(profile: dict) -> dict:
     yesno = [c for c in cols if not is_num(c) and c.get("exemples") and (c.get("n_distinct") or 0) <= 2
              and all(_norm(x) in _YES | _NO for x in c["exemples"])]
     cats = [c for c in cols if not is_num(c) and not is_id(c) and not is_date(c) and c not in yesno
-            and 2 <= (c.get("n_distinct") or 0) <= 30]
-    nums = [c for c in cols if is_num(c) and not is_id(c)]
+            and 2 <= (c.get("n_distinct") or 0) <= 30 and not _TEMPS_RE.search(name(c))
+            and not re.search(r"period|periode|mois|trimestre", name(c))]
+    # « part de … (%) » : une part d'un total par ligne — ni sa somme ni sa moyenne ne sont des indicateurs
+    nums = [c for c in cols if is_num(c) and not is_id(c) and not _TEMPS_RE.search(name(c))
+            and not re.search(r"(^|\s)part(\s|$)", name(c))]
     dim = next((c["colonne"] for c in sorted(cats, key=lambda c: 0 if re.search(r"region|district|sexe|genre", name(c)) else 1)), None)
     is_vol = lambda c: bool(re.match(r"(nombre|nb|effectif|total|volume)\b", name(c))) or (  # noqa: E731
         bool(_VOLUME_RE.search(name(c))) and not _MESURE_RE.search(name(c)))
-    if not any(is_vol(c) for c in nums):  # données déjà agrégées (« Nombre de … ») : compter les lignes n'a pas de sens
+    # Données déjà agrégées (« Nombre de … », « Total … ») : compter les lignes n'a pas de sens. Un fichier de
+    # transactions ou de personnes avec des montants (salaires, ventes) garde son effectif.
+    # (une colonne de stock comme « population » signale aussi un fichier par strate, pas par individu)
+    agreg = sum(1 for c in nums if re.match(r"(nombre|nb|effectif|total)\b", name(c))) >= 2 or any(_is_stock(name(c)) for c in nums)
+    if not agreg:
         kpis.append({"nom": "Effectif total", "agregation": "compte", "colonne": None, "dimension": dim,
                      "justification": "nombre de lignes du fichier"})
     for c in yesno[:2]:
         kpis.append({"nom": f"Taux « {c['colonne'].replace('_', ' ')} »", "agregation": "taux", "colonne": c["colonne"],
                      "dimension": dim, "justification": "part de « Oui »"})
+    descr = re.compile(r"(^|\s)(age|anciennete|poids|taille|imc|latitude|longitude)\b")
+    nums = sorted(nums, key=lambda c: 0 if is_vol(c) or _is_stock(name(c)) else 2 if descr.search(name(c)) else 1)
     for c in nums:
         if len(kpis) >= 5:
             break
-        vol = is_vol(c)
-        agg = "somme" if vol else "moyenne"
         lib = re.sub(r"^\s*(nombre|nb)\s+(de |d')\s*", "", c["colonne"].replace("_", " "), flags=re.I)
-        kpis.append({"nom": f"{'Total' if vol else 'Moyenne'} : {lib}", "agregation": agg,
-                     "colonne": c["colonne"], "dimension": dim, "justification": "volume" if vol else "mesure moyenne"})
+        if _is_stock(name(c)) and not _MESURE_RE.search(name(c)):  # « part de la population (%) » = un taux
+            # Stock (population, superficie…) : jamais additionné d'une période à l'autre → « dernier » plus loin
+            kpis.append({"nom": lib[:1].upper() + lib[1:], "agregation": "somme", "colonne": c["colonne"],
+                         "dimension": dim, "justification": "stock : valeur de la dernière période"})
+            continue
+        vol = is_vol(c)
+        skew = (not vol and c.get("moyenne") is not None and c.get("mediane") is not None
+                and abs(c["moyenne"]) > 1.5 * abs(c["mediane"]) + 1e-9)
+        agg = "somme" if vol else "mediane" if skew else "moyenne"
+        nom = "Total" if vol else "Médiane" if skew else "Moyenne"
+        kpis.append({"nom": f"{nom} : {lib}", "agregation": agg, "colonne": c["colonne"], "dimension": dim,
+                     "justification": "volume" if vol else
+                     "valeurs très dispersées : la médiane résume mieux que la moyenne" if skew else "mesure moyenne"})
     for c in cats[:3]:
         graphiques.append({"colonne": c["colonne"], "type": "pie" if (c.get("n_distinct") or 0) <= 5 else "bar",
                            "justification": "répartition par catégorie"})
@@ -231,6 +262,8 @@ def _agg(df, colonne: str | None, agregation: str) -> float | int | None:
         return float(s.sum())
     if a in ("moyenne", "mean", "avg", "moyenne de"):
         return round(float(s.mean()), 2) if s.notna().any() else None
+    if a in ("mediane", "médiane", "median"):
+        return round(float(s.median()), 2) if s.notna().any() else None
     if a in ("max", "maximum"):
         return float(s.max()) if s.notna().any() else None
     if a in ("min", "minimum"):
@@ -255,6 +288,8 @@ def _agg_grouped(df, colonne: str | None, agregation: str, dimension: str, top: 
     s = _rate_values(df[colonne]) if a in ("taux", "rate", "pct", "proportion") else pd.to_numeric(df[colonne], errors="coerce")
     if a in ("moyenne", "mean", "avg"):
         g = df.assign(_v=s).groupby(dimension)["_v"].mean()
+    elif a in ("mediane", "médiane", "median"):
+        g = df.assign(_v=s).groupby(dimension)["_v"].median()
     elif a in ("max", "maximum"):
         g = df.assign(_v=s).groupby(dimension)["_v"].max()
     elif a in ("min", "minimum"):
@@ -346,7 +381,14 @@ def _fr_month(v):
     return f"{y + 2000 if y < 100 else y:04d}-{mo:02d}"
 
 
-_STOCK_RE = re.compile(r"population|stock|solde|encours|effectif total|superficie|capacite|parc|cheptel|habitants")
+_STOCK_RE = re.compile(r"population|stock|solde|encours|effectif total|superficie|capacite|parc|cheptel|habitants|"
+                       r"charge virale|cv supprim|tx pvls|tx curr|file active|actuellement")
+_FLUX_RE = re.compile(r"nouve|initi|deces|depist")
+
+
+def _is_stock(n: str) -> bool:
+    """Stock (valeur à une date : population, file active, PVVIH avec CV supprimée) : jamais additionné dans le temps."""
+    return bool(_STOCK_RE.search(n)) and not _FLUX_RE.search(n)
 
 
 def _plabel(k: str, yearly: bool = False) -> str:
@@ -359,8 +401,12 @@ def _period(df):
     import pandas as pd
     idlike = re.compile(r"(^|[\s_.])(n°|no|num(ero|éro)?|id|code|matricule|ref|référence|reference|labno|datim)($|[\s_.])", re.I)
     dateword = re.compile(r"\b(date|periode|quarter|trimestre|mois|annee|an|year|month)\b", re.I)
-    for c in df.columns:
+    attribut = re.compile(r"naissance|birth|embauche|hire|creation|ouverture|expiration|peremption")
+    for c in sorted(df.columns, key=lambda c: 1 if attribut.search(_norm(c)) else 0):
         n = _norm(c)
+        if attribut.search(n) and any(re.search(r"date|mois|periode|annee", _norm(o)) and not attribut.search(_norm(o))
+                                      for o in df.columns):
+            continue  # une autre colonne de temps existe : la date de naissance/d'embauche n'est pas la période suivie
         # une colonne « date … » (même « date de référence », « date_debut_pec ») n'est jamais un identifiant
         if not dateword.search(n) and idlike.search(re.sub(r"\(.*?\)", "", n)):
             continue  # identifiant (code site, labno, code patient…) : jamais une période
@@ -398,13 +444,13 @@ def _meta(df, kpis, spec, filter_cols, period_col, period_series):
     """Ce que le gabarit dessine : mesure principale, période, catégories empilées, graphiques choisis."""
     import pandas as pd
     cols = set(df.columns)
-    labels = {"somme": "Somme", "moyenne": "Moyenne", "compte": "Nombre", "taux": "Taux moyen", "max": "Maximum",
-              "min": "Minimum"}
+    labels = {"somme": "Somme", "moyenne": "Moyenne", "mediane": "Médiane", "compte": "Nombre", "taux": "Taux moyen",
+              "max": "Maximum", "min": "Minimum"}
     measure = None
     for k in kpis:
         col = k.get("colonne")
         if col in cols and pd.api.types.is_numeric_dtype(pd.to_numeric(df[col], errors="coerce")) \
-                and (k.get("agregation") or "").lower() in ("somme", "moyenne", "taux", "max", "min", "dernier"):
+                and (k.get("agregation") or "").lower() in ("somme", "moyenne", "mediane", "taux", "max", "min", "dernier"):
             measure = k
             break
     measure = measure or (kpis[0] if kpis else None)
@@ -693,7 +739,7 @@ def _patient_items(df, kpi_defs, domaine, period_col, aggregated=False):
     # pas de compteur de lignes, mais les sommes du mois restent comparées au mois précédent
     items = [] if aggregated else [{"nom": "Nouveaux patients" if domaine else "Nouveaux enregistrements",
                                     "kind": "count", "bon": 1, "libelle": f"Lignes par mois de « {period_col} »"}]
-    kept = ("taux", "rate", "pct", "proportion", "moyenne", "mean") + (("somme", "sum") if aggregated else ())
+    kept = ("taux", "rate", "pct", "proportion", "moyenne", "mean", "mediane") + (("somme", "sum") if aggregated else ())
     for k in kpi_defs:
         a, col = (k.get("agregation") or "").lower(), k.get("colonne")
         if col in df.columns and col != period_col and a in kept:
@@ -871,7 +917,7 @@ function agg(rows,col,a){a=(a||'').toLowerCase();
   if(isRate(a))return rate(rows,col);
   var v=rows.map(function(r){return num(r[col])}).filter(function(x){return x!=null});if(!v.length)return null;
   var s=v.reduce(function(p,q){return p+q},0);
-  if(a==='moyenne'||a==='taux')return s/v.length;if(a==='max')return Math.max.apply(null,v);if(a==='min')return Math.min.apply(null,v);return s}
+  if(a==='moyenne'||a==='taux')return s/v.length;if(a==='mediane'||a==='médiane'||a==='median'){v.sort(function(x,y){return x-y});var h=v.length>>1;return v.length%2?v[h]:(v[h-1]+v[h])/2}if(a==='max')return Math.max.apply(null,v);if(a==='min')return Math.min.apply(null,v);return s}
 function groupBy(rows,key){var g={};rows.forEach(function(r){var k=typeof key==='function'?key(r):r[key];if(isNull(k))return;k=String(k);(g[k]=g[k]||[]).push(r)});return g}
 function ranked(rows,col,a,dim,top){var g=groupBy(rows,dim);return Object.keys(g).map(function(k){return [k,agg(g[k],col,a)]}).filter(function(e){return e[1]!=null}).sort(function(x,y){return y[1]-x[1]}).slice(0,top||8)}
 // Périodes : __p = « AAAA-MM » ; regroupement par mois, trimestre ou année
@@ -899,7 +945,8 @@ function buildFilters(){var el=document.getElementById('filters');el.innerHTML='
   if(F.length>3){el.appendChild(extra);var mb=document.createElement('button');mb.type='button';mb.className='more';mb.setAttribute('aria-expanded',String(showMore));
     mb.textContent=showMore?'Moins de filtres':'Plus de filtres ('+(F.length-3)+')';mb.onclick=function(){showMore=!showMore;buildFilters()};el.appendChild(mb)}}
 
-function renderKpis(rows){document.getElementById('kpis').innerHTML=KPIDEFS.slice(0,5).map(function(k,i){var v=agg(rows,k.colonne,k.agregation),sub='';
+function renderKpis(all){document.getElementById('kpis').innerHTML=KPIDEFS.slice(0,5).map(function(k,i){
+  var rows=k.hors?all.filter(function(r){return k.hors.valeurs.indexOf(String(r[k.hors.colonne]).trim().toLowerCase())<0}):all,v=agg(rows,k.colonne,k.agregation),sub='';
   var u=isRate(k.agregation)&&v!=null?' %':'';
   if(k.dimension){var t=ranked(rows,k.colonne,k.agregation,k.dimension,1)[0];if(t)sub='En tête : '+esc(label(t[0]))+'<br>'+fmt(t[1])+u}
   return '<div class="kpi k'+i+'"><div class="n">'+esc(k.nom)+'</div><div class="row"><div class="v">'+fmt(v)+u+'</div><div class="s">'+sub+'</div></div></div>'}).join('')}
@@ -1163,9 +1210,18 @@ def generate_dashboard(df, objective: str = "", job_id: str | None = None, llm=N
     p_col, p_ser = _period(df)
     last_p = max((v for v in p_ser.dropna().unique() if isinstance(v, str)), default=None) if p_ser is not None else None
     seen = set()
+    hors = None  # réservations annulées / opérations rejetées : hors des totaux
+    for c in df.columns:
+        if re.search(r"annul|cancel|rejet|refus", _norm(c)):
+            low = df[c].dropna().astype(str).str.strip().str.lower()
+            yes = [v for v in low.unique() if v in _YES]
+            if yes and (~low.isin(_YES)).any():
+                hors = {"colonne": str(c), "valeurs": sorted({str(v).strip().lower() for v in df[c].dropna().unique()
+                                                              if str(v).strip().lower() in _YES})}
+                break
     for k in spec.get("kpis", [])[:8]:
         if last_p and (k.get("agregation") or "").lower() in ("somme", "sum") and k.get("colonne") in cols \
-                and _STOCK_RE.search(_norm(k["colonne"])):
+                and _is_stock(_norm(k["colonne"])):
             yearly = p_col in cols and pd.api.types.is_numeric_dtype(df[p_col])
             k = dict(k, agregation="dernier", nom=f"{k.get('nom') or k['colonne']} ({_plabel(last_p, yearly)})")
         col = k.get("colonne")
@@ -1175,17 +1231,21 @@ def generate_dashboard(df, objective: str = "", job_id: str | None = None, llm=N
         if key in seen:  # même calcul déjà en tuile (l'IA le répète parfois avec une autre dimension)
             continue
         seen.add(key)
-        v = (_agg(df[p_ser == last_p], col, "somme") if (k.get("agregation") == "dernier")
-             else _agg(df, col, k.get("agregation", "compte")))
+        src = df
+        if hors and (k.get("agregation") or "").lower() in ("somme", "sum", "dernier") and col is not None:
+            src = df[~df[hors["colonne"]].astype(str).str.strip().str.lower().isin(hors["valeurs"])]
+            k = dict(k, hors=hors, nom=f"{k.get('nom') or col} (hors {hors['colonne'].replace('_', ' ')})")
+        v = (_agg(src[p_ser[src.index] == last_p], col, "somme") if (k.get("agregation") == "dernier")
+             else _agg(src, col, k.get("agregation", "compte")))
         if v is None:  # incalculable sur ces données (ex. « taux » sur un texte) : pas de tuile « — » ni de courbe vide
             continue
-        kpi = {"nom": k.get("nom") or (col or "Total"), "valeur": v,
+        kpi = {"nom": k.get("nom") or (col or "Total"), "valeur": v, "hors": k.get("hors"),
                "agregation": k.get("agregation"), "colonne": col,
                "dimension": k.get("dimension"), "justification": k.get("justification", "")}
         dim = k.get("dimension")
         if dim and dim in cols and dim != col:
-            bd = (_agg_grouped(df[p_ser == last_p], col, "somme", dim) if k.get("agregation") == "dernier"
-                  else _agg_grouped(df, col, k.get("agregation", "compte"), dim))
+            bd = (_agg_grouped(src[p_ser[src.index] == last_p], col, "somme", dim) if k.get("agregation") == "dernier"
+                  else _agg_grouped(src, col, k.get("agregation", "compte"), dim))
             if bd and bd.get("labels"):
                 kpi["breakdown"] = bd
                 kpi["top"] = (bd["labels"][0], bd["values"][0])
@@ -1204,7 +1264,7 @@ def generate_dashboard(df, objective: str = "", job_id: str | None = None, llm=N
     charts_count += sum(1 for k in kpis if k.get("breakdown"))
 
     kpi_defs = [{"nom": k["nom"], "agregation": k["agregation"], "colonne": k["colonne"],
-                 "dimension": k.get("dimension")} for k in kpis]
+                 "dimension": k.get("dimension"), "hors": k.get("hors")} for k in kpis]
     filter_cols = [str(c) for c in df.columns if 1 < int(df[c].nunique(dropna=True)) <= 30]
     period_col, period_series = _period(df)
     meta = _meta(df, kpi_defs, spec, filter_cols, period_col, period_series)

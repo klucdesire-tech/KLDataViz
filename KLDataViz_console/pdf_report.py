@@ -193,17 +193,24 @@ def interpret_chart(c):
             v = _vals(c, i)
             if len(v) < 2:
                 continue
-            first, last = v[0], v[-1]
+            raw = [str(x) for x in (c.get("labels") or [])]
+            monthly = len(v) >= 13 and len(raw) == len(v) and all(re.fullmatch(r"\d{4}-\d{2}", x) for x in raw)
+            # Données mensuelles sur plus d'un an : comparer au même mois de l'année précédente (une récolte, une
+            # saison des pluies ne sont pas une « baisse » quand on compare octobre à septembre)
+            first, last = (v[-13], v[-1]) if monthly else (v[0], v[-1])
+            ref_lab = labels[-13] if monthly else "la première période"
             hi, lo = max(v), min(v)
             ihi, ilo = v.index(hi), v.index(lo)
             chg = (last - first) / first * 100 if first else None
             sens = "progresse" if chg and chg > 5 else "recule" if chg and chg < -5 else "reste globalement stable"
-            s = f"<b>{esc(name)}</b> {sens} entre la première et la dernière période (de {nf(first)} à {nf(last)}"
+            quand = f"par rapport au même mois de l'année précédente, {esc(ref_lab)}," if monthly else "entre la première et la dernière période"
+            s = f"<b>{esc(name)}</b> {sens} {quand} (de {nf(first)} à {nf(last)}"
             s += f", soit {'+' if chg >= 0 else ''}{nf(chg, 1)} %)." if chg is not None else ")."
             s += f" Le pic est atteint en <b>{esc(labels[ihi])}</b> ({nf(hi)}), le niveau le plus bas en {esc(labels[ilo])} ({nf(lo)})."
             mean = sum(v) / len(v)
-            if mean and hi > 1.5 * mean:
-                s += f" Le pic dépasse de {nf((hi / mean - 1) * 100, 0)} % la moyenne de la période : à vérifier (activité exceptionnelle ou erreur de saisie)."
+            if mean and hi > 2 * mean:
+                s += (f" Le pic dépasse de {nf((hi / mean - 1) * 100, 0)} % la moyenne de la période : à rapprocher d'un "
+                      f"événement connu (saison, campagne) avant de conclure à une anomalie.")
             out.append(s)
     elif kind in ("ranking", "report") or (kind == "trend" and typ == "bar"):
         v = _vals(c)
@@ -220,16 +227,20 @@ def interpret_chart(c):
             tot = sum(v) or 1
             pairs = sorted(zip(labels, v), key=lambda x: -x[1])
             (l1, v1), (ln, vn) = pairs[0], pairs[-1]
-            s = f"<b>{esc(l1)}</b> arrive en tête avec {nf(v1)}, soit {pct(v1 / tot * 100)} du total affiché"
-            s += f" ; <b>{esc(ln)}</b> ferme la marche avec {nf(vn)}." if len(pairs) > 1 else "."
+            # Une moyenne, une médiane ou un taux par groupe ne se « partage » pas : pas de « % du total »
+            sub = re.sub(r"^.*?·\s*(?=(Somme|Moyenne|Médiane|Taux))", "", str(c.get("subtitle") or ""))
+            additive = c.get("agg", "sum") == "sum" and not re.match(r"(Moyenne|Médiane|Taux)", sub) and c.get("unit") != "%"
+            u = " %" if c.get("unit") == "%" else ""
+            s = f"<b>{esc(l1)}</b> arrive en tête avec {nf(v1)}{u}" + (f", soit {pct(v1 / tot * 100)} du total affiché" if additive else "")
+            s += f" ; <b>{esc(ln)}</b> ferme la marche avec {nf(vn)}{u}." if len(pairs) > 1 else "."
             if len(pairs) > 1 and vn > 0:
                 s += f" L'écart entre le premier et le dernier est de 1 à {nf(v1 / vn, 1)}."
             out.append(s)
             ref = (c.get("ref") or {}).get("value")
             if ref:
                 above = sum(1 for x in v if x > ref)
-                out.append(f"{above} élément(s) sur {len(v)} se situent au-dessus de la moyenne ({nf(ref)}).")
-            if len(pairs) > 3:
+                out.append(f"{above} élément(s) sur {len(v)} se situent au-dessus de la moyenne ({nf(ref)}{u}).")
+            if len(pairs) > 3 and additive:
                 top3 = sum(x for _, x in pairs[:3])
                 out.append(f"Les 3 premiers concentrent {pct(top3 / tot * 100)} du total.")
     elif kind == "share":
@@ -263,7 +274,10 @@ def interpret_chart(c):
             force = "forte" if abs(r) >= 0.7 else "modérée" if abs(r) >= 0.4 else "faible"
             sens = "augmente" if r > 0 else "diminue"
             out.append(f"Relation {force} (r = {nf(r, 2)}) : quand {esc(c.get('xTitle', 'la première variable'))} augmente, "
-                       f"{esc(c.get('yTitle', 'la seconde'))} {sens} en général. Une corrélation ne prouve pas un lien de cause à effet.")
+                       f"{esc(c.get('yTitle', 'la seconde'))} {sens} en général. Une corrélation ne prouve pas un lien de cause à effet"
+                       + (" ; une relation aussi forte entre montants et quantités vient souvent d'un calcul (montant = quantité × prix) plutôt que d'un constat de terrain."
+                          if abs(r) >= 0.85 and all(re.search(r"montant|prix|chiffre|valeur|marge|co[uû]t|recette|d[ée]pense|quantit|tonnage|fcfa", str(c.get(k, "")), re.I)
+                                                    for k in ("xTitle", "yTitle")) else "."))
     return " ".join(out)
 
 
