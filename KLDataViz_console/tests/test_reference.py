@@ -88,3 +88,16 @@ def test_serveur_occupe_plutot_que_sature(monkeypatch):
             server.analyze("x.csv")
     finally:
         server._HEAVY.release()
+
+
+def test_registre_de_visites_garde_ses_nouveaux_patients():
+    """Relecture de Hermes : un patient vu une fois par mois n'est pas un « rapport par centre »."""
+    reset_app_modules()
+    import server  # noqa: PLC0415
+    sys.path.insert(0, os.path.join(os.path.dirname(server.__file__), "..", "HERMES_DA"))
+    from hermes_da.adapters.dashboard import generate_dashboard  # noqa: PLC0415
+    mois = [f"2025-{m:02d}" for m in range(1, 7)]
+    df = pd.DataFrame([{"id_patient": f"P{p}", "mois": m, "sexe": "F" if p % 2 else "M", "cd4": 300 + p,
+                        "cv_supprimee": "Oui" if p % 3 else "Non"} for p in range(40) for m in mois])
+    gaps = generate_dashboard(df, "t", llm=False).get("gaps") or []
+    assert any(g["indicateur"].startswith("Nouveaux") for g in gaps)  # compteur de lignes conservé

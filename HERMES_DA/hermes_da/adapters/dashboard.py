@@ -1249,7 +1249,7 @@ def generate_dashboard(df, objective: str = "", job_id: str | None = None, llm=N
         src = df
         if hors and (k.get("agregation") or "").lower() in ("somme", "sum", "dernier") and col is not None:
             src = df[~df[hors["colonne"]].astype(str).str.strip().str.lower().isin(hors["valeurs"])]
-            k = dict(k, hors=hors, nom=f"{k.get('nom') or col} (hors {hors['colonne'].replace('_', ' ')})")
+            k = dict(k, hors=hors, nom=f"{k.get('nom') or col}, hors « {_joli_min(hors['colonne'])} »")
         v = (_agg(src[p_ser[src.index] == last_p], col, "somme") if (k.get("agregation") == "dernier")
              else _agg(src, col, k.get("agregation", "compte")))
         if v is None:  # incalculable sur ces données (ex. « taux » sur un texte) : pas de tuile « — » ni de courbe vide
@@ -1304,6 +1304,9 @@ def generate_dashboard(df, objective: str = "", job_id: str | None = None, llm=N
         par_unite = False  # rapport mensuel par centre : chaque (centre, mois) n'apparaît qu'une fois
         if period_col in df.columns:
             for c in df.columns:
+                # jamais un identifiant : un registre de visites (un patient par mois) n'est pas un rapport par centre
+                if re.search(r"(^|\s)(id|identifiant|matricule|code|n°|no|num|numero|patient)(\s|$)", _norm(c)):
+                    continue
                 if c != period_col and not pd.api.types.is_numeric_dtype(df[c]) and 2 <= df[c].nunique() < len(df) \
                         and not df.duplicated([c, period_col]).any():
                     par_unite = True

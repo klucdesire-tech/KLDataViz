@@ -1110,8 +1110,7 @@ def dhis2_connect(p):
             "indicateurs": int(df["indicateur"].nunique()), "periodes": sorted(df["periode"].dropna().astype(str).unique())[-3:]}
 
 
-@_lourd
-def build_dashboard(df, spec=None):
+def build_dashboard(df, spec=None):  # pas de garde _lourd : l'appel à l'IA (jusqu'à 3 min) y bloquerait un jeton
     """AGT-11 sur un DataFrame. `spec` fournie (source connectée qu'on actualise) : mêmes indicateurs, sans IA."""
     hermes_da_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "HERMES_DA")
     if hermes_da_dir not in sys.path:
