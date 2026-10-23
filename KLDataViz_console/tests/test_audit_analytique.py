@@ -90,4 +90,4 @@ def test_annulations_0_1_exclues_du_total_du_tableau_de_bord():
     for annule in ([1] * 5 + [0] * 25, [True] * 5 + [False] * 25, ["Oui"] * 5 + ["Non"] * 25):
         df = pd.DataFrame({"hotel": ["A", "B"] * 15, "montant_total_fcfa": [10] * 30, "annulee": annule})
         k = next(x for x in generate_dashboard(df, "t", llm=False)["kpis"] if x["colonne"] == "montant_total_fcfa")
-        assert k["valeur"] == 250.0 and "hors annulee" in k["nom"]   # 25 réservations maintenues × 10
+        assert k["valeur"] == 250.0 and "hors « annulée »" in k["nom"]   # 25 réservations maintenues × 10
