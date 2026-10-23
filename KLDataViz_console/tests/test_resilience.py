@@ -121,3 +121,32 @@ def test_suppression_reservee_a_la_version_en_ligne():
     import espace  # noqa: PLC0415
     with pytest.raises(ValueError, match="en ligne"):
         espace.supprimer_donnees()
+
+
+def test_verification_sans_faux_positifs_releves_par_hermes():
+    reset_app_modules()
+    import verif_chiffres as V  # noqa: PLC0415
+    refs = V.sources("taux 2024 : 0.582\ntaux 2025 : 0.646\nventes 2024 : 50000\nventes 2025 : 61000")
+    for juste in ("Le taux passe de 58,2 % à 64,6 %, soit une hausse de 6,4 points.",
+                  "Les ventes progressent de 22 % entre 2024 et 2025.",
+                  "Dernière mise à jour le 12/03/2024, période 2025-06."):
+        assert V.verifier(juste, refs) == [], juste
+
+
+def test_reponses_vides_ne_declenchent_pas_le_coupe_circuit(srv, monkeypatch):
+    monkeypatch.setattr(srv.urllib.request, "urlopen", lambda req, timeout=None: _Rep(""))
+    for _ in range(srv.IA_SEUIL + 2):
+        assert srv._llm_call([{"role": "user", "content": "x"}], attempts=1) is None
+    assert srv.ia_disponible()
+
+
+def test_saturation_reessayee_meme_pour_un_appel_a_un_essai(srv, monkeypatch):
+    appels = []
+
+    def urlopen(req, timeout=None):
+        appels.append(1)
+        if len(appels) == 1:
+            raise _http(429)
+        return _Rep("ok")
+    monkeypatch.setattr(srv.urllib.request, "urlopen", urlopen)
+    assert srv._llm_call([{"role": "user", "content": "x"}], attempts=1) == "ok" and len(appels) == 2
