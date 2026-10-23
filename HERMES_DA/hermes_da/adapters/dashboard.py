@@ -176,6 +176,16 @@ _VOLUME_RE = re.compile(r"nombre|\bnb\b|effectif|total|volume|montant|quantite|v
                         r"nuit|livraison|tonnage|production|salaire", re.I)
 
 
+def _joli(name) -> str:
+    from hermes_da.libelles import joli
+    return joli(name)
+
+
+def _joli_min(name) -> str:
+    from hermes_da.libelles import joli_min
+    return joli_min(name)
+
+
 def _rule_dashboard(profile: dict) -> dict:
     """Repli déterministe quand l'IA est indisponible : effectif, taux sur les colonnes Oui/Non,
     moyenne pour les mesures (délai, âge, CD4…), total pour les volumes, comparaison par région/sexe."""
@@ -194,8 +204,12 @@ def _rule_dashboard(profile: dict) -> dict:
     nums = [c for c in cols if is_num(c) and not is_id(c) and not _TEMPS_RE.search(name(c))
             and not re.search(r"(^|\s)part(\s|$)", name(c))]
     dim = next((c["colonne"] for c in sorted(cats, key=lambda c: 0 if re.search(r"region|district|sexe|genre", name(c)) else 1)), None)
+    periodique = any(_TEMPS_RE.search(name(c)) or re.search(r"periode|period|mois|date", name(c)) for c in cols)
     is_vol = lambda c: bool(re.match(r"(nombre|nb|effectif|total|volume)\b", name(c))) or (  # noqa: E731
-        bool(_VOLUME_RE.search(name(c))) and not _MESURE_RE.search(name(c)))
+        bool(_VOLUME_RE.search(name(c))) and not _MESURE_RE.search(name(c))) or (
+        # rapport périodique (centre × mois) : une colonne d'entiers ≥ 0 sans unité de mesure est un comptage (CPN1)
+        periodique and "int" in c["type"] and (c.get("min") or 0) >= 0 and not _MESURE_RE.search(name(c))
+        and not _is_stock(name(c)))
     # Données déjà agrégées (« Nombre de … », « Total … ») : compter les lignes n'a pas de sens. Un fichier de
     # transactions ou de personnes avec des montants (salaires, ventes) garde son effectif.
     # (une colonne de stock comme « population » signale aussi un fichier par strate, pas par individu)
@@ -204,14 +218,14 @@ def _rule_dashboard(profile: dict) -> dict:
         kpis.append({"nom": "Effectif total", "agregation": "compte", "colonne": None, "dimension": dim,
                      "justification": "nombre de lignes du fichier"})
     for c in yesno[:2]:
-        kpis.append({"nom": f"Taux « {c['colonne'].replace('_', ' ')} »", "agregation": "taux", "colonne": c["colonne"],
+        kpis.append({"nom": f"Taux « {_joli_min(c['colonne'])} »", "agregation": "taux", "colonne": c["colonne"],
                      "dimension": dim, "justification": "part de « Oui »"})
     descr = re.compile(r"(^|\s)(age|anciennete|poids|taille|imc|latitude|longitude)\b")
     nums = sorted(nums, key=lambda c: 0 if is_vol(c) or _is_stock(name(c)) else 2 if descr.search(name(c)) else 1)
     for c in nums:
         if len(kpis) >= 5:
             break
-        lib = re.sub(r"^\s*(nombre|nb)\s+(de |d')\s*", "", c["colonne"].replace("_", " "), flags=re.I)
+        lib = re.sub(r"^\s*(nombre|nb)\s+(de |d')\s*", "", _joli(c["colonne"]), flags=re.I)
         if _is_stock(name(c)) and not _MESURE_RE.search(name(c)):  # « part de la population (%) » = un taux
             # Stock (population, superficie…) : jamais additionné d'une période à l'autre → « dernier » plus loin
             kpis.append({"nom": lib[:1].upper() + lib[1:], "agregation": "somme", "colonne": c["colonne"],
@@ -222,6 +236,7 @@ def _rule_dashboard(profile: dict) -> dict:
                 and abs(c["moyenne"]) > 1.5 * abs(c["mediane"]) + 1e-9)
         agg = "somme" if vol else "mediane" if skew else "moyenne"
         nom = "Total" if vol else "Médiane" if skew else "Moyenne"
+        lib = lib if lib[:2].isupper() else lib[:1].lower() + lib[1:]
         kpis.append({"nom": f"{nom} : {lib}", "agregation": agg, "colonne": c["colonne"], "dimension": dim,
                      "justification": "volume" if vol else
                      "valeurs très dispersées : la médiane résume mieux que la moyenne" if skew else "mesure moyenne"})
@@ -889,7 +904,7 @@ var state={},gran=(META.gran||'M'),charts=[],showMore=false,SHOWN={},KCOUNT={};
 var MOIS=['janv.','févr.','mars','avr.','mai','juin','juil.','août','sept.','oct.','nov.','déc.'];
 if(window.Chart){Chart.defaults.font.family="'Fira Sans',system-ui,sans-serif";Chart.defaults.color='#5B6478';
   if(matchMedia('(prefers-reduced-motion: reduce)').matches)Chart.defaults.animation=false;}
-function nice(s){return String(s==null?'':s).replace(/_/g,' ')}
+function nice(s){var t=String(s==null?'':s);return (window.META&&META.libelles&&META.libelles[t])||t.replace(/_/g,' ')}
 // Nom de colonne court pour les titres : sans parenthèse, 32 caractères au plus
 function ititle(s){var t=nice(s).replace(/^\s*(nombre|nb)\s+(de |d')\s*/i,'').replace(/\s+/g,' ').trim();t=t.charAt(0).toUpperCase()+t.slice(1);return t.length>70?t.slice(0,69)+'…':t}
 function short(s){var t=nice(s).replace(/\s*\([^)]*\)\s*/g,' ').replace(/\s+/g,' ').trim()||nice(s);return t.length>32?t.slice(0,31)+'…':t}
@@ -1234,7 +1249,7 @@ def generate_dashboard(df, objective: str = "", job_id: str | None = None, llm=N
         src = df
         if hors and (k.get("agregation") or "").lower() in ("somme", "sum", "dernier") and col is not None:
             src = df[~df[hors["colonne"]].astype(str).str.strip().str.lower().isin(hors["valeurs"])]
-            k = dict(k, hors=hors, nom=f"{k.get('nom') or col} (hors {hors['colonne'].replace('_', ' ')})")
+            k = dict(k, hors=hors, nom=f"{k.get('nom') or col}, hors « {_joli_min(hors['colonne'])} »")
         v = (_agg(src[p_ser[src.index] == last_p], col, "somme") if (k.get("agregation") == "dernier")
              else _agg(src, col, k.get("agregation", "compte")))
         if v is None:  # incalculable sur ces données (ex. « taux » sur un texte) : pas de tuile « — » ni de courbe vide
@@ -1286,9 +1301,20 @@ def generate_dashboard(df, objective: str = "", job_id: str | None = None, llm=N
     keys = _period_key(df, period_col, period_series) if kis else None
     gaps = _gaps(df, keys, ic, vc, kis)
     if not kis and period_series is not None:  # une ligne par patient : comparaison des deux derniers mois
-        kis = _patient_items(df, kpi_defs, domaine, period_col, aggregated=bool(pivoted or agrege))
+        par_unite = False  # rapport mensuel par centre : chaque (centre, mois) n'apparaît qu'une fois
+        if period_col in df.columns:
+            for c in df.columns:
+                # jamais un identifiant : un registre de visites (un patient par mois) n'est pas un rapport par centre
+                if re.search(r"(^|\s)(id|identifiant|matricule|code|n°|no|num|numero|patient)(\s|$)", _norm(c)):
+                    continue
+                if c != period_col and not pd.api.types.is_numeric_dtype(df[c]) and 2 <= df[c].nunique() < len(df) \
+                        and not df.duplicated([c, period_col]).any():
+                    par_unite = True
+                    break
+        kis = _patient_items(df, kpi_defs, domaine, period_col, aggregated=bool(pivoted or agrege or par_unite))
         keys = _period_key(df, period_col, period_series)
         gaps = _patient_gaps(df, keys, kis)
+    meta["libelles"] = {str(c): _joli(c) for c in df.columns}  # titres et légendes lisibles dans la page
     if domaine:
         meta["domaine"] = {"cle": domaine["cle"], "nom": domaine["nom"]}
     # Dictionnaire d'indicateurs importé (Mode B) : source de vérité. Indicateurs calculés selon leur
