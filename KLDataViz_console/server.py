@@ -1420,7 +1420,9 @@ def _llm_call(messages, max_tokens=8000, temperature=0, timeout=120, model=None,
         payload["reasoning_effort"] = effort
     body = json.dumps(payload).encode("utf-8")
     pauses = [2, 6, 12]
-    for attempt in range(attempts):
+    panne = False
+    attempt, essais = 0, attempts
+    while attempt < essais:
         req = urllib.request.Request(cfg.get("base_url", "https://api.deepseek.com/chat/completions"),
                                      data=body, method="POST",
                                      headers={"Content-Type": "application/json",
@@ -1433,9 +1435,10 @@ def _llm_call(messages, max_tokens=8000, temperature=0, timeout=120, model=None,
             if content and str(content).strip():
                 _ia_resultat(True)
                 return content
-            motif = "réponse vide"
+            motif = "réponse vide"  # raisonnement tronqué : pas une panne du fournisseur
         except urllib.error.HTTPError as e:
             motif = f"HTTP {e.code}"
+            panne = True
             if e.code in (400, 401, 402, 403, 404):  # requête ou compte en cause : réessayer ne changera rien
                 sys.stderr.write(f"[ia] refus définitif ({motif}, modèle {payload['model']}) : "
                                  + ("solde épuisé ou clé invalide" if e.code in (401, 402, 403) else "requête refusée") + "\n")
@@ -1446,12 +1449,17 @@ def _llm_call(messages, max_tokens=8000, temperature=0, timeout=120, model=None,
                 attente = min(20.0, float(e.headers.get("Retry-After") or attente))
             except (TypeError, ValueError):
                 pass
+            if e.code == 429 and essais == attempts and attempt == essais - 1:
+                essais += 1  # saturation : toujours un essai de plus, après la pause demandée
         except Exception as e:  # délai dépassé, réseau, JSON illisible
             motif = type(e).__name__
-        sys.stderr.write(f"[ia] essai {attempt + 1}/{attempts} échoué ({motif}, {time.time() - t0:.1f} s)\n")
-        if attempt < attempts - 1:
+            panne = True
+        sys.stderr.write(f"[ia] essai {attempt + 1}/{essais} échoué ({motif}, {time.time() - t0:.1f} s)\n")
+        attempt += 1
+        if attempt < essais:
             time.sleep(attente)
-    _ia_resultat(False)
+    if panne:
+        _ia_resultat(False)
     return None
 
 def _registry_datasets():

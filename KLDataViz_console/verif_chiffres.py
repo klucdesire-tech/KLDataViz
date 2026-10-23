@@ -14,10 +14,13 @@ _NB = re.compile(r"(?<![\w-])(-?\d{1,3}(?:[   ]\d{3})+(?:[.,]\d+)?|-?\d+(?:[.
 _MULT = {"k": 1e3, "K": 1e3, "M": 1e6, "Md": 1e9}
 
 
+_DATES = re.compile(r"\b\d{1,2}[/.]\d{1,2}[/.]\d{2,4}\b|\b\d{4}-\d{2}(?:-\d{2})?\b")
+
+
 def nombres(texte: str) -> list:
-    """Nombres d'un texte français : « 1 234,5 », « 12,5 % », « 1,3 M », « 0.42 » → flottants (années exclues)."""
+    """Nombres d'un texte français : « 1 234,5 », « 12,5 % », « 1,3 M », « 0.42 » → flottants (années, dates exclues)."""
     out = []
-    for m in _NB.finditer(str(texte or "")):
+    for m in _NB.finditer(_DATES.sub(" ", str(texte or ""))):
         brut = re.sub(r"[   ]", "", m.group(1))
         if brut.count(",") == 1 and brut.count(".") == 0:
             brut = brut.replace(",", ".")
@@ -66,9 +69,14 @@ def verifier(reponse: str, refs: set, max_pairs: int = 120) -> list:
         for b in gros[i + 1:]:
             derives.update((a - b, b - a, a + b))
             if b:
-                derives.update((a / b, a / b * 100))
+                derives.update((a / b, a / b * 100, (a / b - 1) * 100))   # rapport, part, variation (« 22 % de plus »)
             if a:
-                derives.update((b / a, b / a * 100))
+                derives.update((b / a, b / a * 100, (b / a - 1) * 100))
+    # écart en points entre deux pourcentages (« hausse de 6,4 points ») : proportions (0–1) et pourcentages (0–100)
+    pcts = sorted({v * 100 for v in brut if 0 < v <= 1} | {v for v in brut if 0 < v <= 100})[:max_pairs]
+    for i, a in enumerate(pcts):
+        for b in pcts[i + 1:]:
+            derives.update((a - b, b - a))
     tous = base + list(derives)
     douteux = []
     for x in nombres(reponse):
