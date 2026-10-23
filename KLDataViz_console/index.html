@@ -632,6 +632,25 @@ tr.versions td{background:var(--surface-2);font-size:13px}
             <input type="file" id="dictFile" accept=".xlsx,.xlsm,.xls,.csv" hidden>
           </div>
         </div>
+        <div class="card" id="espaceCard"><h2>Données de l'espace</h2>
+          <p class="sub">Récupérez tout ce que l'espace contient (fichiers importés, copies corrigées, tableaux de bord, rapports,
+            dictionnaire, journal), ou effacez-le définitivement.</p>
+          <div class="actions" style="margin-top:10px;justify-content:flex-start;gap:8px">
+            <button class="btn ghost sm" type="button" id="espExport">Exporter toutes les données (.zip)</button>
+          </div>
+          <div id="espDelete" hidden style="margin-top:14px;border-top:1px solid var(--line);padding-top:12px">
+            <b>Supprimer toutes les données</b>
+            <p class="sub">Irréversible : fichiers, tableaux de bord, rapports, liens de partage et registre sont effacés. Les comptes et
+              l'abonnement restent. Pour confirmer, saisissez le nom exact de l'espace.</p>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
+              <label for="espConfirm" hidden>Nom de l'espace</label>
+              <input type="text" id="espConfirm" autocomplete="off" placeholder="Nom de l'espace" style="max-width:260px">
+              <button class="btn ghost sm danger" type="button" id="espDeleteBtn">Supprimer définitivement</button>
+            </div>
+          </div>
+          <details style="margin-top:14px"><summary class="sub" style="cursor:pointer">Journal de l'espace</summary>
+            <div id="espJournal" class="sub" style="margin-top:8px"></div></details>
+        </div>
         <div class="card"><h2>Apparence</h2>
           <div class="setrow"><div><b>Thème</b><span>Suivre le système, ou forcer clair ou sombre</span></div>
             <select id="themeSel" style="width:auto"><option value="">Système</option><option value="light">Clair</option><option value="dark">Sombre</option></select></div>
@@ -1799,6 +1818,21 @@ $('#dictFile').addEventListener('change',e=>{const f=e.target.files[0];e.target.
 $('#dictDelete').onclick=async e=>{const b=e.currentTarget;if(b.dataset.ok!=='1'){b.dataset.ok='1';b.textContent='Confirmer le retrait';return}
   b.dataset.ok='';b.textContent='Retirer';const d=await api('/api/dictionnaire/delete',{});if(d.error){toast(d.error);return}
   renderDict(d);toast('Dictionnaire retiré : les normes intégrées s\'appliquent de nouveau.')};
+// ---- Données de l'espace : export complet, suppression (propriétaire, en ligne), journal
+async function loadEspace(){const role=state.me?.role,owner=!CLOUD||role==='owner';
+  $('#espaceCard').hidden=CLOUD&&role==='viewer';$('#espExport').hidden=!owner;$('#espDelete').hidden=!(CLOUD&&owner);
+  const L=await api('/api/espace/journal');
+  $('#espJournal').innerHTML=Array.isArray(L)&&L.length?L.slice(0,30).map(j=>`<div>${when(j.date)} · <b>${esc(j.qui||'')}</b> · ${esc(j.action)}</div>`).join(''):'Aucune action enregistrée.'}
+$('#espExport').onclick=async e=>{const b=e.currentTarget;b.disabled=true;b.innerHTML='<span class="spin"></span> Préparation de l’archive…';
+  const r=await api('/api/espace/exporter',{});b.disabled=false;b.textContent='Exporter toutes les données (.zip)';
+  if(r.error){toast(r.error);return}const a=document.createElement('a');a.href=r.url;a.download=r.file;document.body.append(a);a.click();a.remove();
+  toast('Archive prête : '+r.file);loadEspace()};
+$('#espDeleteBtn').onclick=async e=>{const b=e.currentTarget,c=$('#espConfirm').value.trim();if(!c){toast('Saisissez le nom de l’espace pour confirmer.');return}
+  if(b.dataset.ok!=='1'){b.dataset.ok='1';b.textContent='Je confirme : tout effacer';return}
+  b.disabled=true;const r=await api('/api/espace/supprimer',{confirmation:c});b.disabled=false;b.dataset.ok='';b.textContent='Supprimer définitivement';
+  if(r.error){toast(r.error);return}$('#espConfirm').value='';
+  toast(`Données effacées : ${nf(r.fichiers_supprimes||0)} fichier(s), ${nf(r.liens_revoques||0)} lien(s) de partage révoqué(s).`);
+  state.analysis=null;state.dash=null;loadEspace()};
 async function loadSettings(){
   $('#themeSel').value=document.documentElement.dataset.theme||'';
   const s=await loadSettingsData();
@@ -1810,7 +1844,7 @@ async function loadSettings(){
     $('#smtpTag').className='tag '+(s.smtp_ready?'ok':'type');$('#smtpTag').textContent=s.smtp_ready?'Configuré':'Non configuré';
   }
   if(CLOUD){loadTeam();loadAdmin()}
-  loadDict();
+  loadDict();loadEspace();
   const reg=await api('/api/ingest/list');
   $('#services').innerHTML=`
     <div class="setrow"><div><b>Registre des données</b><span>${reg.error?esc(reg.error):'Stockage : '+esc(reg.backend||'')}</span></div><span class="tag ${reg.error?'bad':'ok'}">${reg.error?'Indisponible':'Disponible'}</span></div>
