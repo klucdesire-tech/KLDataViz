@@ -675,7 +675,8 @@ def _smart_charts(df, max_charts=6):
         if len(labels) >= 3:
             mx = [max([abs(x) for x in v if x is not None] or [0]) for v in vals]
             two_axes = len(vals) == 2 and min(mx) > 0 and max(mx) / min(mx) > 4
-            charts.append({"kind": "trend", "type": "line", "title": "Évolution de " + " et ".join(names).lower(),
+            charts.append({"kind": "trend", "type": "line",
+                           "title": ("Évolution du nombre d'enregistrements" if count_mode else "Évolution de " + " et ".join(names).lower()),
                            "subtitle": lab(aggs[0]) + " par " + str(period).replace("_", " ") + partial, "agg": aggs[0],
                            "labels": labels, "values": vals, "seriesNames": names, "axis2": two_axes,
                            "unit": unit_of(metrics[0]) if metrics else ""})
@@ -735,7 +736,7 @@ def _smart_charts(df, max_charts=6):
         b, cat = bools[0], cats[0]
         flag = df[b].astype(str).str.strip().str.lower().isin(yes_vals).where(df[b].notna())
         g = (flag.groupby(df[cat]).mean() * 100).dropna().sort_values(ascending=False)
-        if len(g) >= 2 and float(g.max() - g.min()) >= 1:
+        if len(g) >= 2 and float(g.max() - g.min()) >= 2:  # moins de 2 points d'écart : rien à montrer
             top = g.head(12)
             charts.append({"kind": "ranking", "type": "bar", "title": f"Taux « {str(b).replace('_', ' ')} » par {str(cat).replace('_', ' ')}",
                            "subtitle": "Part de « Oui » · ligne : ensemble", "agg": "mean", "unit": "%",

@@ -81,3 +81,13 @@ def test_regles_du_tableau_de_bord():
     k = {x["colonne"]: x for x in generate_dashboard(demo, "t", llm=False)["kpis"]}
     assert k["population"]["agregation"] == "dernier" and k["population"]["valeur"] == 1000.0
     assert "part_population_pct" not in k and None not in k           # ni moyenne de parts, ni « effectif » de strates
+
+
+def test_annulations_0_1_exclues_du_total_du_tableau_de_bord():
+    reset_app_modules()
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "..", "HERMES_DA"))
+    from hermes_da.adapters.dashboard import generate_dashboard  # noqa: PLC0415
+    for annule in ([1] * 5 + [0] * 25, [True] * 5 + [False] * 25, ["Oui"] * 5 + ["Non"] * 25):
+        df = pd.DataFrame({"hotel": ["A", "B"] * 15, "montant_total_fcfa": [10] * 30, "annulee": annule})
+        k = next(x for x in generate_dashboard(df, "t", llm=False)["kpis"] if x["colonne"] == "montant_total_fcfa")
+        assert k["valeur"] == 250.0 and "hors annulee" in k["nom"]   # 25 réservations maintenues × 10

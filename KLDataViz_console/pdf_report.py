@@ -203,7 +203,7 @@ def interpret_chart(c):
             ihi, ilo = v.index(hi), v.index(lo)
             chg = (last - first) / first * 100 if first else None
             sens = "progresse" if chg and chg > 5 else "recule" if chg and chg < -5 else "reste globalement stable"
-            quand = f"par rapport au même mois de l'année précédente ({esc(ref_lab)})" if monthly else "entre la première et la dernière période"
+            quand = f"par rapport au même mois de l'année précédente, {esc(ref_lab)}," if monthly else "entre la première et la dernière période"
             s = f"<b>{esc(name)}</b> {sens} {quand} (de {nf(first)} à {nf(last)}"
             s += f", soit {'+' if chg >= 0 else ''}{nf(chg, 1)} %)." if chg is not None else ")."
             s += f" Le pic est atteint en <b>{esc(labels[ihi])}</b> ({nf(hi)}), le niveau le plus bas en {esc(labels[ilo])} ({nf(lo)})."
@@ -239,7 +239,7 @@ def interpret_chart(c):
             ref = (c.get("ref") or {}).get("value")
             if ref:
                 above = sum(1 for x in v if x > ref)
-                out.append(f"{above} élément(s) sur {len(v)} se situent au-dessus de la moyenne ({nf(ref)}).")
+                out.append(f"{above} élément(s) sur {len(v)} se situent au-dessus de la moyenne ({nf(ref)}{u}).")
             if len(pairs) > 3 and additive:
                 top3 = sum(x for _, x in pairs[:3])
                 out.append(f"Les 3 premiers concentrent {pct(top3 / tot * 100)} du total.")

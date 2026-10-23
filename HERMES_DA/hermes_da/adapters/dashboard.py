@@ -946,7 +946,7 @@ function buildFilters(){var el=document.getElementById('filters');el.innerHTML='
     mb.textContent=showMore?'Moins de filtres':'Plus de filtres ('+(F.length-3)+')';mb.onclick=function(){showMore=!showMore;buildFilters()};el.appendChild(mb)}}
 
 function renderKpis(all){document.getElementById('kpis').innerHTML=KPIDEFS.slice(0,5).map(function(k,i){
-  var rows=k.hors?all.filter(function(r){return k.hors.valeurs.indexOf(String(r[k.hors.colonne]))<0}):all,v=agg(rows,k.colonne,k.agregation),sub='';
+  var rows=k.hors?all.filter(function(r){return k.hors.valeurs.indexOf(String(r[k.hors.colonne]).trim().toLowerCase())<0}):all,v=agg(rows,k.colonne,k.agregation),sub='';
   var u=isRate(k.agregation)&&v!=null?' %':'';
   if(k.dimension){var t=ranked(rows,k.colonne,k.agregation,k.dimension,1)[0];if(t)sub='En tête : '+esc(label(t[0]))+'<br>'+fmt(t[1])+u}
   return '<div class="kpi k'+i+'"><div class="n">'+esc(k.nom)+'</div><div class="row"><div class="v">'+fmt(v)+u+'</div><div class="s">'+sub+'</div></div></div>'}).join('')}
@@ -1216,7 +1216,8 @@ def generate_dashboard(df, objective: str = "", job_id: str | None = None, llm=N
             low = df[c].dropna().astype(str).str.strip().str.lower()
             yes = [v for v in low.unique() if v in _YES]
             if yes and (~low.isin(_YES)).any():
-                hors = {"colonne": str(c), "valeurs": [str(v) for v in df[c].dropna().unique() if str(v).strip().lower() in _YES]}
+                hors = {"colonne": str(c), "valeurs": sorted({str(v).strip().lower() for v in df[c].dropna().unique()
+                                                              if str(v).strip().lower() in _YES})}
                 break
     for k in spec.get("kpis", [])[:8]:
         if last_p and (k.get("agregation") or "").lower() in ("somme", "sum") and k.get("colonne") in cols \
@@ -1232,7 +1233,7 @@ def generate_dashboard(df, objective: str = "", job_id: str | None = None, llm=N
         seen.add(key)
         src = df
         if hors and (k.get("agregation") or "").lower() in ("somme", "sum", "dernier") and col is not None:
-            src = df[~df[hors["colonne"]].isin(hors["valeurs"])]
+            src = df[~df[hors["colonne"]].astype(str).str.strip().str.lower().isin(hors["valeurs"])]
             k = dict(k, hors=hors, nom=f"{k.get('nom') or col} (hors {hors['colonne'].replace('_', ' ')})")
         v = (_agg(src[p_ser[src.index] == last_p], col, "somme") if (k.get("agregation") == "dernier")
              else _agg(src, col, k.get("agregation", "compte")))
@@ -1243,8 +1244,8 @@ def generate_dashboard(df, objective: str = "", job_id: str | None = None, llm=N
                "dimension": k.get("dimension"), "justification": k.get("justification", "")}
         dim = k.get("dimension")
         if dim and dim in cols and dim != col:
-            bd = (_agg_grouped(df[p_ser == last_p], col, "somme", dim) if k.get("agregation") == "dernier"
-                  else _agg_grouped(df, col, k.get("agregation", "compte"), dim))
+            bd = (_agg_grouped(src[p_ser[src.index] == last_p], col, "somme", dim) if k.get("agregation") == "dernier"
+                  else _agg_grouped(src, col, k.get("agregation", "compte"), dim))
             if bd and bd.get("labels"):
                 kpi["breakdown"] = bd
                 kpi["top"] = (bd["labels"][0], bd["values"][0])
