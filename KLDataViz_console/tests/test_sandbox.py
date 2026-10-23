@@ -67,13 +67,18 @@ def test_nouvel_essai_si_limite_de_fils(monkeypatch):
     import subprocess
     calls = []
 
-    def fake_run(args, **kw):
-        calls.append(kw)
-        if len(calls) == 1:
-            return subprocess.CompletedProcess(args, 1, b"", b"OpenBLAS blas_thread_init: pthread_create failed\nKeyboardInterrupt")
-        return subprocess.CompletedProcess(args, 0, b'{"result": {"kind": "scalar", "value": "42"}, "chart": null}\n', b"")
+    class FakePopen:  # sandbox.run lance le calcul avec Popen (sortie partielle récupérable en cas de délai)
+        def __init__(self, args, **kw):
+            calls.append(kw)
+            self.args, self.n = args, len(calls)
+            self.returncode = 1 if self.n == 1 else 0
 
-    monkeypatch.setattr(sandbox.subprocess, "run", fake_run)
+        def communicate(self, data=None, timeout=None):
+            if self.n == 1:
+                return b"", b"OpenBLAS blas_thread_init: pthread_create failed\nKeyboardInterrupt"
+            return b'{"result": {"kind": "scalar", "value": "42"}, "chart": null}\n', b""
+
+    monkeypatch.setattr(sandbox.subprocess, "Popen", FakePopen)
     monkeypatch.setattr(sandbox, "_user_tasks", lambda: 10)
     monkeypatch.setattr(sandbox.os, "name", "posix")
     monkeypatch.setattr(sandbox, "_make_limits", lambda n: ("limites", n))

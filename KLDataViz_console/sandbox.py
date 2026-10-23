@@ -18,7 +18,10 @@ import sys
 import tempfile
 
 RUNNER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "sandbox_runner.py")
-TIMEOUT_S = int(os.environ.get("KLDV_SANDBOX_TIMEOUT", "20"))
+# En ligne (Render Starter : une demi-CPU), relancer Python + pandas + NumPy + PyArrow pour chaque calcul prend
+# à lui seul plusieurs secondes ; 20 s ne suffisaient plus (calculs simples interrompus). En local, 20 s.
+_CLOUD = os.environ.get("KLDV_MODE", "").strip().lower() == "cloud"
+TIMEOUT_S = int(os.environ.get("KLDV_SANDBOX_TIMEOUT", "60" if _CLOUD else "20"))
 # En ligne (Render Starter : 512 Mo pour tout le service), un calcul ne doit jamais pouvoir faire tomber le serveur
 # Limite d'espace VIRTUEL (RLIMIT_AS) : NumPy/OpenBLAS en réservent à eux seuls plusieurs centaines de Mo sans les
 # utiliser ; trop bas, tous les calculs échoueraient. La vraie protection de la mémoire du service est la garde
@@ -184,15 +187,23 @@ def run(code: str, datasets: dict) -> dict:
                 env[k] = os.environ[k]
     used = _user_tasks() if os.name != "nt" else None
     nproc = used + NPROC_MARGIN if used is not None else None
-    job = json.dumps({"code": code, "datasets": {str(k): str(v) for k, v in datasets.items()}})
+    # Interrupteur d'urgence (variable Render) : KLDV_SANDBOX_GARDE=0 désactive le garde-fou d'exécution sans
+    # redéployer ; le contrôle du code, l'environnement vide et les limites restent actifs.
+    garde = os.environ.get("KLDV_SANDBOX_GARDE", "1").strip() != "0"
+    job = json.dumps({"code": code, "datasets": {str(k): str(v) for k, v in datasets.items()}, "garde": garde})
 
     def attempt(nproc_limit):
         with tempfile.TemporaryDirectory(prefix="kldv-sbx-") as tmp:
-            return subprocess.run(
-                [sys.executable, "-I", RUNNER], input=job.encode("utf-8"), capture_output=True,
-                cwd=tmp, env=env, timeout=TIMEOUT_S,
-                preexec_fn=_make_limits(nproc_limit) if os.name != "nt" else None,
-            )
+            proc = subprocess.Popen(
+                [sys.executable, "-I", RUNNER], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                cwd=tmp, env=env, preexec_fn=_make_limits(nproc_limit) if os.name != "nt" else None)
+            try:
+                out, err = proc.communicate(job.encode("utf-8"), timeout=TIMEOUT_S)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                out, err = proc.communicate()  # sortie partielle : les jalons disent où le calcul s'est bloqué
+                raise subprocess.TimeoutExpired(proc.args, TIMEOUT_S, output=out, stderr=err)
+            return subprocess.CompletedProcess(proc.args, proc.returncode, out, err)
 
     try:
         proc = attempt(nproc)
@@ -202,9 +213,21 @@ def run(code: str, datasets: dict) -> dict:
             # (mémoire, CPU, fichiers, environnement vide et contrôle du code restent en place).
             sys.stderr.write("[sandbox] limite de fils atteinte, nouvel essai sans RLIMIT_NPROC\n")
             proc = attempt(None)
-    except subprocess.TimeoutExpired:
+    except subprocess.TimeoutExpired as exc:
+        err = (exc.stderr or b"").decode("utf-8", "replace") if isinstance(exc.stderr, bytes) else str(exc.stderr or "")
+        jalons = [l for l in err.splitlines() if l.startswith("[jalon]")]
+        sys.stderr.write(f"[sandbox] délai de {TIMEOUT_S} s dépassé ; dernière étape : "
+                         f"{jalons[-1] if jalons else 'aucune (blocage pendant le chargement des bibliothèques)'} "
+                         f"— KLDV_SANDBOX_TIMEOUT pour le délai, KLDV_SANDBOX_GARDE=0 pour tester sans garde-fou\n")
         return {"error": f"calcul trop long (plus de {TIMEOUT_S} s), arrêté"}
     out = proc.stdout.decode("utf-8", "replace").strip().splitlines()
+    try:
+        t = json.loads(out[-1]).get("_temps") if out else None
+        if t:
+            sys.stderr.write(f"[sandbox] chargement {t.get('chargement')} s, données {t.get('donnees')} s, "
+                             f"calcul {t.get('calcul')} s (limite {TIMEOUT_S} s)\n")
+    except Exception:
+        pass
     if not out:
         err = proc.stderr.decode("utf-8", "replace").strip().splitlines()
         sys.stderr.write("[sandbox] échec : " + " | ".join(err[-5:])[:800] + "\n")
