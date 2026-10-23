@@ -1,12 +1,28 @@
 # -*- coding: utf-8 -*-
 """Processus isolé lancé par sandbox.run() : lit le travail sur l'entrée standard,
 exécute le code avec des fonctions intégrées réduites et écrit le résultat en JSON."""
-import json
-import math
-import sys
+import time
 
-import numpy as np
-import pandas as pd
+_T0 = time.perf_counter()  # avant les imports : mesure le coût de chargement des bibliothèques
+
+import json  # noqa: E402
+import math  # noqa: E402
+import sys  # noqa: E402
+
+import numpy as np  # noqa: E402
+import pandas as pd  # noqa: E402
+
+_T_IMPORTS = time.perf_counter()
+
+
+def _jalon(texte):
+    """Étape franchie, écrite tout de suite sur la sortie d'erreur : si le calcul dépasse le délai, le serveur
+    journalise la dernière étape atteinte (bibliothèques, garde-fou, données, calcul)."""
+    sys.stderr.write(f"[jalon] {texte} ({time.perf_counter() - _T0:.1f} s)\n")
+    sys.stderr.flush()
+
+
+_jalon("bibliothèques chargées")
 
 SAFE_BUILTINS = {n: __builtins__[n] if isinstance(__builtins__, dict) else getattr(__builtins__, n) for n in (
     "abs", "all", "any", "bool", "dict", "divmod", "enumerate", "filter", "float", "frozenset", "int",
@@ -21,6 +37,7 @@ class LazyData(dict):
     def __init__(self, paths):
         super().__init__()
         self._paths = paths
+        self.temps_chargement = 0.0
 
     def __missing__(self, key):
         p = self._paths.get(key)
@@ -31,7 +48,11 @@ class LazyData(dict):
                     break
         if p is None:
             raise KeyError(f"jeu de données inconnu : {key}")
+        t = time.perf_counter()
+        _jalon(f"lecture des données « {key} »")
         df = pd.read_parquet(p) if p.endswith(".parquet") else pd.read_csv(p)
+        self.temps_chargement += time.perf_counter() - t
+        _jalon(f"données « {key} » lues ({len(df)} lignes)")
         self[key] = df
         return df
 
@@ -146,7 +167,12 @@ def main():
         from scipy import stats
         ns["stats"] = stats
         ns.update({f: getattr(stats, f) for f in STAT_FUNCS})  # aussi utilisables sans « stats. »
-    _install_guard(list((job.get("datasets") or {}).values()))
+    if job.get("garde", True):
+        _install_guard(list((job.get("datasets") or {}).values()))
+        _jalon("garde-fou installé")
+    else:
+        _jalon("garde-fou désactivé (KLDV_SANDBOX_GARDE=0)")
+    t_exec = time.perf_counter()
     try:
         exec(compile(job["code"], "<ia>", "exec"), ns)
         chart = ns.get("chart")
@@ -156,6 +182,9 @@ def main():
         out = {"error": f"{type(exc).__name__} : {exc}"[:300]}
     if printed:
         out["sortie"] = "".join(printed)[:MAX_SORTIE]
+    fin = time.perf_counter()
+    out["_temps"] = {"chargement": round(_T_IMPORTS - _T0, 2), "donnees": round(data.temps_chargement, 2),
+                     "calcul": round(fin - t_exec - data.temps_chargement, 2)}
     sys.stdout.write(json.dumps(out, ensure_ascii=False, default=str) + "\n")
 
 
