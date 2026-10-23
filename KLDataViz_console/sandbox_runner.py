@@ -13,6 +13,7 @@ import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 
 _T_IMPORTS = time.perf_counter()
+sys.stderr.reconfigure(encoding="utf-8", errors="replace")  # -I ignore PYTHONIOENCODING : jalons lisibles (accents)
 
 
 def _jalon(texte):
@@ -173,6 +174,7 @@ def main():
     else:
         _jalon("garde-fou désactivé (KLDV_SANDBOX_GARDE=0)")
     t_exec = time.perf_counter()
+    _jalon("calcul lancé")
     try:
         exec(compile(job["code"], "<ia>", "exec"), ns)
         chart = ns.get("chart")

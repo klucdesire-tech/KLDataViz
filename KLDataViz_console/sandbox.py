@@ -216,10 +216,11 @@ def run(code: str, datasets: dict) -> dict:
     except subprocess.TimeoutExpired as exc:
         err = (exc.stderr or b"").decode("utf-8", "replace") if isinstance(exc.stderr, bytes) else str(exc.stderr or "")
         jalons = [l for l in err.splitlines() if l.startswith("[jalon]")]
+        derniere = jalons[-1][len("[jalon] "):] if jalons else "aucune (blocage pendant le chargement des bibliothèques)"
         sys.stderr.write(f"[sandbox] délai de {TIMEOUT_S} s dépassé ; dernière étape : "
                          f"{jalons[-1] if jalons else 'aucune (blocage pendant le chargement des bibliothèques)'} "
                          f"— KLDV_SANDBOX_TIMEOUT pour le délai, KLDV_SANDBOX_GARDE=0 pour tester sans garde-fou\n")
-        return {"error": f"calcul trop long (plus de {TIMEOUT_S} s), arrêté"}
+        return {"error": f"calcul trop long (plus de {TIMEOUT_S} s), arrêté — dernière étape atteinte : {derniere}"}
     out = proc.stdout.decode("utf-8", "replace").strip().splitlines()
     try:
         t = json.loads(out[-1]).get("_temps") if out else None
