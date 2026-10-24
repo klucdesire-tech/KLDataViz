@@ -34,7 +34,8 @@ SYNONYMES = {
     "TX_NEW": ["nouveau", "nouveaux", "nouvellement", "nouvel inclus", "nouvelle inclusion", "inclus ce mois"],
     "TX_PVLS": ["supprime", "supprimee", "cv supprimee", "indetectable", "charge virale supprimee"],
     "VL_SUPPRESSION_NAT": ["supprime", "supprimee", "cv supprimee", "indetectable"],
-    "TB_PREV": ["tpt", "ipt", "inh", "therapie preventive", "traitement preventif", "tpt demarre", "tpt termine"],
+    "TB_PREV": ["tpt termine", "tpt acheve", "tpt complete", "ipt termine", "ipt acheve", "inh termine",
+                "traitement preventif termine", "traitement preventif acheve"],  # MER : achevé, jamais « démarré »
     "TB_STAT": ["statut tb", "depistage tb", "tb depiste"],
     "HTS_TST": ["teste", "testes", "depiste", "depistes", "test vih", "resultat recu"],
     "PMTCT_STAT": ["statut vih connu", "statut connu cpn"],
@@ -75,9 +76,9 @@ def _masque(df, cond):
     col = cond.get("colonne")
     if col not in df.columns:
         return pd.Series(False, index=df.index)
-    vals = {_v(x) for x in cond.get("valeurs") or []}
-    s = df[col]
-    return s.notna() & s.astype(str).str.strip().str.lower().isin(vals)
+    vals = {_v(x) for x in cond.get("valeurs") or []} - _VIDES
+    t = df[col].astype(str).str.strip().str.lower()
+    return df[col].notna() & ~t.isin(_VIDES) & t.isin(vals)
 
 
 def evaluer(df, f, cle=None):
@@ -120,8 +121,8 @@ def evaluer(df, f, cle=None):
     if m == "somme":
         return float(x.sum())
     if m == "moyenne":
-        return round(float(x.mean()), 2)
-    return round(float(x.median()), 2)
+        return float(x.mean())  # non arrondi : la page (evalF) ne l'arrondit pas non plus ; l'affichage s'en charge
+    return float(x.median())
 
 
 def evaluer_par(df, f, dim, cle=None, top=12):
@@ -130,7 +131,7 @@ def evaluer_par(df, f, dim, cle=None, top=12):
         return []
     out = []
     for g, part in df.groupby(df[dim].astype(str).str.strip()):
-        if g.lower() in ("", "nan", "none"):
+        if g.lower() in _VIDES:  # comme groupBy dans la page
             continue
         v = evaluer(part, f, None if cle is None else cle.reindex(part.index))
         if v is not None:
@@ -168,8 +169,10 @@ def valider(df, f) -> list:
         presentes = set(df[c["colonne"]].dropna().astype(str).str.strip().str.lower())
         if not {_v(x) for x in c.get("valeurs") or []} & presentes:
             err.append(f"aucune des valeurs {c.get('valeurs')} dans « {c['colonne']} »")
-    if f["mode"] in ("comptage", "taux") and not f.get("numerateur") and f["mode"] == "taux":
+    if f["mode"] == "taux" and not f.get("numerateur"):
         err.append("un taux demande un numérateur")
+    if f["mode"] == "rapport" and not (f.get("numerateur") and f.get("denominateur")):
+        err.append("un rapport demande un numérateur et un dénominateur")
     if f["mode"] in ("somme", "rapport", "moyenne", "mediane"):
         col = f.get("colonne")
         if col not in df.columns:
@@ -274,6 +277,25 @@ def _nie(v) -> bool:
     return n.startswith(_NEG) or n.strip() in ("non", "no", "n", "0", "faux", "false")
 
 
+# Noms de colonnes d'un export « long » (une ligne = un indicateur × période × lieu, ex. DHIS2 « dataname / value »)
+_LONG_IND = {"indicator", "indicateur", "indicateurs", "dataname", "data name", "dataelement", "data element",
+             "dataelementname", "indicatorname", "indicator name", "nom indicateur", "libelle indicateur", "dx", "data"}
+_LONG_VAL = {"value", "valeur", "valeurs", "values", "val"}
+
+
+def colonnes_longues(df, indicateurs=()):
+    """(colonne des indicateurs, colonne des valeurs) d'un export long, (None, None) sinon. Codes du dictionnaire
+    présents ou non : dans un tel fichier une ligne n'est jamais un patient, on n'y compte donc jamais de lignes."""
+    from hermes_da import indicators_catalog as cat
+    _l, ic, vc = cat._as_long(df, list(indicateurs))
+    if ic in df.columns and vc in df.columns:
+        return ic, vc
+    ic = next((c for c in df.columns if _norm(c) in _LONG_IND and not pd.api.types.is_numeric_dtype(df[c])), None)
+    vc = next((c for c in df.columns if _norm(c) in _LONG_VAL
+               and pd.to_numeric(df[c], errors="coerce").notna().mean() > 0.5), None)
+    return (ic, vc) if ic is not None and vc is not None else (None, None)
+
+
 def proposer_regles(df, indicateurs, r=None) -> list:
     """Formules proposées par règles (déterministes) : formats long/large (codes explicites) puis listes
     d'observations (vocabulaire métier, colonnes Oui/Non nommées d'après l'indicateur)."""
@@ -281,8 +303,11 @@ def proposer_regles(df, indicateurs, r=None) -> list:
     r = r or roles(df)
     out = []
     long_df, ic, vc = cat._as_long(df, indicateurs)
-    long_natif = ic is not None and ic in df.columns
-    cats = _cats(df, r["identifiants"])
+    lic, lvc = colonnes_longues(df, indicateurs)
+    long_natif = lic is not None
+    if long_natif:
+        ic, vc = lic, lvc
+    cats = [(c, v) for c, v in _cats(df, r["identifiants"]) if c != ic]
     for ind in indicateurs:
         code, cnorm, rate = ind["code"], _norm(ind["code"]), est_taux(ind)
         base = {"code": code, "libelle": ind.get("libelle") or code, "type": ind.get("type") or "", "source": "regles"}
@@ -306,7 +331,9 @@ def proposer_regles(df, indicateurs, r=None) -> list:
                          "stock": bool(cat._is_snapshot(ind))}
                 out.append(dict(base, formule=f, evolution=True, confiance=0.95,
                                 explication="code de l'indicateur présent dans la colonne des indicateurs"))
-                continue
+            # Export long sans le code : les libellés y sont des NOMS d'indicateurs, pas des catégories à compter.
+            # La correspondance se fait sur la colonne « valeur » (somme / rapport) : laissée à l'IA et à l'utilisateur.
+            continue
         # 2) format large : une colonne chiffrée porte le code
         col = next((c for c in df.columns if _norm(c) == cnorm and pd.api.types.is_numeric_dtype(df[c])), None)
         if col is not None:

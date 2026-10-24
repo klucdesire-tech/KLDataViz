@@ -67,7 +67,10 @@ def test_propositions_par_regles():
     props = {p["code"]: p for p in C.proposer_regles(df, MER)}
     assert C.evaluer(df, props["TX_CURR"]["formule"]) == 30 and props["TX_CURR"]["evolution"] is False  # état actuel
     assert C.evaluer(df, props["TX_ML"]["formule"]) == 6
-    assert props["TX_PVLS"]["formule"]["mode"] == "taux" and props["TB_PREV"]["formule"]["numerateur"]["colonne"] == "tpt_demarre"
+    assert props["TX_PVLS"]["formule"]["mode"] == "taux"
+    assert "TB_PREV" not in props                                   # TPT DÉMARRÉ ≠ TB_PREV (achevé, définition MER)
+    fini = {p["code"]: p for p in C.proposer_regles(df.assign(tpt_termine=["Oui", "Non"] * 20), MER)}
+    assert fini["TB_PREV"]["formule"]["numerateur"]["colonne"] == "tpt_termine"
     assert "VL_SUPPRESSION_NAT" not in props                        # même formule que TX_PVLS : pas de doublon
     for p in props.values():
         assert C.valider(df, p["formule"]) == []
@@ -94,3 +97,19 @@ def test_resume_pour_l_ia_sans_valeur_individuelle():
     assert "categories" not in cols["id_patient"] and cols["id_patient"]["role"] == "identifiant"
     assert "categories" not in cols["date_naissance"]
     assert sorted(cols["statut_actuel"]["categories"]) == ["Actif", "Décédé", "Perdu de vue"]
+
+
+def test_export_long_sans_code_jamais_compte_en_lignes():
+    """Export DHIS2 en libellés : aucune règle ne compte des lignes de la colonne des indicateurs."""
+    d = pd.DataFrame({"dataname": ["Patients avec CV supprimée", "Patients avec résultat de CV", "Patients sous TARV"] * 2,
+                      "periodname": ["Août 2025"] * 3 + ["Septembre 2025"] * 3, "value": [80, 90, 500, 81, 90, 520]})
+    for p in C.proposer_regles(d, MER):
+        assert p["formule"]["mode"] not in ("comptage", "taux") or p["formule"]["numerateur"]["colonne"] != "dataname"
+
+
+def test_vides_et_rapport_incomplet():
+    df = pd.DataFrame({"cv": ["Oui", "NA", "Non", "nan", "Oui"], "region": ["A", "NA", "B", "A", "B"], "v": [1.25, 2, 3, 4, 5]})
+    assert C.evaluer(df, {"mode": "comptage", "numerateur": {"colonne": "cv", "valeurs": ["Oui", "NA"]}}) == 2
+    assert C.evaluer(df, {"mode": "moyenne", "colonne": "v"}) == 3.05                # pas d'arrondi caché
+    assert "NA" not in dict(C.evaluer_par(df, {"mode": "comptage", "numerateur": {"colonne": "cv", "valeurs": ["Oui"]}}, "region"))
+    assert C.valider(df, {"mode": "rapport", "colonne": "v", "numerateur": {"colonne": "cv", "valeurs": ["Oui"]}})

@@ -57,8 +57,8 @@ def test_enregistrer_verifie_les_formules():
     correspondances.obtenir(df, DICO)
     with pytest.raises(ValueError, match="aucune des valeurs"):
         correspondances.enregistrer(df, {"indicateurs": [{"code": "TX_CURR", "statut": "valide",
-                                         "formule": {"mode": "comptage", "numerateur": {"colonne": "statut", "valeurs": ["Inexistant"]}}}]})
-    corr = correspondances.enregistrer(df, {"indicateurs": [{"code": "TX_CURR", "statut": "valide"}], "periode": "mois"})
+                                         "formule": {"mode": "comptage", "numerateur": {"colonne": "statut", "valeurs": ["Inexistant"]}}}]}, DICO)
+    corr = correspondances.enregistrer(df, {"indicateurs": [{"code": "TX_CURR", "statut": "valide"}], "periode": "mois"}, DICO)
     assert next(i for i in corr["indicateurs"] if i["code"] == "TX_CURR")["statut"] == "valide" and corr["periode"] == "mois"
 
 
@@ -94,7 +94,8 @@ def test_parite_python_et_page(tmp_path):
     morceaux = [re.search(r"var NULLS=.*?\n", js).group(0), re.search(r"function isNull\(.*?\n", js).group(0),
                 re.search(r"function num\(.*?\n", js).group(0), re.search(r"function groupBy\(.*?\n", js).group(0)]
     a, b = js.index("function condF("), js.index("function renderKpis(")
-    df = _df().assign(cv=["Oui"] * 20 + ["Non"] * 15 + ["NA"] * 5, v=list(range(40)))
+    df = _df().assign(cv=["Oui"] * 20 + ["Non"] * 15 + ["NA"] * 5, v=[i * 1.37 for i in range(40)],
+                      zone=["Nord", "Sud", "NA", "nan"] * 10)
     df["__p"] = df["mois"]
     formules = [
         {"mode": "comptage", "numerateur": {"colonne": "statut", "valeurs": ["actif"]}},
@@ -104,6 +105,10 @@ def test_parite_python_et_page(tmp_path):
         {"mode": "somme", "colonne": "v", "numerateur": {"colonne": "region", "valeurs": ["Nawa"]}},
         {"mode": "moyenne", "colonne": "v"}, {"mode": "mediane", "colonne": "v"},
         {"mode": "somme", "colonne": "v", "stock": True},
+        {"mode": "comptage", "numerateur": {"colonne": "cv", "valeurs": ["Oui", "NA"]}},
+        {"mode": "moyenne", "colonne": "v", "filtre": {"colonne": "zone", "valeurs": ["Nord", "NA"]}},
+        {"mode": "rapport", "colonne": "v", "numerateur": {"colonne": "zone", "valeurs": ["Nord"]},
+         "denominateur": {"colonne": "zone", "valeurs": ["Nord", "Sud"]}},
     ]
     script = "".join(morceaux) + js[a:b] + "var rows=" + df.to_json(orient="records", force_ascii=False) + ";" \
         + "console.log(JSON.stringify(" + json.dumps(formules, ensure_ascii=False) + ".map(function(f){return evalF(rows,f)})));"
@@ -113,3 +118,29 @@ def test_parite_python_et_page(tmp_path):
     python = [C.evaluer(df, fo, df["__p"]) for fo in formules]
     for fo, x, y in zip(formules, python, page):
         assert x == pytest.approx(y, rel=1e-9), (fo, x, y)
+
+
+def test_signature_suit_le_dictionnaire_et_enregistrer_controle():
+    reset_app_modules()
+    import correspondances  # noqa: PLC0415
+    df = _df()
+    assert correspondances.signature(df, DICO) != correspondances.signature(df, DICO[:2])
+    correspondances.obtenir(df, DICO)
+    with pytest.raises(ValueError, match="absent du dictionnaire"):
+        correspondances.enregistrer(df, {"indicateurs": [{"code": "INVENTE", "statut": "propose"}]}, DICO)
+    with pytest.raises(ValueError, match="Pourcentage"):  # un % calculé comme un nombre
+        correspondances.enregistrer(df, {"indicateurs": [{"code": "TX_PVLS", "statut": "valide", "formule":
+                                    {"mode": "comptage", "numerateur": {"colonne": "resultat_cv", "valeurs": ["Supprimé"]}}}]}, DICO)
+
+
+def test_ia_export_long_comptage_de_lignes_ecarte():
+    reset_app_modules()
+    import correspondances  # noqa: PLC0415
+    d = pd.DataFrame({"indicateur": ["CV supprimée", "CV réalisée"] * 3, "periode": ["2025-01"] * 6, "valeur": [8, 10, 9, 10, 7, 10]})
+    dico = [{"code": "TX_PVLS", "libelle": "% CV supprimée", "type": "Pourcentage"}]
+
+    def ia(messages, n):
+        return json.dumps({"indicateurs": [{"code": "TX_PVLS", "formule": {"mode": "taux",
+                           "numerateur": {"colonne": "indicateur", "valeurs": ["CV supprimée"]}}}]})
+    assert correspondances._proposer_ia(d, dico, {"identifiants": []} | __import__("hermes_da.correspondance",
+                                        fromlist=["roles"]).roles(d), ia, json.loads) == []
