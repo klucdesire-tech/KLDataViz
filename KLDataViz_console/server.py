@@ -51,6 +51,7 @@ import shares
 import dhis2
 import dictionnaire
 import journal
+import correspondances
 if T.CLOUD:
     import cloud
 from urllib.parse import urlparse, parse_qs
@@ -1111,8 +1112,30 @@ def dhis2_connect(p):
             "indicateurs": int(df["indicateur"].nunique()), "periodes": sorted(df["periode"].dropna().astype(str).unique())[-3:]}
 
 
-def build_dashboard(df, spec=None):  # pas de garde _lourd : l'appel à l'IA (jusqu'à 3 min) y bloquerait un jeton
-    """AGT-11 sur un DataFrame. `spec` fournie (source connectée qu'on actualise) : mêmes indicateurs, sans IA."""
+def _corr_llm():
+    """IA pour proposer les correspondances (noms de colonnes et catégories seulement), ou None."""
+    cfg = _llm_config()
+    if not cfg:
+        return None
+    model = os.environ.get("KLDV_DASHBOARD_MODEL") or cfg.get("dashboard_model") or "deepseek-flash"
+    return lambda m, n: (_llm_call(m, n, model=model, effort="high", timeout=120, attempts=1)
+                         or _llm_call(m, n, model=model, effort="low", timeout=90, attempts=1))
+
+
+def _correspondance_pour(df, dico, ia=False):
+    """Correspondance dictionnaire ↔ colonnes : mémorisée, sinon proposée (règles ; IA si `ia`) et mémorisée."""
+    if not dico:
+        return None
+    try:
+        return correspondances.obtenir(df, dico, _corr_llm() if ia else None, _parse_llm_json)
+    except Exception as exc:  # la correspondance est un plus : le tableau de bord reste généré
+        sys.stderr.write(f"[correspondance] indisponible : {type(exc).__name__} : {exc}\n")
+        return None
+
+
+def build_dashboard(df, spec=None, correspondance=None):  # pas de garde _lourd : l'appel à l'IA y bloquerait un jeton
+    """AGT-11 sur un DataFrame. `spec` fournie (source connectée qu'on actualise) : mêmes indicateurs, sans IA.
+    Avec un dictionnaire, la correspondance mémorisée pour cette structure de fichier pilote le tableau de bord."""
     hermes_da_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "HERMES_DA")
     if hermes_da_dir not in sys.path:
         sys.path.insert(0, hermes_da_dir)
@@ -1122,13 +1145,16 @@ def build_dashboard(df, spec=None):  # pas de garde _lourd : l'appel à l'IA (ju
     except Exception as exc:
         print(f"[dictionnaire] lecture impossible : {exc}", flush=True)
         dico = []
+    if correspondance is None and dico:
+        correspondance = _correspondance_pour(df, dico, ia=False)  # actualisation : mémorisée, jamais l'IA
     if spec is not None:
-        return generate_dashboard(df, "Tableau de bord KLDataViz", llm=False, spec=spec, dictionnaire=dico)
+        return generate_dashboard(df, "Tableau de bord KLDataViz", llm=False, spec=spec, dictionnaire=dico,
+                                  correspondance=correspondance)
     cfg = _llm_config()  # en ligne : clé DEEPSEEK_API_KEY de l'environnement (pas de llm_config.json)
     model = os.environ.get("KLDV_DASHBOARD_MODEL") or (cfg or {}).get("dashboard_model") or "deepseek-flash"
     llm = (lambda m, n: _llm_call(m, n, model=model, effort="high", timeout=120, attempts=1)
            or _llm_call(m, n, model=model, effort="low", timeout=90, attempts=1)) if cfg else None
-    return generate_dashboard(df, "Tableau de bord KLDataViz", llm=llm, dictionnaire=dico)
+    return generate_dashboard(df, "Tableau de bord KLDataViz", llm=llm, dictionnaire=dico, correspondance=correspondance)
 
 
 def do_dashboard(file_path, name=None):
@@ -1140,8 +1166,12 @@ def do_dashboard(file_path, name=None):
             return {"error": err}
         if df is None or len(df) == 0:
             return {"error": "Aucune donnée lisible dans cette source."}
-        result = build_dashboard(df)
+        dico = dictionnaire.charger()
+        corr = _correspondance_pour(df, dico, ia=True)  # 1re fois sur cette structure : propositions (règles + IA)
+        result = build_dashboard(df, correspondance=corr)
         out = {"html": result["html"], "ia": result["ia"], "kpis": result["kpis"]}
+        if corr:
+            out["correspondance"] = correspondances.public(df, corr, _pretty)
         try:
             out["source"] = sources.connect(file_path, name, result.get("spec"), df, result["html"])
         except Exception as exc:  # la connexion est un plus : le tableau de bord reste affiché
@@ -2585,6 +2615,37 @@ class Handler(http.server.BaseHTTPRequestHandler):
             # trace hors de l'espace : le journal de l'espace part avec ses données
             journal.ajouter("suppression des données de l'espace", details={"org_id": T.current().org_id}, espace=False)
             return self._send(200, espace.supprimer_donnees(shares.revoke_all))
+        if path in ("/api/correspondance", "/api/correspondance/enregistrer", "/api/correspondance/reproposer"):
+            if T.CLOUD and path != "/api/correspondance":
+                cloud.require(T.current(), "owner", "analyst")
+            df, err = _read_df(str(p.get("file_path") or ""))
+            if err or df is None:
+                raise ValueError(err or "Fichier illisible.")
+            dico = dictionnaire.charger()
+            if not dico:
+                raise ValueError("Importez d'abord un dictionnaire d'indicateurs (Réglages).")
+            if path.endswith("/reproposer"):
+                correspondances.oublier(df)
+                corr = _correspondance_pour(df, dico, ia=True)
+            elif path.endswith("/enregistrer"):
+                corr = correspondances.enregistrer(df, p)
+                journal.ajouter("correspondance des indicateurs enregistrée", details={"nom": str(p.get("file_path") or "")[-80:]})
+            else:
+                corr = _correspondance_pour(df, dico, ia=False)
+            out = {"correspondance": correspondances.public(df, corr, _pretty)}
+            if path != "/api/correspondance":  # tableau de bord régénéré avec les mêmes choix d'indicateurs, sans IA
+                sid = str(p.get("source_id") or "")
+                spec = None
+                if sid:
+                    try:
+                        spec = sources.get(sid, with_html=False).get("spec")
+                    except KeyError:
+                        sid = ""
+                res = build_dashboard(df, spec=spec or {"kpis": [], "graphiques": []}, correspondance=corr)
+                out["html"] = res["html"]
+                if sid:
+                    sources.remplacer_html(sid, res["html"])
+            return self._send(200, out)
         if path in ("/api/dictionnaire/import", "/api/dictionnaire/delete"):
             if T.CLOUD:
                 cloud.require(T.current(), "owner", "analyst")

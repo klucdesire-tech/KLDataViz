@@ -318,6 +318,13 @@ tr.versions td{background:var(--surface-2);font-size:13px}
 .act .i{width:18px;height:18px;flex:none;color:var(--muted)}
 .actfreq{cursor:default}.actfreq select{margin-left:auto;width:auto;min-height:30px;padding:2px 8px;font-size:13px}
 .actpanel hr{border:0;border-top:1px solid var(--line);margin:4px 8px}
+.corr-row{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1.6fr) auto auto;gap:10px;align-items:center;padding:10px 0;border-top:1px solid var(--line)}
+.corr-row .code{font-weight:700}.corr-row .lib{font-size:12px;color:var(--muted)}.corr-row .val{font-weight:700;text-align:right;white-space:nowrap}
+.corr-row select{width:auto;min-height:34px}.corr-src{font-size:11px;color:var(--muted)}
+.corr-edit{grid-column:1/-1;background:var(--surface-2);border-radius:10px;padding:12px;display:grid;gap:10px}
+.corr-edit .vals{display:flex;flex-wrap:wrap;gap:6px 14px}.corr-edit label.chk{display:inline-flex;gap:6px;align-items:center;font-size:13px}
+.corr-err{color:var(--red);font-size:12px}
+@media (max-width:760px){.corr-row{grid-template-columns:1fr auto}.corr-row .desc{grid-column:1/-1}}
 </style>
 </head>
 <body>
@@ -584,6 +591,7 @@ tr.versions td{background:var(--surface-2);font-size:13px}
             </div>
           </div>
         </div>
+        <div class="card" id="corrPanel" hidden style="margin-bottom:14px"></div>
         <div id="dbBody"><div class="card empty">Chargement…</div></div>
         <div class="card" id="dbSaved" hidden style="margin-top:14px"><h2>Tableaux de bord de l'espace</h2>
           <p class="sub">Enregistrés automatiquement, visibles par les membres de votre espace.</p><div class="list" id="dbSavedList" style="margin-top:10px"></div></div>
@@ -1455,7 +1463,7 @@ async function loadDashboard(force){
   const d=await api('/api/dashboard',{file_path:src,name:state.name});
   if(state.analysis!==a)return;  // une autre analyse a été ouverte entre-temps
   if(!d.html){body.innerHTML=`<div class="alert">${esc(d.error||'Génération impossible.')}</div>`;return}
-  state.dash={for:a,html:d.html,ia:d.ia,source:d.source||null};$('#dbShare').hidden=true;showDashboard();loadSaved();
+  state.dash={for:a,html:d.html,ia:d.ia,source:d.source||null,file:src,corr:d.correspondance||null};$('#dbShare').hidden=true;showDashboard();renderCorr();loadSaved();
 }
 // Source connectée (lien Google Sheets / web) : date de lecture, actualisation à la demande ou automatique
 const when=t=>t?new Date(t).toLocaleString('fr-FR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}).replace(' ',' à '):'—';
@@ -1493,6 +1501,69 @@ $('#dbRegen').onclick=()=>loadDashboard(true);
   m.addEventListener('keydown',e=>{if(e.key==='Escape'){set(false);b.focus()}});
   $('#dbActPanel').addEventListener('click',e=>{if(e.target.closest('button.act')){set(false);if(document.activeElement)document.activeElement.blur()}});
 })();
+// ---- Correspondance des indicateurs : Hermes propose une formule par indicateur du dictionnaire, l'utilisateur valide
+const STAT={propose:'Proposé',valide:'Validé',ignore:'Ignoré'},SRC={regles:'règles',ia:'IA',utilisateur:'vous'};
+const MODES={comptage:'Nombre de lignes où…',taux:'Taux (%) : lignes où… / lignes de référence',somme:'Somme d’une colonne',moyenne:'Moyenne d’une colonne',mediane:'Médiane d’une colonne',rapport:'Rapport (%) de deux sommes'};
+function corrVal(i){if(i.valeur==null)return '—';const p=(i.formule||{}).mode==='taux'||(i.formule||{}).mode==='rapport';return nf(Math.round(i.valeur*10)/10)+(p?' %':'')}
+function renderCorr(){const C=state.dash?.corr,el=$('#corrPanel');if(!C||!(C.indicateurs||[]).length){el.hidden=true;return}
+  const canEdit=!CLOUD||['owner','analyst'].includes(state.me?.role),nv=C.indicateurs.filter(i=>i.statut==='valide').length;
+  const opt=(arr,cur)=>arr.map(c=>`<option value="${esc(c.v)}"${c.v===cur?' selected':''}>${esc(c.t)}</option>`).join('');
+  el.hidden=false;
+  el.innerHTML=`<div class="card-h" style="display:flex;gap:10px;align-items:flex-start;flex-wrap:wrap"><div style="flex:1;min-width:240px"><h2>Correspondance des indicateurs</h2>
+      <p class="sub">Hermes a relié ${C.indicateurs.length} indicateur${C.indicateurs.length>1?'s':''} de votre dictionnaire à vos colonnes (${nv} validé${nv>1?'s':''}).
+      Vérifiez chaque formule : une fois enregistrées, elles sont réutilisées pour ce type de fichier, sans IA.</p></div>
+      ${canEdit?`<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn ghost sm" id="corrAll">Tout valider</button><button class="btn ghost sm" id="corrRe" title="Oublier ces propositions et en demander de nouvelles (règles + IA)">Reproposer</button></div>`:''}</div>
+    <div id="corrList">${C.indicateurs.map((i,k)=>`<div class="corr-row" data-k="${k}">
+      <div><div class="code">${esc(i.code)}</div><div class="lib">${esc(i.libelle||'')}</div></div>
+      <div class="desc"><div>${esc(i.description||'')}</div><div class="corr-src">Proposé par ${esc(SRC[i.source]||i.source||'')}${i.explication?' · '+esc(i.explication):''}</div>
+        ${(i.erreurs||[]).length?`<div class="corr-err">${esc(i.erreurs.join(' ; '))}</div>`:''}</div>
+      <div class="val">${corrVal(i)}</div>
+      <div style="display:flex;gap:6px;align-items:center">${canEdit?`<select data-st="${k}" aria-label="Statut de ${esc(i.code)}">${opt(Object.keys(STAT).map(v=>({v,t:STAT[v]})),i.statut)}</select>
+        <button class="btn ghost sm" data-ed="${k}">Modifier</button>`:`<span class="tag">${esc(STAT[i.statut]||'')}</span>`}</div></div>`).join('')}</div>
+    ${canEdit?`<div style="display:flex;gap:12px;flex-wrap:wrap;align-items:end;margin-top:12px;border-top:1px solid var(--line);padding-top:12px">
+      <label class="field" for="corrPer" style="min-width:200px">Période d'activité<select id="corrPer"><option value="">(aucune)</option>${opt((C.periodes_possibles||[]).map(v=>({v,t:(C.colonnes.find(c=>c.nom===v)||{}).libelle||v})),C.periode||'')}</select></label>
+      <label class="field" for="corrDim" style="min-width:200px">Dimension principale<select id="corrDim">${opt(C.colonnes.filter(c=>c.categories&&!c.numerique).map(c=>({v:c.nom,t:c.libelle})),(C.dimensions||[])[0]||'')}</select></label>
+      <button class="btn primary" id="corrSave">Enregistrer et mettre à jour le tableau de bord</button><span class="sub" id="corrMsg"></span></div>`:''}`}
+function corrEditor(k){const C=state.dash.corr,i=C.indicateurs[k],f=Object.assign({mode:'comptage'},i.formule||{}),cols=C.colonnes;
+  const cond=f.numerateur||{},num=['somme','moyenne','mediane','rapport'].includes(f.mode);
+  const catCols=cols.filter(c=>c.categories),numCols=cols.filter(c=>c.numerique);
+  const colOpts=(list,cur)=>list.map(c=>`<option value="${esc(c.nom)}"${c.nom===cur?' selected':''}>${esc(c.libelle)}</option>`).join('');
+  const vals=(c,sel,name)=>{const col=cols.find(x=>x.nom===c);return (col?.categories||[]).map(v=>`<label class="chk"><input type="checkbox" name="${name}" value="${esc(v)}"${(sel||[]).includes(v)?' checked':''}>${esc(v)}</label>`).join('')||'<span class="sub">Choisissez une colonne à catégories.</span>'};
+  const cCol=cond.colonne||catCols[0]?.nom,den=f.denominateur;
+  return `<div class="corr-edit" data-edk="${k}">
+    <label class="field">Calcul<select id="ceMode">${Object.keys(MODES).map(m=>`<option value="${m}"${m===f.mode?' selected':''}>${MODES[m]}</option>`).join('')}</select></label>
+    ${num?`<label class="field">Colonne chiffrée<select id="ceNumCol">${colOpts(numCols,f.colonne)}</select></label>`:''}
+    <label class="field">${num?'Lignes retenues (facultatif) : colonne':'Colonne qui porte la condition'}<select id="ceCol">${colOpts(catCols,cCol)}</select></label>
+    <div><b style="font-size:13px">Valeurs ${f.mode==='taux'?'comptées au numérateur':'retenues'}</b><div class="vals" id="ceVals">${vals(cCol,cond.valeurs,'ceV')}</div></div>
+    ${f.mode==='taux'?`<div><b style="font-size:13px">Dénominateur</b> <span class="sub">(aucune case : toutes les lignes où la colonne est renseignée)</span><div class="vals" id="ceDen">${vals(cCol,den&&den.colonne===cCol?den.valeurs:[],'ceD')}</div></div>`:''}
+    <div class="vals"><label class="chk"><input type="checkbox" id="ceStock"${f.stock?' checked':''}>Stock : valeur de la dernière période seulement</label>
+      <label class="chk"><input type="checkbox" id="ceEvol"${i.evolution!==false?' checked':''}>Afficher son évolution dans le temps</label></div>
+    <div style="display:flex;gap:8px"><button class="btn primary sm" id="ceOk">Appliquer</button><button class="btn ghost sm" id="ceCancel">Annuler</button></div></div>`}
+$('#corrPanel').addEventListener('change',e=>{const C=state.dash?.corr;if(!C)return;
+  const st=e.target.closest('[data-st]');if(st){C.indicateurs[+st.dataset.st].statut=st.value;return}
+  if(e.target.id==='ceMode'||e.target.id==='ceCol'){const box=e.target.closest('.corr-edit'),k=+box.dataset.edk,i=C.indicateurs[k];
+    const f=Object.assign({},i.formule||{},{mode:$('#ceMode').value});const c=$('#ceCol')?.value;if(c&&(!f.numerateur||f.numerateur.colonne!==c))f.numerateur={colonne:c,valeurs:[]};
+    i.formule=f;box.outerHTML=corrEditor(k)}});
+$('#corrPanel').addEventListener('click',async e=>{const C=state.dash?.corr;if(!C)return;
+  const ed=e.target.closest('[data-ed]');if(ed){$$('.corr-edit').forEach(x=>x.remove());ed.closest('.corr-row').insertAdjacentHTML('beforeend',corrEditor(+ed.dataset.ed));return}
+  if(e.target.id==='ceCancel'){e.target.closest('.corr-edit').remove();return}
+  if(e.target.id==='ceOk'){const box=e.target.closest('.corr-edit'),k=+box.dataset.edk,i=C.indicateurs[k],m=$('#ceMode').value,c=$('#ceCol')?.value;
+    const pick=n=>[...box.querySelectorAll(`input[name="${n}"]:checked`)].map(x=>x.value),v=pick('ceV'),d=pick('ceD');
+    const f={mode:m,stock:$('#ceStock').checked};
+    if(['somme','moyenne','mediane','rapport'].includes(m)){f.colonne=$('#ceNumCol')?.value;if(c&&v.length)f.numerateur={colonne:c,valeurs:v}}
+    else{if(!v.length&&m!=='comptage'){toast('Cochez au moins une valeur.');return}if(v.length)f.numerateur={colonne:c,valeurs:v};if(m==='taux'&&d.length)f.denominateur={colonne:c,valeurs:d}}
+    Object.assign(i,{formule:f,evolution:$('#ceEvol').checked,statut:'valide',source:'utilisateur',description:'Modifiée : enregistrez pour recalculer.',valeur:null});
+    renderCorr();return}
+  if(e.target.id==='corrAll'){C.indicateurs.forEach(i=>{if(!(i.erreurs||[]).length&&i.statut!=='ignore')i.statut='valide'});renderCorr();return}
+  if(e.target.id==='corrRe'||e.target.id==='corrSave'){const b=e.target;b.disabled=true;const re=b.id==='corrRe';
+    $('#corrMsg')&&($('#corrMsg').innerHTML='<span class="spin"></span> '+(re?'Nouvelles propositions…':'Enregistrement et mise à jour…'));
+    const body={file_path:state.dash.file,source_id:state.dash.source?.id};
+    if(!re)Object.assign(body,{periode:$('#corrPer')?.value||'',dimensions:[$('#corrDim')?.value].filter(Boolean).concat((C.dimensions||[]).filter(x=>x!==$('#corrDim')?.value)),
+      indicateurs:C.indicateurs.map(i=>({code:i.code,libelle:i.libelle,type:i.type,statut:i.statut,formule:i.formule,evolution:i.evolution}))});
+    const r=await api(re?'/api/correspondance/reproposer':'/api/correspondance/enregistrer',body);b.disabled=false;
+    if(r.error){toast(r.error);$('#corrMsg')&&($('#corrMsg').textContent=r.error);return}
+    state.dash.corr=r.correspondance;if(r.html){state.dash.html=r.html;showDashboard()}renderCorr();
+    toast(re?'Nouvelles propositions prêtes.':'Correspondance enregistrée : tableau de bord mis à jour.')}});
 // ---- A. Télécharger : fichier HTML autonome (interactif, sans compte, hors connexion)
 $('#dbDl').onclick=()=>{if(!state.dash?.html)return;const n=(state.dash.source?.name||state.name||'tableau').replace(/\.[^.]+$/,'').replace(/[^\w\-]+/g,'_').slice(0,40);
   const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([state.dash.html],{type:'text/html'}));a.download=`tableau_de_bord_${n}.html`;document.body.append(a);a.click();a.remove();
@@ -1533,7 +1604,7 @@ $('#dbSavedList').addEventListener('click',async e=>{const d=e.target.closest('[
     toast('Tableau de bord supprimé (ses liens de partage ne fonctionnent plus).');loadSaved();return}
   const b=e.target.closest('[data-open-db]');if(!b)return;
   const r=await api('/api/sources/get?id='+encodeURIComponent(b.dataset.openDb));if(r.error||!r.html){toast(r.error||'Tableau introuvable.');return}
-  state.dash={saved:true,html:r.html,ia:true,source:r};$('#dbLead').textContent=`${r.name} · tableau enregistré`;$('#dbShare').hidden=true;showDashboard();
+  state.dash={saved:true,html:r.html,ia:true,source:r};$('#corrPanel').hidden=true;$('#dbLead').textContent=`${r.name} · tableau enregistré`;$('#dbShare').hidden=true;showDashboard();
   window.scrollTo({top:0,behavior:'smooth'})});
 $('#dbOpen').onclick=()=>{if(state.dash?.html){const u=URL.createObjectURL(new Blob([state.dash.html],{type:'text/html'}));window.open(u,'_blank')}};
 

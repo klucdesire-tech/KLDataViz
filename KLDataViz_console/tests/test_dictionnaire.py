@@ -103,9 +103,10 @@ def test_tableau_de_bord_utilise_le_dictionnaire_de_l_espace(monkeypatch):
         assert out.get("dictionnaire") is None          # sans dictionnaire : normes intégrées (Mode A)
         dictionnaire.importer(_xlsx(), "mer.xlsx")
         out = server.build_dashboard(_long())
-        trouves = {r["code"]: r["valeur"] for r in out["dictionnaire"]["trouves"]}
-        assert trouves == {"TX_CURR": 320.0, "TX_PVLS": 85.0, "HTS_TST": 200.0}
-        assert "Indicateurs du dictionnaire" in out["html"]
+        # Les indicateurs reliés par la correspondance passent dans les tuiles du haut (mêmes valeurs qu'avant)
+        tuiles = {k["nom"].split(" · ")[0]: k["valeur"] for k in out["kpis"]}
+        assert tuiles == {"TX_CURR": 320.0, "TX_PVLS": 85.0, "HTS_TST": 200.0}
+        assert "Autres indicateurs du dictionnaire" in out["html"]
 
 
 def test_ia_ne_recoit_aucune_valeur_brute():
