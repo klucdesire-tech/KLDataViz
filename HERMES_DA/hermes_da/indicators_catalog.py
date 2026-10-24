@@ -363,6 +363,111 @@ def _is_snapshot(ind):
 # --------------------------------------------------------------------------
 # Matching assisté par LLM (cas ambigus que le matching par mots-clés rate)
 # --------------------------------------------------------------------------
+
+
+def grouped_value(df, ind, dim):
+    """Valeur de l'indicateur `ind` PAR groupe de la colonne `dim` → [(groupe, valeur), …] (graphique).
+
+    - Format long (indicateur + valeur) : somme (ou taux pondéré) par groupe.
+    - Format liste (une ligne = observation) : taux (positif / total) par groupe.
+    """
+    import pandas as pd
+    if dim not in df.columns:
+        return None
+    df2, ic, vc = _as_long(df, [ind])
+    is_rate = (ind["type"] or "").strip().lower() in ("pourcentage", "proportion", "taux", "%", "rate", "pct")
+    out = []
+    if ic is not None and vc is not None:
+        labels = df2[ic].dropna().astype(str).map(_norm)
+        code = _norm(ind["code"])
+        parts = labels.map(lambda t, c=code: _part(t, c)).dropna()
+        if parts.empty:
+            return None
+        sub = df2.loc[parts.index].copy()
+        sub["__v"] = pd.to_numeric(sub[vc], errors="coerce")
+        sub["__part"] = parts
+        sub = sub.dropna(subset=["__v"])
+        for g, gdf in sub.groupby(dim):
+            if is_rate:
+                num = gdf.loc[gdf["__part"] == "n", "__v"].sum()
+                den = gdf.loc[gdf["__part"] == "d", "__v"].sum()
+                if (gdf["__part"] == "n").any() and den > 0:
+                    v = round(float(num / den * 100), 1)
+                else:
+                    vv = gdf.loc[gdf["__part"] == "", "__v"]
+                    v = round(float(vv.mean()), 1) if vv.notna().any() else None
+            else:
+                v = float(gdf[gdf["__part"] != "d"]["__v"].sum())
+            if v is not None:
+                out.append((str(g), v))
+        return out or None
+    # Format liste : colonne catégorielle « résultat » → taux (ou comptage) par groupe
+    stems = {_stem(w) for w in _keywords(ind["code"], ind["libelle"])[1] if (" " in w) or len(w) >= 4}
+    cat_cols = []
+    for c in df2.columns:
+        if c == dim or pd.api.types.is_numeric_dtype(df2[c]) or pd.api.types.is_datetime64_any_dtype(df2[c]):
+            continue
+        vals = [str(v).strip() for v in df2[c].dropna().unique()
+                if str(v).strip().lower() not in ("", "nan", "none", "null", "nat")]
+        if 2 <= len(vals) <= 8:
+            cat_cols.append((c, vals))
+    cands = cat_cols if not is_rate else [(c, v) for c, v in cat_cols if len(v) == 2] or cat_cols
+    hit = None
+    for c, vals in cands:
+        vstem = {_stem(w) for v in vals for w in _norm(v).split() if len(w) >= 3}
+        if stems & vstem:
+            hit = (c, vals)
+            break
+    if hit is None:
+        return None
+    c, vals = hit
+
+    def _negated(v):
+        n = _norm(v)
+        return n.startswith("non ") or n == "non" or n.startswith("pas ") or n == "pas"
+    pos = [v for v in vals if not _negated(v) and stems & {_stem(w) for w in _norm(v).split() if len(w) >= 3}]
+    neg = [v for v in vals if v not in pos]
+    for g, gdf in df2.groupby(dim):
+        s = gdf[c].astype(str).str.strip()
+        if is_rate:
+            n_pos, n_neg = int(s.isin(pos).sum()), int(s.isin(neg).sum())
+            v = round(n_pos / (n_pos + n_neg) * 100, 1) if (n_pos + n_neg) else None
+        else:
+            v = float(n_pos)
+        if v is not None:
+            out.append((str(g), v))
+    return out or None
+
+
+# Dimensions géographiques / démographiques prioritaires pour les ventilations
+_DIMENSIONS_PRIORITAIRES = ("region", "district", "site", "sexe", "genre", "age", "tranche")
+
+
+def main_dimensions(df, top=2):
+    """Colonnes « dimension » prioritaires (région, district, site, sexe…), détectées par nom.
+
+    Exclut les identifiants (code site, labno…), les colonnes numériques (mesures) et les dates."""
+    import pandas as pd
+    found = []
+    for c in df.columns:
+        n = _norm(c)
+        if _IDLIKE.search(n) or pd.api.types.is_numeric_dtype(df[c]) or pd.api.types.is_datetime64_any_dtype(df[c]):
+            continue
+        if any(re.search(r"\b" + d + r"\b", n) for d in _DIMENSIONS_PRIORITAIRES):
+            found.append((c, n))
+    # ordre : région > district > site > sexe/genre > âge > autres
+    order = {d: i for i, d in enumerate(_DIMENSIONS_PRIORITAIRES)}
+
+    def rank(item):
+        c, n = item
+        for d in _DIMENSIONS_PRIORITAIRES:
+            if re.search(r"\b" + d + r"\b", n):
+                return order[d]
+        return 99
+    found.sort(key=rank)
+    return [c for c, _ in found[:top]]
+
+
 MATCH_SYSTEM = """Tu relies un fichier de données à un dictionnaire d'indicateurs métier.
 Pour CHAQUE indicateur, détermine s'il est calculable depuis les colonnes du fichier, et comment.
 Réponds en JSON STRICT (aucun texte avant ni après) :

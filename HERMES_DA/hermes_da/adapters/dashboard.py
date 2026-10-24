@@ -889,6 +889,13 @@ body.embedded{min-height:0;overflow:hidden}html:has(body.embedded){overflow:hidd
 .dict-abs summary{cursor:pointer;font-weight:600;padding:6px 0;list-style-position:inside}
 .dict-abs ul{margin:6px 0 0;padding-left:18px;columns:2 320px;column-gap:24px}
 .dict-abs li{margin:2px 0;break-inside:avoid;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rep{margin-top:8px;border-top:1px solid var(--line,#eef1f5);padding-top:8px}
+.rep-d{font-size:10.5px;font-weight:700;color:var(--muted,#667085);text-transform:uppercase;letter-spacing:.04em;margin-bottom:5px}
+.rep-r{display:grid;grid-template-columns:1fr 1fr auto;align-items:center;gap:8px;margin:3px 0;font-size:11.5px}
+.rep-l{color:var(--fg,#0f172a);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rep-b{height:7px;background:var(--line,#eef1f5);border-radius:4px;overflow:hidden}
+.rep-b i{display:block;height:100%;background:linear-gradient(90deg,#0B4F8F,#10BCD0);border-radius:4px}
+.rep-v{font-weight:700;color:var(--fg,#0f172a);white-space:nowrap}
 </style></head><body>
 <header class="top"><div class="title"><h1>Tableau de bord</h1><p id="objective"></p></div>
   <span class="chip" id="range" hidden><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg><span></span></span></header>
@@ -1144,11 +1151,17 @@ function renderGaps(rows){var el=document.getElementById('gaps'),K=META.keyind,D
         scales:{x:{grid:{color:function(c){return c.tick&&c.tick.value===0?'#9CC3EA':'#EEF2F7'},drawTicks:false},border:{display:false},ticks:{padding:6,font:{size:11},callback:function(v){return (v>0?'+':'')+v}}},y:{grid:{display:false},border:{display:false},ticks:{callback:function(v){var l=this.getLabelForValue(v);return l.length>26?l.slice(0,25)+'…':l}}}}}})}}
 function renderDict(){var el=document.getElementById('dict'),D=META.dictionnaire;if(!D||(!(D.trouves||[]).length&&!(D.absents||[]).length)){el.hidden=true;return}el.hidden=false;
   var F=D.trouves||[],A=D.absents||[],VIS=6;
+  function bars(rep,isPct){var g=(rep&&rep.groupes)||[];if(!g.length)return '';
+    var mx=Math.max.apply(null,g.map(function(x){return x[1]||0}))||1;
+    return '<div class="rep"><div class="rep-d">'+esc(rep.dimension||'')+'</div>'
+      +g.map(function(x){var w=Math.max(2,Math.round((x[1]||0)/mx*100));
+        return '<div class="rep-r"><span class="rep-l">'+esc(x[0])+'</span><div class="rep-b"><i style="width:'+w+'%"></i></div><span class="rep-v">'+fmt(x[1])+(isPct?' %':'')+'</span></div>'}).join('')
+      +'</div>'}
   function tile(r,i){var isPct=(r.type||'').toLowerCase().indexOf('pourcentage')>=0;
     var v=r.valeur==null?'—':(isPct?String(r.valeur).replace('.',',')+'<small>%</small>':fmt(r.valeur));
     var tip=(r.libelle||'')+(r.detail?'\n'+r.detail:'');
     return '<div class="kpi gap k'+(i%4+1)+'" title="'+esc(tip)+'"><div class="n"><span class="dc">'+esc(r.code||'')+'</span><span class="dl">'+esc(r.libelle||'')+'</span></div>'
-      +'<div class="row"><div class="v">'+v+'</div>'+(r.detail&&/^\d/.test(r.detail)?'<div class="s"><span class="gap-p">'+esc(r.detail)+'</span></div>':'')+'</div></div>'}
+      +'<div class="row"><div class="v">'+v+'</div>'+(r.detail&&/^\d/.test(r.detail)?'<div class="s"><span class="gap-p">'+esc(r.detail)+'</span></div>':'')+'</div>'+bars(r.repartition,isPct)+'</div>'}
   var more=F.slice(VIS),li=function(r){return '<li title="'+esc(r.libelle||'')+'"><b>'+esc(r.code)+'</b> '+esc(r.libelle||'')+'</li>'};
   el.innerHTML='<div class="card-h"><div><h2>Indicateurs du dictionnaire</h2><small>'+F.length+' calculé'+(F.length>1?'s':'')+' selon votre référentiel · les indicateurs clés du haut sont choisis par Hermes</small></div></div>'
     +(F.length?'<div class="gaps-grid">'+F.slice(0,VIS).map(tile).join('')+'</div>':'<p class="gaps-ct">Aucun indicateur du dictionnaire n\'est calculable de façon sûre avec ces données.</p>')
@@ -1363,9 +1376,25 @@ def generate_dashboard(df, objective: str = "", job_id: str | None = None, llm=N
                              if r["present"] and not str(r["code"]).upper().endswith("_NAT")}
                 res = [r for r in res if not (r["present"] and str(r["code"]).upper().endswith("_NAT")
                                               and (r["valeur"], r["detail"]) in base_vals)]
+                dims = _cat.main_dimensions(df_source, top=2)
+                by_code = {i["code"].strip().lower(): i for i in dict_inds}
+                trouves = []
+                for r in res:
+                    if not r["present"]:
+                        continue
+                    item = {"code": r["code"], "libelle": r["libelle"], "type": r["type"],
+                            "valeur": r["valeur"], "detail": r["detail"]}
+                    ind = by_code.get(r["code"].strip().lower())
+                    if ind is not None:
+                        for d in dims:
+                            gv = _cat.grouped_value(df_source, ind, d)
+                            if gv:
+                                item["repartition"] = {"dimension": str(d),
+                                                       "groupes": sorted(gv, key=lambda x: -(x[1] or 0))[:10]}
+                                break
+                    trouves.append(item)
                 meta["dictionnaire"] = _json_safe({
-                    "trouves": [{"code": r["code"], "libelle": r["libelle"], "type": r["type"],
-                                 "valeur": r["valeur"], "detail": r["detail"]} for r in res if r["present"]],
+                    "trouves": trouves,
                     "absents": [{"code": r["code"], "libelle": r["libelle"]} for r in res if not r["present"]],
                 })
         except Exception as exc:  # le tableau de bord reste affiché, mais l'échec laisse une trace
