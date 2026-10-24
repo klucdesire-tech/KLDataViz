@@ -170,3 +170,20 @@ def test_ia_export_long_somme_sans_filtre_ecartee():
         {"code": "HTS_POS", "formule": {"mode": "somme", "colonne": "value"}},
         {"code": "TX_CURR", "formule": {"mode": "somme", "colonne": "value", "filtre": {"colonne": "dataname", "valeurs": ["Positifs"]}}}]})
     assert [p["code"] for p in correspondances._proposer_ia(d, DICO, C.roles(d), ia, json.loads)] == ["TX_CURR"]
+
+
+def test_ia_export_long_bon_libelle_et_stock():
+    reset_app_modules()
+    import correspondances  # noqa: PLC0415
+    from hermes_da import correspondance as C  # noqa: PLC0415
+    d = pd.DataFrame({"dataname": ["TX_CURR", "Testés"] * 3, "periode": ["2025-01", "2025-01", "2025-02", "2025-02", "2025-03", "2025-03"],
+                      "value": [8, 10, 9, 10, 10, 11]})
+    dico = [{"code": "TX_CURR", "libelle": "Patients sous TARV", "type": "Nombre",
+             "total": "Indicateur instantané (snapshot) : total annuel = valeur T4"}]
+    mauvais = lambda m, n: json.dumps({"indicateurs": [{"code": "TX_CURR", "formule": {  # noqa: E731
+        "mode": "somme", "colonne": "value", "filtre": {"colonne": "dataname", "valeurs": ["Testés"]}}}]})
+    assert correspondances._proposer_ia(d, dico, C.roles(d), mauvais, json.loads) == []
+    bon = lambda m, n: json.dumps({"indicateurs": [{"code": "TX_CURR", "formule": {  # noqa: E731
+        "mode": "somme", "colonne": "value", "filtre": {"colonne": "dataname", "valeurs": ["TX_CURR"]}}}]})
+    p = correspondances._proposer_ia(d, dico, C.roles(d), bon, json.loads)
+    assert p and p[0]["formule"]["stock"] is True

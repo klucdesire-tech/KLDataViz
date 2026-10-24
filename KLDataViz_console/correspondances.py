@@ -104,6 +104,7 @@ def _proposer_ia(df, indicateurs, r, llm, parse):
         return []
     data = parse(txt) if txt else None
     by = {str(i["code"]).strip().lower(): i for i in indicateurs}
+    from hermes_da import indicators_catalog as cat
     long_ic, _vc = C.colonnes_longues(df, indicateurs)
     out = []
     for it in (data or {}).get("indicateurs", []) if isinstance(data, dict) else []:
@@ -116,6 +117,14 @@ def _proposer_ia(df, indicateurs, r, llm, parse):
         if long_ic and (f.get("mode") in ("comptage", "taux") or long_ic not in
                         ((f.get("filtre") or {}).get("colonne"), (f.get("numerateur") or {}).get("colonne"))):
             continue  # export long : jamais de lignes comptées, et toujours filtré sur le(s) libellé(s) d'indicateur
+        if long_ic:
+            cond = f.get("filtre") if (f.get("filtre") or {}).get("colonne") == long_ic else f.get("numerateur")
+            cn = C._norm(ind["code"])
+            portent = [lab for lab in df[long_ic].dropna().astype(str).unique() if cat._part(C._norm(lab), cn) is not None]
+            if portent and not set(map(str, cond.get("valeurs") or [])) & set(portent):
+                continue  # le code figure dans le fichier mais la formule filtre sur un autre libellé
+            if f.get("mode") == "somme":
+                f.setdefault("stock", bool(cat._is_snapshot(ind)))  # indicateur instantané : dernière période
         out.append({"code": ind["code"], "libelle": ind.get("libelle") or ind["code"], "type": ind.get("type") or "",
                     "formule": f, "evolution": bool(it.get("evolution", True)), "source": "ia", "confiance": 0.6,
                     "explication": str(it.get("explication") or "")[:240]})
@@ -173,7 +182,7 @@ def enregistrer(df, data: dict, dictionnaire=None) -> dict:
             ind = connus.get(code.lower()) or cur
             if not C.mode_compatible(ind, (cur.get("formule") or {}).get("mode")):
                 raise ValueError(f"{code} : un indicateur « {ind.get('type')} » demande un calcul "
-                                 + ("en taux, en rapport ou en moyenne de % ." if C.est_taux(ind) else "en nombre (comptage ou somme)."))
+                                 + ("en taux, en rapport ou en moyenne de %, pas en nombre." if C.est_taux(ind) else "en nombre (comptage, somme, moyenne ou médiane), pas en taux."))
         cur["statut"] = st
         par_code[code.lower()] = cur
     if data.get("periode") is not None:
