@@ -900,9 +900,9 @@ body.embedded{min-height:0;overflow:hidden}html:has(body.embedded){overflow:hidd
 <header class="top"><div class="title"><h1>Tableau de bord</h1><p id="objective"></p></div>
   <span class="chip" id="range" hidden><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg><span></span></span></header>
 <div class="filters" id="filters"></div>
+<section class="dict card" id="dict" hidden></section>
 <section class="kpis" id="kpis" aria-label="Indicateurs clés"></section>
 <section class="gaps card" id="gaps" hidden></section>
-<section class="dict card" id="dict" hidden></section>
 <section class="row2" id="row2"></section>
 <section class="row3" id="row3"></section>
 <script>
