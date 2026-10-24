@@ -247,11 +247,15 @@ def roles(df) -> dict:
     n = len(df)
     for c in df.columns:
         nc, s = _norm(c), df[c]
-        if _IDLIKE.search(nc) or (not pd.api.types.is_numeric_dtype(s) and n > 20 and s.nunique() >= 0.9 * n):
+        if _IDLIKE.search(nc):
             ids.append(c)
             continue
         if not pd.api.types.is_numeric_dtype(s) and _date_like(s):
-            dates.append(c)
+            # avant le test d'unicité : des dates quotidiennes sont presque toutes distinctes sans être un identifiant
+            (ids if _ATTRIBUT.search(nc) else dates).append(c)  # date de naissance : donnée personnelle, jamais un axe
+            continue
+        if not pd.api.types.is_numeric_dtype(s) and n > 20 and s.nunique() >= 0.9 * n:
+            ids.append(c)
             continue
         if not pd.api.types.is_numeric_dtype(s) and 2 <= s.nunique() <= 60:
             if {_v(x) for x in s.dropna().unique()} <= (_OUI | _NON):

@@ -143,3 +143,15 @@ def test_relecture_hermes_3():
     w = pd.DataFrame({"indicateur": ["a", "b"] * 3, "total": [1, 2, 3, 4, 5, 6], "TX_CURR": [10, 20, 30, 40, 50, 60]})
     assert C.colonnes_longues(w, MER) == (None, None)
     assert "TX_CURR" in {p["code"] for p in C.proposer_regles(w, MER)}
+
+
+def test_dates_quotidiennes_periode_par_mois():
+    """380 visites aux dates toutes distinctes : période d'activité reconnue, série agrégée par mois."""
+    n = 380
+    df = pd.DataFrame({"CODE SITE": [f"S{i % 40:03}" for i in range(n)], "district": ["Nawa", "Buyo", "Soubré", "Méagui"] * (n // 4),
+                       "date_naissance": pd.date_range("1980-01-01", periods=n).astype(str),
+                       "date_visite": pd.date_range("2025-01-01", periods=n).astype(str), "statut": ["Actif", "Perdu de vue"] * (n // 2)})
+    r = C.roles(df)
+    assert r["periode"] == "date_visite" and "CODE SITE" in r["identifiants"] and r["dimensions"] == ["district"]
+    pts = C.serie(df, {"mode": "comptage", "numerateur": {"colonne": "statut", "valeurs": ["Actif"]}}, C.cle_periode(df, r["periode"]))
+    assert len(pts) == 13 and pts[0][0] == "2025-01"
