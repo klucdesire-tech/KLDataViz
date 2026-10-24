@@ -281,3 +281,58 @@ def test_taux_llm_ignore_les_cellules_vides():
     res = cat.match_and_compute_llm(df, inds, lambda m, t: '{"matches":[{"code":"TX_PVLS","present":true,'
                                     '"colonne":"resultat","calcul":"taux","positif":"SUPPRIME"}]}')
     assert res[0]["valeur"] == 100.0   # 10 / 10 : une cellule vide n'est pas un « non »
+
+
+# --- Graphiques depuis le dictionnaire : répartition par dimension + série temporelle ---
+def test_grouped_value_rate_by_dimension():
+    df = pd.DataFrame({
+        "REGION": ["A", "A", "A", "B", "B", "B"],
+        "STATUT RESULTAT (S/NS)": ["SUPPRIME", "SUPPRIME", "NON-SUPPRIME", "SUPPRIME", "NON-SUPPRIME", "NON-SUPPRIME"],
+    })
+    ind = {"domaine": "Suppression virale", "code": "TX_PVLS", "libelle": "charge virale supprimée",
+           "type": "Pourcentage", "numerateur": "", "denominateur": ""}
+    d = dict(cat.grouped_value(df, ind, "REGION"))
+    assert d["A"] == 66.7   # 2 / 3
+    assert d["B"] == 33.3   # 1 / 3
+
+
+def test_grouped_value_long_format_sum_by_dimension():
+    df = pd.DataFrame({
+        "DISTRICT": ["D1", "D1", "D2"],
+        "indicateur": ["TX_NEW", "TX_NEW", "TX_NEW"],
+        "valeur": [10, 5, 100],
+    })
+    ind = {"domaine": "Traitement", "code": "TX_NEW", "libelle": "Nouveaux sous TARV",
+           "type": "Nombre", "numerateur": "", "denominateur": ""}
+    d = dict(cat.grouped_value(df, ind, "DISTRICT"))
+    assert d["D1"] == 15.0
+    assert d["D2"] == 100.0
+
+
+def test_main_dimensions_detects_and_skips_identifiers():
+    df = pd.DataFrame({
+        "REGION": ["a"] * 5,
+        "CODE SITE": [1, 2, 3, 4, 5],                 # identifiant : exclu
+        "NOM SITE DE PROVENANCE": ["s1", "s2", "s3", "s4", "s5"],
+        "SEXE": ["F", "M", "F", "M", "F"],
+        "AGE-ANS": [20, 30, 40, 50, 60],              # numérique : exclu
+    })
+    dims = cat.main_dimensions(df, top=5)
+    assert "REGION" in dims
+    assert "NOM SITE DE PROVENANCE" in dims
+    assert "SEXE" in dims
+    assert "CODE SITE" not in dims
+    assert "AGE-ANS" not in dims
+
+
+def test_time_series_buckets_dates_by_month():
+    df = pd.DataFrame({
+        "DATE PRELEVEMENT": ["01/09/2025", "15/09/2025", "01/10/2025", "02/10/2025"],
+        "STATUT RESULTAT (S/NS)": ["SUPPRIME", "NON-SUPPRIME", "SUPPRIME", "SUPPRIME"],
+    })
+    ind = {"domaine": "Suppression virale", "code": "TX_PVLS", "libelle": "charge virale supprimée",
+           "type": "Pourcentage", "numerateur": "", "denominateur": ""}
+    ser = cat.time_series(df, ind, "DATE PRELEVEMENT")
+    assert [p[0] for p in ser] == ["2025-09", "2025-10"]   # tri chronologique
+    assert ser[0][1] == 50.0    # 1 / 2 en septembre
+    assert ser[1][1] == 100.0   # 2 / 2 en octobre

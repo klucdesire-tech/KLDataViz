@@ -443,6 +443,38 @@ def grouped_value(df, ind, dim):
 _DIMENSIONS_PRIORITAIRES = ("region", "district", "site", "sexe", "genre", "age", "tranche")
 
 
+
+
+def time_series(df, ind, period_col):
+    """Valeur de l'indicateur par période, triée chronologiquement → [(période, valeur), …].
+
+    Si la colonne est une date (JJ/MM/AAAA), on agrège par mois (YYYY-MM) pour un
+    graphique lisible ; sinon on trie par clé chronologique `_pkey`."""
+    import pandas as pd
+    ser = pd.to_datetime(df[period_col], errors="coerce", dayfirst=True)
+    if ser.notna().sum() >= max(2, int(len(ser) * 0.5)):
+        df2 = df.copy()
+        df2["__periode"] = ser.dt.to_period("M").astype(str)
+        gv = grouped_value(df2, ind, "__periode")
+        if gv:
+            return sorted(gv, key=lambda x: x[0])
+    gv = grouped_value(df, ind, period_col)
+    if not gv:
+        return None
+    return sorted(gv, key=lambda x: _pkey(x[0]))
+
+
+def activity_period(df):
+    """Colonne de période d'activité (date de prélèvement, période…) — jamais une date de naissance."""
+    import pandas as pd
+    for c in df.columns:
+        n = _norm(c)
+        if re.match(r"^(date|periode|quarter|trimestre|mois|annee)\b", n) and "naissance" not in n and "birth" not in n:
+            if not pd.api.types.is_numeric_dtype(df[c]):
+                return c
+    return None
+
+
 def main_dimensions(df, top=2):
     """Colonnes « dimension » prioritaires (région, district, site, sexe…), détectées par nom.
 

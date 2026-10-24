@@ -1010,6 +1010,13 @@ function catBarDraw(id,e,u){return function(){var mean=e.reduce(function(a,x){re
       scales:h?{x:axes.y,y:{grid:{display:false},border:{display:false}}}:axes}}))}}
 function renderMain(rows){var M=META.measure,P=META.period,S=META.stack,el=document.getElementById('row2'),html='',todo=[];SHOWN={};
   var gP=P?groupBy(rows,function(r){return pkey(r.__p)}):{};
+  var D=(META.dictionnaire||{}).serie;
+  if(D&&(D.points||[]).length>=2){var isPct=(D.type||'').toLowerCase().indexOf('pourcentage')>=0;
+    html+=card(canvas('c_dictserie',D.indicateur+' — '+D.code),D.indicateur+' — '+D.code,'Évolution temporelle',seg());
+    todo.push(function(){var cv=document.getElementById('c_dictserie'),ctx=cv.getContext('2d'),grad=ctx.createLinearGradient(0,0,0,250);grad.addColorStop(0,'rgba(0,145,208,.28)');grad.addColorStop(1,'rgba(16,188,208,0)');
+      charts.push(new Chart(cv,{type:'line',data:{labels:D.points.map(function(p){return p[0]}),datasets:[{data:D.points.map(function(p){return p[1]}),borderColor:NAVY,backgroundColor:grad,fill:true,tension:.35,borderWidth:2.5,spanGaps:true,pointRadius:D.points.length<=15?3:0,pointHoverRadius:5,pointBackgroundColor:NAVY}]},
+        options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},plugins:{legend:{display:false},tooltip:Object.assign({callbacks:{label:function(c){return D.indicateur+' : '+fmt(c.parsed.y)+(isPct?' %':'')}}},navyTip)},scales:axes}}))});
+    P=null;}
   if(P&&M&&Object.keys(gP).length<2)P=null;  // un seul point : pas de courbe vide
   if(P&&M){var g=gP,ks=Object.keys(g).sort();
     html+=card(canvas('c_trend','Évolution de '+M.nom),'Évolution de '+M.nom,(M.sous_titre||'').replace('période',GRAN[gran].toLowerCase()),seg());
@@ -1393,9 +1400,20 @@ def generate_dashboard(df, objective: str = "", job_id: str | None = None, llm=N
                                                        "groupes": sorted(gv, key=lambda x: -(x[1] or 0))[:10]}
                                 break
                     trouves.append(item)
+                serie = None
+                if trouves:
+                    pcol = _cat.activity_period(df_source)
+                    if pcol:
+                        top = by_code.get(trouves[0]["code"].strip().lower())
+                        if top is not None:
+                            _ser = _cat.time_series(df_source, top, pcol)
+                            if _ser and len(_ser) >= 2:
+                                serie = {"indicateur": trouves[0]["libelle"], "code": trouves[0]["code"],
+                                         "type": trouves[0]["type"], "periode": str(pcol), "points": _ser}
                 meta["dictionnaire"] = _json_safe({
                     "trouves": trouves,
                     "absents": [{"code": r["code"], "libelle": r["libelle"]} for r in res if not r["present"]],
+                    "serie": serie,
                 })
         except Exception as exc:  # le tableau de bord reste affiché, mais l'échec laisse une trace
             import sys
