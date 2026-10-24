@@ -1,0 +1,7 @@
+{
+  "provider": "deepseek",
+  "base_url": "https://api.deepseek.com/chat/completions",
+  "model": "deepseek-v4-pro",
+  "chat_model": "deepseek-flash",
+  "api_key": "VOTRE_CLE_DEEPSEEK"
+}

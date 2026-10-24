@@ -1,0 +1,5 @@
+# Secrets — ne jamais committer
+llm_config.json
+
+# Données de l'apprenant — strictement locales
+storage/
