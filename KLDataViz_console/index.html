@@ -1554,7 +1554,8 @@ $('#corrPanel').addEventListener('click',async e=>{const C=state.dash?.corr;if(!
       if(m==='rapport'){const oD=(i.formule||{}).denominateur,D=d.length?{colonne:c,valeurs:d}:(oD&&oD.colonne!==c?oD:null);
         if(!v.length||!D){toast('Un rapport demande des valeurs au numérateur et au dénominateur.');return}f.denominateur=D}
       if((i.formule||{}).filtre)f.filtre=i.formule.filtre}
-    else{if(!v.length&&m!=='comptage'){toast('Cochez au moins une valeur.');return}if(v.length)f.numerateur={colonne:c,valeurs:v};if(m==='taux'&&d.length)f.denominateur={colonne:c,valeurs:d};if((i.formule||{}).filtre)f.filtre=i.formule.filtre}
+    else{if(!v.length&&m!=='comptage'){toast('Cochez au moins une valeur.');return}if(v.length)f.numerateur={colonne:c,valeurs:v};
+      if(m==='taux'){const oD=(i.formule||{}).denominateur;if(d.length)f.denominateur={colonne:c,valeurs:d};else if(oD&&oD.colonne!==c)f.denominateur=oD}if((i.formule||{}).filtre)f.filtre=i.formule.filtre}
     Object.assign(i,{formule:f,evolution:$('#ceEvol').checked,statut:'valide',source:'utilisateur',description:'Modifiée : enregistrez pour recalculer.',valeur:null});
     renderCorr();return}
   if(e.target.id==='corrAll'){let n=0;C.indicateurs.forEach(i=>{if(!(i.erreurs||[]).length&&i.statut==='propose'&&(i.confiance||0)>=0.9){i.statut='valide';n++}});

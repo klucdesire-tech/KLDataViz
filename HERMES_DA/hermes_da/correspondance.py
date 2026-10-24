@@ -71,12 +71,12 @@ def est_taux(ind) -> bool:
 
 
 def mode_compatible(ind, mode) -> bool:
-    """Calcul cohérent avec le type du dictionnaire. Pourcentage : taux, rapport, ou moyenne / médiane d'une colonne
-    qui porte déjà des % ; Nombre : comptage ou somme. Type non renseigné : rien à contrôler."""
-    t = (ind.get("type") or "").strip()
-    if not t:
+    """Calcul cohérent avec le type du dictionnaire. Pourcentage : jamais un comptage ou une somme (taux, rapport,
+    ou moyenne / médiane d'une colonne qui porte déjà des %) ; Nombre : jamais un taux ou un rapport.
+    Type non renseigné : rien à contrôler."""
+    if not (ind.get("type") or "").strip():
         return True
-    return mode in (("taux", "rapport", "moyenne", "mediane") if est_taux(ind) else ("comptage", "somme"))
+    return mode not in (("comptage", "somme") if est_taux(ind) else ("taux", "rapport"))
 
 
 def _pct(a, b) -> float:
@@ -303,6 +303,9 @@ def colonnes_longues(df, indicateurs=()):
     """(colonne des indicateurs, colonne des valeurs) d'un export long, (None, None) sinon. Codes du dictionnaire
     présents ou non : dans un tel fichier une ligne n'est jamais un patient, on n'y compte donc jamais de lignes."""
     from hermes_da import indicators_catalog as cat
+    codes = {_norm(i["code"]) for i in indicateurs if i.get("code")}
+    if any(_norm(c) in codes for c in df.columns):
+        return None, None  # une colonne porte un code du dictionnaire : format large, pas long
     _l, ic, vc = cat._as_long(df, list(indicateurs))
     if ic in df.columns and vc in df.columns:
         return ic, vc

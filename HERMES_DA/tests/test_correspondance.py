@@ -135,3 +135,11 @@ def test_relecture_hermes_detection_longue_et_arrondis():
     assert C.evaluer(pd.DataFrame({"x": ["o"] * 1 + ["n"] * 1999}),
                      {"mode": "taux", "numerateur": {"colonne": "x", "valeurs": ["o"]}}) == 0.1  # 0,05 → 0,1
     assert C.valider(r, {"mode": "comptage", "numerateur": {"colonne": "x", "valeurs": ["NA", "nan"]}})
+
+
+def test_relecture_hermes_3():
+    assert C.mode_compatible(MER[0], "moyenne") and C.mode_compatible(MER[0], "mediane")   # Nombre : moyenne permise
+    assert not C.mode_compatible(MER[0], "rapport") and not C.mode_compatible(MER[2], "somme")
+    w = pd.DataFrame({"indicateur": ["a", "b"] * 3, "total": [1, 2, 3, 4, 5, 6], "TX_CURR": [10, 20, 30, 40, 50, 60]})
+    assert C.colonnes_longues(w, MER) == (None, None)
+    assert "TX_CURR" in {p["code"] for p in C.proposer_regles(w, MER)}

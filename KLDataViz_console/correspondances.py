@@ -113,8 +113,9 @@ def _proposer_ia(df, indicateurs, r, llm, parse):
             continue  # proposition invérifiable contre le fichier : écartée
         if not C.mode_compatible(ind, f.get("mode")):
             continue  # un pourcentage calculé comme un nombre (ou l'inverse) : écarté
-        if long_ic and f.get("mode") in ("comptage", "taux"):
-            continue  # export long : une ligne n'est pas un patient, compter des lignes n'a pas de sens
+        if long_ic and (f.get("mode") in ("comptage", "taux") or long_ic not in
+                        ((f.get("filtre") or {}).get("colonne"), (f.get("numerateur") or {}).get("colonne"))):
+            continue  # export long : jamais de lignes comptées, et toujours filtré sur le(s) libellé(s) d'indicateur
         out.append({"code": ind["code"], "libelle": ind.get("libelle") or ind["code"], "type": ind.get("type") or "",
                     "formule": f, "evolution": bool(it.get("evolution", True)), "source": "ia", "confiance": 0.6,
                     "explication": str(it.get("explication") or "")[:240]})

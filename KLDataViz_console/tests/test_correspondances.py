@@ -159,3 +159,14 @@ def test_dictionnaire_sans_type_et_ia_comptage_nu_ecarte():
     d = pd.DataFrame({"dataname": ["CV supprimée", "CV réalisée"] * 3, "value": [8, 10, 9, 10, 7, 10]})
     ia = lambda m, n: json.dumps({"indicateurs": [{"code": "HTS_POS", "formule": {"mode": "comptage"}}]})  # noqa: E731
     assert correspondances._proposer_ia(d, DICO, C.roles(d), ia, json.loads) == []
+
+
+def test_ia_export_long_somme_sans_filtre_ecartee():
+    reset_app_modules()
+    import correspondances  # noqa: PLC0415
+    from hermes_da import correspondance as C  # noqa: PLC0415
+    d = pd.DataFrame({"dataname": ["Positifs", "Testés"] * 3, "value": [8, 10, 9, 10, 7, 10]})
+    ia = lambda m, n: json.dumps({"indicateurs": [  # noqa: E731
+        {"code": "HTS_POS", "formule": {"mode": "somme", "colonne": "value"}},
+        {"code": "TX_CURR", "formule": {"mode": "somme", "colonne": "value", "filtre": {"colonne": "dataname", "valeurs": ["Positifs"]}}}]})
+    assert [p["code"] for p in correspondances._proposer_ia(d, DICO, C.roles(d), ia, json.loads)] == ["TX_CURR"]
