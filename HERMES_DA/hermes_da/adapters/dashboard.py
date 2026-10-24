@@ -1011,10 +1011,12 @@ function catBarDraw(id,e,u){return function(){var mean=e.reduce(function(a,x){re
 function renderMain(rows){var M=META.measure,P=META.period,S=META.stack,el=document.getElementById('row2'),html='',todo=[];SHOWN={};
   var gP=P?groupBy(rows,function(r){return pkey(r.__p)}):{};
   var D=(META.dictionnaire||{}).serie;
-  if(D&&(D.points||[]).length>=2){var isPct=(D.type||'').toLowerCase().indexOf('pourcentage')>=0;
+  if(D&&(D.points||[]).length>=2){var pts=D.points;
+    if(D.dimension&&state[D.dimension]&&state[D.dimension]!=='all'){var _sub=(D.par_dimension||[]).filter(function(s){return s.valeur===state[D.dimension]});if(_sub.length)pts=_sub[0].points}
+    var isPct=(D.type||'').toLowerCase().indexOf('pourcentage')>=0;
     html+=card(canvas('c_dictserie',D.indicateur+' — '+D.code),D.indicateur+' — '+D.code,'Évolution temporelle',seg());
     todo.push(function(){var cv=document.getElementById('c_dictserie'),ctx=cv.getContext('2d'),grad=ctx.createLinearGradient(0,0,0,250);grad.addColorStop(0,'rgba(0,145,208,.28)');grad.addColorStop(1,'rgba(16,188,208,0)');
-      charts.push(new Chart(cv,{type:'line',data:{labels:D.points.map(function(p){return p[0]}),datasets:[{data:D.points.map(function(p){return p[1]}),borderColor:NAVY,backgroundColor:grad,fill:true,tension:.35,borderWidth:2.5,spanGaps:true,pointRadius:D.points.length<=15?3:0,pointHoverRadius:5,pointBackgroundColor:NAVY}]},
+      charts.push(new Chart(cv,{type:'line',data:{labels:pts.map(function(p){return p[0]}),datasets:[{data:pts.map(function(p){return p[1]}),borderColor:NAVY,backgroundColor:grad,fill:true,tension:.35,borderWidth:2.5,spanGaps:true,pointRadius:pts.length<=15?3:0,pointHoverRadius:5,pointBackgroundColor:NAVY}]},
         options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},plugins:{legend:{display:false},tooltip:Object.assign({callbacks:{label:function(c){return D.indicateur+' : '+fmt(c.parsed.y)+(isPct?' %':'')}}},navyTip)},scales:axes}}))});
     P=null;}
   if(P&&M&&Object.keys(gP).length<2)P=null;  // un seul point : pas de courbe vide
@@ -1410,6 +1412,18 @@ def generate_dashboard(df, objective: str = "", job_id: str | None = None, llm=N
                             if _ser and len(_ser) >= 2:
                                 serie = {"indicateur": trouves[0]["libelle"], "code": trouves[0]["code"],
                                          "type": trouves[0]["type"], "periode": str(pcol), "points": _ser}
+                                # sous-séries par valeur de la dimension principale (suivent les filtres)
+                                if dims and dims[0] in df_source.columns:
+                                    _dim = dims[0]
+                                    _par = []
+                                    for _val in df_source[_dim].dropna().astype(str).unique():
+                                        _sub = df_source[df_source[_dim].astype(str) == _val]
+                                        _ts = _cat.time_series(_sub, top, pcol)
+                                        if _ts and len(_ts) >= 2:
+                                            _par.append({"valeur": str(_val), "points": _ts})
+                                    if _par:
+                                        serie["dimension"] = str(_dim)
+                                        serie["par_dimension"] = _par
                 meta["dictionnaire"] = _json_safe({
                     "trouves": trouves,
                     "absents": [{"code": r["code"], "libelle": r["libelle"]} for r in res if not r["present"]],
