@@ -113,3 +113,25 @@ def test_vides_et_rapport_incomplet():
     assert C.evaluer(df, {"mode": "moyenne", "colonne": "v"}) == 3.05                # pas d'arrondi caché
     assert "NA" not in dict(C.evaluer_par(df, {"mode": "comptage", "numerateur": {"colonne": "cv", "valeurs": ["Oui"]}}, "region"))
     assert C.valider(df, {"mode": "rapport", "colonne": "v", "numerateur": {"colonne": "cv", "valeurs": ["Oui"]}})
+
+
+def test_relecture_hermes_detection_longue_et_arrondis():
+    # une colonne texte « data » n'est pas un export long : la règle « colonne nommée d'après le code » reste
+    w = pd.DataFrame({"data": ["a", "b"] * 3, "value": [1, 2, 3, 4, 5, 6], "TX_CURR": [10, 20, 30, 40, 50, 60]})
+    assert C.colonnes_longues(w, MER) == (None, None)
+    assert "TX_CURR" in {p["code"] for p in C.proposer_regles(w, MER)}
+    # « indicateur + nombre » est bien un export long : pas de comptage de lignes
+    lg = pd.DataFrame({"dataname": ["Patients avec CV supprimée", "Autre"] * 3, "nombre": [5, 6, 7, 8, 9, 1]})
+    assert C.colonnes_longues(lg, MER) == ("dataname", "nombre")
+    # % sans dénominateur dans un export long : moyenne de % proposée, jamais « sûre »
+    d = pd.DataFrame({"indicateur": ["TX_PVLS (N, DSD)"] * 2, "periode": ["2025-T3", "2025-T4"], "valeur": [80, 90]})
+    p = {x["code"]: x for x in C.proposer_regles(d, MER)}["TX_PVLS"]
+    assert p["formule"]["mode"] == "moyenne" and p["confiance"] < 0.9 and C.mode_compatible(MER[2], "moyenne")
+    assert C.mode_compatible({"type": ""}, "taux") and not C.mode_compatible(MER[0], "taux")
+    # arrondi demi vers le haut, comme Math.round dans la page (Python round() arrondit « au pair »)
+    r = pd.DataFrame({"x": ["o"] * 7 + ["n"] * 13})   # 7/20 = 35 % ; 1/8 = 12,5 %
+    q = pd.DataFrame({"x": ["o"] + ["n"] * 7 + [None] * 2})
+    assert C.evaluer(q, {"mode": "taux", "numerateur": {"colonne": "x", "valeurs": ["o"]}}) == 12.5
+    assert C.evaluer(pd.DataFrame({"x": ["o"] * 1 + ["n"] * 1999}),
+                     {"mode": "taux", "numerateur": {"colonne": "x", "valeurs": ["o"]}}) == 0.1  # 0,05 → 0,1
+    assert C.valider(r, {"mode": "comptage", "numerateur": {"colonne": "x", "valeurs": ["NA", "nan"]}})

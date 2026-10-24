@@ -144,3 +144,18 @@ def test_ia_export_long_comptage_de_lignes_ecarte():
                            "numerateur": {"colonne": "indicateur", "valeurs": ["CV supprimée"]}}}]})
     assert correspondances._proposer_ia(d, dico, {"identifiants": []} | __import__("hermes_da.correspondance",
                                         fromlist=["roles"]).roles(d), ia, json.loads) == []
+
+
+def test_dictionnaire_sans_type_et_ia_comptage_nu_ecarte():
+    reset_app_modules()
+    import correspondances  # noqa: PLC0415
+    df = _df()
+    sans_type = [dict(d, type="") for d in DICO]
+    correspondances.obtenir(df, sans_type)
+    corr = correspondances.enregistrer(df, {"indicateurs": [{"code": "TX_PVLS", "statut": "valide", "formule":
+                                       {"mode": "taux", "numerateur": {"colonne": "resultat_cv", "valeurs": ["Supprimé"]}}}]}, sans_type)
+    assert next(i for i in corr["indicateurs"] if i["code"] == "TX_PVLS")["statut"] == "valide"
+    from hermes_da import correspondance as C  # noqa: PLC0415
+    d = pd.DataFrame({"dataname": ["CV supprimée", "CV réalisée"] * 3, "value": [8, 10, 9, 10, 7, 10]})
+    ia = lambda m, n: json.dumps({"indicateurs": [{"code": "HTS_POS", "formule": {"mode": "comptage"}}]})  # noqa: E731
+    assert correspondances._proposer_ia(d, DICO, C.roles(d), ia, json.loads) == []

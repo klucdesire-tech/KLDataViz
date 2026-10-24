@@ -1512,7 +1512,7 @@ function renderCorr(){const C=state.dash?.corr,el=$('#corrPanel');if(!C||!(C.ind
   el.innerHTML=`<div class="card-h" style="display:flex;gap:10px;align-items:flex-start;flex-wrap:wrap"><div style="flex:1;min-width:240px"><h2>Correspondance des indicateurs</h2>
       <p class="sub">Hermes a relié ${C.indicateurs.length} indicateur${C.indicateurs.length>1?'s':''} de votre dictionnaire à vos colonnes (${nv} validé${nv>1?'s':''}).
       Vérifiez chaque formule : une fois enregistrées, elles sont réutilisées pour ce type de fichier, sans IA.</p></div>
-      ${canEdit?`<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn ghost sm" id="corrAll" title="Valide seulement les propositions sûres (code de l'indicateur présent dans le fichier)">Valider les propositions sûres</button><button class="btn ghost sm" id="corrRe" title="Oublier ces propositions et en demander de nouvelles (règles + IA)">Reproposer</button></div>`:''}</div>
+      ${canEdit?`<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn ghost sm" id="corrAll" title="Valide seulement les propositions sûres (confiance d'au moins 90 %, sans erreur) ; les autres restent à vérifier">Valider les propositions sûres</button><button class="btn ghost sm" id="corrRe" title="Oublier ces propositions et en demander de nouvelles (règles + IA)">Reproposer</button></div>`:''}</div>
     <div id="corrList">${C.indicateurs.map((i,k)=>`<div class="corr-row" data-k="${k}">
       <div><div class="code">${esc(i.code)}</div><div class="lib">${esc(i.libelle||'')}</div></div>
       <div class="desc"><div>${esc(i.description||'')}</div><div class="corr-src">Proposé par ${esc(SRC[i.source]||i.source||'')}${i.explication?' · '+esc(i.explication):''}</div>
@@ -1535,7 +1535,7 @@ function corrEditor(k){const C=state.dash.corr,i=C.indicateurs[k],f=Object.assig
     ${num?`<label class="field">Colonne chiffrée<select id="ceNumCol">${colOpts(numCols,f.colonne)}</select></label>`:''}
     <label class="field">${num?'Lignes retenues (facultatif) : colonne':'Colonne qui porte la condition'}<select id="ceCol">${colOpts(catCols,cCol)}</select></label>
     <div><b style="font-size:13px">Valeurs ${f.mode==='taux'?'comptées au numérateur':'retenues'}</b><div class="vals" id="ceVals">${vals(cCol,cond.valeurs,'ceV')}</div></div>
-    ${f.mode==='taux'||f.mode==='rapport'?`<div><b style="font-size:13px">Dénominateur</b> <span class="sub">${f.mode==='taux'?'(aucune case : toutes les lignes où la colonne est renseignée)':'(obligatoire : lignes dont la somme sert de dénominateur)'}</span><div class="vals" id="ceDen">${vals(cCol,den&&den.colonne===cCol?den.valeurs:[],'ceD')}</div></div>`:''}
+    ${f.mode==='taux'||f.mode==='rapport'?`<div><b style="font-size:13px">Dénominateur</b> <span class="sub">${f.mode==='taux'?'(aucune case : toutes les lignes où la colonne est renseignée)':'(obligatoire : lignes dont la somme sert de dénominateur)'}</span><div class="vals" id="ceDen">${vals(cCol,den&&den.colonne===cCol?den.valeurs:[],'ceD')}</div>${den&&den.colonne!==cCol?`<div class="sub">Dénominateur actuel conservé : ${esc(den.colonne)} = ${esc((den.valeurs||[]).join(', '))} (cochez des valeurs pour le remplacer)</div>`:''}</div>`:''}
     <div class="vals"><label class="chk"><input type="checkbox" id="ceStock"${f.stock?' checked':''}>Stock : valeur de la dernière période seulement</label>
       <label class="chk"><input type="checkbox" id="ceEvol"${i.evolution!==false?' checked':''}>Afficher son évolution dans le temps</label></div>
     <div style="display:flex;gap:8px"><button class="btn primary sm" id="ceOk">Appliquer</button><button class="btn ghost sm" id="ceCancel">Annuler</button></div></div>`}
@@ -1551,7 +1551,8 @@ $('#corrPanel').addEventListener('click',async e=>{const C=state.dash?.corr;if(!
     const pick=n=>[...box.querySelectorAll(`input[name="${n}"]:checked`)].map(x=>x.value),v=pick('ceV'),d=pick('ceD');
     const f={mode:m,stock:$('#ceStock').checked};
     if(['somme','moyenne','mediane','rapport'].includes(m)){f.colonne=$('#ceNumCol')?.value;if(c&&v.length)f.numerateur={colonne:c,valeurs:v};
-      if(m==='rapport'){if(!v.length||!d.length){toast('Un rapport demande des valeurs au numérateur et au dénominateur.');return}f.denominateur={colonne:c,valeurs:d}}
+      if(m==='rapport'){const oD=(i.formule||{}).denominateur,D=d.length?{colonne:c,valeurs:d}:(oD&&oD.colonne!==c?oD:null);
+        if(!v.length||!D){toast('Un rapport demande des valeurs au numérateur et au dénominateur.');return}f.denominateur=D}
       if((i.formule||{}).filtre)f.filtre=i.formule.filtre}
     else{if(!v.length&&m!=='comptage'){toast('Cochez au moins une valeur.');return}if(v.length)f.numerateur={colonne:c,valeurs:v};if(m==='taux'&&d.length)f.denominateur={colonne:c,valeurs:d};if((i.formule||{}).filtre)f.filtre=i.formule.filtre}
     Object.assign(i,{formule:f,evolution:$('#ceEvol').checked,statut:'valide',source:'utilisateur',description:'Modifiée : enregistrez pour recalculer.',valeur:null});

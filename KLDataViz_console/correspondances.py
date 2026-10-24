@@ -111,11 +111,10 @@ def _proposer_ia(df, indicateurs, r, llm, parse):
         f = it.get("formule")
         if ind is None or not isinstance(f, dict) or C.valider(df, f):
             continue  # proposition invérifiable contre le fichier : écartée
-        if C.est_taux(ind) != (f.get("mode") in ("taux", "rapport")):
+        if not C.mode_compatible(ind, f.get("mode")):
             continue  # un pourcentage calculé comme un nombre (ou l'inverse) : écarté
-        if long_ic and f.get("mode") in ("comptage", "taux") and long_ic in (
-                (f.get("numerateur") or {}).get("colonne"), (f.get("denominateur") or {}).get("colonne")):
-            continue  # export long : compter des lignes de libellés n'a pas de sens
+        if long_ic and f.get("mode") in ("comptage", "taux"):
+            continue  # export long : une ligne n'est pas un patient, compter des lignes n'a pas de sens
         out.append({"code": ind["code"], "libelle": ind.get("libelle") or ind["code"], "type": ind.get("type") or "",
                     "formule": f, "evolution": bool(it.get("evolution", True)), "source": "ia", "confiance": 0.6,
                     "explication": str(it.get("explication") or "")[:240]})
@@ -171,9 +170,9 @@ def enregistrer(df, data: dict, dictionnaire=None) -> dict:
             if err:
                 raise ValueError(f"{code} : " + " ; ".join(err))
             ind = connus.get(code.lower()) or cur
-            if C.est_taux(ind) != ((cur.get("formule") or {}).get("mode") in ("taux", "rapport")):
-                raise ValueError(f"{code} : un indicateur « {ind.get('type') or '?'} » demande un calcul "
-                                 + ("en taux ou en rapport (%)." if C.est_taux(ind) else "en nombre (comptage, somme…)."))
+            if not C.mode_compatible(ind, (cur.get("formule") or {}).get("mode")):
+                raise ValueError(f"{code} : un indicateur « {ind.get('type')} » demande un calcul "
+                                 + ("en taux, en rapport ou en moyenne de % ." if C.est_taux(ind) else "en nombre (comptage ou somme)."))
         cur["statut"] = st
         par_code[code.lower()] = cur
     if data.get("periode") is not None:
@@ -219,6 +218,6 @@ def public(df, corr, lib=lambda c: str(c)):
         if 2 <= len(vals) <= 30:
             e["categories"] = [str(v) for v in vals.index]
         cols.append(e)
-    return {"signature": signature(df, None), "periode": corr.get("periode"), "dimensions": corr.get("dimensions") or [],
+    return {"periode": corr.get("periode"), "dimensions": corr.get("dimensions") or [],
             "indicateurs": inds, "colonnes": cols,
             "periodes_possibles": [c for c in df.columns if c == r["periode"] or C._date_like(df[c])][:8]}
