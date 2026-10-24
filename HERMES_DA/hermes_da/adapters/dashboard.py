@@ -884,6 +884,7 @@ body.embedded{min-height:0;overflow:hidden}html:has(body.embedded){overflow:hidd
 .dc{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.02em;color:var(--navy);background:rgba(255,255,255,.75);border-radius:6px;padding:1px 7px;margin:0 0 4px}
 #dict .n{display:flex;flex-direction:column;align-items:flex-start}
 .dl{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;font-size:12px;line-height:1.3}
+.hd{font-size:10px;color:#B45309;background:#FEF3C7;border-radius:10px;padding:1px 7px;margin-left:6px;font-weight:600;vertical-align:1px}
 .dict{margin-bottom:14px}.dict[hidden]{display:none}
 .dict-abs{margin-top:12px;font-size:12px;color:var(--muted,#667085)}
 .dict-abs summary{cursor:pointer;font-weight:600;padding:6px 0;list-style-position:inside}
@@ -911,7 +912,7 @@ var state={},gran=(META.gran||'M'),charts=[],showMore=false,SHOWN={},KCOUNT={};
 var MOIS=['janv.','févr.','mars','avr.','mai','juin','juil.','août','sept.','oct.','nov.','déc.'];
 if(window.Chart){Chart.defaults.font.family="'Fira Sans',system-ui,sans-serif";Chart.defaults.color='#5B6478';
   if(matchMedia('(prefers-reduced-motion: reduce)').matches)Chart.defaults.animation=false;}
-function nice(s){var t=String(s==null?'':s);return (window.META&&META.libelles&&META.libelles[t])||t.replace(/_/g,' ')}
+function nice(s){var t=String(s==null?'':s);return (window.META&&META.libelles&&META.libelles[t])||t.replace(/\b([A-Z0-9]+(?:_[A-Z0-9]+)+)\b|_/g,function(m,c){return c||' '})}
 // Nom de colonne court pour les titres : sans parenthèse, 32 caractères au plus
 function ititle(s){var t=nice(s).replace(/^\s*(nombre|nb)\s+(de |d')\s*/i,'').replace(/\s+/g,' ').trim();t=t.charAt(0).toUpperCase()+t.slice(1);return t.length>70?t.slice(0,69)+'…':t}
 function short(s){var t=nice(s).replace(/\s*\([^)]*\)\s*/g,' ').replace(/\s+/g,' ').trim()||nice(s);return t.length>32?t.slice(0,31)+'…':t}
@@ -968,7 +969,10 @@ function buildFilters(){var el=document.getElementById('filters');el.innerHTML='
     mb.textContent=showMore?'Moins de filtres':'Plus de filtres ('+(F.length-3)+')';mb.onclick=function(){showMore=!showMore;buildFilters()};el.appendChild(mb)}}
 
 // « Comment ce chiffre est calculé ? » : la méthode de chaque tuile, en clair (survol, clic ou clavier)
-function howCalc(k,rows){var a=(k.agregation||'').toLowerCase(),c=k.colonne?'« '+nice(k.colonne)+' »':'',n=rows.length,t;
+function howCalc(k,rows){if(k.formule){var t0=(k.description||'')+(k.statut==='propose'?' Formule proposée par Hermes, à valider.':' Formule validée.');
+    if(k.dimension)t0+=' « En tête » : la catégorie de « '+nice(k.dimension)+' » qui a la valeur la plus haute.';
+    return t0+(rows.length<DATA.length?' Calculé sur les '+fmt(rows.length)+' lignes retenues par les filtres.':'')}
+  var a=(k.agregation||'').toLowerCase(),c=k.colonne?'« '+nice(k.colonne)+' »':'',n=rows.length,t;
   var nb=k.colonne?rows.filter(function(r){return !isNull(r[k.colonne])}).length:n;
   if(a==='dernier'){var lp=null;rows.forEach(function(r){if(r.__p&&(lp==null||r.__p>lp))lp=r.__p});
     t='Somme de '+c+' au dernier mois disponible'+(lp?' ('+label(lp)+')':'')+'. C’est un stock (valeur à une date) : il ne s’additionne pas d’un mois à l’autre.'}
@@ -982,12 +986,29 @@ function howCalc(k,rows){var a=(k.agregation||'').toLowerCase(),c=k.colonne?'« 
   if(k.dimension)t+=' « En tête » : la catégorie de « '+nice(k.dimension)+' » qui a la valeur la plus haute.';
   if(n<DATA.length)t+=' Calculé sur les '+fmt(n)+' lignes retenues par les filtres.';
   return t}
+// ---- Formules de correspondance (mêmes règles que hermes_da.correspondance.evaluer)
+function condF(r,c){if(!c)return true;var v=r[c.colonne];if(isNull(v))return false;var t=String(v).trim().toLowerCase();
+  return (c.valeurs||[]).some(function(x){return String(x).trim().toLowerCase()===t})}
+function evalF(rows,f){if(!f)return null;var R=f.filtre?rows.filter(function(r){return condF(r,f.filtre)}):rows;
+  if(f.stock){var lp=null;R.forEach(function(r){if(r.__p&&(lp==null||r.__p.slice(0,7)>lp))lp=r.__p.slice(0,7)});if(lp!=null)R=R.filter(function(r){return r.__p&&r.__p.slice(0,7)===lp})}
+  var m=f.mode,N=f.numerateur;
+  if(m==='comptage')return N?R.filter(function(r){return condF(r,N)}).length:R.length;
+  if(m==='taux'){if(!N)return null;var B=f.denominateur?R.filter(function(r){return condF(r,f.denominateur)}):R.filter(function(r){return !isNull(r[N.colonne])});
+    return B.length?Math.round(B.filter(function(r){return condF(r,N)}).length/B.length*1000)/10:null}
+  if(m==='rapport'){var sm=function(c){var t=null;R.forEach(function(r){if(condF(r,c)){var x=num(r[f.colonne]);if(x!=null)t=(t||0)+x}});return t};
+    var n=sm(N),d=sm(f.denominateur);return n!=null&&d?Math.round(n/d*1000)/10:null}
+  var v=(N?R.filter(function(r){return condF(r,N)}):R).map(function(r){return num(r[f.colonne])}).filter(function(x){return x!=null});
+  if(!v.length)return null;var s=v.reduce(function(a,b){return a+b},0);
+  if(m==='somme')return s;if(m==='moyenne')return s/v.length;v.sort(function(a,b){return a-b});var h=v.length>>1;return v.length%2?v[h]:(v[h-1]+v[h])/2}
+function rankedF(rows,f,dim,top){var g=groupBy(rows,dim);return Object.keys(g).map(function(k){return [k,evalF(g[k],f)]}).filter(function(e){return e[1]!=null}).sort(function(a,b){return b[1]-a[1]}).slice(0,top||8)}
 function renderKpis(all){document.getElementById('kpis').innerHTML=KPIDEFS.slice(0,5).map(function(k,i){
-  var rows=k.hors?all.filter(function(r){return k.hors.valeurs.indexOf(String(r[k.hors.colonne]).trim().toLowerCase())<0}):all,v=agg(rows,k.colonne,k.agregation),sub='';
-  var u=isRate(k.agregation)&&v!=null?' %':'';
-  if(k.dimension){var t=ranked(rows,k.colonne,k.agregation,k.dimension,1)[0];if(t)sub='En tête : '+esc(label(t[0]))+'<br>'+fmt(t[1])+u}
+  var rows=k.hors?all.filter(function(r){return k.hors.valeurs.indexOf(String(r[k.hors.colonne]).trim().toLowerCase())<0}):all,
+    v=k.formule?evalF(rows,k.formule):agg(rows,k.colonne,k.agregation),sub='';
+  var u=(k.formule?k.pct:isRate(k.agregation))&&v!=null?' %':'';
+  if(k.dimension){var t=(k.formule?rankedF(rows,k.formule,k.dimension,1):ranked(rows,k.colonne,k.agregation,k.dimension,1))[0];if(t)sub='En tête : '+esc(label(t[0]))+'<br>'+fmt(t[1])+u}
   var how=howCalc(k,rows);
-  return '<div class="kpi k'+i+'"><div class="n">'+esc(k.nom)+' <span class="info" tabindex="0" role="note" aria-label="Comment ce chiffre est calculé : '+esc(how)+'">i<span class="tip">'+esc(how)+'</span></span></div><div class="row"><div class="v">'+fmt(v)+u+'</div><div class="s">'+sub+'</div></div></div>'}).join('')}
+  var badge=k.statut==='propose'?' <span class="hd" title="Formule proposée par Hermes : à valider dans KLDataViz">à valider</span>':'';
+  return '<div class="kpi k'+i+'"><div class="n">'+esc(k.nom)+badge+' <span class="info" tabindex="0" role="note" aria-label="Comment ce chiffre est calculé : '+esc(how)+'">i<span class="tip">'+esc(how)+'</span></span></div><div class="row"><div class="v">'+fmt(v)+u+'</div><div class="s">'+sub+'</div></div></div>'}).join('')}
 
 function card(id,title,sub,extra){return '<div class="card"><div class="card-h"><div><h2>'+esc(nice(title))+'</h2>'+(sub?'<small>'+esc(sub)+'</small>':'')+'</div>'+(extra||'')+'</div>'+id+'</div>'}
 function seg(){return '<div class="seg" role="group" aria-label="Regrouper par">'+(META.grans||['M','Q','Y']).map(function(g){return '<button type="button" data-g="'+g+'" aria-pressed="'+(gran===g)+'">'+GRAN[g]+'</button>'}).join('')+'</div>'}
@@ -1103,7 +1124,7 @@ function gkey(k){k=String(k||'');if(META.keyind&&META.keyind.yearly)return k.sli
 var GAP={p:null,mode:'prev'},gapChart=null;
 function gYearBefore(k){var m=String(k).match(/^(\d{4})(.*)$/);return m?(+m[1]-1)+m[2]:null}
 function gval(k,rows,key){var K=META.keyind,R=key==null?rows:rows.filter(function(r){return r.__g===key});
-  if(k.kind==='count')return R.length;if(k.kind==='agg')return agg(R,k.col,k.agg);
+  if(k.kind==='count')return R.length;if(k.kind==='agg')return agg(R,k.col,k.agg);if(k.kind==='formule')return evalF(R,k.f);
   var s=null;R.forEach(function(r){if(!k.col&&String(r[K.ind]).trim()!==k.libelle)return;var v=num(k.col?r[k.col]:r[K.val]);if(v!=null)s=(s||0)+v});return s}
 function renderGaps(rows){var el=document.getElementById('gaps'),K=META.keyind,D=META.domaine,G=META.gaps;if(gapChart){gapChart.destroy();gapChart=null}
   if(!G||!G.length||!K){el.hidden=true;return}
@@ -1142,20 +1163,39 @@ function renderGaps(rows){var el=document.getElementById('gaps'),K=META.keyind,D
     gapChart=new Chart(document.getElementById('c_gap'),{type:'bar',data:{labels:withGap.map(function(g){return g.indicateur}),datasets:[{data:withGap.map(function(g){return g.pct}),backgroundColor:withGap.map(function(g){return col[tone(g)]}),borderRadius:8,borderSkipped:false,barPercentage:.62,maxBarThickness:26}]},
       options:{responsive:true,maintainAspectRatio:false,indexAxis:'y',plugins:{legend:{display:false},tooltip:Object.assign({},navyTip,{callbacks:{label:function(c){var g=withGap[c.dataIndex];return (g.pct>0?'+':'')+Number(g.pct).toFixed(1).replace('.',',')+(g.pts?' pts':' %')+' ('+fmt(g.precedente)+' → '+fmt(g.derniere)+')'}}})},
         scales:{x:{grid:{color:function(c){return c.tick&&c.tick.value===0?'#9CC3EA':'#EEF2F7'},drawTicks:false},border:{display:false},ticks:{padding:6,font:{size:11},callback:function(v){return (v>0?'+':'')+v}}},y:{grid:{display:false},border:{display:false},ticks:{callback:function(v){var l=this.getLabelForValue(v);return l.length>26?l.slice(0,25)+'…':l}}}}}})}}
-function renderDict(){var el=document.getElementById('dict'),D=META.dictionnaire;if(!D||(!(D.trouves||[]).length&&!(D.absents||[]).length)){el.hidden=true;return}el.hidden=false;
+function renderDict(rows){var el=document.getElementById('dict'),D=META.dictionnaire;if(!D||(!(D.trouves||[]).length&&!(D.absents||[]).length)){el.hidden=true;return}el.hidden=false;
   var F=D.trouves||[],A=D.absents||[],VIS=6;
   function tile(r,i){var isPct=(r.type||'').toLowerCase().indexOf('pourcentage')>=0;
-    var v=r.valeur==null?'—':(isPct?String(r.valeur).replace('.',',')+'<small>%</small>':fmt(r.valeur));
+    var val=r.formule&&rows?evalF(rows,r.formule):r.valeur;
+    var v=val==null?'—':(isPct?String(Math.round(val*10)/10).replace('.',',')+'<small>%</small>':fmt(val));
     var tip=(r.libelle||'')+(r.detail?'\n'+r.detail:'');
     return '<div class="kpi gap k'+(i%4+1)+'" title="'+esc(tip)+'"><div class="n"><span class="dc">'+esc(r.code||'')+'</span><span class="dl">'+esc(r.libelle||'')+'</span></div>'
       +'<div class="row"><div class="v">'+v+'</div>'+(r.detail&&/^\d/.test(r.detail)?'<div class="s"><span class="gap-p">'+esc(r.detail)+'</span></div>':'')+'</div></div>'}
   var more=F.slice(VIS),li=function(r){return '<li title="'+esc(r.libelle||'')+'"><b>'+esc(r.code)+'</b> '+esc(r.libelle||'')+'</li>'};
-  el.innerHTML='<div class="card-h"><div><h2>Indicateurs du dictionnaire</h2><small>'+F.length+' calculé'+(F.length>1?'s':'')+' selon votre référentiel · les indicateurs clés du haut sont choisis par Hermes</small></div></div>'
-    +(F.length?'<div class="gaps-grid">'+F.slice(0,VIS).map(tile).join('')+'</div>':'<p class="gaps-ct">Aucun indicateur du dictionnaire n\'est calculable de façon sûre avec ces données.</p>')
+  var relies=(META.indicateurs||[]).length;
+  el.innerHTML='<div class="card-h"><div><h2>'+(relies?'Autres indicateurs du dictionnaire':'Indicateurs du dictionnaire')+'</h2><small>'
+    +(relies?relies+' indicateur'+(relies>1?'s':'')+' relié'+(relies>1?'s':'')+' à vos colonnes, affiché'+(relies>1?'s':'')+' en tête'+(F.length?' ; '+F.length+' de plus ci-dessous':'')
+      :F.length+' calculé'+(F.length>1?'s':'')+' selon votre référentiel · les indicateurs clés du haut sont choisis par Hermes')+'</small></div></div>'
+    +(F.length?'<div class="gaps-grid">'+F.slice(0,VIS).map(tile).join('')+'</div>':relies?'':'<p class="gaps-ct">Aucun indicateur du dictionnaire n\'est calculable de façon sûre avec ces données.</p>')
     +(more.length?'<details class="dict-abs"><summary>'+more.length+' autre'+(more.length>1?'s':'')+' indicateur'+(more.length>1?'s':'')+' calculé'+(more.length>1?'s':'')+'</summary><div class="gaps-grid" style="margin-top:10px">'+more.map(function(r,i){return tile(r,i+VIS)}).join('')+'</div></details>':'')
     +(A.length?'<details class="dict-abs"><summary>'+A.length+' indicateur'+(A.length>1?'s':'')+' du dictionnaire absent'+(A.length>1?'s':'')+' de ces données</summary><ul>'+A.map(li).join('')+'</ul></details>':'')}
-function render(){charts.forEach(function(c){c.destroy()});charts=[];var rows=filtered();renderKpis(rows);renderGaps(rows);renderDict();
-  var todo=renderMain(rows).concat(renderCards(rows));if(window.Chart)todo.forEach(function(f){f()})}
+function renderIndic(rows){var I=META.indicateurs||[],dims=META.dims||[],r2=document.getElementById('row2'),r3=document.getElementById('row3'),h2='',h3='',todo=[];
+  var ev=I.filter(function(k){return k.evolution})[0];
+  if(ev&&META.period){var g=groupBy(rows,function(r){return pkey(r.__p)}),ks=Object.keys(g).sort(),f0=Object.assign({},ev.formule,{stock:false});
+    if(ks.length>=2){var vals=ks.map(function(k){return evalF(g[k],f0)}),u=ev.pct?' %':'';
+      h2+=card(canvas('c_ind_t',ev.nom),'Évolution — '+ev.nom,'Par '+GRAN[gran].toLowerCase()+(ev.statut==='propose'?' · formule à valider':''),seg());
+      todo.push(function(){var cv=document.getElementById('c_ind_t'),ctx=cv.getContext('2d'),grad=ctx.createLinearGradient(0,0,0,250);grad.addColorStop(0,'rgba(0,145,208,.28)');grad.addColorStop(1,'rgba(16,188,208,0)');
+        charts.push(new Chart(cv,{type:'line',data:{labels:ks.map(plabel),datasets:[{data:vals,borderColor:NAVY,backgroundColor:grad,fill:true,tension:.35,borderWidth:2.5,spanGaps:true,pointRadius:ks.length<=15?3:0,pointHoverRadius:5,pointBackgroundColor:NAVY}]},
+          options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},plugins:{legend:{display:false},tooltip:Object.assign({callbacks:{label:function(c){return ev.code+' : '+fmt(c.parsed.y)+u}}},navyTip)},scales:axes}}))})}}
+  // Répartitions : chaque indicateur par la dimension principale (puis la suivante), même formule que la tuile
+  // Rangée 1 : la courbe et la 1re répartition (ou deux répartitions) ; rangée 2 : les suivantes (6 graphiques au plus)
+  var cartes=[];I.forEach(function(k,i){var d=dims[i%Math.max(dims.length,1)]||dims[0];if(!d||cartes.length>=6)return;var e=rankedF(rows,k.formule,d,12);if(e.length<2)return;
+    var id='c_ind_'+i,tt=k.nom+' par '+short(d),sub=(k.pct?'Taux':'Valeur')+' par '+short(d)+' · ligne : moyenne'+(k.statut==='propose'?' · formule à valider':'');
+    cartes.push(card(canvas(id,tt),tt,sub));todo.push(catBarDraw(id,e,k.pct?' %':''))});
+  var enHaut=h2?1:2;h2+=cartes.slice(0,enHaut).join('');h3+=cartes.slice(enHaut,h2?5:6).join('');
+  r2.innerHTML=h2;r3.innerHTML=h3;return todo}
+function render(){charts.forEach(function(c){c.destroy()});charts=[];var rows=filtered();renderKpis(rows);renderGaps(rows);renderDict(rows);
+  var todo=META.indicateurs?renderIndic(rows):renderMain(rows).concat(renderCards(rows));if(window.Chart)todo.forEach(function(f){f()})}
 document.getElementById('objective').textContent=window.OBJECTIVE;
 try{if(window.self!==window.top)document.body.classList.add('embedded')}catch(e){document.body.classList.add('embedded')}
 // Intégré : la page parente ajuste la hauteur du cadre au contenu (pas d'ascenseur interne)
@@ -1215,13 +1255,16 @@ def _long_to_wide(df):
 
 
 def generate_dashboard(df, objective: str = "", job_id: str | None = None, llm=None, spec: dict | None = None,
-                       dictionnaire: list | None = None) -> dict:
+                       dictionnaire: list | None = None, correspondance: dict | None = None) -> dict:
     """Génère un tableau de bord (KPI + HTML interactif) depuis un DataFrame.
 
     Réutilisable par l'orchestrateur HERMES_DA ET par la console KLDataViz (bouton Dashboard).
     Retourne : html (le tableau de bord autonome), path (fichier écrit si job_id), kpis, charts, ia, spec.
     `spec` (facultatif) : indicateurs et graphiques déjà choisis (« spec » d'un appel précédent) → actualisation
     d'une source connectée : mêmes indicateurs sur les nouvelles données, sans appel à l'IA.
+    `correspondance` (facultatif) : formules reliant le dictionnaire aux colonnes (proposées par Hermes, validées
+    par l'utilisateur). Présente, elle PILOTE le tableau de bord : tuiles, répartitions, courbes et écarts sont
+    calculés par ces formules (hermes_da.correspondance en Python, evalF dans la page), sur les données d'origine.
     `dictionnaire` (facultatif) : indicateurs importés par l'espace (Mode B). La console passe celui de
     l'espace ([] = aucun) ; None = registre PostgreSQL local de HERMES_DA (orchestrateur).
     """
@@ -1371,6 +1414,75 @@ def generate_dashboard(df, objective: str = "", job_id: str | None = None, llm=N
         except Exception as exc:  # le tableau de bord reste affiché, mais l'échec laisse une trace
             import sys
             print(f"[AGT-11] dictionnaire d'indicateurs ignoré : {type(exc).__name__} : {exc}", file=sys.stderr, flush=True)
+    # ------------------------------------------------------------------ mode « correspondance » : le dictionnaire pilote
+    actifs = []
+    if correspondance:
+        from hermes_da import correspondance as _C
+        actifs = [i for i in correspondance.get("indicateurs") or [] if i.get("statut") != "ignore"
+                  and i.get("formule") and not _C.valider(df_source, i["formule"])]
+    if actifs:
+        src = df_source
+        pc = correspondance.get("periode") if correspondance.get("periode") in src.columns else None
+        p_nom, p_ser = _period(src[[pc]]) if pc else (None, None)
+        cle = p_ser.map(lambda v: v[:7] if isinstance(v, str) else None) if p_ser is not None else None
+        dims = [d for d in correspondance.get("dimensions") or [] if d in src.columns]
+        lib = _joli
+
+        def _tit(i):
+            court = re.sub(r"^(nombre|%|pourcentage|proportion) d[e']\s*", "", str(i.get("libelle") or ""), flags=re.I)
+            court = re.sub(r"\s*\([^)]*\)", "", court)
+            court = re.split(r"\s*[:;]|\s+(?:au cours|dans le cadre|selon)\b", court)[0].strip()
+            if len(court) > 48:
+                court = court[:47].rsplit(" ", 1)[0] + "…"
+            return f"{i['code']} · {court[:1].upper() + court[1:]}" if court else i["code"]
+        defs, valeurs = [], []
+        for i in actifs:
+            v = _C.evaluer(src, i["formule"], cle)
+            valeurs.append(v)
+            defs.append({"nom": _tit(i), "code": i["code"], "libelle": i.get("libelle"), "type": i.get("type"),
+                         "agregation": "formule", "colonne": None, "formule": i["formule"],
+                         "pct": i["formule"].get("mode") in ("taux", "rapport"), "statut": i.get("statut"),
+                         "evolution": bool(i.get("evolution", True)) and cle is not None,
+                         "dimension": dims[0] if dims else None,
+                         "description": _C.decrire(i["formule"], lib)})
+        kpi_defs = defs[:5]
+        kpis = [{"nom": d["nom"], "valeur": v, "agregation": "formule", "colonne": None} for d, v in zip(defs[:5], valeurs[:5])]
+        meta = _meta(src, [], {"graphiques": []}, [], pc, p_ser)
+        rang = {d: i for i, d in enumerate(dims)}
+        meta["filters"] = sorted(meta.get("filters") or [], key=lambda f: rang.get(f["col"], 99))
+        meta.update(measure=None, charts=[], stack=None, indicateurs=defs, dims=dims, libelles={str(c): lib(c) for c in src.columns})
+        if domaine:
+            meta["domaine"] = {"cle": domaine["cle"], "nom": domaine["nom"]}
+        # Section dictionnaire : les indicateurs au-delà des 5 tuiles, et ceux du dictionnaire sans formule
+        codes = {d["code"].lower() for d in defs}
+        meta["dictionnaire"] = _json_safe({
+            "trouves": [{"code": d["code"], "libelle": d["libelle"], "type": d["type"], "valeur": v,
+                         "detail": d["description"], "formule": d["formule"], "statut": d["statut"]}
+                        for d, v in zip(defs[5:], valeurs[5:])],
+            "absents": [{"code": i["code"], "libelle": i["libelle"]} for i in (dictionnaire or [])
+                        if i.get("code", "").lower() not in codes]})
+        # Écarts : dernière période vs précédente, mêmes formules
+        gaps, kis, ic, vc = [], [], None, None
+        if cle is not None:
+            ps = sorted(k for k in cle.dropna().unique())
+            if len(ps) >= 2:
+                last, prev = ps[-1], ps[-2]
+                for d in defs:
+                    if not d["evolution"]:
+                        continue
+                    f0 = dict(d["formule"], stock=False)
+                    cur, pre = _C.evaluer(src[cle == last], f0), _C.evaluer(src[cle == prev], f0)
+                    kis.append({"nom": d["nom"], "kind": "formule", "f": f0, "bon": _bon(d["libelle"] or d["nom"]),
+                                "libelle": d["description"], "pts": d["pct"]})
+                    if cur is None or pre is None or (not d["pct"] and pre == 0):
+                        continue
+                    dd = cur - pre
+                    gaps.append({"indicateur": d["nom"], "libelle": d["description"], "derniere": cur, "precedente": pre,
+                                 "delta": dd, "pct": dd if d["pct"] else dd / pre * 100, "pts": d["pct"],
+                                 "bon": _bon(d["libelle"] or d["nom"]), "periode": last, "periode_prec": prev,
+                                 "sens": "hausse" if dd > 0 else "baisse" if dd < 0 else "stable"})
+        df, period_series, period_col, keys, pivoted = src, p_ser, pc, cle, False
+        filter_cols = [f["col"] for f in meta["filters"]]
     data = df.assign(__p=period_series) if period_series is not None else df
     if gaps:
         # Recalculés dans la page selon les filtres (sauf si l'échantillon de 6000 lignes fausserait les sommes)

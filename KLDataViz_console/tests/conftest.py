@@ -26,3 +26,8 @@ def _dictionnaire_isole(tmp_path, monkeypatch):
 @pytest.fixture(autouse=True)
 def _journal_isole(tmp_path, monkeypatch):
     monkeypatch.setenv("KLDV_JOURNAL_DIR", str(tmp_path / "journal-test"))
+
+
+@pytest.fixture(autouse=True)
+def _correspondances_isolees(tmp_path, monkeypatch):
+    monkeypatch.setenv("KLDV_CORR_DIR", str(tmp_path / "correspondances-test"))

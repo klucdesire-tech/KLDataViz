@@ -202,6 +202,14 @@ def refresh(source_id: str, read_df, build):
     return dict(get(source_id), changed=True)
 
 
+def remplacer_html(source_id: str, html: str):
+    """Nouvelle version du tableau de bord enregistré (ex. correspondance des indicateurs validée)."""
+    s = get(source_id, with_html=False)  # l'identifiant doit exister dans cet espace
+    with open(os.path.join(_dir(), s["id"] + ".html"), "w", encoding="utf-8") as f:
+        f.write(html)
+    _update(s["id"], {"status": "Mis à jour : correspondance des indicateurs"})
+
+
 def _update(source_id, changes):
     with _lock:
         items = _load()
