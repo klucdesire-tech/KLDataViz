@@ -123,8 +123,8 @@ def _proposer_ia(df, indicateurs, r, llm, parse):
             portent = [lab for lab in df[long_ic].dropna().astype(str).unique() if cat._part(C._norm(lab), cn) is not None]
             if portent and not set(map(str, cond.get("valeurs") or [])) & set(portent):
                 continue  # le code figure dans le fichier mais la formule filtre sur un autre libellé
-            if f.get("mode") == "somme":
-                f.setdefault("stock", bool(cat._is_snapshot(ind)))  # indicateur instantané : dernière période
+        if f.get("mode") == "somme" and cat._is_snapshot(ind):
+            f["stock"] = True  # indicateur instantané (file active…) : dernière période, jamais la somme des périodes
         out.append({"code": ind["code"], "libelle": ind.get("libelle") or ind["code"], "type": ind.get("type") or "",
                     "formule": f, "evolution": bool(it.get("evolution", True)), "source": "ia", "confiance": 0.6,
                     "explication": str(it.get("explication") or "")[:240]})

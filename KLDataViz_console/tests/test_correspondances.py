@@ -187,3 +187,9 @@ def test_ia_export_long_bon_libelle_et_stock():
         "mode": "somme", "colonne": "value", "filtre": {"colonne": "dataname", "valeurs": ["TX_CURR"]}}}]})
     p = correspondances._proposer_ia(d, dico, C.roles(d), bon, json.loads)
     assert p and p[0]["formule"]["stock"] is True
+    faux = lambda m, n: json.dumps({"indicateurs": [{"code": "TX_CURR", "formule": {  # noqa: E731
+        "mode": "somme", "colonne": "value", "stock": False, "filtre": {"colonne": "dataname", "valeurs": ["TX_CURR"]}}}]})
+    assert correspondances._proposer_ia(d, dico, C.roles(d), faux, json.loads)[0]["formule"]["stock"] is True
+    large = pd.DataFrame({"mois": ["2025-01", "2025-02"], "TX_CURR": [10, 12]})
+    ia_l = lambda m, n: json.dumps({"indicateurs": [{"code": "TX_CURR", "formule": {"mode": "somme", "colonne": "TX_CURR"}}]})  # noqa: E731
+    assert correspondances._proposer_ia(large, dico, C.roles(large), ia_l, json.loads)[0]["formule"]["stock"] is True
