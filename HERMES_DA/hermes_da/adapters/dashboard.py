@@ -848,8 +848,10 @@ select{appearance:none;border:1px solid var(--line);background:var(--card) url("
 .seg button{border:0;background:none;font:inherit;font-size:12px;color:var(--muted);padding:5px 11px;border-radius:999px;cursor:pointer;min-height:28px}
 .seg button[aria-pressed="true"]{background:var(--navy);color:#fff}
 .box{position:relative;height:250px}
-.donut{display:grid;grid-template-columns:150px 1fr;gap:14px;align-items:center}
-.donut .box{height:150px}
+.donut{display:flex;flex-direction:column;align-items:center;gap:14px}
+.donut .box{height:220px;width:100%;max-width:260px}
+.donut .legend{display:flex;flex-wrap:wrap;justify-content:center;gap:8px 18px;width:100%}
+.donut .legend li{display:flex;gap:6px;align-items:center}
 .legend{list-style:none;display:grid;gap:7px}
 .legend li{display:grid;grid-template-columns:10px 1fr auto;gap:8px;align-items:center;font-size:12.5px}
 .legend i{width:10px;height:10px;border-radius:50%;flex:none}
@@ -867,7 +869,7 @@ select{appearance:none;border:1px solid var(--line);background:var(--card) url("
 /* Affiché dans l'application (cadre) : le titre est déjà sur la page */
 .embedded body,body.embedded{padding:4px 2px 16px;background:transparent}
 body.embedded{min-height:0;overflow:hidden}html:has(body.embedded){overflow:hidden}body.embedded .top .title{display:none}body.embedded .top{justify-content:flex-end;margin-bottom:8px}
-@media (max-width:560px){body{padding:16px}.donut{grid-template-columns:1fr}.donut .box{height:170px}}
+@media (max-width:560px){body{padding:16px}.donut .box{height:200px}}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 /* Écarts : même langage que le reste (carte blanche, tuiles pastel comme les KPI, palette bleu / cyan / vert d'eau) */
 .gaps{margin-bottom:14px}.gaps[hidden]{display:none}
@@ -1205,7 +1207,7 @@ function renderGaps(rows){var el=document.getElementById('gaps'),K=META.keyind,D
     return row(gkey(ref),g.precedente,'prev')+row(gkey(cur),g.derniere,'cur')};
   var cards=G.map(function(g){var t=tone2(g);
     return '<div class="sv '+t+'"><div class="sv-h" title="'+esc((g.indicateur||'')+(g.libelle?'\n'+g.libelle:''))+'">'+esc(g.indicateur)+'</div>'
-      +(g.k&&g.k.etat?'<div class="sv-sub" title="Colonne d\'état actuel : chaque mois compte les patients de ce mois selon leur statut d\'aujourd\'hui">Patients du mois · statut actuel</div>':'')
+      +((g.k&&g.k.etat)||g.etat?'<div class="sv-sub" title="Colonne d\'état actuel : chaque mois compte les patients de ce mois selon leur statut d\'aujourd\'hui">Patients du mois · statut actuel</div>':'')
       +'<div class="sv-v"><b>'+val(g.derniere,g.pts)+'</b>'+(g.pct!=null?'<span class="gap-d '+t+'">'+delta(g)+'</span>':'')+'</div>'
       +bars(g)+spark(g)+'</div>'}).join('');
   var up=G.filter(function(g){return tone2(g)==='up'}).length,dn=G.filter(function(g){return tone2(g)==='down'}).length;
@@ -1264,7 +1266,10 @@ function renderIndic(rows){var I=META.indicateurs||[],dims=META.dims||[],r2=docu
         options:{responsive:true,maintainAspectRatio:false,cutout:'68%',plugins:{legend:{display:false},tooltip:Object.assign({callbacks:{label:function(c){return c.label+' : '+fmt(c.parsed)+' ('+Math.round(c.parsed/totp*100)+' %)'}}},navyTip)}}}))})}}
   function enHaut0(){return h2?1:2}
   var enHaut=h2?1:2;h2+=cartes.slice(0,enHaut).join('');h3+=cartes.slice(enHaut,h2?5:6).join('');
-  r2.innerHTML=h2;r3.innerHTML=h3;return todo}
+  r2.innerHTML=h2;r3.innerHTML=h3;
+  // Semaine / Mois / Trimestre : regroupe la courbe autrement
+  [].forEach.call(r2.querySelectorAll('.seg button[data-g]'),function(b){b.onclick=function(){gran=b.dataset.g;render()}});
+  return todo}
 // Classement interactif : un indicateur × une dimension ; survol = fiche (rang, écart), clic = filtre tout le tableau
 var RK={k:0,d:0};
 function renderRank(){var el=document.getElementById('rank'),I=(META.indicateurs||[]),dims=(META.dims||[]);
@@ -1584,6 +1589,7 @@ def generate_dashboard(df, objective: str = "", job_id: str | None = None, llm=N
                         continue
                     dd = cur - pre
                     gaps.append({"indicateur": d["nom"], "libelle": d["description"], "derniere": cur, "precedente": pre,
+                                 "etat": not d["evolution"],
                                  "delta": dd, "pct": dd if d["pct"] else dd / pre * 100, "pts": d["pct"],
                                  "bon": _bon(d["libelle"] or d["nom"]), "periode": last, "periode_prec": prev,
                                  "sens": "hausse" if dd > 0 else "baisse" if dd < 0 else "stable"})
