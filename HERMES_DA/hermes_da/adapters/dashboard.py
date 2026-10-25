@@ -728,7 +728,8 @@ def _gaps(df, keys, ic, vc, kis):
 # Fichier « une ligne par patient » (pas de colonne indicateur/valeur) : on compare les deux derniers mois
 # de la colonne de date — nouveaux enregistrements et indicateurs « taux »/« moyenne » choisis pour le tableau.
 _MAUVAIS = ("deces", "decede", "perdu", "abandon", "arret", "echec", "non supprim", "1000", "delai", "attente", "rupture",
-            "annul", "absence", "absenteisme", "impaye", "plainte", "reclamation", "incident")
+            "annul", "absence", "absenteisme", "impaye", "plainte", "reclamation", "incident",
+            "sans contact", "interruption", "tx ml", "tx iit", "tx died")  # TX_ML : patients perdus de vue (MER)
 # Mots entiers seulement : « départ » mais pas « département », « panne » mais pas « panneau »
 _MAUVAIS_MOTS = {"depart", "departs", "panne", "pannes", "retour", "retours"}
 
@@ -1204,6 +1205,7 @@ function renderGaps(rows){var el=document.getElementById('gaps'),K=META.keyind,D
     return row(gkey(ref),g.precedente,'prev')+row(gkey(cur),g.derniere,'cur')};
   var cards=G.map(function(g){var t=tone2(g);
     return '<div class="sv '+t+'"><div class="sv-h" title="'+esc((g.indicateur||'')+(g.libelle?'\n'+g.libelle:''))+'">'+esc(g.indicateur)+'</div>'
+      +(g.k&&g.k.etat?'<div class="sv-sub" title="Colonne d\'état actuel : chaque mois compte les patients de ce mois selon leur statut d\'aujourd\'hui">Patients du mois · statut actuel</div>':'')
       +'<div class="sv-v"><b>'+val(g.derniere,g.pts)+'</b>'+(g.pct!=null?'<span class="gap-d '+t+'">'+delta(g)+'</span>':'')+'</div>'
       +bars(g)+spark(g)+'</div>'}).join('');
   var up=G.filter(function(g){return tone2(g)==='up'}).length,dn=G.filter(function(g){return tone2(g)==='down'}).length;
@@ -1211,17 +1213,7 @@ function renderGaps(rows){var el=document.getElementById('gaps'),K=META.keyind,D
     +(G.length-up-dn?'<span class="gap-d flat">'+(G.length-up-dn)+' stable'+(G.length-up-dn>1?'s':'')+'</span>':'')+'</span>':'';
   // Indicateurs reliés non suivis ici : on dit pourquoi, au lieu de les faire disparaître
   var suivis={};G.forEach(function(g){suivis[g.indicateur]=1});
-  // Indicateurs d'état actuel (ex. statut du patient = Actif) : même carte, mais sans comparaison entre périodes
-  // (« actif » est l'état d'aujourd'hui : le recalculer pour un mois passé serait faux) ; à la place, la répartition
-  var etat=(META.indicateurs||[]).filter(function(k){return !k.evolution&&!suivis[k.nom]});
-  var d0=(META.dims||[])[0];
-  var etatCards=etat.map(function(k){var v=evalF(rows,k.formule);if(v==null)return '';
-    var e=d0?rankedF(rows,k.formule,d0,3):[],top=e.length?Math.max.apply(null,e.map(function(x){return Math.abs(x[1])}))||1:1;
-    var bars=e.map(function(x){return '<div class="sv-b"><span class="sv-bl" title="'+esc(label(x[0]))+'">'+esc(label(x[0]))+'</span><span class="sv-bt"><i class="cur" style="width:'+Math.max(2,Math.abs(x[1])/top*100).toFixed(1)+'%"></i></span><span class="sv-bv">'+val(x[1],k.pct)+'</span></div>'}).join('');
-    return '<div class="sv etat"><div class="sv-h" title="'+esc(k.nom+(k.description?'\n'+k.description:''))+'">'+esc(k.nom)+'</div>'
-      +'<div class="sv-v"><b>'+val(v,k.pct)+'</b><span class="gap-d flat" title="Valeur d\'aujourd\'hui : pas de comparaison entre périodes">État actuel</span></div>'
-      +(bars?'<div class="sv-sub">Top 3 par '+esc(short(d0))+'</div>'+bars:'')+'</div>'}).join('');
-  cards+=etatCards;var note='';
+  var note='';
   var title='Indicateurs clés de suivi'+(D?' · '+D.nom:'');
   el.innerHTML='<div class="card-h"><div><h2>'+esc(title)+'</h2><small>'+sub+'</small></div>'+ctl+'</div>'+(warn?'<p class="gaps-note">'+warn+'</p>':'')
     +resume+'<div class="sv-grid">'+cards+'</div>'+note;
@@ -1582,12 +1574,12 @@ def generate_dashboard(df, objective: str = "", job_id: str | None = None, llm=N
             if len(ps) >= 2:
                 last, prev = ps[-1], ps[-2]
                 for d in defs:
-                    if not d["evolution"]:
-                        continue
+                    # Indicateur d'état actuel (statut du patient) : suivi aussi, par période de la colonne de période,
+                    # signalé comme tel dans sa carte (« patients du mois · statut actuel »)
                     f0 = dict(d["formule"], stock=False)
                     cur, pre = _C.evaluer(src[cle == last], f0), _C.evaluer(src[cle == prev], f0)
                     kis.append({"nom": d["nom"], "kind": "formule", "f": f0, "bon": _bon(d["libelle"] or d["nom"]),
-                                "libelle": d["description"], "pts": d["pct"]})
+                                "libelle": d["description"], "pts": d["pct"], "etat": not d["evolution"]})
                     if cur is None or pre is None or (not d["pct"] and pre == 0):
                         continue
                     dd = cur - pre
