@@ -1231,6 +1231,18 @@ function renderIndic(rows){var I=META.indicateurs||[],dims=META.dims||[],r2=docu
   var cartes=[];I.forEach(function(k,i){var d=dims[i%Math.max(dims.length,1)]||dims[0];if(!d||cartes.length>=6)return;var e=rankedF(rows,k.formule,d,12);if(e.length<2)return;
     var id='c_ind_'+i,tt=k.nom+' par '+short(d),sub=(k.pct?'Taux':'Valeur')+' par '+short(d)+' · ligne : moyenne'+(k.statut==='propose'?' · formule à valider':'');
     cartes.push(card(canvas(id,tt),tt,sub));todo.push(catBarDraw(id,e,k.pct?' %':''))});
+  // Camembert « part de » : seulement pour un NOMBRE (comptage, somme) sur une dimension de 2 à 6 catégories.
+  // Jamais pour un taux : des pourcentages par groupe ne s'additionnent pas, leurs « parts » n'auraient pas de sens.
+  var kp=I.filter(function(k){return !k.pct&&['comptage','somme'].indexOf((k.formule||{}).mode)>=0})[0];
+  if(kp){var nb=function(d){var v={};rows.forEach(function(r){if(!isNull(r[d]))v[String(r[d]).trim()]=1});return Object.keys(v).length};
+    var dp=dims.filter(function(d){var n=nb(d);return n>=2&&n<=6}).sort(function(a,b){return nb(a)-nb(b)})[0];
+    var ep=dp?rankedF(rows,kp.formule,dp,6).filter(function(x){return x[1]>0}):[];
+    if(ep.length>=2){var totp=ep.reduce(function(a,x){return a+x[1]},0)||1,tp='Part de '+kp.nom.split(' · ')[0]+' par '+short(dp);
+      cartes.splice(enHaut0(),0,card('<div class="donut">'+canvas('c_ind_pie',tp)+'<ul class="legend">'+ep.map(function(x,j){return '<li><i style="background:'+DONUT[j%DONUT.length]+'"></i><span>'+esc(label(x[0]))+'</span><b>'+Math.round(x[1]/totp*100)+' %</b></li>'}).join('')+'</ul></div>',
+        tp,'Répartition du total ('+fmt(totp)+')'+(kp.statut==='propose'?' · formule à valider':'')));
+      todo.push(function(){charts.push(new Chart(document.getElementById('c_ind_pie'),{type:'doughnut',data:{labels:ep.map(function(x){return label(x[0])}),datasets:[{data:ep.map(function(x){return x[1]}),backgroundColor:DONUT,borderColor:'#fff',borderWidth:3,hoverOffset:4}]},
+        options:{responsive:true,maintainAspectRatio:false,cutout:'68%',plugins:{legend:{display:false},tooltip:Object.assign({callbacks:{label:function(c){return c.label+' : '+fmt(c.parsed)+' ('+Math.round(c.parsed/totp*100)+' %)'}}},navyTip)}}}))})}}
+  function enHaut0(){return h2?1:2}
   var enHaut=h2?1:2;h2+=cartes.slice(0,enHaut).join('');h3+=cartes.slice(enHaut,h2?5:6).join('');
   r2.innerHTML=h2;r3.innerHTML=h3;return todo}
 function render(){charts.forEach(function(c){c.destroy()});charts=[];var rows=filtered();renderKpis(rows);renderGaps(rows);renderDict(rows);
