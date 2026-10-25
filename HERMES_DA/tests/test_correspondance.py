@@ -67,7 +67,10 @@ def test_propositions_par_regles():
     props = {p["code"]: p for p in C.proposer_regles(df, MER)}
     assert C.evaluer(df, props["TX_CURR"]["formule"]) == 30 and props["TX_CURR"]["evolution"] is False  # état actuel
     assert C.evaluer(df, props["TX_ML"]["formule"]) == 6
-    assert props["TX_PVLS"]["formule"]["mode"] == "taux" and props["TB_PREV"]["formule"]["numerateur"]["colonne"] == "tpt_demarre"
+    assert props["TX_PVLS"]["formule"]["mode"] == "taux"
+    assert "TB_PREV" not in props                                   # TPT DÉMARRÉ ≠ TB_PREV (achevé, définition MER)
+    fini = {p["code"]: p for p in C.proposer_regles(df.assign(tpt_termine=["Oui", "Non"] * 20), MER)}
+    assert fini["TB_PREV"]["formule"]["numerateur"]["colonne"] == "tpt_termine"
     assert "VL_SUPPRESSION_NAT" not in props                        # même formule que TX_PVLS : pas de doublon
     for p in props.values():
         assert C.valider(df, p["formule"]) == []
@@ -94,3 +97,61 @@ def test_resume_pour_l_ia_sans_valeur_individuelle():
     assert "categories" not in cols["id_patient"] and cols["id_patient"]["role"] == "identifiant"
     assert "categories" not in cols["date_naissance"]
     assert sorted(cols["statut_actuel"]["categories"]) == ["Actif", "Décédé", "Perdu de vue"]
+
+
+def test_export_long_sans_code_jamais_compte_en_lignes():
+    """Export DHIS2 en libellés : aucune règle ne compte des lignes de la colonne des indicateurs."""
+    d = pd.DataFrame({"dataname": ["Patients avec CV supprimée", "Patients avec résultat de CV", "Patients sous TARV"] * 2,
+                      "periodname": ["Août 2025"] * 3 + ["Septembre 2025"] * 3, "value": [80, 90, 500, 81, 90, 520]})
+    for p in C.proposer_regles(d, MER):
+        assert p["formule"]["mode"] not in ("comptage", "taux") or p["formule"]["numerateur"]["colonne"] != "dataname"
+
+
+def test_vides_et_rapport_incomplet():
+    df = pd.DataFrame({"cv": ["Oui", "NA", "Non", "nan", "Oui"], "region": ["A", "NA", "B", "A", "B"], "v": [1.25, 2, 3, 4, 5]})
+    assert C.evaluer(df, {"mode": "comptage", "numerateur": {"colonne": "cv", "valeurs": ["Oui", "NA"]}}) == 2
+    assert C.evaluer(df, {"mode": "moyenne", "colonne": "v"}) == 3.05                # pas d'arrondi caché
+    assert "NA" not in dict(C.evaluer_par(df, {"mode": "comptage", "numerateur": {"colonne": "cv", "valeurs": ["Oui"]}}, "region"))
+    assert C.valider(df, {"mode": "rapport", "colonne": "v", "numerateur": {"colonne": "cv", "valeurs": ["Oui"]}})
+
+
+def test_relecture_hermes_detection_longue_et_arrondis():
+    # une colonne texte « data » n'est pas un export long : la règle « colonne nommée d'après le code » reste
+    w = pd.DataFrame({"data": ["a", "b"] * 3, "value": [1, 2, 3, 4, 5, 6], "TX_CURR": [10, 20, 30, 40, 50, 60]})
+    assert C.colonnes_longues(w, MER) == (None, None)
+    assert "TX_CURR" in {p["code"] for p in C.proposer_regles(w, MER)}
+    # « indicateur + nombre » est bien un export long : pas de comptage de lignes
+    lg = pd.DataFrame({"dataname": ["Patients avec CV supprimée", "Autre"] * 3, "nombre": [5, 6, 7, 8, 9, 1]})
+    assert C.colonnes_longues(lg, MER) == ("dataname", "nombre")
+    # % sans dénominateur dans un export long : moyenne de % proposée, jamais « sûre »
+    d = pd.DataFrame({"indicateur": ["TX_PVLS (N, DSD)"] * 2, "periode": ["2025-T3", "2025-T4"], "valeur": [80, 90]})
+    p = {x["code"]: x for x in C.proposer_regles(d, MER)}["TX_PVLS"]
+    assert p["formule"]["mode"] == "moyenne" and p["confiance"] < 0.9 and C.mode_compatible(MER[2], "moyenne")
+    assert C.mode_compatible({"type": ""}, "taux") and not C.mode_compatible(MER[0], "taux")
+    # arrondi demi vers le haut, comme Math.round dans la page (Python round() arrondit « au pair »)
+    r = pd.DataFrame({"x": ["o"] * 7 + ["n"] * 13})   # 7/20 = 35 % ; 1/8 = 12,5 %
+    q = pd.DataFrame({"x": ["o"] + ["n"] * 7 + [None] * 2})
+    assert C.evaluer(q, {"mode": "taux", "numerateur": {"colonne": "x", "valeurs": ["o"]}}) == 12.5
+    assert C.evaluer(pd.DataFrame({"x": ["o"] * 1 + ["n"] * 1999}),
+                     {"mode": "taux", "numerateur": {"colonne": "x", "valeurs": ["o"]}}) == 0.1  # 0,05 → 0,1
+    assert C.valider(r, {"mode": "comptage", "numerateur": {"colonne": "x", "valeurs": ["NA", "nan"]}})
+
+
+def test_relecture_hermes_3():
+    assert C.mode_compatible(MER[0], "moyenne") and C.mode_compatible(MER[0], "mediane")   # Nombre : moyenne permise
+    assert not C.mode_compatible(MER[0], "rapport") and not C.mode_compatible(MER[2], "somme")
+    w = pd.DataFrame({"indicateur": ["a", "b"] * 3, "total": [1, 2, 3, 4, 5, 6], "TX_CURR": [10, 20, 30, 40, 50, 60]})
+    assert C.colonnes_longues(w, MER) == (None, None)
+    assert "TX_CURR" in {p["code"] for p in C.proposer_regles(w, MER)}
+
+
+def test_dates_quotidiennes_periode_par_mois():
+    """380 visites aux dates toutes distinctes : période d'activité reconnue, série agrégée par mois."""
+    n = 380
+    df = pd.DataFrame({"CODE SITE": [f"S{i % 40:03}" for i in range(n)], "district": ["Nawa", "Buyo", "Soubré", "Méagui"] * (n // 4),
+                       "date_naissance": pd.date_range("1980-01-01", periods=n).astype(str),
+                       "date_visite": pd.date_range("2025-01-01", periods=n).astype(str), "statut": ["Actif", "Perdu de vue"] * (n // 2)})
+    r = C.roles(df)
+    assert r["periode"] == "date_visite" and "CODE SITE" in r["identifiants"] and r["dimensions"] == ["district"]
+    pts = C.serie(df, {"mode": "comptage", "numerateur": {"colonne": "statut", "valeurs": ["Actif"]}}, C.cle_periode(df, r["periode"]))
+    assert len(pts) == 13 and pts[0][0] == "2025-01"

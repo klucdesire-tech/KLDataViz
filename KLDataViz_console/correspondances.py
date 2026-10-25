@@ -38,10 +38,12 @@ def _path():
     return os.path.join(d, "correspondances.json")
 
 
-def signature(df) -> str:
-    """Même structure de fichier (mêmes colonnes) = même correspondance, quel que soit le contenu."""
+def signature(df, dictionnaire=None) -> str:
+    """Même structure de fichier (mêmes colonnes) ET même dictionnaire = même correspondance, quel que soit le contenu.
+    Un dictionnaire réimporté ou modifié (codes, types) redonne donc de nouvelles propositions."""
     cols = sorted(str(c).strip().lower() for c in df.columns)
-    return hashlib.sha1("|".join(cols).encode("utf-8")).hexdigest()[:16]
+    dico = sorted(f"{i.get('code', '')}:{i.get('type', '')}".lower() for i in (dictionnaire or []))
+    return hashlib.sha1(("|".join(cols) + "#" + "|".join(dico)).encode("utf-8")).hexdigest()[:16]
 
 
 def _tout():
@@ -53,14 +55,14 @@ def _tout():
         return {}
 
 
-def charger(df):
-    return _tout().get(signature(df))
+def charger(df, dictionnaire=None):
+    return _tout().get(signature(df, dictionnaire))
 
 
-def _sauver(df, corr):
+def _sauver(df, corr, dictionnaire=None):
     with _lock:
         d = _tout()
-        d[signature(df)] = dict(corr, maj=dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"))
+        d[signature(df, dictionnaire)] = dict(corr, maj=dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"))
         p = _path()
         with open(p + ".tmp", "w", encoding="utf-8") as f:
             json.dump(d, f, ensure_ascii=False, indent=1)
@@ -83,6 +85,9 @@ Règles :
 - N'utilise QUE des colonnes et des valeurs qui figurent dans la liste fournie (orthographe exacte).
 - Un indicateur « Pourcentage » → mode taux ou rapport ; « Nombre » → comptage ou somme.
 - « evolution » : false si la colonne décrit un état actuel (statut actuel), true si l'indicateur a un sens par période.
+- Export « long » (une colonne d'indicateurs + une colonne de valeurs, ex. DHIS2) : utilise TOUJOURS
+  « somme » ou « rapport » sur la colonne des valeurs, filtrés par le(s) libellé(s) d'indicateur ; jamais un comptage
+  ou un taux de lignes (une ligne n'y est pas un patient).
 - Si aucune colonne ne permet de calculer l'indicateur, n'écris rien pour lui : mieux vaut absent que faux.
 Réponds en JSON STRICT : {"indicateurs":[{"code":"...","formule":{...},"evolution":true,"explication":"une phrase"}]}"""
 
@@ -99,14 +104,27 @@ def _proposer_ia(df, indicateurs, r, llm, parse):
         return []
     data = parse(txt) if txt else None
     by = {str(i["code"]).strip().lower(): i for i in indicateurs}
+    from hermes_da import indicators_catalog as cat
+    long_ic, _vc = C.colonnes_longues(df, indicateurs)
     out = []
     for it in (data or {}).get("indicateurs", []) if isinstance(data, dict) else []:
         ind = by.get(str(it.get("code") or "").strip().lower())
         f = it.get("formule")
         if ind is None or not isinstance(f, dict) or C.valider(df, f):
             continue  # proposition invérifiable contre le fichier : écartée
-        if C.est_taux(ind) != (f.get("mode") in ("taux", "rapport")):
+        if not C.mode_compatible(ind, f.get("mode")):
             continue  # un pourcentage calculé comme un nombre (ou l'inverse) : écarté
+        if long_ic and (f.get("mode") in ("comptage", "taux") or long_ic not in
+                        ((f.get("filtre") or {}).get("colonne"), (f.get("numerateur") or {}).get("colonne"))):
+            continue  # export long : jamais de lignes comptées, et toujours filtré sur le(s) libellé(s) d'indicateur
+        if long_ic:
+            cond = f.get("filtre") if (f.get("filtre") or {}).get("colonne") == long_ic else f.get("numerateur")
+            cn = C._norm(ind["code"])
+            portent = [lab for lab in df[long_ic].dropna().astype(str).unique() if cat._part(C._norm(lab), cn) is not None]
+            if portent and not set(map(str, cond.get("valeurs") or [])) & set(portent):
+                continue  # le code figure dans le fichier mais la formule filtre sur un autre libellé
+        if f.get("mode") == "somme" and cat._is_snapshot(ind):
+            f["stock"] = True  # indicateur instantané (file active…) : dernière période, jamais la somme des périodes
         out.append({"code": ind["code"], "libelle": ind.get("libelle") or ind["code"], "type": ind.get("type") or "",
                     "formule": f, "evolution": bool(it.get("evolution", True)), "source": "ia", "confiance": 0.6,
                     "explication": str(it.get("explication") or "")[:240]})
@@ -117,7 +135,7 @@ def obtenir(df, dictionnaire, llm=None, parse=None):
     """Correspondance pour ce fichier : la mémorisée si elle existe, sinon des propositions (mémorisées)."""
     if not dictionnaire:
         return None
-    corr = charger(df)
+    corr = charger(df, dictionnaire)
     if corr:
         return corr
     C = _C()
@@ -130,14 +148,16 @@ def obtenir(df, dictionnaire, llm=None, parse=None):
     for p in props:
         p["statut"] = "propose"
     corr = {"periode": r["periode"], "dimensions": r["dimensions"], "indicateurs": props}
-    _sauver(df, corr)
+    _sauver(df, corr, dictionnaire)
     return corr
 
 
-def enregistrer(df, data: dict) -> dict:
-    """Enregistre les choix de l'utilisateur. Une formule validée est vérifiée contre le fichier ; erreur sinon."""
+def enregistrer(df, data: dict, dictionnaire=None) -> dict:
+    """Enregistre les choix de l'utilisateur. Une formule validée est vérifiée contre le fichier et contre le
+    dictionnaire (code connu, calcul cohérent avec le type Nombre / Pourcentage) ; erreur sinon."""
     C = _C()
-    corr = charger(df) or {"indicateurs": []}
+    corr = charger(df, dictionnaire) or {"indicateurs": []}
+    connus = {str(i.get("code", "")).lower(): i for i in (dictionnaire or [])}
     par_code = {i["code"].lower(): i for i in corr.get("indicateurs", [])}
     for it in data.get("indicateurs") or []:
         code = str(it.get("code") or "").strip()
@@ -153,10 +173,16 @@ def enregistrer(df, data: dict) -> dict:
         st = it.get("statut") or cur.get("statut") or "propose"
         if st not in STATUTS:
             raise ValueError("Statut inconnu.")
+        if connus and code.lower() not in connus:
+            raise ValueError(f"{code} : absent du dictionnaire d'indicateurs.")
         if st == "valide":
             err = C.valider(df, cur.get("formule"))
             if err:
                 raise ValueError(f"{code} : " + " ; ".join(err))
+            ind = connus.get(code.lower()) or cur
+            if not C.mode_compatible(ind, (cur.get("formule") or {}).get("mode")):
+                raise ValueError(f"{code} : un indicateur « {ind.get('type')} » demande un calcul "
+                                 + ("en taux, en rapport ou en moyenne de %, pas en nombre." if C.est_taux(ind) else "en nombre (comptage, somme, moyenne ou médiane), pas en taux."))
         cur["statut"] = st
         par_code[code.lower()] = cur
     if data.get("periode") is not None:
@@ -166,14 +192,14 @@ def enregistrer(df, data: dict) -> dict:
     if isinstance(data.get("dimensions"), list):
         corr["dimensions"] = [d for d in data["dimensions"] if d in df.columns][:4]
     corr["indicateurs"] = list(par_code.values())
-    _sauver(df, corr)
+    _sauver(df, corr, dictionnaire)
     return corr
 
 
-def oublier(df):
+def oublier(df, dictionnaire=None):
     with _lock:
         d = _tout()
-        d.pop(signature(df), None)
+        d.pop(signature(df, dictionnaire), None)
         with open(_path(), "w", encoding="utf-8") as f:
             json.dump(d, f, ensure_ascii=False, indent=1)
 
@@ -202,6 +228,6 @@ def public(df, corr, lib=lambda c: str(c)):
         if 2 <= len(vals) <= 30:
             e["categories"] = [str(v) for v in vals.index]
         cols.append(e)
-    return {"signature": signature(df), "periode": corr.get("periode"), "dimensions": corr.get("dimensions") or [],
+    return {"periode": corr.get("periode"), "dimensions": corr.get("dimensions") or [],
             "indicateurs": inds, "colonnes": cols,
             "periodes_possibles": [c for c in df.columns if c == r["periode"] or C._date_like(df[c])][:8]}

@@ -3,7 +3,7 @@
 FORMULE explicite, proposée (règles, puis IA) et validée par l'utilisateur.
 
 Pourquoi : deviner le sens des colonnes d'après leurs noms ne suffit pas (« statut_actuel = Actif » est TX_CURR,
-« tpt_demarre = Oui » est TB_PREV…). Une formule validée rend chaque chiffre exact, reproductible et explicable ;
+« tpt_termine = Oui » est TB_PREV…). Une formule validée rend chaque chiffre exact, reproductible et explicable ;
 tuiles, répartitions, courbes et écarts du tableau de bord sont tous calculés par CE moteur (et par son jumeau
 JavaScript `evalF` dans la page), jamais par deux règles différentes.
 
@@ -18,6 +18,7 @@ Une condition compare des textes normalisés (minuscules, espaces retirés) ; un
 """
 from __future__ import annotations
 
+import math
 import re
 
 import pandas as pd
@@ -34,7 +35,8 @@ SYNONYMES = {
     "TX_NEW": ["nouveau", "nouveaux", "nouvellement", "nouvel inclus", "nouvelle inclusion", "inclus ce mois"],
     "TX_PVLS": ["supprime", "supprimee", "cv supprimee", "indetectable", "charge virale supprimee"],
     "VL_SUPPRESSION_NAT": ["supprime", "supprimee", "cv supprimee", "indetectable"],
-    "TB_PREV": ["tpt", "ipt", "inh", "therapie preventive", "traitement preventif", "tpt demarre", "tpt termine"],
+    "TB_PREV": ["tpt termine", "tpt acheve", "tpt complete", "ipt termine", "ipt acheve", "inh termine",
+                "traitement preventif termine", "traitement preventif acheve"],  # MER : achevé, jamais « démarré »
     "TB_STAT": ["statut tb", "depistage tb", "tb depiste"],
     "HTS_TST": ["teste", "testes", "depiste", "depistes", "test vih", "resultat recu"],
     "PMTCT_STAT": ["statut vih connu", "statut connu cpn"],
@@ -68,6 +70,20 @@ def est_taux(ind) -> bool:
     return (ind.get("type") or "").strip().lower() in TAUX
 
 
+def mode_compatible(ind, mode) -> bool:
+    """Calcul cohérent avec le type du dictionnaire. Pourcentage : jamais un comptage ou une somme (taux, rapport,
+    ou moyenne / médiane d'une colonne qui porte déjà des %) ; Nombre : jamais un taux ou un rapport.
+    Type non renseigné : rien à contrôler."""
+    if not (ind.get("type") or "").strip():
+        return True
+    return mode not in (("comptage", "somme") if est_taux(ind) else ("taux", "rapport"))
+
+
+def _pct(a, b) -> float:
+    """Pourcentage au dixième, arrondi comme Math.round dans la page (demi vers le haut, pas « au pair »)."""
+    return math.floor(a / b * 1000 + 0.5) / 10
+
+
 # ---------------------------------------------------------------------------------------------- évaluation
 def _masque(df, cond):
     if not cond:
@@ -75,9 +91,9 @@ def _masque(df, cond):
     col = cond.get("colonne")
     if col not in df.columns:
         return pd.Series(False, index=df.index)
-    vals = {_v(x) for x in cond.get("valeurs") or []}
-    s = df[col]
-    return s.notna() & s.astype(str).str.strip().str.lower().isin(vals)
+    vals = {_v(x) for x in cond.get("valeurs") or []} - _VIDES
+    t = df[col].astype(str).str.strip().str.lower()
+    return df[col].notna() & ~t.isin(_VIDES) & t.isin(vals)
 
 
 def evaluer(df, f, cle=None):
@@ -106,22 +122,22 @@ def evaluer(df, f, cle=None):
             base = R.iloc[0:0]
         if not len(base):
             return None
-        return round(float(_masque(base, num).sum()) / len(base) * 100, 1)
+        return _pct(float(_masque(base, num).sum()), len(base))
     col = f.get("colonne")
     if col not in R.columns:
         return None
     if m == "rapport":
         x = pd.to_numeric(R[col], errors="coerce")
         n, d = x[_masque(R, num)].sum(min_count=1), x[_masque(R, f.get("denominateur"))].sum(min_count=1)
-        return round(float(n) / float(d) * 100, 1) if pd.notna(n) and pd.notna(d) and float(d) else None
+        return _pct(float(n), float(d)) if pd.notna(n) and pd.notna(d) and float(d) else None
     x = pd.to_numeric(R[_masque(R, num)][col] if num else R[col], errors="coerce").dropna()
     if not len(x):
         return None
     if m == "somme":
         return float(x.sum())
     if m == "moyenne":
-        return round(float(x.mean()), 2)
-    return round(float(x.median()), 2)
+        return float(x.mean())  # non arrondi : la page (evalF) ne l'arrondit pas non plus ; l'affichage s'en charge
+    return float(x.median())
 
 
 def evaluer_par(df, f, dim, cle=None, top=12):
@@ -130,7 +146,7 @@ def evaluer_par(df, f, dim, cle=None, top=12):
         return []
     out = []
     for g, part in df.groupby(df[dim].astype(str).str.strip()):
-        if g.lower() in ("", "nan", "none"):
+        if g.lower() in _VIDES:  # comme groupBy dans la page
             continue
         v = evaluer(part, f, None if cle is None else cle.reindex(part.index))
         if v is not None:
@@ -165,11 +181,13 @@ def valider(df, f) -> list:
         if c.get("colonne") not in df.columns:
             err.append(f"colonne « {c.get('colonne')} » absente")
             continue
-        presentes = set(df[c["colonne"]].dropna().astype(str).str.strip().str.lower())
-        if not {_v(x) for x in c.get("valeurs") or []} & presentes:
+        presentes = set(df[c["colonne"]].dropna().astype(str).str.strip().str.lower()) - _VIDES
+        if not ({_v(x) for x in c.get("valeurs") or []} - _VIDES) & presentes:
             err.append(f"aucune des valeurs {c.get('valeurs')} dans « {c['colonne']} »")
-    if f["mode"] in ("comptage", "taux") and not f.get("numerateur") and f["mode"] == "taux":
+    if f["mode"] == "taux" and not f.get("numerateur"):
         err.append("un taux demande un numérateur")
+    if f["mode"] == "rapport" and not (f.get("numerateur") and f.get("denominateur")):
+        err.append("un rapport demande un numérateur et un dénominateur")
     if f["mode"] in ("somme", "rapport", "moyenne", "mediane"):
         col = f.get("colonne")
         if col not in df.columns:
@@ -229,11 +247,15 @@ def roles(df) -> dict:
     n = len(df)
     for c in df.columns:
         nc, s = _norm(c), df[c]
-        if _IDLIKE.search(nc) or (not pd.api.types.is_numeric_dtype(s) and n > 20 and s.nunique() >= 0.9 * n):
+        if _IDLIKE.search(nc):
             ids.append(c)
             continue
         if not pd.api.types.is_numeric_dtype(s) and _date_like(s):
-            dates.append(c)
+            # avant le test d'unicité : des dates quotidiennes sont presque toutes distinctes sans être un identifiant
+            (ids if _ATTRIBUT.search(nc) else dates).append(c)  # date de naissance : donnée personnelle, jamais un axe
+            continue
+        if not pd.api.types.is_numeric_dtype(s) and n > 20 and s.nunique() >= 0.9 * n:
+            ids.append(c)
             continue
         if not pd.api.types.is_numeric_dtype(s) and 2 <= s.nunique() <= 60:
             if {_v(x) for x in s.dropna().unique()} <= (_OUI | _NON):
@@ -274,6 +296,29 @@ def _nie(v) -> bool:
     return n.startswith(_NEG) or n.strip() in ("non", "no", "n", "0", "faux", "false")
 
 
+# Noms de colonnes d'un export « long » (une ligne = un indicateur × période × lieu, ex. DHIS2 « dataname / value »)
+_LONG_IND = {"indicator", "indicateur", "indicateurs", "dataname", "data name", "dataelement", "data element",
+             "dataelementname", "indicatorname", "indicator name", "nom indicateur", "libelle indicateur", "dx"}
+_LONG_VAL = {"value", "valeur", "valeurs", "values", "val", "nombre", "effectif", "effectifs", "count", "total",
+             "montant", "quantite"}
+
+
+def colonnes_longues(df, indicateurs=()):
+    """(colonne des indicateurs, colonne des valeurs) d'un export long, (None, None) sinon. Codes du dictionnaire
+    présents ou non : dans un tel fichier une ligne n'est jamais un patient, on n'y compte donc jamais de lignes."""
+    from hermes_da import indicators_catalog as cat
+    codes = {_norm(i["code"]) for i in indicateurs if i.get("code")}
+    if any(_norm(c) in codes for c in df.columns):
+        return None, None  # une colonne porte un code du dictionnaire : format large, pas long
+    _l, ic, vc = cat._as_long(df, list(indicateurs))
+    if ic in df.columns and vc in df.columns:
+        return ic, vc
+    ic = next((c for c in df.columns if _norm(c) in _LONG_IND and not pd.api.types.is_numeric_dtype(df[c])), None)
+    vc = next((c for c in df.columns if _norm(c) in _LONG_VAL
+               and pd.to_numeric(df[c], errors="coerce").notna().mean() > 0.5), None)
+    return (ic, vc) if ic is not None and vc is not None else (None, None)
+
+
 def proposer_regles(df, indicateurs, r=None) -> list:
     """Formules proposées par règles (déterministes) : formats long/large (codes explicites) puis listes
     d'observations (vocabulaire métier, colonnes Oui/Non nommées d'après l'indicateur)."""
@@ -281,8 +326,11 @@ def proposer_regles(df, indicateurs, r=None) -> list:
     r = r or roles(df)
     out = []
     long_df, ic, vc = cat._as_long(df, indicateurs)
-    long_natif = ic is not None and ic in df.columns
-    cats = _cats(df, r["identifiants"])
+    lic, lvc = colonnes_longues(df, indicateurs)
+    long_natif = lic is not None
+    if long_natif:
+        ic, vc = lic, lvc
+    cats = [(c, v) for c, v in _cats(df, r["identifiants"]) if c != ic]
     for ind in indicateurs:
         code, cnorm, rate = ind["code"], _norm(ind["code"]), est_taux(ind)
         base = {"code": code, "libelle": ind.get("libelle") or code, "type": ind.get("type") or "", "source": "regles"}
@@ -304,14 +352,20 @@ def proposer_regles(df, indicateurs, r=None) -> list:
                 else:
                     f = {"mode": "somme", "colonne": vc, "filtre": {"colonne": ic, "valeurs": (parts.get("") or []) + (parts.get("n") or [])},
                          "stock": bool(cat._is_snapshot(ind))}
-                out.append(dict(base, formule=f, evolution=True, confiance=0.95,
-                                explication="code de l'indicateur présent dans la colonne des indicateurs"))
-                continue
+                moy = f["mode"] == "moyenne"
+                out.append(dict(base, formule=f, evolution=True, confiance=0.7 if moy else 0.95,
+                                explication="code de l'indicateur présent dans la colonne des indicateurs"
+                                + (" ; moyenne simple de pourcentages, non pondérée : à vérifier" if moy else "")))
+            # Export long sans le code : les libellés y sont des NOMS d'indicateurs, pas des catégories à compter.
+            # La correspondance se fait sur la colonne « valeur » (somme / rapport) : laissée à l'IA et à l'utilisateur.
+            continue
         # 2) format large : une colonne chiffrée porte le code
         col = next((c for c in df.columns if _norm(c) == cnorm and pd.api.types.is_numeric_dtype(df[c])), None)
         if col is not None:
             f = {"mode": "moyenne" if rate else "somme", "colonne": col, "stock": bool(cat._is_snapshot(ind))}
-            out.append(dict(base, formule=f, evolution=True, confiance=0.95, explication="colonne nommée d'après le code"))
+            out.append(dict(base, formule=f, evolution=True, confiance=0.7 if rate else 0.95,
+                            explication="colonne nommée d'après le code"
+                            + (" ; moyenne simple de pourcentages, non pondérée : à vérifier" if rate else "")))
             continue
         # 3) liste d'observations : une valeur de catégorie désigne l'indicateur (vocabulaire métier)
         syns = SYNONYMES.get(code.upper(), [])

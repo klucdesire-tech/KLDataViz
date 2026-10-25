@@ -2625,10 +2625,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if not dico:
                 raise ValueError("Importez d'abord un dictionnaire d'indicateurs (Réglages).")
             if path.endswith("/reproposer"):
-                correspondances.oublier(df)
+                correspondances.oublier(df, dico)
                 corr = _correspondance_pour(df, dico, ia=True)
             elif path.endswith("/enregistrer"):
-                corr = correspondances.enregistrer(df, p)
+                corr = correspondances.enregistrer(df, p, dico)
                 journal.ajouter("correspondance des indicateurs enregistrée", details={"nom": str(p.get("file_path") or "")[-80:]})
             else:
                 corr = _correspondance_pour(df, dico, ia=False)
