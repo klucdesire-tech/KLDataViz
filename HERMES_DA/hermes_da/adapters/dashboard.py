@@ -881,6 +881,23 @@ body.embedded{min-height:0;overflow:hidden}html:has(body.embedded){overflow:hidd
 .gap-p{display:block;font-size:11px;color:var(--muted);margin-top:4px}
 .gaps-chart{display:flex;flex-direction:column;min-width:0}.gaps-chart .box{height:auto;flex:1;min-height:200px}
 .gaps-ct{font-size:11.5px;color:var(--muted);margin:0 0 6px}
+.rkp{margin-bottom:14px}.rkp[hidden]{display:none}
+.rk-bar{display:flex;flex-wrap:wrap;gap:10px 18px;margin:0 0 12px}.rk-g{display:flex;flex-wrap:wrap;gap:6px;align-items:center}.rk-g span{font-size:12px;color:var(--muted)}
+.rk-c{font:inherit;font-size:12px;padding:5px 12px;border-radius:999px;border:1px solid #DCE6F0;background:#fff;color:#33475B;cursor:pointer}
+.rk-c[aria-pressed="true"]{background:#E6F1FB;border-color:#85B7EB;color:#0C447C;font-weight:600}
+.rk-body{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(0,1fr);gap:18px;align-items:start}
+@media (max-width:760px){.rk-body{grid-template-columns:minmax(0,1fr)}}
+.rk-l{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:2px}
+.rk-i{display:grid;grid-template-columns:22px minmax(0,1fr) auto;gap:10px;align-items:center;padding:6px 8px;border-radius:10px;cursor:pointer;font-size:13px}
+.rk-i:hover,.rk-i:focus-visible{background:#F3F7FB;outline:none}.rk-i.on{background:#E6F1FB;box-shadow:inset 3px 0 0 #0C447C}
+.rk-n{font-size:11px;color:var(--muted);text-align:right}.rk-t{display:flex;flex-direction:column;gap:4px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rk-b{height:7px;border-radius:4px;background:#F1F5FA;overflow:hidden}.rk-b i{display:block;height:100%;border-radius:4px}
+.rk-i b{font-variant-numeric:tabular-nums;color:#0B2545}
+.rk-side{display:flex;flex-direction:column;gap:12px;position:sticky;top:12px}
+.rk-f{border:1px solid #E6EDF5;border-radius:14px;padding:14px;min-height:132px;background:#FBFDFF}
+.rk-h{font-size:12.5px;color:var(--muted);margin:0 0 6px}.rk-fn{font-size:13px;font-weight:600;color:var(--navy)}.rk-fv{font-size:28px;font-weight:700;color:#0B2545;margin:2px 0 6px}
+.rk-fr{font-size:12.5px;color:#33475B;margin:2px 0}.rk-fa{font-size:12px;color:#0091D0;margin-top:8px;font-weight:600}
+.rk-lg{display:flex;align-items:center;gap:8px;font-size:11px;color:var(--muted)}.rk-lg i{flex:1;height:7px;border-radius:4px}
 .sv-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:12px}
 .sv{border:1px solid #E6EDF5;border-radius:14px;padding:12px 14px;display:flex;flex-direction:column;gap:8px;min-width:0;background:#fff}
 .sv-h{font-size:12.5px;font-weight:600;color:var(--navy);line-height:1.3;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;min-height:2.6em}
@@ -918,6 +935,7 @@ body.embedded{min-height:0;overflow:hidden}html:has(body.embedded){overflow:hidd
 <section class="gaps card" id="gaps" hidden></section>
 <section class="row2" id="row2"></section>
 <section class="row3" id="row3"></section>
+<section class="rkp card" id="rank" hidden></section>
 <section class="dict card" id="dict" hidden></section>
 <script>
 window.DATA=__DATA__;
@@ -1245,7 +1263,42 @@ function renderIndic(rows){var I=META.indicateurs||[],dims=META.dims||[],r2=docu
   function enHaut0(){return h2?1:2}
   var enHaut=h2?1:2;h2+=cartes.slice(0,enHaut).join('');h3+=cartes.slice(enHaut,h2?5:6).join('');
   r2.innerHTML=h2;r3.innerHTML=h3;return todo}
-function render(){charts.forEach(function(c){c.destroy()});charts=[];var rows=filtered();renderKpis(rows);renderGaps(rows);renderDict(rows);
+// Classement interactif : un indicateur × une dimension ; survol = fiche (rang, écart), clic = filtre tout le tableau
+var RK={k:0,d:0};
+function renderRank(){var el=document.getElementById('rank'),I=(META.indicateurs||[]),dims=(META.dims||[]);
+  if(!I.length||!dims.length){el.hidden=true;return}
+  if(RK.k>=I.length)RK.k=0;if(RK.d>=dims.length)RK.d=0;
+  var k=I[RK.k],d=dims[RK.d],filtrable=FCOLS.indexOf(d)>=0;
+  // Toutes les lignes filtrées SAUF par cette dimension : le classement garde tous ses groupes, le choisi est surligné
+  var base=DATA.filter(function(r){return FCOLS.every(function(c){return c===d||state[c]==null||state[c]==='all'||String(r[c]).trim()===state[c]})});
+  var e=rankedF(base,k.formule,d,15);if(e.length<2){el.hidden=true;return}el.hidden=false;
+  var u=k.pct?' %':'',mx=Math.max.apply(null,e.map(function(x){return x[1]})),mn=Math.min.apply(null,e.map(function(x){return x[1]}));
+  var ref=k.pct?evalF(base,k.formule):e.reduce(function(a,x){return a+x[1]},0)/e.length,refl=k.pct?'ensemble':'moyenne par '+short(d).toLowerCase();
+  var mix=function(t){var a=[181,212,244],b=[12,68,124];return 'rgb('+a.map(function(v,j){return Math.round(v+(b[j]-v)*t)}).join(',')+')'};
+  var tone=function(v){return mx===mn?.6:(v-mn)/(mx-mn)};
+  var f1=function(x){return k.pct?String(Math.round(x*10)/10).replace('.',','):fmt(x)};
+  var sel=state[d]&&state[d]!=='all'?state[d]:null;
+  var chips=function(list,cur,att){return list.map(function(x,i){return '<button class="rk-c" data-'+att+'="'+i+'" aria-pressed="'+(i===cur)+'">'+esc(att==='k'?x.nom.split(' · ')[0]:short(x))+'</button>'}).join('')};
+  el.innerHTML='<div class="card-h"><div><h2>Classement · '+esc(k.nom)+'</h2><small>'+(k.pct?'Taux':'Valeur')+' par '+esc(short(d))+' · '+e.length+' groupes'+(filtrable?' · cliquez pour filtrer le tableau':'')+'</small></div></div>'
+    +'<div class="rk-bar"><div class="rk-g">'+chips(I,RK.k,'k')+'</div>'+(dims.length>1?'<div class="rk-g"><span>par</span>'+chips(dims,RK.d,'d')+'</div>':'')+'</div>'
+    +'<div class="rk-body"><ol class="rk-l">'+e.map(function(x,i){var t=tone(x[1]);return '<li class="rk-i'+(sel===x[0]?' on':'')+'" data-i="'+i+'" tabindex="0" role="button" aria-label="'+esc(label(x[0])+' : '+f1(x[1])+u)+'">'
+      +'<span class="rk-n">'+(i+1)+'</span><span class="rk-t">'+esc(label(x[0]))+'<span class="rk-b"><i style="width:'+Math.max(2,mx>0?x[1]/mx*100:0).toFixed(1)+'%;background:'+mix(t)+'"></i></span></span><b>'+f1(x[1])+u+'</b></li>'}).join('')+'</ol>'
+    +'<div class="rk-side"><div class="rk-f" id="rkF"></div><div class="rk-lg"><span>'+f1(mn)+u+'</span><i style="background:linear-gradient(90deg,'+mix(0)+','+mix(.5)+','+mix(1)+')"></i><span>'+f1(mx)+u+'</span></div></div></div>';
+  var F=el.querySelector('#rkF');
+  var fiche=function(i){if(i==null){var s0=sel?e.filter(function(x){return x[0]===sel})[0]:null;if(s0)return fiche(e.indexOf(s0));
+      F.innerHTML='<p class="rk-h">Survolez une ligne pour voir sa fiche.</p><p class="rk-h">Référence ('+esc(refl)+') : <b>'+f1(ref)+u+'</b></p>';return}
+    var x=e[i],ec=x[1]-ref,pt=k.pct?' pt'+(Math.abs(ec)>=2?'s':''):'';
+    F.innerHTML='<div class="rk-fn">'+esc(label(x[0]))+'</div><div class="rk-fv">'+f1(x[1])+u+'</div>'
+      +'<div class="rk-fr">Rang <b>'+(i+1)+'</b> sur '+e.length+'</div>'
+      +'<div class="rk-fr">'+(ec>=0?'+':'−')+f1(Math.abs(ec))+(k.pct?pt:'')+' vs '+esc(refl)+' ('+f1(ref)+u+')</div>'
+      +(filtrable?'<div class="rk-fa">'+(sel===x[0]?'Cliquer : retirer le filtre':'Cliquer : filtrer le tableau sur '+esc(label(x[0])))+'</div>':'')};
+  fiche(null);
+  [].forEach.call(el.querySelectorAll('.rk-i'),function(li){var i=+li.dataset.i;
+    li.onmouseenter=li.onfocus=function(){fiche(i)};li.onmouseleave=li.onblur=function(){fiche(null)};
+    var act=function(){if(!filtrable)return;state[d]=sel===e[i][0]?'all':e[i][0];buildFilters();render()};
+    li.onclick=act;li.onkeydown=function(ev){if(ev.key==='Enter'||ev.key===' '){ev.preventDefault();act()}}});
+  [].forEach.call(el.querySelectorAll('.rk-c'),function(b){b.onclick=function(){if(b.dataset.k!=null)RK.k=+b.dataset.k;else RK.d=+b.dataset.d;renderRank()}})}
+function render(){charts.forEach(function(c){c.destroy()});charts=[];var rows=filtered();renderKpis(rows);renderGaps(rows);renderDict(rows);renderRank();
   var todo=META.indicateurs?renderIndic(rows):renderMain(rows).concat(renderCards(rows));if(window.Chart)todo.forEach(function(f){f()})}
 document.getElementById('objective').textContent=window.OBJECTIVE;
 try{if(window.self!==window.top)document.body.classList.add('embedded')}catch(e){document.body.classList.add('embedded')}
