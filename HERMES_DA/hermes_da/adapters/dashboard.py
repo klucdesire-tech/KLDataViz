@@ -886,6 +886,13 @@ body.embedded{min-height:0;overflow:hidden}html:has(body.embedded){overflow:hidd
 .dl{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;font-size:12px;line-height:1.3}
 .hd{font-size:10px;color:#B45309;background:#FEF3C7;border-radius:10px;padding:1px 7px;margin-left:6px;font-weight:600;vertical-align:1px}
 .dict{margin-bottom:14px}.dict[hidden]{display:none}
+.dict-wrap>summary{cursor:pointer;list-style:none;display:flex;align-items:center;justify-content:space-between;gap:12px;margin:0}
+.dict-wrap>summary::-webkit-details-marker{display:none}
+.dict-wrap>summary h2{margin:0}
+.dict-tog::after{content:'Afficher';font-size:12px;font-weight:600;color:#0B4F8F;border:1px solid #cfe0f1;border-radius:999px;padding:4px 12px;white-space:nowrap}
+.dict-wrap[open] .dict-tog::after{content:'Masquer'}
+.dict-wrap[open]>summary{margin-bottom:12px}
+.dict-wrap>summary:focus-visible{outline:2px solid #0091D0;outline-offset:4px;border-radius:6px}
 .dict-abs{margin-top:12px;font-size:12px;color:var(--muted,#667085)}
 .dict-abs summary{cursor:pointer;font-weight:600;padding:6px 0;list-style-position:inside}
 .dict-abs ul{margin:6px 0 0;padding-left:18px;columns:2 320px;column-gap:24px}
@@ -896,9 +903,9 @@ body.embedded{min-height:0;overflow:hidden}html:has(body.embedded){overflow:hidd
 <div class="filters" id="filters"></div>
 <section class="kpis" id="kpis" aria-label="Indicateurs clés"></section>
 <section class="gaps card" id="gaps" hidden></section>
-<section class="dict card" id="dict" hidden></section>
 <section class="row2" id="row2"></section>
 <section class="row3" id="row3"></section>
+<section class="dict card" id="dict" hidden></section>
 <script>
 window.DATA=__DATA__;
 window.KPIDEFS=__KPIDEFS__;
@@ -908,7 +915,7 @@ window.OBJECTIVE="__OBJECTIVE__";
 var NAVY='#0B4F8F',PASTEL=['#0B4F8F','#0091D0','#10BCD0','#12BF9A','#1565C0','#7FDCC4'],
     DONUT=['#0B4F8F','#0091D0','#10BCD0','#12BF9A','#1565C0','#5FD3E6','#7FDCC4','#9CC3EA'],
     BLUES=['#0B4F8F','#0E63A8','#0078C0','#0091D0','#10A7D0','#10BCD0','#12BF9A','#7FDCC4'];
-var state={},gran=(META.gran||'M'),charts=[],showMore=false,SHOWN={},KCOUNT={};
+var state={},gran=(META.gran||'M'),charts=[],showMore=false,SHOWN={},KCOUNT={},dictOpen=null;
 var MOIS=['janv.','févr.','mars','avr.','mai','juin','juil.','août','sept.','oct.','nov.','déc.'];
 if(window.Chart){Chart.defaults.font.family="'Fira Sans',system-ui,sans-serif";Chart.defaults.color='#5B6478';
   if(matchMedia('(prefers-reduced-motion: reduce)').matches)Chart.defaults.animation=false;}
@@ -1173,12 +1180,15 @@ function renderDict(rows){var el=document.getElementById('dict'),D=META.dictionn
       +'<div class="row"><div class="v">'+v+'</div>'+(r.detail&&/^\d/.test(r.detail)?'<div class="s"><span class="gap-p">'+esc(r.detail)+'</span></div>':'')+'</div></div>'}
   var more=F.slice(VIS),li=function(r){return '<li title="'+esc(r.libelle||'')+'"><b>'+esc(r.code)+'</b> '+esc(r.libelle||'')+'</li>'};
   var relies=(META.indicateurs||[]).length;
-  el.innerHTML='<div class="card-h"><div><h2>'+(relies?'Autres indicateurs du dictionnaire':'Indicateurs du dictionnaire')+'</h2><small>'
-    +(relies?relies+' indicateur'+(relies>1?'s':'')+' relié'+(relies>1?'s':'')+' à vos colonnes, affiché'+(relies>1?'s':'')+' en tête'+(F.length?' ; '+F.length+' de plus ci-dessous':'')
-      :F.length+' calculé'+(F.length>1?'s':'')+' selon votre référentiel · les indicateurs clés du haut sont choisis par Hermes')+'</small></div></div>'
+  if(dictOpen===null)dictOpen=!relies;  // indicateurs reliés en tête : le reste du dictionnaire reste replié
+  el.innerHTML='<details class="dict-wrap"'+(dictOpen?' open':'')+'><summary class="card-h"><div><h2>'+(relies?'Autres indicateurs du dictionnaire':'Indicateurs du dictionnaire')+'</h2><small>'
+    +(relies?(F.length?F.length+' de plus calculé'+(F.length>1?'s':''):'Aucun autre calculable')+(A.length?' · '+A.length+' absent'+(A.length>1?'s':'')+' de ces données':'')
+      :F.length+' calculé'+(F.length>1?'s':'')+' selon votre référentiel · les indicateurs clés du haut sont choisis par Hermes')+'</small></div>'
+    +'<span class="dict-tog" aria-hidden="true"></span></summary><div class="dict-body">'
     +(F.length?'<div class="gaps-grid">'+F.slice(0,VIS).map(tile).join('')+'</div>':relies?'':'<p class="gaps-ct">Aucun indicateur du dictionnaire n\'est calculable de façon sûre avec ces données.</p>')
     +(more.length?'<details class="dict-abs"><summary>'+more.length+' autre'+(more.length>1?'s':'')+' indicateur'+(more.length>1?'s':'')+' calculé'+(more.length>1?'s':'')+'</summary><div class="gaps-grid" style="margin-top:10px">'+more.map(function(r,i){return tile(r,i+VIS)}).join('')+'</div></details>':'')
-    +(A.length?'<details class="dict-abs"><summary>'+A.length+' indicateur'+(A.length>1?'s':'')+' du dictionnaire absent'+(A.length>1?'s':'')+' de ces données</summary><ul>'+A.map(li).join('')+'</ul></details>':'')}
+    +(A.length?'<details class="dict-abs"><summary>'+A.length+' indicateur'+(A.length>1?'s':'')+' du dictionnaire absent'+(A.length>1?'s':'')+' de ces données</summary><ul>'+A.map(li).join('')+'</ul></details>':'')+'</div></details>';
+  el.querySelector('.dict-wrap').addEventListener('toggle',function(e){dictOpen=e.target.open})}
 function renderIndic(rows){var I=META.indicateurs||[],dims=META.dims||[],r2=document.getElementById('row2'),r3=document.getElementById('row3'),h2='',h3='',todo=[];
   var ev=I.filter(function(k){return k.evolution})[0];
   if(ev&&META.period){var g=groupBy(rows,function(r){return pkey(r.__p)}),ks=Object.keys(g).sort(),f0=Object.assign({},ev.formule,{stock:false});

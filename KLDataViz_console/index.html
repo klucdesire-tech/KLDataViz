@@ -1509,10 +1509,15 @@ function renderCorr(){const C=state.dash?.corr,el=$('#corrPanel');if(!C||!(C.ind
   const canEdit=!CLOUD||['owner','analyst'].includes(state.me?.role),nv=C.indicateurs.filter(i=>i.statut==='valide').length;
   const opt=(arr,cur)=>arr.map(c=>`<option value="${esc(c.v)}"${c.v===cur?' selected':''}>${esc(c.t)}</option>`).join('');
   el.hidden=false;
+  const nv0=C.indicateurs.filter(i=>i.statut!=='valide'&&i.statut!=='ignore').length;
+  if(!state.dash.corrOpen){el.innerHTML=`<div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+      <div style="flex:1;min-width:220px"><b>Correspondance des indicateurs</b> <span class="sub">· ${C.indicateurs.length} relié${C.indicateurs.length>1?'s':''} à vos colonnes, ${nv} validé${nv>1?'s':''}</span>
+      ${nv0?`<span class="tag" style="margin-left:6px">${nv0} à vérifier</span>`:''}</div>
+      <button class="btn ghost sm" id="corrOpen" aria-expanded="false" aria-controls="corrPanel">${canEdit?'Vérifier / modifier':'Voir les formules'}</button></div>`;return}
   el.innerHTML=`<div class="card-h" style="display:flex;gap:10px;align-items:flex-start;flex-wrap:wrap"><div style="flex:1;min-width:240px"><h2>Correspondance des indicateurs</h2>
       <p class="sub">Hermes a relié ${C.indicateurs.length} indicateur${C.indicateurs.length>1?'s':''} de votre dictionnaire à vos colonnes (${nv} validé${nv>1?'s':''}).
       Vérifiez chaque formule : une fois enregistrées, elles sont réutilisées pour ce type de fichier, sans IA.</p></div>
-      ${canEdit?`<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn ghost sm" id="corrAll" title="Valide seulement les propositions sûres (confiance d'au moins 90 %, sans erreur) ; les autres restent à vérifier">Valider les propositions sûres</button><button class="btn ghost sm" id="corrRe" title="Oublier ces propositions et en demander de nouvelles (règles + IA)">Reproposer</button></div>`:''}</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">${canEdit?`<button class="btn ghost sm" id="corrAll" title="Valide seulement les propositions sûres (confiance d'au moins 90 %, sans erreur) ; les autres restent à vérifier">Valider les propositions sûres</button><button class="btn ghost sm" id="corrRe" title="Oublier ces propositions et en demander de nouvelles (règles + IA)">Reproposer</button>`:''}<button class="btn ghost sm" id="corrClose" aria-expanded="true">Fermer</button></div></div>
     <div id="corrList">${C.indicateurs.map((i,k)=>`<div class="corr-row" data-k="${k}">
       <div><div class="code">${esc(i.code)}</div><div class="lib">${esc(i.libelle||'')}</div></div>
       <div class="desc"><div>${esc(i.description||'')}</div><div class="corr-src">Proposé par ${esc(SRC[i.source]||i.source||'')}${i.explication?' · '+esc(i.explication):''}</div>
@@ -1545,6 +1550,7 @@ $('#corrPanel').addEventListener('change',e=>{const C=state.dash?.corr;if(!C)ret
     const f=Object.assign({},i.formule||{},{mode:$('#ceMode').value});const c=$('#ceCol')?.value;if(c&&(!f.numerateur||f.numerateur.colonne!==c))f.numerateur={colonne:c,valeurs:[]};
     i.formule=f;box.outerHTML=corrEditor(k)}});
 $('#corrPanel').addEventListener('click',async e=>{const C=state.dash?.corr;if(!C)return;
+  if(e.target.id==='corrOpen'||e.target.id==='corrClose'){state.dash.corrOpen=e.target.id==='corrOpen';renderCorr();$(state.dash.corrOpen?'#corrClose':'#corrOpen')?.focus();return}
   const ed=e.target.closest('[data-ed]');if(ed){$$('.corr-edit').forEach(x=>x.remove());ed.closest('.corr-row').insertAdjacentHTML('beforeend',corrEditor(+ed.dataset.ed));return}
   if(e.target.id==='ceCancel'){e.target.closest('.corr-edit').remove();return}
   if(e.target.id==='ceOk'){const box=e.target.closest('.corr-edit'),k=+box.dataset.edk,i=C.indicateurs[k],m=$('#ceMode').value,c=$('#ceCol')?.value;
@@ -1567,7 +1573,7 @@ $('#corrPanel').addEventListener('click',async e=>{const C=state.dash?.corr;if(!
       indicateurs:C.indicateurs.map(i=>({code:i.code,libelle:i.libelle,type:i.type,statut:i.statut,formule:i.formule,evolution:i.evolution}))});
     const r=await api(re?'/api/correspondance/reproposer':'/api/correspondance/enregistrer',body);b.disabled=false;
     if(r.error){toast(r.error);$('#corrMsg')&&($('#corrMsg').textContent=r.error);return}
-    state.dash.corr=r.correspondance;if(r.html){state.dash.html=r.html;showDashboard()}renderCorr();
+    state.dash.corr=r.correspondance;if(!re)state.dash.corrOpen=false;if(r.html){state.dash.html=r.html;showDashboard()}renderCorr();
     toast(re?'Nouvelles propositions prêtes.':'Correspondance enregistrée : tableau de bord mis à jour.')}});
 // ---- A. Télécharger : fichier HTML autonome (interactif, sans compte, hors connexion)
 $('#dbDl').onclick=()=>{if(!state.dash?.html)return;const n=(state.dash.source?.name||state.name||'tableau').replace(/\.[^.]+$/,'').replace(/[^\w\-]+/g,'_').slice(0,40);

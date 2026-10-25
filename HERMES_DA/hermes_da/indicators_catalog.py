@@ -235,7 +235,7 @@ def import_dictionary(path, structure: str = "default") -> dict:
     if not indicators:
         raise ValueError("Dictionnaire vide : aucun indicateur reconnu (vérifiez les colonnes domaine/code/libellé).")
     h = _import_hash(indicators)
-    with psycopg.connect(_dsn()) as conn:
+    with psycopg.connect(_dsn(), connect_timeout=5) as conn:
         with conn.cursor() as cur:
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS hermes.dictionnaire_indicateurs (
@@ -268,11 +268,19 @@ def import_dictionary(path, structure: str = "default") -> dict:
     return {"importe": len(indicators), "structure": structure, "deja_present": False}
 
 
+_BASE_INDISPONIBLE = [0.0]  # instant jusqu'auquel la base est considérée injoignable
+
+
 def load_dictionary(structure: str = "default") -> list:
-    """Dictionnaire importé pour une structure (liste d'indicateurs). [] si aucun."""
+    """Dictionnaire importé pour une structure (liste d'indicateurs). [] si aucun.
+    Base injoignable : réponse en 3 s au plus, puis [] immédiat pendant 60 s (le tableau de bord ne doit
+    jamais attendre une base arrêtée — sans délai, la connexion pouvait bloquer indéfiniment)."""
+    import time
     import psycopg
+    if time.monotonic() < _BASE_INDISPONIBLE[0]:
+        return []
     try:
-        with psycopg.connect(_dsn()) as conn:
+        with psycopg.connect(_dsn(), connect_timeout=3) as conn:
             with conn.cursor() as cur:
                 cur.execute("""
                     SELECT domaine, code, libelle, type, numerateur, denominateur,
@@ -282,6 +290,9 @@ def load_dictionary(structure: str = "default") -> list:
                 """, (structure,))
                 rows = cur.fetchall()
     except psycopg.errors.UndefinedTable:
+        return []
+    except psycopg.OperationalError:
+        _BASE_INDISPONIBLE[0] = time.monotonic() + 60
         return []
     except Exception:
         return []
