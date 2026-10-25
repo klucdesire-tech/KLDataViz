@@ -909,6 +909,7 @@ body.embedded{min-height:0;overflow:hidden}html:has(body.embedded){overflow:hidd
 .sv-sp{border-top:1px dashed #E6EDF5;padding-top:6px}.sv-sp svg{width:100%;height:40px;display:block;overflow:visible}
 .sv-sp polyline{stroke:#0091D0}.sv-sp circle{fill:#0091D0}.sv.up .sv-sp polyline{stroke:#12BF9A}.sv.up .sv-sp circle{fill:#12BF9A}.sv.down .sv-sp polyline{stroke:#E8776A}.sv.down .sv-sp circle{fill:#E8776A}
 .sv-sp span{font-size:10.5px;color:var(--muted)}
+.sv.etat{background:#FBFDFF}.sv-sub{font-size:11px;color:var(--muted);margin-top:2px}.sv.etat .sv-bt i.cur{background:#0B4F8F}
 .sv-r{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 10px}.sv-n{font-size:11.5px;color:var(--muted);margin:10px 0 0}
 @media (max-width:900px){.gaps-body{grid-template-columns:minmax(0,1fr)}}
 .dc{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.02em;color:var(--navy);background:rgba(255,255,255,.75);border-radius:6px;padding:1px 7px;margin:0 0 4px}
@@ -1210,8 +1211,17 @@ function renderGaps(rows){var el=document.getElementById('gaps'),K=META.keyind,D
     +(G.length-up-dn?'<span class="gap-d flat">'+(G.length-up-dn)+' stable'+(G.length-up-dn>1?'s':'')+'</span>':'')+'</span>':'';
   // Indicateurs reliés non suivis ici : on dit pourquoi, au lieu de les faire disparaître
   var suivis={};G.forEach(function(g){suivis[g.indicateur]=1});
-  var etat=(META.indicateurs||[]).filter(function(k){return !k.evolution&&!suivis[k.nom]}).map(function(k){return k.nom.split(' · ')[0]});
-  var note=etat.length?'<p class="sv-n">Non suivi'+(etat.length>1?'s':'')+' ici : '+esc(etat.join(', '))+' — '+(etat.length>1?'ils décrivent':'il décrit')+' un état actuel (ex. statut du patient), sans évolution d\'une période à l\'autre. Valeur dans les tuiles du haut.</p>':'';
+  // Indicateurs d'état actuel (ex. statut du patient = Actif) : même carte, mais sans comparaison entre périodes
+  // (« actif » est l'état d'aujourd'hui : le recalculer pour un mois passé serait faux) ; à la place, la répartition
+  var etat=(META.indicateurs||[]).filter(function(k){return !k.evolution&&!suivis[k.nom]});
+  var d0=(META.dims||[])[0];
+  var etatCards=etat.map(function(k){var v=evalF(rows,k.formule);if(v==null)return '';
+    var e=d0?rankedF(rows,k.formule,d0,3):[],top=e.length?Math.max.apply(null,e.map(function(x){return Math.abs(x[1])}))||1:1;
+    var bars=e.map(function(x){return '<div class="sv-b"><span class="sv-bl" title="'+esc(label(x[0]))+'">'+esc(label(x[0]))+'</span><span class="sv-bt"><i class="cur" style="width:'+Math.max(2,Math.abs(x[1])/top*100).toFixed(1)+'%"></i></span><span class="sv-bv">'+val(x[1],k.pct)+'</span></div>'}).join('');
+    return '<div class="sv etat"><div class="sv-h" title="'+esc(k.nom+(k.description?'\n'+k.description:''))+'">'+esc(k.nom)+'</div>'
+      +'<div class="sv-v"><b>'+val(v,k.pct)+'</b><span class="gap-d flat" title="Valeur d\'aujourd\'hui : pas de comparaison entre périodes">État actuel</span></div>'
+      +(bars?'<div class="sv-sub">Top 3 par '+esc(short(d0))+'</div>'+bars:'')+'</div>'}).join('');
+  cards+=etatCards;var note='';
   var title='Indicateurs clés de suivi'+(D?' · '+D.nom:'');
   el.innerHTML='<div class="card-h"><div><h2>'+esc(title)+'</h2><small>'+sub+'</small></div>'+ctl+'</div>'+(warn?'<p class="gaps-note">'+warn+'</p>':'')
     +resume+'<div class="sv-grid">'+cards+'</div>'+note;
