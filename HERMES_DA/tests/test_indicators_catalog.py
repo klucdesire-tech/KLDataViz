@@ -56,8 +56,9 @@ def test_builtin_domains_present():
 
 # --- Registre PostgreSQL (testé uniquement si la base locale est joignable) ---
 def _pg_available():
-    try:
-        cat.load_dictionary("__test_ping__")
+    try:  # load_dictionary ne lève jamais (base absente = []) : on teste la connexion elle-même, avec délai
+        import psycopg
+        psycopg.connect(cat._dsn(), connect_timeout=3).close()
         return True
     except Exception:
         return False
