@@ -299,6 +299,10 @@ tr.versions td{background:var(--surface-2);font-size:13px}
   .charts{grid-template-columns:minmax(0,1fr)}
   .li{grid-template-columns:minmax(0,1fr)}
 }
+@media (max-width:400px){  /* petits téléphones, connecté en admin : « Admin » au lieu d'« Administration » */
+  .top .btn{padding:7px 8px}
+  #adminLink{font-size:0}#adminLink::after{content:'Admin';font-size:12.5px}
+}
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01ms!important;transition-duration:.01ms!important}}
 .shgrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:22px}@media (max-width:900px){.shgrid{grid-template-columns:1fr}}
 .shmeta{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.shact{display:flex;gap:8px;flex:none;margin-left:auto}
