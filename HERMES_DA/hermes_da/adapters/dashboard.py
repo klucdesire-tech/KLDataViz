@@ -877,9 +877,22 @@ body.embedded{min-height:0;overflow:hidden}html:has(body.embedded){overflow:hidd
 .gap.kpi{min-height:112px}.gap .v small{font-size:14px;font-weight:600;margin-left:2px}
 .gap-d{display:inline-flex;align-items:center;gap:3px;font-size:11.5px;font-weight:600;padding:2px 9px;border-radius:999px;background:#fff;white-space:nowrap}
 .gap-d.up{color:#0B7A62}.gap-d.down{color:#B4232C}.gap-d.flat{color:var(--muted)}
+.sv .gap-d.up,.sv-r .gap-d.up{background:#E3F7F1}.sv .gap-d.down,.sv-r .gap-d.down{background:#FDECEA}.sv .gap-d.flat,.sv-r .gap-d.flat{background:#F1F5FA}
 .gap-p{display:block;font-size:11px;color:var(--muted);margin-top:4px}
 .gaps-chart{display:flex;flex-direction:column;min-width:0}.gaps-chart .box{height:auto;flex:1;min-height:200px}
 .gaps-ct{font-size:11.5px;color:var(--muted);margin:0 0 6px}
+.sv-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:12px}
+.sv{border:1px solid #E6EDF5;border-radius:14px;padding:12px 14px;display:flex;flex-direction:column;gap:8px;min-width:0;background:#fff}
+.sv-h{font-size:12.5px;font-weight:600;color:var(--navy);line-height:1.3;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;min-height:2.6em}
+.sv-v{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}.sv-v b{font-size:24px;font-weight:700;color:#0B2545;line-height:1}
+.sv-b{display:grid;grid-template-columns:62px minmax(0,1fr) auto;gap:8px;align-items:center;font-size:11.5px;color:var(--muted)}
+.sv-bt{height:10px;background:#F1F5FA;border-radius:5px;overflow:hidden}.sv-bt i{display:block;height:100%;border-radius:5px}
+.sv-bt i.prev{background:#C9D6E5}.sv.up .sv-bt i.cur{background:#12BF9A}.sv.down .sv-bt i.cur{background:#E8776A}.sv.flat .sv-bt i.cur,.sv .sv-bt i.cur{background:#0091D0}
+.sv-bv{font-variant-numeric:tabular-nums;color:#0B2545;font-weight:600}
+.sv-sp{border-top:1px dashed #E6EDF5;padding-top:6px}.sv-sp svg{width:100%;height:40px;display:block;overflow:visible}
+.sv-sp polyline{stroke:#0091D0}.sv-sp circle{fill:#0091D0}.sv.up .sv-sp polyline{stroke:#12BF9A}.sv.up .sv-sp circle{fill:#12BF9A}.sv.down .sv-sp polyline{stroke:#E8776A}.sv.down .sv-sp circle{fill:#E8776A}
+.sv-sp span{font-size:10.5px;color:var(--muted)}
+.sv-r{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 10px}.sv-n{font-size:11.5px;color:var(--muted);margin:10px 0 0}
 @media (max-width:900px){.gaps-body{grid-template-columns:minmax(0,1fr)}}
 .dc{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.02em;color:var(--navy);background:rgba(255,255,255,.75);border-radius:6px;padding:1px 7px;margin:0 0 4px}
 #dict .n{display:flex;flex-direction:column;align-items:flex-start}
@@ -1141,7 +1154,7 @@ function renderGaps(rows){var el=document.getElementById('gaps'),K=META.keyind,D
     cur=GAP.p;var i=P.indexOf(cur);ref=mode==='n1'?gYearBefore(cur):(i>0?P[i-1]:null);if(ref!=null&&P.indexOf(ref)<0)ref=null;
     G=K.items.map(function(k){var c=gval(k,rows,cur);if(c==null)return null;var p=ref==null?null:gval(k,rows,ref),pts=!!k.pts;
       if(pts){c=c;p=p}var ok=p!=null&&(pts||p!==0),d=ok?c-p:null;
-      return {indicateur:k.nom,libelle:k.libelle,derniere:c,precedente:p,pct:ok?(pts?d:d/p*100):null,pts:pts,bon:k.bon,sens:d==null?null:d>0?'hausse':d<0?'baisse':'stable'}}).filter(Boolean)}
+      return {k:k,indicateur:k.nom,libelle:k.libelle,derniere:c,precedente:p,delta:d,pct:ok?(pts?d:d/p*100):null,pts:pts,bon:k.bon,sens:d==null?null:d>0?'hausse':d<0?'baisse':'stable'}}).filter(Boolean)}
   else if(K.live&&!P.length){G=K.items.map(function(k){var c=gval(k,rows,null);return c==null?null:{indicateur:k.nom,libelle:k.libelle,derniere:c,pct:null,pts:!!k.pts,bon:k.bon}}).filter(Boolean);cur=null;ref=null}
   if(!G.length){el.hidden=true;return}el.hidden=false;
   var t=D?'<span class="gaps-dom">'+esc(D.nom)+'</span>':'',hasN1=P.some(function(k){return P.indexOf(gYearBefore(k))>=0});
@@ -1151,25 +1164,41 @@ function renderGaps(rows){var el=document.getElementById('gaps'),K=META.keyind,D
   var warn=K.partial&&cur===K.partial?esc(gkey(cur))+' est incomplet : les effectifs sont sous-estimés':'';
   // Vert = évolution souhaitée (ex. baisse des décès), rouge = dégradation
   var tone=function(g){if(g.pct==null)return '';var good=g.pct*(g.bon||1);return g.sens==='stable'?'flat':good>0?'up':'down'};
-  var gn=function(x){return String(x||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]+/g,' ').trim()};
-  var KN={};KPIDEFS.slice(0,5).forEach(function(k){KN[gn(k.nom)]=1});
-  var T=G.filter(function(g){return !KN[gn(g.indicateur)]});
-  var tiles=T.map(function(g,i){var badge='',prev='';
-    if(g.pct!=null){var a=g.sens==='hausse'?'▲':g.sens==='baisse'?'▼':'—';badge='<span class="gap-d '+tone(g)+'">'+a+' '+(g.pct>0?'+':'')+Number(g.pct).toFixed(1).replace('.',',')+(g.pts?' pts':' %')+'</span>';
-      prev='<span class="gap-p">'+esc(gkey(ref))+' : '+fmt(g.precedente)+(g.pts?' %':'')+'</span>'}
-    return '<div class="kpi gap k'+(i%5+1)+'" title="'+esc(g.libelle||'')+'"><div class="n">'+esc(g.indicateur)+'</div><div class="row"><div class="v">'+fmt(g.derniere)+(g.pts?'<small>%</small>':'')+'</div><div class="s">'+badge+prev+'</div></div></div>'}).join('');
-  var withGap=G.filter(function(g){return g.pct!=null});
-  if(!T.length&&withGap.length<2){el.hidden=true;return}  // tout est déjà en tête de page, sans écart à montrer
+  // Gris = écart négligeable (< 1 point pour un %, < 1 % pour un nombre) : on n'alarme pas sur du bruit
+  var tone2=function(g){if(g.pct==null)return '';if(Math.abs(g.pct)<1)return 'flat';return tone(g)};
+  var f1=function(x){return String(Math.round(x*10)/10).replace('.',',')};
+  var val=function(x,pts){return x==null?'—':pts?f1(x)+' %':fmt(x)};
+  var delta=function(g){if(g.pct==null)return '';var d=g.delta!=null?g.delta:g.precedente!=null?g.derniere-g.precedente:null,a=g.sens==='hausse'?'▲ ':g.sens==='baisse'?'▼ ':'';
+    if(d==null)return a+(g.pct>0?'+':g.pct<0?'−':'')+f1(Math.abs(g.pct))+(g.pts?' pt':' %');var sg=d>0?'+':d<0?'−':'';
+    return a+(g.pts?sg+f1(Math.abs(d))+' pt'+(Math.abs(d)>=2?'s':''):sg+fmt(Math.abs(d))+' ('+sg+f1(Math.abs(g.pct))+' %)')};
+  var idx=P.indexOf(cur),SP=K.live&&rows&&idx>=0?P.slice(Math.max(0,idx-5),idx+1):[];
+  var spark=function(g){if(!g.k||SP.length<3)return '';var v=SP.map(function(p){return gval(g.k,rows,p)});
+    var ok=v.filter(function(x){return x!=null});if(ok.length<3)return '';
+    var mn=Math.min.apply(null,ok),mx=Math.max.apply(null,ok),W=200,H=40,n=SP.length,pt=[];
+    v.forEach(function(x,j){if(x!=null)pt.push([4+j*(W-8)/(n-1),mx===mn?H/2:H-4-(x-mn)/(mx-mn)*(H-10)])});
+    var last=pt[pt.length-1],tip=SP.map(function(p,j){return gkey(p)+' : '+val(v[j],g.pts)}).join('\n');
+    return '<div class="sv-sp" title="'+esc(tip)+'"><svg viewBox="0 0 '+W+' '+H+'" preserveAspectRatio="none" role="img" aria-label="'+esc('Évolution sur '+n+' périodes : '+tip.replace(/\n/g,', '))+'">'
+      +'<polyline points="'+pt.map(function(q){return q[0].toFixed(1)+','+q[1].toFixed(1)}).join(' ')+'" fill="none" stroke-width="2" vector-effect="non-scaling-stroke"/>'
+      +'<circle cx="'+last[0].toFixed(1)+'" cy="'+last[1].toFixed(1)+'" r="3.2"/></svg><span>'+esc(gkey(SP[0]))+' → '+esc(gkey(SP[n-1]))+'</span></div>'};
+  var bars=function(g){if(g.precedente==null)return '';var top=g.pts?100:Math.max(Math.abs(g.derniere),Math.abs(g.precedente))||1;
+    var row=function(lab,x,cl){return '<div class="sv-b"><span class="sv-bl">'+esc(lab)+'</span><span class="sv-bt"><i class="'+cl+'" style="width:'+Math.max(2,Math.min(100,Math.abs(x)/top*100)).toFixed(1)+'%"></i></span><span class="sv-bv">'+val(x,g.pts)+'</span></div>'};
+    return row(gkey(ref),g.precedente,'prev')+row(gkey(cur),g.derniere,'cur')};
+  var cards=G.map(function(g){var t=tone2(g);
+    return '<div class="sv '+t+'"><div class="sv-h" title="'+esc((g.indicateur||'')+(g.libelle?'\n'+g.libelle:''))+'">'+esc(g.indicateur)+'</div>'
+      +'<div class="sv-v"><b>'+val(g.derniere,g.pts)+'</b>'+(g.pct!=null?'<span class="gap-d '+t+'">'+delta(g)+'</span>':'')+'</div>'
+      +bars(g)+spark(g)+'</div>'}).join('');
+  var up=G.filter(function(g){return tone2(g)==='up'}).length,dn=G.filter(function(g){return tone2(g)==='down'}).length;
+  var resume=G.some(function(g){return g.pct!=null})?'<span class="sv-r">'+(up?'<span class="gap-d up">'+up+' en amélioration</span>':'')+(dn?'<span class="gap-d down">'+dn+' en recul</span>':'')
+    +(G.length-up-dn?'<span class="gap-d flat">'+(G.length-up-dn)+' stable'+(G.length-up-dn>1?'s':'')+'</span>':'')+'</span>':'';
+  // Indicateurs reliés non suivis ici : on dit pourquoi, au lieu de les faire disparaître
+  var suivis={};G.forEach(function(g){suivis[g.indicateur]=1});
+  var etat=(META.indicateurs||[]).filter(function(k){return !k.evolution&&!suivis[k.nom]}).map(function(k){return k.nom.split(' · ')[0]});
+  var note=etat.length?'<p class="sv-n">Non suivi'+(etat.length>1?'s':'')+' ici : '+esc(etat.join(', '))+' — '+(etat.length>1?'ils décrivent':'il décrit')+' un état actuel (ex. statut du patient), sans évolution d\'une période à l\'autre. Valeur dans les tuiles du haut.</p>':'';
   var title='Indicateurs clés de suivi'+(D?' · '+D.nom:'');
   el.innerHTML='<div class="card-h"><div><h2>'+esc(title)+'</h2><small>'+sub+'</small></div>'+ctl+'</div>'+(warn?'<p class="gaps-note">'+warn+'</p>':'')
-    +'<div class="gaps-body'+(withGap.length>=2&&T.length?'':' solo')+'">'+(T.length?'<div class="gaps-grid" style="grid-template-columns:repeat('+(withGap.length>=2?(T.length===4||T.length<=2?2:3):Math.min(T.length,5))+',minmax(0,1fr))">'+tiles+'</div>':'')
-    +(withGap.length>=2?'<div class="gaps-chart"><p class="gaps-ct">Écart par indicateur, vs '+esc(gkey(ref))+'</p><div class="box"><canvas id="c_gap" role="img" aria-label="Écarts par indicateur"></canvas></div></div>':'')+'</div>';
+    +resume+'<div class="sv-grid">'+cards+'</div>'+note;
   var sel=document.getElementById('gapP');if(sel)sel.onchange=function(){GAP.p=sel.value;renderGaps(filtered())};
-  [].forEach.call(el.querySelectorAll('.gaps-ctl .seg button'),function(b){b.onclick=function(){GAP.mode=b.dataset.m;renderGaps(filtered())}});
-  if(withGap.length>=2&&window.Chart){var col={up:'#12BF9A',down:'#F08A7E',flat:'#9CC3EA'};
-    gapChart=new Chart(document.getElementById('c_gap'),{type:'bar',data:{labels:withGap.map(function(g){return g.indicateur}),datasets:[{data:withGap.map(function(g){return g.pct}),backgroundColor:withGap.map(function(g){return col[tone(g)]}),borderRadius:8,borderSkipped:false,barPercentage:.62,maxBarThickness:26}]},
-      options:{responsive:true,maintainAspectRatio:false,indexAxis:'y',plugins:{legend:{display:false},tooltip:Object.assign({},navyTip,{callbacks:{label:function(c){var g=withGap[c.dataIndex];return (g.pct>0?'+':'')+Number(g.pct).toFixed(1).replace('.',',')+(g.pts?' pts':' %')+' ('+fmt(g.precedente)+' → '+fmt(g.derniere)+')'}}})},
-        scales:{x:{grid:{color:function(c){return c.tick&&c.tick.value===0?'#9CC3EA':'#EEF2F7'},drawTicks:false},border:{display:false},ticks:{padding:6,font:{size:11},callback:function(v){return (v>0?'+':'')+v}}},y:{grid:{display:false},border:{display:false},ticks:{callback:function(v){var l=this.getLabelForValue(v);return l.length>26?l.slice(0,25)+'…':l}}}}}})}}
+  [].forEach.call(el.querySelectorAll('.gaps-ctl .seg button'),function(b){b.onclick=function(){GAP.mode=b.dataset.m;renderGaps(filtered())}})}
 function renderDict(rows){var el=document.getElementById('dict'),D=META.dictionnaire;if(!D||(!(D.trouves||[]).length&&!(D.absents||[]).length)){el.hidden=true;return}el.hidden=false;
   var F=D.trouves||[],A=D.absents||[],VIS=6;
   function tile(r,i){var isPct=(r.type||'').toLowerCase().indexOf('pourcentage')>=0;
