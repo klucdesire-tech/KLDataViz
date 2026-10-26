@@ -1484,10 +1484,11 @@ async function syncSource(){  // une actualisation automatique a peut-être eu l
   const s=state.dash?.source;if(!s)return;const r=await api('/api/sources/get?id='+encodeURIComponent(s.id));if(r.error||!r.id)return;
   const fresh=r.changed_at!==s.changed_at&&r.html;state.dash.source=r;if(fresh){state.dash.html=r.html;showDashboard();toast('Tableau de bord mis à jour : la source a changé.')}else renderSource();
 }
-$('#dbRefresh').onclick=async ev=>{const s=state.dash?.source;if(!s)return;const b=ev.currentTarget;b.disabled=true;b.textContent='↻ Lecture…';
-  const r=await api('/api/sources/refresh',{id:s.id});b.disabled=false;b.textContent='↻ Actualiser';
+$('#dbRefresh').onclick=async ev=>{const s=state.dash?.source;if(!s)return;const b=ev.currentTarget,lib=b.innerHTML;b.disabled=true;b.textContent='↻ Lecture…';
+  const r=await api('/api/sources/refresh',{id:s.id});b.disabled=false;b.innerHTML=lib;
   if(r.error&&!r.id){toast(r.error);return}
-  state.dash.source=r;if(r.changed&&r.html){state.dash.html=r.html;showDashboard();toast(r.structure_changed?'Actualisé — des colonnes ont changé : cliquez sur Régénérer pour revoir les indicateurs.':'Tableau de bord actualisé avec les nouvelles données.')}
+  state.dash.source=r;if(r.changed&&r.html){state.dash.html=r.html;showDashboard();
+    if(r.rows)$('#dbLead').textContent=$('#dbLead').textContent.replace(/[\d\s]+ lignes$/,` ${nf(r.rows)} lignes`);toast(r.structure_changed?'Actualisé — des colonnes ont changé : cliquez sur Régénérer pour revoir les indicateurs.':'Tableau de bord actualisé avec les nouvelles données.')}
   else{renderSource();toast(r.error||'Aucun changement dans la source.')}};
 $('#dbFreq').onchange=async()=>{const s=state.dash?.source;if(!s)return;const r=await api('/api/sources/freq',{id:s.id,freq:$('#dbFreq').value});
   if(r.error){toast(r.error);return}state.dash.source=Object.assign(s,r);renderSource();

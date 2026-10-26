@@ -1462,6 +1462,8 @@ def _claude_call(cfg, msgs, max_tokens, timeout, model, effort):
                                         betas=["server-side-fallback-2026-07-01"], fallbacks="default")
     except anthropic.APIStatusError as e:
         attente = e.response.headers.get("retry-after") if e.response is not None else None
+        if e.status_code == 400 and "credit balance" in str(e.message).lower():
+            return None, 402, "HTTP 400 (crédit épuisé)"  # l'API signale le solde vide par un 400 : traité comme un refus de compte
         return None, e.status_code, f"HTTP {e.status_code}" + (f" (réessayer après {attente} s)" if attente else "")
     except anthropic.APITimeoutError:
         return None, None, "délai dépassé"
