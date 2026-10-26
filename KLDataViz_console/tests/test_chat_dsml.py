@@ -29,3 +29,13 @@ def test_reponse_dsml_et_json_ordinaire():
     obj = server._parse_llm_json(rep)
     assert obj == {"answer": "319 patients.", "montrer_tableau": True, "action": "reponse"}
     assert server._parse_llm_json('{"action":"reponse","answer":"ok"}') == {"action": "reponse", "answer": "ok"}
+
+
+def test_code_indente_et_guillemets_simples():
+    reset_app_modules()
+    import server  # noqa: PLC0415
+    x = ("<｜｜DSML｜｜ invoke name = 'calc'><｜｜DSML｜｜ parameter name='code'>\n    d = data['demo']\n    result = len(d)\n"
+         "</｜｜DSML｜｜ parameter></｜｜DSML｜｜ invoke>")
+    obj = server._parse_llm_json(x)
+    assert obj["action"] == "calcul" and obj["code"] == "d = data['demo']\nresult = len(d)"
+    compile(obj["code"], "<calc>", "exec")

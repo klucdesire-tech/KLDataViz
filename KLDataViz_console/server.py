@@ -1539,8 +1539,8 @@ def _work_file(path):
 
 # Appel d'outil au format natif de DeepSeek (« <｜｜DSML｜｜ invoke name="calc"> … ») écrit dans le texte au lieu
 # du JSON demandé : on le lit comme l'objet JSON équivalent, plutôt que de l'afficher brut à l'utilisateur.
-_DSML_INVOKE = re.compile(r'<[｜|]+\s*DSML\s*[｜|]+\s*invoke\s+name="([^"]+)"\s*>(.*?)</[｜|]+\s*DSML\s*[｜|]+\s*invoke\s*>', re.S)
-_DSML_PARAM = re.compile(r'<[｜|]+\s*DSML\s*[｜|]+\s*parameter\s+name="([^"]+)"[^>]*>(.*?)</[｜|]+\s*DSML\s*[｜|]+\s*parameter\s*>', re.S)
+_DSML_INVOKE = re.compile(r'<[｜|]+\s*DSML\s*[｜|]+\s*invoke\s+name\s*=\s*[\x22\x27]([^\x22\x27]+)[\x22\x27]\s*>(.*?)</[｜|]+\s*DSML\s*[｜|]+\s*invoke\s*>', re.S)
+_DSML_PARAM = re.compile(r'<[｜|]+\s*DSML\s*[｜|]+\s*parameter\s+name\s*=\s*[\x22\x27]([^\x22\x27]+)[\x22\x27][^>]*>(.*?)</[｜|]+\s*DSML\s*[｜|]+\s*parameter\s*>', re.S)
 _DSML_ACTIONS = {"calc": "calcul", "calcul": "calcul", "code": "calcul", "python": "calcul", "run": "calcul",
                  "reponse": "reponse", "réponse": "reponse", "answer": "reponse", "final": "reponse"}
 
@@ -1549,7 +1549,8 @@ def _parse_dsml(text):
     m = _DSML_INVOKE.search(text or "")
     if not m:
         return None
-    obj = {k: v.strip() for k, v in _DSML_PARAM.findall(m.group(2))}
+    import textwrap  # code uniformément indenté : on retire l'indentation commune, pas seulement la 1re ligne
+    obj = {k: textwrap.dedent(v.strip("\r\n")).strip() for k, v in _DSML_PARAM.findall(m.group(2))}
     obj["action"] = _DSML_ACTIONS.get(m.group(1).strip().lower(), m.group(1).strip().lower())
     for k in ("montrer_tableau",):
         if k in obj:
