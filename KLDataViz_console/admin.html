@@ -94,6 +94,7 @@ input:focus,select:focus,textarea:focus{border-color:var(--brand);outline:none}
       <button data-tab="ann">Annonces</button>
       <button data-tab="admins">Administrateurs</button>
       <button data-tab="site">Page d'accueil</button>
+      <button data-tab="ia">Intelligence artificielle</button>
     </nav>
     <div class="foot"><span id="meEmail"></span><a href="/app">Ouvrir l'application</a><a href="/" target="_blank" rel="noopener">Voir la page d'accueil</a><a href="#" id="logout">Déconnexion</a></div>
   </aside>
@@ -160,6 +161,22 @@ input:focus,select:focus,textarea:focus{border-color:var(--brand);outline:none}
         <div class="rowbtns"><a class="btn ghost" href="/" target="_blank" rel="noopener">Voir la page</a><button class="btn primary" type="submit">Enregistrer</button></div>
       </form>
     </section>
+
+    <!-- INTELLIGENCE ARTIFICIELLE -->
+    <section data-view="ia" hidden>
+      <div class="head"><div><h1>Intelligence artificielle</h1><p>Le fournisseur et le modèle utilisés par Hermes : chat, analyses, tableaux de bord, rapports. Le changement s'applique en moins d'une minute, sans redéploiement.</p></div></div>
+      <form class="card grid" id="iaForm">
+        <div class="form">
+          <label class="field" for="iaProv">Fournisseur
+            <select id="iaProv"><option value="auto">Automatique (Claude si sa clé est configurée, sinon DeepSeek)</option><option value="anthropic">Claude (Anthropic)</option><option value="deepseek">DeepSeek</option></select></label>
+          <label class="field" for="iaModel">Modèle <small>(vide : modèle par défaut du fournisseur)</small><select id="iaModel"></select></label>
+        </div>
+        <p class="sub" id="iaCles"></p>
+        <p class="sub">Les clés d'accès ne sont jamais saisies ici : elles restent des variables d'environnement du serveur (Render → Environment : <code>ANTHROPIC_API_KEY</code>, <code>DEEPSEEK_API_KEY</code>).</p>
+        <div class="rowbtns"><button class="btn ghost" type="button" id="iaTest">Tester la connexion</button><button class="btn primary" type="submit">Enregistrer</button></div>
+        <p class="sub" id="iaRes" aria-live="polite"></p>
+      </form>
+    </section>
   </main>
 </div>
 
@@ -202,7 +219,7 @@ $('#nav').addEventListener('click',e=>{const b=e.target.closest('[data-tab]');if
 function show(tab){
   $$('#nav [data-tab]').forEach(b=>b.dataset.tab===tab?b.setAttribute('aria-current','page'):b.removeAttribute('aria-current'));
   $$('[data-view]').forEach(v=>v.hidden=v.dataset.view!==tab);
-  ({dash:loadDash,orgs:loadOrgs,plans:renderPlans,ann:loadAnn,admins:loadAdmins,site:loadSite})[tab]();
+  ({dash:loadDash,orgs:loadOrgs,plans:renderPlans,ann:loadAnn,admins:loadAdmins,site:loadSite,ia:loadIa})[tab]();
 }
 function openDrawer(html){$('#panel').innerHTML=html;$('#drawer').hidden=false;$('#panel').querySelector('input,select,textarea,button')?.focus()}
 function closeDrawer(){$('#drawer').hidden=true}
@@ -365,7 +382,7 @@ function annForm(a){
 const ACTIONS={plan:'Forfait modifié',extend:'Essai prolongé',suspend:'Suspension / réactivation','invite-client':'Client invité',
   'resend-invite':'Invitation renvoyée','test-mail':'Test d\u2019envoi d\u2019e-mail','plans/save':'Forfait enregistré','plans/delete':'Forfait supprimé',
   'admins/add':'Administrateur ajouté','admins/remove':'Administrateur retiré','announcements/save':'Annonce publiée',
-  'announcements/delete':'Annonce supprimée',site:'Page d\u2019accueil modifiée'};
+  'announcements/delete':'Annonce supprimée',site:'Page d\u2019accueil modifiée',ia:'Fournisseur d\u2019IA modifié','ia/test':'Test de l\u2019IA'};
 async function loadJournal(){const L=await api('/api/admin/journal');if(!Array.isArray(L)){$('#journalList').innerHTML='<div class="empty">Journal indisponible.</div>';return}
   $('#journalList').innerHTML=L.length?`<table><thead><tr><th>Date</th><th>Par</th><th>Action</th><th>Détail</th></tr></thead><tbody>${L.slice(0,100).map(j=>{
     const det=['org_id','plan','email','days','trial_days','suspended','key','id'].filter(k=>j[k]!=null).map(k=>`${k} : ${esc(String(j[k]))}`).join(' · ');
@@ -385,6 +402,22 @@ $('#adminForm').onsubmit=async e=>{e.preventDefault();const r=await api('/api/ad
 async function loadSite(){const s=await api('/api/admin/site');if(s.error){toast(s.error);return}
   $('#stTitle').value=s.hero_title||'';$('#stSub').value=s.hero_subtitle||'';$('#stMail').value=s.contact_email||'';$('#stWa').value=s.contact_whatsapp||''}
 $('#siteForm').onsubmit=async e=>{e.preventDefault();const r=await api('/api/admin/site',{hero_title:$('#stTitle').value,hero_subtitle:$('#stSub').value,contact_email:$('#stMail').value,contact_whatsapp:$('#stWa').value});toast(r.error||'Page d\'accueil mise à jour')};
+
+/* ---- intelligence artificielle ---- */
+let IA={modeles:{}};
+function iaModels(sel){const p=$('#iaProv').value,list=IA.modeles[p]||[];
+  $('#iaModel').innerHTML='<option value="">Par défaut</option>'+list.map(m=>`<option value="${esc(m)}"${m===sel?' selected':''}>${esc(m)}</option>`).join('');
+  $('#iaModel').disabled=!list.length}
+async function loadIa(){const s=await api('/api/admin/ia');if(s.error){toast(s.error);return}IA=s;
+  $('#iaProv').value=s.provider||'auto';iaModels(s.model||'');
+  const c=s.cles||{},ok=b=>b?'configurée ✓':'absente';
+  $('#iaCles').innerHTML=`Clé Claude (ANTHROPIC_API_KEY) : <b>${ok(c.anthropic)}</b> · Clé DeepSeek (DEEPSEEK_API_KEY) : <b>${ok(c.deepseek)}</b>`;$('#iaRes').textContent=''}
+$('#iaProv').onchange=()=>iaModels('');
+$('#iaForm').onsubmit=async e=>{e.preventDefault();const r=await api('/api/admin/ia',{provider:$('#iaProv').value,model:$('#iaModel').value});
+  toast(r.error||'Fournisseur d\u2019IA enregistré');if(!r.error)loadIa()};
+$('#iaTest').onclick=async()=>{const b=$('#iaTest');b.disabled=true;$('#iaRes').textContent='Test en cours…';
+  const r=await api('/api/admin/ia/test',{});b.disabled=false;
+  $('#iaRes').textContent=r.error||(r.ok?`${r.message} ${r.fournisseur} · ${r.modele} · ${r.secondes} s`:r.message)};
 </script>
 </body>
 </html>

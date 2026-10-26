@@ -1387,20 +1387,89 @@ def chat_query(question):
                      f"Aperçu (5 premières lignes) — posez par ex. « somme de {value_col or '…'} par {group_col or '…'} » :",
             "type": "table", "table": {"columns": cols, "rows": rows}}
 
-# ---------- Chat LLM (DeepSeek, texte -> pandas + visualisation) ----------
+# ---------- Chat LLM (DeepSeek ou Claude, texte -> pandas + visualisation) ----------
+CLAUDE_MODELE = "claude-opus-5-5"
+
+
 def _llm_config():
-    if T.CLOUD:
-        key = os.environ.get("DEEPSEEK_API_KEY")
-        return {"api_key": key, "model": os.environ.get("DEEPSEEK_MODEL", "deepseek-v4-pro"),
-                "base_url": os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com/chat/completions")} if key else None
+    """Fournisseur d'IA choisi par réglage, sans changer le code :
+    - KLDV_LLM_PROVIDER = « anthropic » (Claude) ou « deepseek » ; non renseigné : Claude si ANTHROPIC_API_KEY est
+      définie, sinon DeepSeek ;
+    - en local, llm_config.json peut aussi porter « provider » (et « model ») ; la clé Anthropic se lit dans
+      ANTHROPIC_API_KEY (jamais écrite dans un fichier du dépôt)."""
+    local = None
     p = os.path.join(BASE, "llm_config.json")
-    if os.path.exists(p):
+    if not T.CLOUD and os.path.exists(p):
         try:
             with open(p, encoding="utf-8") as f:
-                return json.load(f)
+                local = json.load(f)
         except Exception:
-            return None
-    return None
+            local = None
+    admin = {}
+    if T.CLOUD:  # choix fait dans l'administration (onglet Intelligence artificielle) : prioritaire
+        try:
+            admin = cloud.ia_settings()
+        except Exception:
+            admin = {}
+    choix = str(admin.get("provider") or "").strip().lower()
+    if choix in ("", "auto"):
+        choix = (os.environ.get("KLDV_LLM_PROVIDER") or (local or {}).get("provider") or "").strip().lower()
+    if not choix:
+        choix = "anthropic" if os.environ.get("ANTHROPIC_API_KEY") else "deepseek"
+    if choix in ("anthropic", "claude"):
+        key = os.environ.get("ANTHROPIC_API_KEY") or ((local or {}).get("api_key") if (local or {}).get("provider") in ("anthropic", "claude") else None)
+        modele = (admin.get("model") if str(admin.get("model", "")).startswith("claude") else None) \
+            or os.environ.get("KLDV_ANTHROPIC_MODEL") \
+            or ((local or {}).get("model") if str((local or {}).get("model", "")).startswith("claude") else None)
+        return {"provider": "anthropic", "api_key": key, "model": modele or CLAUDE_MODELE} if key else None
+    if T.CLOUD:
+        key = os.environ.get("DEEPSEEK_API_KEY")
+        return {"provider": "deepseek", "api_key": key,
+                "model": (admin.get("model") if str(admin.get("model", "")).startswith("deepseek") else None)
+                or os.environ.get("DEEPSEEK_MODEL", "deepseek-v4-pro"),
+                "base_url": os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com/chat/completions")} if key else None
+    return dict(local, provider="deepseek") if local else None
+
+
+def ia_test():
+    """Test de connexion demandé par l'administrateur : un très court appel au fournisseur choisi."""
+    cfg = _llm_config()
+    if not cfg:
+        return {"ok": False, "message": "Aucun fournisseur d'IA configuré (clé absente)."}
+    _IA_PANNE.update(echecs=0, jusqua=0.0)  # un test explicite lève la pause automatique
+    t0 = time.time()
+    r = _llm_call([{"role": "user", "content": "Réponds uniquement : OK"}], 16, timeout=60, effort="low", attempts=1)
+    return {"ok": bool(r), "fournisseur": "Claude" if cfg.get("provider") == "anthropic" else "DeepSeek",
+            "modele": cfg.get("model"), "secondes": round(time.time() - t0, 1),
+            "message": "Connexion réussie." if r else "Pas de réponse : clé refusée, crédit épuisé ou service indisponible."}
+
+
+def _claude_call(cfg, msgs, max_tokens, timeout, model, effort):
+    """Un appel à Claude (API Anthropic Messages). Renvoie (texte | None, code HTTP | None, motif).
+    Les consignes « system » passent dans le champ system ; « effort » devient output_config.effort."""
+    import anthropic
+    system = "\n\n".join(str(m.get("content", "")) for m in msgs if m.get("role") == "system")
+    conv = [{"role": m["role"], "content": str(m.get("content", ""))} for m in msgs if m.get("role") in ("user", "assistant")]
+    if not conv or conv[0]["role"] != "user":
+        conv.insert(0, {"role": "user", "content": "(début de la conversation)"})
+    modele = model if str(model or "").startswith("claude") else cfg.get("model", CLAUDE_MODELE)
+    niveau = {"low": "low", "medium": "medium", "high": "high", "xhigh": "xhigh", "max": "max"}.get(str(effort or "").lower(), "medium")
+    client = anthropic.Anthropic(api_key=cfg["api_key"], timeout=float(timeout), max_retries=0)  # réessais : notre boucle
+    try:
+        # Repli serveur : si le modèle décline une demande (sécurité), l'API la relance sur un autre modèle
+        r = client.beta.messages.create(model=modele, max_tokens=max(int(max_tokens), 1024), system=system or anthropic.omit,
+                                        messages=conv, output_config={"effort": niveau},
+                                        betas=["server-side-fallback-2026-07-01"], fallbacks="default")
+    except anthropic.APIStatusError as e:
+        return None, e.status_code, f"HTTP {e.status_code}"
+    except anthropic.APITimeoutError:
+        return None, None, "délai dépassé"
+    except anthropic.APIConnectionError:
+        return None, None, "réseau"
+    if r.stop_reason == "refusal":
+        return None, None, "refus du modèle"
+    texte = "".join(b.text for b in r.content if getattr(b, "type", "") == "text")
+    return (texte if texte.strip() else None), None, ("" if texte.strip() else "réponse vide")
 
 # Toute consigne système reçoit cette garde : le contenu des fichiers (noms de colonnes, valeurs, feuilles) peut
 # contenir du texte écrit pour manipuler l'IA (« ignore les règles… ») ; il reste une donnée.
@@ -1432,7 +1501,8 @@ def _ia_resultat(ok):
 
 
 def _llm_call(messages, max_tokens=8000, temperature=0, timeout=120, model=None, effort=None, attempts=3):
-    """Appel au modèle (DeepSeek). Renvoie le texte, ou None : l'appelant applique alors son repli par règles.
+    """Appel au modèle (DeepSeek ou Claude, selon _llm_config). Renvoie le texte, ou None : l'appelant applique alors
+    son repli par règles.
 
     Réessais espacés (2 s puis 6 s, ou le délai « Retry-After » du fournisseur) seulement pour les pannes passagères
     (429, 5xx, délai dépassé) ; une clé refusée ou un solde épuisé (401/402/403) n'est pas réessayé."""
@@ -1444,6 +1514,8 @@ def _llm_call(messages, max_tokens=8000, temperature=0, timeout=120, model=None,
     msgs = [dict(m) for m in messages]
     if msgs and msgs[0].get("role") == "system" and GARDE_DONNEES not in str(msgs[0].get("content", "")):
         msgs[0]["content"] = str(msgs[0].get("content", "")) + GARDE_DONNEES
+    if cfg.get("provider") == "anthropic":
+        return _llm_call_claude(cfg, msgs, max_tokens, timeout, model, effort, attempts)
     payload = {"model": model or cfg.get("model", "deepseek-v4-pro"), "messages": msgs,
                "temperature": temperature, "max_tokens": max_tokens}
     if effort:
@@ -1491,6 +1563,33 @@ def _llm_call(messages, max_tokens=8000, temperature=0, timeout=120, model=None,
     if panne:
         _ia_resultat(False)
     return None
+
+def _llm_call_claude(cfg, msgs, max_tokens, timeout, model, effort, attempts):
+    """Même contrat que la branche DeepSeek : réessais pour les pannes passagères (429, 5xx, délai, réseau),
+    arrêt immédiat sur un refus de compte (401/402/403) ou de requête (400/404), coupe-circuit partagé."""
+    pauses, panne = [2, 6, 12], False
+    for attempt in range(attempts):
+        t0 = time.time()
+        texte, code, motif = _claude_call(cfg, msgs, max_tokens, timeout, model, effort)
+        if texte:
+            _ia_resultat(True)
+            return texte
+        if code in (400, 401, 402, 403, 404):
+            sys.stderr.write(f"[ia] refus définitif (Claude, {motif}) : "
+                             + ("crédit épuisé ou clé invalide" if code in (401, 402, 403) else "requête refusée") + "\n")
+            if code in (401, 402, 403):
+                _ia_resultat(False)
+            return None
+        if motif in ("refus du modèle", "réponse vide"):
+            return None
+        panne = True
+        sys.stderr.write(f"[ia] essai {attempt + 1}/{attempts} échoué (Claude, {motif}, {time.time() - t0:.1f} s)\n")
+        if attempt < attempts - 1:
+            time.sleep(pauses[min(attempt, len(pauses) - 1)])
+    if panne:
+        _ia_resultat(False)
+    return None
+
 
 def _registry_datasets():
     """Jeux de données du registre ; liste vide (et trace dans les journaux) s'il est injoignable,
@@ -2907,6 +3006,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                       "/api/admin/admins": lambda: cloud.admin_admins(ctx),
                       "/api/admin/announcements": lambda: cloud.admin_announcements(ctx),
                       "/api/admin/site": lambda: cloud.site_settings(),
+                      "/api/admin/ia": lambda: cloud.admin_ia(ctx),
                       "/api/admin/journal": lambda: journal.lire(200, espace=False)}
         else:
             routes = {"/api/admin/plan": lambda: cloud.admin_set_plan(ctx, str(p.get("org_id")), p.get("plan"), p.get("trial_days")),
@@ -2921,7 +3021,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
                       "/api/admin/admins/remove": lambda: cloud.admin_admin_remove(ctx, p.get("email")),
                       "/api/admin/announcements/save": lambda: cloud.admin_announcement_save(ctx, p),
                       "/api/admin/announcements/delete": lambda: cloud.admin_announcement_delete(ctx, str(p.get("id"))),
-                      "/api/admin/site": lambda: cloud.admin_site_save(ctx, p)}
+                      "/api/admin/site": lambda: cloud.admin_site_save(ctx, p),
+                      "/api/admin/ia": lambda: cloud.admin_ia_save(ctx, p),
+                      "/api/admin/ia/test": lambda: (cloud.admin_ia(ctx), ia_test())[1]}
         fn = routes.get(path)
         if fn is None:
             return self._send(404, {"error": "not found"})
