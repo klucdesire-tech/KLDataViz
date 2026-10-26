@@ -1053,7 +1053,12 @@ function renderKpis(all){document.getElementById('kpis').innerHTML=KPIDEFS.slice
   return '<div class="kpi k'+i+'"><div class="n">'+esc(k.nom)+badge+' <span class="info" tabindex="0" role="note" aria-label="Comment ce chiffre est calculé : '+esc(how)+'">i<span class="tip">'+esc(how)+'</span></span></div><div class="row"><div class="v">'+fmt(v)+u+'</div><div class="s">'+sub+'</div></div></div>'}).join('')}
 
 function card(id,title,sub,extra){return '<div class="card"><div class="card-h"><div><h2>'+esc(nice(title))+'</h2>'+(sub?'<small>'+esc(sub)+'</small>':'')+'</div>'+(extra||'')+'</div>'+id+'</div>'}
-function seg(){return '<div class="seg" role="group" aria-label="Regrouper par">'+(META.grans||['M','Q','Y']).map(function(g){return '<button type="button" data-g="'+g+'" aria-pressed="'+(gran===g)+'">'+GRAN[g]+'</button>'}).join('')+'</div>'}
+// Granularités qui donnent au moins 2 points avec les filtres actuels : une granularité trop large (1 seul point)
+// faisait disparaître la courbe ET ce sélecteur avec elle, sans moyen de revenir en arrière
+var GOK=null;
+function gransOK(rows){var all=META.grans||['M','Q','Y'],save=gran;if(!META.period)return all;
+  var ok=all.filter(function(g){gran=g;var s={},n=0;for(var i=0;i<rows.length&&n<2;i++){var k=pkey(rows[i].__p);if(k&&!s[k]){s[k]=1;n++}}return n>=2});gran=save;return ok.length?ok:all}
+function seg(){return '<div class="seg" role="group" aria-label="Regrouper par">'+(GOK||META.grans||['M','Q','Y']).map(function(g){return '<button type="button" data-g="'+g+'" aria-pressed="'+(gran===g)+'">'+GRAN[g]+'</button>'}).join('')+'</div>'}
 function canvas(id,label){return '<div class="box"><canvas id="'+id+'" role="img" aria-label="'+esc(label)+'"></canvas></div>'}
 
 // Barres par catégorie avec ligne de moyenne (au-dessus de la moyenne : bleu foncé)
@@ -1305,7 +1310,8 @@ function renderRank(){var el=document.getElementById('rank'),I=(META.indicateurs
     var act=function(){if(!filtrable)return;state[d]=sel===e[i][0]?'all':e[i][0];buildFilters();render()};
     li.onclick=act;li.onkeydown=function(ev){if(ev.key==='Enter'||ev.key===' '){ev.preventDefault();act()}}});
   [].forEach.call(el.querySelectorAll('.rk-c'),function(b){b.onclick=function(){if(b.dataset.k!=null)RK.k=+b.dataset.k;else RK.d=+b.dataset.d;renderRank()}})}
-function render(){charts.forEach(function(c){c.destroy()});charts=[];var rows=filtered();renderKpis(rows);renderGaps(rows);renderDict(rows);renderRank();
+function render(){charts.forEach(function(c){c.destroy()});charts=[];var rows=filtered();
+  GOK=gransOK(rows);if(GOK.indexOf(gran)<0)gran=GOK.indexOf('M')>=0?'M':GOK[0];renderKpis(rows);renderGaps(rows);renderDict(rows);renderRank();
   var todo=META.indicateurs?renderIndic(rows):renderMain(rows).concat(renderCards(rows));if(window.Chart)todo.forEach(function(f){f()})}
 document.getElementById('objective').textContent=window.OBJECTIVE;
 try{if(window.self!==window.top)document.body.classList.add('embedded')}catch(e){document.body.classList.add('embedded')}
