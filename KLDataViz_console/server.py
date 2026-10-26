@@ -1537,9 +1537,34 @@ def _work_file(path):
     return None
 
 
+# Appel d'outil au format natif de DeepSeek (« <｜｜DSML｜｜ invoke name="calc"> … ») écrit dans le texte au lieu
+# du JSON demandé : on le lit comme l'objet JSON équivalent, plutôt que de l'afficher brut à l'utilisateur.
+_DSML_INVOKE = re.compile(r'<[｜|]+\s*DSML\s*[｜|]+\s*invoke\s+name\s*=\s*[\x22\x27]([^\x22\x27]+)[\x22\x27]\s*>(.*?)</[｜|]+\s*DSML\s*[｜|]+\s*invoke\s*>', re.S)
+_DSML_PARAM = re.compile(r'<[｜|]+\s*DSML\s*[｜|]+\s*parameter\s+name\s*=\s*[\x22\x27]([^\x22\x27]+)[\x22\x27][^>]*>(.*?)</[｜|]+\s*DSML\s*[｜|]+\s*parameter\s*>', re.S)
+_DSML_ACTIONS = {"calc": "calcul", "calcul": "calcul", "code": "calcul", "python": "calcul", "run": "calcul",
+                 "reponse": "reponse", "réponse": "reponse", "answer": "reponse", "final": "reponse"}
+
+
+def _parse_dsml(text):
+    m = _DSML_INVOKE.search(text or "")
+    if not m:
+        return None
+    import textwrap  # code uniformément indenté : on retire l'indentation commune, pas seulement la 1re ligne
+    obj = {k: textwrap.dedent(v.strip("\r\n")).strip() for k, v in _DSML_PARAM.findall(m.group(2))}
+    obj["action"] = _DSML_ACTIONS.get(m.group(1).strip().lower(), m.group(1).strip().lower())
+    for k in ("montrer_tableau",):
+        if k in obj:
+            obj[k] = obj[k].lower() in ("true", "1", "oui")
+    return obj
+
+
 def _parse_llm_json(content):
-    """Objet JSON renvoyé par l'IA (éventuellement entouré de ```), ou None."""
+    """Objet JSON renvoyé par l'IA (éventuellement entouré de ```, ou écrit en appel d'outil DSML), ou None."""
     text = (content or "").strip()
+    if "DSML" in text:
+        obj = _parse_dsml(text)
+        if obj is not None:
+            return obj
     if text.startswith("```"):
         text = re.sub(r"^```[a-zA-Z]*\s*", "", text)
         text = re.sub(r"\s*```$", "", text)
@@ -1780,8 +1805,15 @@ def llm_chat(question, ui_context=None, history=None, progress=None, linked=None
                 return None  # IA indisponible : repli par règles côté route
             break
         data = _parse_llm_json(content)
+        if not isinstance(data, dict) and "DSML" in content and _tour < CHAT_MAX_CALCULS + 1:
+            # balisage d'outil illisible : on redemande le format convenu au lieu de l'afficher tel quel
+            messages += [{"role": "assistant", "content": content[:2000]},
+                         {"role": "user", "content": "Format invalide. Réponds uniquement par UN objet JSON : "
+                          '{"action":"calcul",...} ou {"action":"reponse",...}.'}]
+            continue
         if not isinstance(data, dict):
-            return {"answer": content, "type": "text", "table": None, "charts": _charts_list(last_chart), "etapes": etapes}
+            return {"answer": re.sub(r"<[｜|]+\s*/?\s*DSML[^>]*>", "", content).strip(), "type": "text", "table": None,
+                    "charts": _charts_list(last_chart), "etapes": etapes}
         action = data.get("action") or ("calcul" if data.get("code") else "reponse")
         if action == "calcul" and data.get("code") and len(etapes) < CHAT_MAX_CALCULS:
             n = len(etapes) + 1
