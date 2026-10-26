@@ -201,7 +201,7 @@ def test_graphiques_adaptes_aux_donnees():
 
 
 def test_gestion_des_ecarts():
-    """Mois en cours détecté (exclu par défaut), sélecteur de période, comparaison N-1, graphique des écarts."""
+    """Mois en cours détecté (exclu par défaut), sélecteur de période, comparaison N-1, cartes de suivi (barres + courbe)."""
     import sys  # noqa: PLC0415
     reset_app_modules()
     import server  # noqa: PLC0415
@@ -210,7 +210,7 @@ def test_gestion_des_ecarts():
     assert _partial_month(pd.Series(["2025-10-03", "2025-11-12"])) == "2025-11"
     assert _partial_month(pd.Series(["2025-10-03", "2025-11-29"])) is None
     assert _partial_month(pd.Series(["2025-10", "2025-11"])) is None            # mois sans jour : on ne sait pas
-    for frag in ('id="gapP"', 'data-m="n1"', "function gYearBefore(", "c_gap", "est incomplet"):
+    for frag in ('id="gapP"', 'data-m="n1"', "function gYearBefore(", "sv-grid", "sv-sp", "est incomplet"):
         assert frag in TEMPLATE, frag
 
 

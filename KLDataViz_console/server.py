@@ -1716,22 +1716,56 @@ def _verifier_chiffres(answer, messages, etapes):
         return answer, []
 
 
+# Réponse instantanée, sans IA, pour les seules questions de STRUCTURE posées sans condition (« combien de lignes ? »,
+# « quelles sont les colonnes ? »), calculées sur le fichier en cours. Toute question avec un filtre, un groupe, une
+# période… (« combien de patients ont… », « par région », « en 2025 ») reste à l'agent : un raccourci y donnerait un
+# chiffre faux (relecture de la PR 91).
+_SUITE = r"(?:\s+(?:y\s+a[\s-]*t[\s-]*il|il\s+y\s+a|au\s+total|en\s+tout|dans\s+(?:le|ce)\s+fichier|dans\s+les\s+donnees))*\s*[?.!]*"
+_Q_LIGNES = re.compile(r"^(?:combien|nombre)\s+(?:de\s+|d\s*)(?:lignes|enregistrements|observations)" + _SUITE + "$")
+_Q_COLONNES = re.compile(r"^(?:combien|nombre)\s+(?:de\s+)(?:colonnes|variables)" + _SUITE + "$")
+_Q_LISTE = re.compile(r"^(?:(?:quelles\s+sont\s+les|quelles|liste\s+des|lister\s+les|donne(?:\s+moi)?\s+les)\s+(?:colonnes|variables))"
+                      + _SUITE + "$")
+
+
+def _reponse_immediate(question, df, nom):
+    if df is None:
+        return None
+    import unicodedata
+    q = unicodedata.normalize("NFKD", str(question or "")).encode("ascii", "ignore").decode().lower()
+    q = " ".join(q.replace("'", " ").replace("’", " ").split())
+    base = {"type": "text", "table": None, "charts": [], "etapes": [], "rapide": True}
+    if _Q_LIGNES.match(q):
+        return dict(base, answer=f"« {nom} » contient {len(df):,} lignes.".replace(",", " "))
+    if _Q_COLONNES.match(q):
+        return dict(base, answer=f"« {nom} » a {len(df.columns)} colonnes.")
+    if _Q_LISTE.match(q):
+        rows = [[str(c), str(df[c].dtype), f"{df[c].notna().mean() * 100:.0f} %"] for c in df.columns]
+        return dict(base, answer=f"« {nom} » a {len(df.columns)} colonnes :", type="table",
+                    table={"columns": ["colonne", "type", "remplie"], "rows": rows})
+    return None
+
+
 def llm_chat(question, ui_context=None, history=None, progress=None, linked=None):
     """Agent d'analyse : l'IA enchaîne des calculs (exécutés dans le bac à sable), lit leurs résultats
     réels, puis rédige sa réponse. `progress(texte)` reçoit l'étape en cours (affichage en direct).
     `linked` : [{path, name}] fichiers liés au fichier en cours (autres feuilles du classeur, fichiers croisés)."""
     progress = progress or (lambda _t: None)
+    cur_path = T.state()["current_path"]
+    if cur_path:  # question de structure sans condition : réponse immédiate sur le fichier en cours, sans IA
+        _df0, _e0 = _read_df(cur_path)
+        rapide = _reponse_immediate(question, _df0, source_label(cur_path))
+        if rapide is not None:
+            return rapide
     datasets = _registry_datasets()
     context = _llm_context(datasets)
     current_df, current_name = None, None
-    cur_path = T.state()["current_path"]
     try:
         analysis = _analysis_for_chat(cur_path)
     except Exception as e:  # l'interprétation est un plus : le chat répond quand même sans elle
         sys.stderr.write(f"[chat] analyse indisponible : {type(e).__name__} : {e}\n")
         analysis = None
     if cur_path:
-        current_df, _err = _read_df(cur_path)
+        current_df, _err = _df0, _e0  # déjà lu ci-dessus
         if current_df is not None:
             current_name = source_label(cur_path)
             context.insert(0, {"name": current_name, "fichier_en_cours_d_analyse": True, "lignes": int(len(current_df)),
