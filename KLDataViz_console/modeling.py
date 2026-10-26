@@ -78,6 +78,10 @@ def _slugify(name: str) -> str:
     return s or "colonne"
 
 
+# Devise ou monnaie collée au nombre, avant ou après : FCFA, F CFA, CFA, XOF, EUR, €, USD, $
+_DEVISE = re.compile(r"^(?:f\s?cfa|cfa|xof|eur|€|usd|\$)\s*|\s*(?:f\s?cfa|cfa|xof|eur|€|usd|\$)$", re.I)
+
+
 def _coerce_series(s: pd.Series):
     """Tente de convertir une colonne texte vers booléen / numérique / date.
 
@@ -104,10 +108,13 @@ def _coerce_series(s: pd.Series):
                     if pd.notna(x) else np.nan)
         return out.astype("boolean"), "booléen"
 
-    # Numérique : gère « 1 234,56 », « 1234.56 », espaces insécables, signes.
+    # Numérique : gère « 1 234,56 », « 1234.56 », espaces insécables, signes, et une devise écrite avec
+    # le nombre (« 1 234 567 FCFA », « 12,5 € ») : sans cela, ces valeurs devenaient vides puis étaient
+    # complétées par la médiane, un chiffre faux.
     def _clean_num(x):
-        return (str(x).replace("\u00a0", "").replace(" ", "")
-                .replace(",", "."))
+        t = str(x).replace("\u00a0", " ").replace("\u202f", " ").strip()
+        t = _DEVISE.sub("", t).strip()
+        return t.replace(" ", "").replace(",", ".")
 
     clean = vals.map(_clean_num)
     num = pd.to_numeric(clean, errors="coerce")
