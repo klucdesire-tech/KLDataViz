@@ -155,3 +155,10 @@ def test_dates_quotidiennes_periode_par_mois():
     assert r["periode"] == "date_visite" and "CODE SITE" in r["identifiants"] and r["dimensions"] == ["district"]
     pts = C.serie(df, {"mode": "comptage", "numerateur": {"colonne": "statut", "valeurs": ["Actif"]}}, C.cle_periode(df, r["periode"]))
     assert len(pts) == 13 and pts[0][0] == "2025-01"
+
+
+def test_colonne_des_indicateurs_jamais_dimension():
+    """Export long : la colonne « Indicateur » porte des noms d'indicateurs, pas un axe de classement."""
+    d = pd.DataFrame({"Region": ["Nawa", "Poro"] * 6, "Periode": ["2025-01"] * 6 + ["2025-02"] * 6,
+                      "Indicateur": ["HTS_TST", "TX_NEW", "TX_PVLS (N)"] * 4, "Valeur": range(12)})
+    assert "Indicateur" not in C.roles(d)["dimensions"] and "Region" in C.roles(d)["dimensions"]

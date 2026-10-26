@@ -245,7 +245,10 @@ def roles(df) -> dict:
     """Rôle de chaque colonne : identifiant, période d'activité, dimensions d'analyse (région, district, sexe…)."""
     ids, dates, dims = [], [], []
     n = len(df)
+    long_ic, _vc = colonnes_longues(df)  # export long : « Indicateur » porte des NOMS d'indicateurs, pas un axe
     for c in df.columns:
+        if c == long_ic:
+            continue
         nc, s = _norm(c), df[c]
         if _IDLIKE.search(nc):
             ids.append(c)

@@ -884,7 +884,7 @@ body.embedded{min-height:0;overflow:hidden}html:has(body.embedded){overflow:hidd
 .gap-p{display:block;font-size:11px;color:var(--muted);margin-top:4px}
 .gaps-chart{display:flex;flex-direction:column;min-width:0}.gaps-chart .box{height:auto;flex:1;min-height:200px}
 .gaps-ct{font-size:11.5px;color:var(--muted);margin:0 0 6px}
-.rkp{margin-bottom:20px}.rkp[hidden]{display:none}
+.rkp{margin-bottom:20px}.vide{font-size:13px;color:var(--muted);margin:18px 0;text-align:center}.rkp[hidden]{display:none}
 .rk-bar{display:flex;flex-wrap:wrap;gap:10px 18px;margin:0 0 12px}.rk-g{display:flex;flex-wrap:wrap;gap:6px;align-items:center}.rk-g span{font-size:12px;color:var(--muted)}
 .rk-c{font:inherit;font-size:12px;padding:5px 12px;border-radius:999px;border:1px solid #DCE6F0;background:#fff;color:#33475B;cursor:pointer}
 .rk-c[aria-pressed="true"]{background:#E6F1FB;border-color:#85B7EB;color:#0C447C;font-weight:600}
@@ -1247,7 +1247,8 @@ function renderDict(rows){var el=document.getElementById('dict'),D=META.dictionn
   el.querySelector('.dict-wrap').addEventListener('toggle',function(e){dictOpen=e.target.open})}
 function renderIndic(rows){var I=META.indicateurs||[],dims=META.dims||[],r2=document.getElementById('row2'),r3=document.getElementById('row3'),h2='',h3='',todo=[];
   var ev=I.filter(function(k){return k.evolution})[0];
-  if(ev&&META.period){var g=groupBy(rows,function(r){return pkey(r.__p)}),ks=Object.keys(g).sort(),f0=Object.assign({},ev.formule,{stock:false});
+  if(ev&&META.period){var g=groupBy(rows,function(r){return pkey(r.__p)}),ks=Object.keys(g).filter(function(k){return k&&k!=='null'}).sort(),f0=Object.assign({},ev.formule,{stock:false});
+    if(ks.length<2&&ks.length)h2+=card('<p class="vide">Une seule période par '+GRAN[gran].toLowerCase()+' avec ces filtres : choisissez un regroupement plus fin.</p>','Évolution — '+ev.nom,'Par '+GRAN[gran].toLowerCase(),seg());
     if(ks.length>=2){var vals=ks.map(function(k){return evalF(g[k],f0)}),u=ev.pct?' %':'';
       h2+=card(canvas('c_ind_t',ev.nom),'Évolution — '+ev.nom,'Par '+GRAN[gran].toLowerCase()+(ev.statut==='propose'?' · formule à valider':''),seg());
       todo.push(function(){var cv=document.getElementById('c_ind_t'),ctx=cv.getContext('2d'),grad=ctx.createLinearGradient(0,0,0,250);grad.addColorStop(0,'rgba(0,145,208,.28)');grad.addColorStop(1,'rgba(16,188,208,0)');
@@ -1283,7 +1284,11 @@ function renderRank(){var el=document.getElementById('rank'),I=(META.indicateurs
   var k=I[RK.k],d=dims[RK.d],filtrable=FCOLS.indexOf(d)>=0;
   // Toutes les lignes filtrées SAUF par cette dimension : le classement garde tous ses groupes, le choisi est surligné
   var base=DATA.filter(function(r){return FCOLS.every(function(c){return c===d||state[c]==null||state[c]==='all'||String(r[c]).trim()===state[c]})});
-  var e=rankedF(base,k.formule,d,15);if(e.length<2){el.hidden=true;return}el.hidden=false;
+  var e=rankedF(base,k.formule,d,15);el.hidden=false;
+  if(e.length<2){var ch=function(list,cur,att){return list.map(function(x,i){return '<button class="rk-c" data-'+att+'="'+i+'" aria-pressed="'+(i===cur)+'">'+esc(att==='k'?x.nom.split(' · ')[0]:short(x))+'</button>'}).join('')};
+    el.innerHTML='<div class="card-h"><div><h2>Classement · '+esc(k.nom)+'</h2></div></div><div class="rk-bar"><div class="rk-g">'+ch(I,RK.k,'k')+'</div>'+(dims.length>1?'<div class="rk-g"><span>par</span>'+ch(dims,RK.d,'d')+'</div>':'')+'</div>'
+      +'<p class="vide">Un seul groupe par '+esc(short(d).toLowerCase())+' pour cet indicateur : choisissez un autre découpage.</p>';
+    [].forEach.call(el.querySelectorAll('.rk-c'),function(b){b.onclick=function(){if(b.dataset.k!=null)RK.k=+b.dataset.k;else RK.d=+b.dataset.d;renderRank()}});return}
   var u=k.pct?' %':'',mx=Math.max.apply(null,e.map(function(x){return x[1]})),mn=Math.min.apply(null,e.map(function(x){return x[1]}));
   var ref=k.pct?evalF(base,k.formule):e.reduce(function(a,x){return a+x[1]},0)/e.length,refl=k.pct?'ensemble':'moyenne par '+short(d).toLowerCase();
   var mix=function(t){var a=[181,212,244],b=[12,68,124];return 'rgb('+a.map(function(v,j){return Math.round(v+(b[j]-v)*t)}).join(',')+')'};
@@ -1542,7 +1547,8 @@ def generate_dashboard(df, objective: str = "", job_id: str | None = None, llm=N
         pc = correspondance.get("periode") if correspondance.get("periode") in src.columns else None
         p_nom, p_ser = _period(src[[pc]]) if pc else (None, None)
         cle = p_ser.map(lambda v: v[:7] if isinstance(v, str) else None) if p_ser is not None else None
-        dims = [d for d in correspondance.get("dimensions") or [] if d in src.columns]
+        _lic, _lvc = _C.colonnes_longues(src, dictionnaire or [])
+        dims = [d for d in correspondance.get("dimensions") or [] if d in src.columns and d != _lic]
         lib = _joli
 
         def _tit(i):
