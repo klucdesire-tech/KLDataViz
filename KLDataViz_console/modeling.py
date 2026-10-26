@@ -78,8 +78,9 @@ def _slugify(name: str) -> str:
     return s or "colonne"
 
 
-# Devise ou monnaie collée au nombre, avant ou après : FCFA, F CFA, CFA, XOF, EUR, €, USD, $
-_DEVISE = re.compile(r"^(?:f\s?cfa|cfa|xof|eur|€|usd|\$)\s*|\s*(?:f\s?cfa|cfa|xof|eur|€|usd|\$)$", re.I)
+# Devise écrite avec le nombre, avant ou après : sigle séparé par une espace (FCFA, F CFA, CFA, XOF, EUR, USD)
+# ou symbole (€, $) ; un code collé (« CFA2023 », « XOF-12 ») n'est jamais lu comme un montant
+_DEVISE = re.compile(r"^(?:(?:f\s?cfa|cfa|xof|eur|usd)\s+|[€$]\s*)|(?:\s+(?:f\s?cfa|cfa|xof|eur|usd)|\s*[€$])$", re.I)
 
 
 def _coerce_series(s: pd.Series):

@@ -1100,7 +1100,9 @@ function renderVerify(){
   $('#dsChips').innerHTML=[`${nf(a.rows)} lignes`,`${a.columns} colonnes`,a.size_kb?`${dec(a.size_kb)} Ko`:'source en ligne'].map(x=>`<span class="tag type">${x}</span>`).join('');
   $('#scoreHow').innerHTML='Score = 100 moins des pénalités plafonnées. Détail avec les corrections choisies :<br>'+after.parts.map(p=>`${p[0]} : −${dec(p[1].toFixed(1))}`).join(' · ');
   const cd=a.columns_detail||[], nNum=Object.keys(a.numeric_stats||{}).length;
-  const ids=cd.filter(c=>c.unique===a.rows&&c.missing===0).map(c=>c.name);
+  // Identifiant : valeurs toutes différentes ET pas une mesure (un montant peut aussi être unique sur chaque ligne)
+  const MESURE=/montant|chiffre|prix|total|valeur|quantit|somme|co[uû]t|salaire|marge|poids|surface|^ca$|^ca_|_ca$/i;
+  const ids=cd.filter(c=>c.unique===a.rows&&c.missing===0&&!MESURE.test(c.name)).map(c=>c.name);
   const cor=(a.bivariate?.correlations||[])[0];
   $('#understood').innerHTML=`Le fichier <b>${esc(a.file)}</b> contient <b>${nNum}</b> variable(s) numérique(s) et <b>${cd.length-nNum}</b> variable(s) texte ou date.`+
     (ids.length?` Identifiant probable : <code>${esc(ids[0])}</code>.`:'')+(cor?` Relation la plus forte : <code>${esc(cor.a)}</code> et <code>${esc(cor.b)}</code>.`:'');

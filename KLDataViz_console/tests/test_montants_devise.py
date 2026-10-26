@@ -15,3 +15,7 @@ def test_montants_avec_devise_convertis():
 def test_texte_ordinaire_inchange():
     assert modeling._coerce_series(pd.Series(["Plateau", "Cocody", "Treichville"] * 5))[1] is None
     assert modeling._coerce_series(pd.Series(["F", "M"] * 5))[1] is None   # « F » seul n'est pas une devise
+
+
+def test_codes_colles_a_un_sigle_restent_du_texte():
+    assert modeling._coerce_series(pd.Series(["CFA2023", "XOF-12", "EUR2024", "CFA2025"] * 5))[1] is None
