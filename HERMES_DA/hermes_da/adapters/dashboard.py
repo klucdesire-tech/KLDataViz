@@ -821,7 +821,7 @@ body{font-family:'Fira Sans',system-ui,-apple-system,'Segoe UI',sans-serif;backg
 .pill[aria-pressed="true"]{background:var(--navy);border-color:var(--navy);color:#fff}
 .pill:focus-visible,select:focus-visible,.seg button:focus-visible,.more:focus-visible{outline:3px solid #7FD3EE;outline-offset:2px}
 select{appearance:none;border:1px solid var(--line);background:var(--card) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%235B6478' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E") no-repeat right 12px center;border-radius:999px;padding:7px 34px 7px 14px;font:inherit;font-size:12.5px;color:var(--ink);min-height:32px;cursor:pointer;min-width:150px}
-.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:16px}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:14px;margin-bottom:20px}
 .kpi{border-radius:var(--radius);padding:14px 16px 16px;min-height:104px;display:flex;flex-direction:column;justify-content:space-between;gap:10px}
 .kpi .n{font-size:12.5px;font-weight:500;line-height:1.3}
 .kpi .info{position:relative;display:inline-grid;place-items:center;width:15px;height:15px;border-radius:50%;font:700 10px/1 Georgia,serif;
@@ -837,8 +837,8 @@ select{appearance:none;border:1px solid var(--line);background:var(--card) url("
 .kpi.k0{background:linear-gradient(135deg,var(--navy),var(--navy-2));color:#fff}.kpi.k0 .s{color:#BFE3F5}
 .kpi.k1{background:var(--t1)}.kpi.k2{background:var(--t2)}.kpi.k3{background:var(--t3)}.kpi.k4{background:var(--t4)}.kpi.k5{background:var(--t5)}
 .kpi:not(.k0) .s{color:var(--muted)}
-.row2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin-bottom:14px}
-.row3{display:grid;grid-template-columns:repeat(auto-fit,minmax(290px,1fr));gap:14px}
+.row2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px;margin-bottom:20px}
+.row3{display:grid;grid-template-columns:repeat(auto-fit,minmax(290px,1fr));gap:18px;margin-bottom:20px}.row3:empty,.row2:empty{display:none}
 .card{background:var(--card);border-radius:var(--radius);padding:16px 18px;box-shadow:0 1px 2px rgba(22,33,62,.04);min-width:0}
 .card-h{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:10px;flex-wrap:wrap}
 .card-h > div:first-child{min-width:0;flex:1 1 180px}
@@ -872,7 +872,7 @@ body.embedded{min-height:0;overflow:hidden}html:has(body.embedded){overflow:hidd
 @media (max-width:560px){body{padding:16px}.donut .box{height:200px}}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 /* Écarts : même langage que le reste (carte blanche, tuiles pastel comme les KPI, palette bleu / cyan / vert d'eau) */
-.gaps{margin-bottom:14px}.gaps[hidden]{display:none}
+.gaps{margin-bottom:20px}.gaps[hidden]{display:none}
 .gaps-ctl{display:flex;flex-wrap:wrap;align-items:center;gap:8px}.gaps-ctl select{min-width:140px}
 .gaps-note{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;color:var(--navy);background:var(--t5);border-radius:999px;padding:4px 12px;margin:0 0 12px}
 .gaps-body{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(0,1fr);gap:16px;align-items:stretch}.gaps-body.solo{grid-template-columns:minmax(0,1fr)}
@@ -884,7 +884,7 @@ body.embedded{min-height:0;overflow:hidden}html:has(body.embedded){overflow:hidd
 .gap-p{display:block;font-size:11px;color:var(--muted);margin-top:4px}
 .gaps-chart{display:flex;flex-direction:column;min-width:0}.gaps-chart .box{height:auto;flex:1;min-height:200px}
 .gaps-ct{font-size:11.5px;color:var(--muted);margin:0 0 6px}
-.rkp{margin-bottom:14px}.rkp[hidden]{display:none}
+.rkp{margin-bottom:20px}.rkp[hidden]{display:none}
 .rk-bar{display:flex;flex-wrap:wrap;gap:10px 18px;margin:0 0 12px}.rk-g{display:flex;flex-wrap:wrap;gap:6px;align-items:center}.rk-g span{font-size:12px;color:var(--muted)}
 .rk-c{font:inherit;font-size:12px;padding:5px 12px;border-radius:999px;border:1px solid #DCE6F0;background:#fff;color:#33475B;cursor:pointer}
 .rk-c[aria-pressed="true"]{background:#E6F1FB;border-color:#85B7EB;color:#0C447C;font-weight:600}
@@ -919,7 +919,7 @@ body.embedded{min-height:0;overflow:hidden}html:has(body.embedded){overflow:hidd
 #dict .n{display:flex;flex-direction:column;align-items:flex-start}
 .dl{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;font-size:12px;line-height:1.3}
 .hd{font-size:10px;color:#B45309;background:#FEF3C7;border-radius:10px;padding:1px 7px;margin-left:6px;font-weight:600;vertical-align:1px}
-.dict{margin-bottom:14px}.dict[hidden]{display:none}
+.dict{margin-bottom:20px}.dict[hidden]{display:none}
 .dict-wrap>summary{cursor:pointer;list-style:none;display:flex;align-items:center;justify-content:space-between;gap:12px;margin:0}
 .dict-wrap>summary::-webkit-details-marker{display:none}
 .dict-wrap>summary h2{margin:0}
@@ -1053,7 +1053,12 @@ function renderKpis(all){document.getElementById('kpis').innerHTML=KPIDEFS.slice
   return '<div class="kpi k'+i+'"><div class="n">'+esc(k.nom)+badge+' <span class="info" tabindex="0" role="note" aria-label="Comment ce chiffre est calculé : '+esc(how)+'">i<span class="tip">'+esc(how)+'</span></span></div><div class="row"><div class="v">'+fmt(v)+u+'</div><div class="s">'+sub+'</div></div></div>'}).join('')}
 
 function card(id,title,sub,extra){return '<div class="card"><div class="card-h"><div><h2>'+esc(nice(title))+'</h2>'+(sub?'<small>'+esc(sub)+'</small>':'')+'</div>'+(extra||'')+'</div>'+id+'</div>'}
-function seg(){return '<div class="seg" role="group" aria-label="Regrouper par">'+(META.grans||['M','Q','Y']).map(function(g){return '<button type="button" data-g="'+g+'" aria-pressed="'+(gran===g)+'">'+GRAN[g]+'</button>'}).join('')+'</div>'}
+// Granularités qui donnent au moins 2 points avec les filtres actuels : une granularité trop large (1 seul point)
+// faisait disparaître la courbe ET ce sélecteur avec elle, sans moyen de revenir en arrière
+var GOK=null;
+function gransOK(rows){var all=META.grans||['M','Q','Y'],save=gran;if(!META.period)return all;
+  var ok=all.filter(function(g){gran=g;var s={},n=0;for(var i=0;i<rows.length&&n<2;i++){var k=pkey(rows[i].__p);if(k&&!s[k]){s[k]=1;n++}}return n>=2});gran=save;return ok.length?ok:all}
+function seg(){return '<div class="seg" role="group" aria-label="Regrouper par">'+(GOK||META.grans||['M','Q','Y']).map(function(g){return '<button type="button" data-g="'+g+'" aria-pressed="'+(gran===g)+'">'+GRAN[g]+'</button>'}).join('')+'</div>'}
 function canvas(id,label){return '<div class="box"><canvas id="'+id+'" role="img" aria-label="'+esc(label)+'"></canvas></div>'}
 
 // Barres par catégorie avec ligne de moyenne (au-dessus de la moyenne : bleu foncé)
@@ -1305,7 +1310,8 @@ function renderRank(){var el=document.getElementById('rank'),I=(META.indicateurs
     var act=function(){if(!filtrable)return;state[d]=sel===e[i][0]?'all':e[i][0];buildFilters();render()};
     li.onclick=act;li.onkeydown=function(ev){if(ev.key==='Enter'||ev.key===' '){ev.preventDefault();act()}}});
   [].forEach.call(el.querySelectorAll('.rk-c'),function(b){b.onclick=function(){if(b.dataset.k!=null)RK.k=+b.dataset.k;else RK.d=+b.dataset.d;renderRank()}})}
-function render(){charts.forEach(function(c){c.destroy()});charts=[];var rows=filtered();renderKpis(rows);renderGaps(rows);renderDict(rows);renderRank();
+function render(){charts.forEach(function(c){c.destroy()});charts=[];var rows=filtered();
+  GOK=gransOK(rows);if(GOK.indexOf(gran)<0)gran=GOK.indexOf('M')>=0?'M':GOK[0];renderKpis(rows);renderGaps(rows);renderDict(rows);renderRank();
   var todo=META.indicateurs?renderIndic(rows):renderMain(rows).concat(renderCards(rows));if(window.Chart)todo.forEach(function(f){f()})}
 document.getElementById('objective').textContent=window.OBJECTIVE;
 try{if(window.self!==window.top)document.body.classList.add('embedded')}catch(e){document.body.classList.add('embedded')}
