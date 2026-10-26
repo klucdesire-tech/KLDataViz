@@ -598,13 +598,56 @@ def announcements(audience: str) -> list:
 SITE_KEYS = ("hero_title", "hero_subtitle", "contact_email", "contact_whatsapp")
 
 
-def site_settings() -> dict:
+def _all_settings() -> dict:
     def load():
         try:
             return {r["key"]: r["value"] for r in q("select key, value from app.site_settings")}
         except Exception:
             return {}
     return _cached("site", 30, load)
+
+
+def site_settings() -> dict:
+    """Réglages publics de la page d'accueil (jamais les réglages techniques comme le fournisseur d'IA)."""
+    return {k: v for k, v in _all_settings().items() if k in SITE_KEYS}
+
+
+# ---- fournisseur d'IA, choisi dans l'administration (les clés restent des variables d'environnement)
+IA_FOURNISSEURS = ("auto", "anthropic", "deepseek")
+IA_MODELES = {"anthropic": ("claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5"),
+              "deepseek": ("deepseek-v4-pro", "deepseek-flash")}
+
+
+def ia_settings() -> dict:
+    """{provider, model} choisis par l'administrateur ; {} si rien n'est réglé (on suit alors l'environnement)."""
+    s = _all_settings()
+    return {k: s[f"ia_{k}"] for k in ("provider", "model") if s.get(f"ia_{k}")}
+
+
+def admin_ia(ctx: Ctx) -> dict:
+    _admin(ctx)
+    r = ia_settings()
+    return {"provider": r.get("provider", "auto"), "model": r.get("model", ""), "modeles": IA_MODELES,
+            "cles": {"anthropic": bool(os.environ.get("ANTHROPIC_API_KEY")),
+                     "deepseek": bool(os.environ.get("DEEPSEEK_API_KEY"))}}
+
+
+def admin_ia_save(ctx: Ctx, data: dict):
+    _admin(ctx)
+    prov = str(data.get("provider") or "auto").strip().lower()
+    if prov not in IA_FOURNISSEURS:
+        raise ValueError("Fournisseur d'IA inconnu.")
+    model = str(data.get("model") or "").strip()
+    if model and (prov == "auto" or model not in IA_MODELES.get(prov, ())):
+        raise ValueError("Ce modèle ne correspond pas au fournisseur choisi.")
+    env = {"anthropic": "ANTHROPIC_API_KEY", "deepseek": "DEEPSEEK_API_KEY"}.get(prov)
+    if env and not os.environ.get(env):
+        raise ValueError(f"Aucune clé {env} n'est configurée sur le serveur : ajoutez-la dans les variables "
+                         "d'environnement (Render) avant de choisir ce fournisseur.")
+    for k, v in (("ia_provider", prov), ("ia_model", model)):
+        q("""insert into app.site_settings (key, value) values (%s, %s::jsonb)
+             on conflict (key) do update set value = excluded.value, updated_at = now()""", (k, json.dumps(v)))
+    _cache.pop("site", None)
 
 
 def admin_site_save(ctx: Ctx, data: dict):

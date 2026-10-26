@@ -9,3 +9,4 @@ psycopg[binary]==3.3.6
 charset-normalizer==3.5.2
 chardet==7.6.0
 reportlab==5.0.1
+anthropic==2.3.0
