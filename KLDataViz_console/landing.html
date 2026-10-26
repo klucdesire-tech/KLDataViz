@@ -111,6 +111,40 @@ header.nav .wrap{display:flex;align-items:center;gap:20px;min-height:68px}
 .chart path.line{fill:none;stroke:var(--amber);stroke-width:3;stroke-linecap:round;stroke-dasharray:420;stroke-dashoffset:420;transition:stroke-dashoffset 1.3s ease-out}
 .chart line.avg{stroke:var(--muted);stroke-dasharray:5 5;stroke-width:1.2;opacity:0;transition:opacity .4s}
 
+/* acte 3 : tableau de bord (tuiles, cartes de suivi, camembert) */
+.dash{position:absolute;inset:16px 18px;display:grid;grid-template-rows:auto 1fr;gap:10px;opacity:0;transition:opacity .4s}
+.dash .kp{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.dash .kp div{background:var(--surface-2);border-radius:10px;padding:7px 10px;opacity:0;transform:translateY(8px);transition:opacity .35s,transform .35s}
+.dash .kp small{display:block;font:600 10px var(--sans);letter-spacing:.05em;text-transform:uppercase;color:var(--muted)}
+.dash .kp b{font:700 19px var(--mono);letter-spacing:-.02em}
+.dash .low{display:grid;grid-template-columns:minmax(0,1.55fr) minmax(0,1fr);gap:10px;min-height:0}
+.dash .cards{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.mc{border:1px solid var(--line);border-radius:10px;padding:8px 9px;display:flex;flex-direction:column;gap:4px;opacity:0;transform:translateY(10px);transition:opacity .4s,transform .4s;min-width:0}
+.mc h5{margin:0;font:600 11px var(--sans);color:var(--brand-strong);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mc .v{display:flex;align-items:baseline;gap:6px}.mc .v b{font:700 16px var(--mono)}
+.mc .d{font:600 10px var(--sans);padding:1px 6px;border-radius:99px}
+.mc .d.up{background:var(--brand-soft);color:var(--brand-strong)}.mc .d.down{background:var(--red-soft);color:var(--red)}
+.mc .br{display:grid;grid-template-columns:30px 1fr;gap:5px;align-items:center;font:500 9.5px var(--mono);color:var(--muted)}
+.mc .br i{height:6px;border-radius:3px;background:var(--surface-2);overflow:hidden;display:block}
+.mc .br i::before{content:"";display:block;height:100%;width:var(--w);border-radius:3px;background:var(--c,var(--line));transform-origin:left;transform:scaleX(0);transition:transform .8s cubic-bezier(.2,.8,.2,1) .2s}
+.mc svg{width:100%;height:22px;overflow:visible}
+.mc path{fill:none;stroke:var(--c,var(--brand));stroke-width:2;stroke-linecap:round;stroke-dasharray:160;stroke-dashoffset:160;transition:stroke-dashoffset 1.2s ease-out .4s}
+.dn{border:1px solid var(--line);border-radius:10px;padding:8px;display:grid;justify-items:center;align-content:center;gap:6px;opacity:0;transform:scale(.94);transition:opacity .45s,transform .45s}
+.dn .ring{width:74px;height:74px;border-radius:50%;background:conic-gradient(var(--brand) 0 calc(var(--a,0)*1%),var(--blue) 0 calc(var(--b,0)*1%),var(--amber) 0 100%);display:grid;place-items:center;transition:--a 1s,--b 1s}
+.dn .ring::after{content:"";width:46px;height:46px;border-radius:50%;background:var(--surface)}
+.dn ul{list-style:none;margin:0;padding:0;display:flex;gap:8px;flex-wrap:wrap;justify-content:center;font:500 9.5px var(--sans);color:var(--muted)}
+.dn li::before{content:"";display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--c);margin-right:4px}
+.dn h5{margin:0;font:600 11px var(--sans)}
+@property --a{syntax:"<number>";inherits:false;initial-value:0}
+@property --b{syntax:"<number>";inherits:false;initial-value:0}
+.stage[data-act="3"] .dash,.stage[data-act="4"] .dash{opacity:1}
+.stage[data-act="3"] .dash .kp div,.stage[data-act="4"] .dash .kp div,.stage[data-act="3"] .mc,.stage[data-act="4"] .mc{opacity:1;transform:none}
+.stage[data-act="3"] .mc .br i::before,.stage[data-act="4"] .mc .br i::before{transform:scaleX(1)}
+.stage[data-act="3"] .mc path,.stage[data-act="4"] .mc path{stroke-dashoffset:0}
+.stage[data-act="3"] .dn,.stage[data-act="4"] .dn{opacity:1;transform:none}
+.stage[data-act="3"] .dn .ring,.stage[data-act="4"] .dn .ring{--a:48;--b:79}
+.stage[data-act="4"] .dash{opacity:.3}
+
 /* acte 4 : point clé + bulle */
 .insight{position:absolute;left:18px;right:18px;bottom:14px;background:var(--surface);border:1px solid var(--line);border-left:4px solid var(--brand);border-radius:14px;padding:12px 14px;box-shadow:var(--shadow);opacity:0;transform:translateY(16px);transition:opacity .45s,transform .45s}
 .insight .t{font:600 11px var(--sans);letter-spacing:.06em;text-transform:uppercase;color:var(--brand-strong)}
@@ -127,12 +161,7 @@ header.nav .wrap{display:flex;align-items:center;gap:20px;min-height:68px}
 .stage[data-act="2"] .scan{animation:scan 1.8s ease-in-out forwards}
 @keyframes scan{0%{opacity:1;top:20px}90%{opacity:1;top:calc(100% - 20px)}100%{opacity:0;top:calc(100% - 20px)}}
 .stage[data-act="2"] .score{opacity:1;transform:none}
-.stage[data-act="3"] .chart,.stage[data-act="4"] .chart{opacity:1}
-.stage[data-act="3"] .bars i,.stage[data-act="4"] .bars i{transform:scaleY(1)}
-.stage[data-act="3"] path.line,.stage[data-act="4"] path.line{stroke-dashoffset:0}
-.stage[data-act="3"] line.avg,.stage[data-act="4"] line.avg{opacity:1}
 .stage[data-act="4"] .insight{opacity:1;transform:none}
-.stage[data-act="4"] .chart{opacity:.35}
 
 /* sections */
 .steps{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:18px;counter-reset:s}
@@ -171,19 +200,48 @@ footer{padding-block:36px;color:var(--muted);font-size:14px}
 footer .wrap{display:flex;gap:16px;flex-wrap:wrap;justify-content:space-between;align-items:center}
 footer a{color:var(--muted)}
 
+/* commandes : palette animée + liste */
+.cmd-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.1fr);gap:clamp(24px,4vw,48px);align-items:start}
+.palette{background:var(--surface);border:1px solid var(--line);border-radius:18px;box-shadow:var(--shadow);overflow:hidden;position:sticky;top:96px}
+.palette .q{display:flex;align-items:center;gap:10px;padding:16px 18px;border-bottom:1px solid var(--line);font:500 16px var(--sans)}
+.palette .q svg{width:20px;height:20px;color:var(--muted);fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round}
+.palette .q kbd{margin-left:auto;font:500 11.5px var(--mono);color:var(--muted);border:1px solid var(--line);border-radius:6px;padding:2px 6px}
+.palette ul{list-style:none;margin:0;padding:8px;display:grid;gap:2px}
+.palette li{display:grid;grid-template-columns:30px minmax(0,1fr) auto;gap:10px;align-items:center;padding:9px 10px;border-radius:10px;font-size:14.5px;transition:background .2s}
+.palette li .i{width:30px;height:30px;border-radius:8px;background:var(--surface-2);display:grid;place-items:center;color:var(--brand-strong)}
+.palette li .i svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.palette li small{color:var(--muted);font-size:12px}
+.palette li.on{background:var(--brand-soft)}.palette li.on small{color:var(--brand-strong)}
+.palette .res{margin:0 8px 10px;padding:12px 14px;border-radius:12px;background:var(--surface-2);font-size:13.5px;color:var(--muted);min-height:48px}
+.palette .res b{color:var(--fg)}
+.cmds{display:grid;gap:22px}
+.cmds h3{font-size:15px;letter-spacing:.02em;margin-bottom:8px;color:var(--brand-strong)}
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chip{display:inline-flex;align-items:center;gap:6px;background:var(--surface);border:1px solid var(--line);border-radius:999px;padding:7px 13px;font-size:14px;transition:border-color .2s,transform .2s}
+.chip:hover{border-color:var(--brand);transform:translateY(-1px)}
+.chip em{font-style:normal;color:var(--muted);font-size:12.5px}
+.new{font:700 10.5px var(--sans);letter-spacing:.06em;text-transform:uppercase;color:var(--on-brand);background:var(--brand);border-radius:99px;padding:2px 7px;margin-left:6px;vertical-align:2px}
+
+/* apparition au défilement */
+.rv{opacity:0;transform:translateY(22px);transition:opacity .7s cubic-bezier(.2,.8,.2,1),transform .7s cubic-bezier(.2,.8,.2,1)}
+.rv.in{opacity:1;transform:none}
+
 @media (max-width:960px){
+  .cmd-grid{grid-template-columns:minmax(0,1fr)}.palette{position:static}
   .hero .wrap,.sec-grid{grid-template-columns:minmax(0,1fr)}
   .steps{grid-template-columns:repeat(2,minmax(0,1fr))}.features{grid-template-columns:repeat(2,minmax(0,1fr))}
   .links{display:none}
 }
 @media (max-width:560px){
   .steps,.features{grid-template-columns:minmax(0,1fr)}
+  .dash .low{grid-template-columns:minmax(0,1fr)}.dn{display:none}
   .nav .login{display:none}
   .steps-ui div span{display:none}
   .stage{aspect-ratio:1/1.05}
 }
 @media (prefers-reduced-motion:reduce){
   *,*::before,*::after{animation:none!important;transition:none!important}
+  .rv{opacity:1;transform:none}
   html{scroll-behavior:auto}
 }
 </style>
@@ -194,7 +252,7 @@ footer a{color:var(--muted)}
 <header class="nav">
   <div class="wrap">
     <a class="logo" href="/"><img src="/logo.png" alt="">KLDataViz</a>
-    <nav class="links" aria-label="Sections"><a href="#comment">Fonctionnement</a><a href="#fonctions">Fonctionnalités</a><a href="#tarifs">Tarifs</a><a href="#faq">Questions</a></nav>
+    <nav class="links" aria-label="Sections"><a href="#comment">Fonctionnement</a><a href="#fonctions">Fonctionnalités</a><a href="#commandes">Commandes</a><a href="#tarifs">Tarifs</a><a href="#faq">Questions</a></nav>
     <span class="spacer"></span>
     <a class="btn ghost login" href="/login">Se connecter</a>
     <a class="btn primary" href="/login?signup=1">Essai gratuit</a>
@@ -207,7 +265,7 @@ footer a{color:var(--muted)}
       <div>
         <div class="eyebrow">Hermes · analyste de données IA</div>
         <h1 id="heroTitle" style="margin-top:14px">Vos données expliquées en <em>minutes</em>, pas en semaines.</h1>
-        <p class="lead" id="heroSub">Importez un fichier Excel ou une feuille Google. Hermes vérifie la qualité, trouve ce qui compte et prépare vos rapports, en français.</p>
+        <p class="lead" id="heroSub">Importez un fichier Excel, une feuille Google ou un export DHIS2. Hermes vérifie la qualité, construit un tableau de bord interactif à partir de vos indicateurs et répond à vos questions, en français.</p>
         <div class="ctas">
           <a class="btn primary" href="/login?signup=1">Essayer 14 jours gratuitement</a>
           <a class="btn ghost" href="#comment">Voir comment ça marche</a>
@@ -220,7 +278,7 @@ footer a{color:var(--muted)}
       </div>
 
       <!-- Scène animée : importer → vérifier → analyser → comprendre (données d'exemple) -->
-      <div class="stage" id="stage" data-act="0" role="img" aria-label="Animation : un fichier est importé, Hermes corrige les erreurs, les données deviennent un graphique puis un point clé rédigé.">
+      <div class="stage" id="stage" data-act="0" role="img" aria-label="Animation : un fichier est importé, Hermes corrige les erreurs, construit un tableau de bord (tuiles, cartes de suivi, camembert) puis rédige un point clé.">
         <div class="bar"><i></i><i></i><i></i><span>kldataviz · analyse</span><span class="tag">Exemple</span></div>
         <div class="scene">
           <div class="file"><span class="ic">XLSX</span>ventes_exemple.xlsx</div>
@@ -235,52 +293,85 @@ footer a{color:var(--muted)}
           </div>
           <div class="scan"></div>
           <div class="score" id="score"><div class="ring" id="ring"><b class="num" id="scoreV">62</b></div><div><small>Qualité des données</small><strong id="scoreT">4 corrections</strong></div></div>
-          <div class="chart">
-            <h4>Ventes par zone</h4><p>Somme · ligne : tendance mensuelle</p>
-            <div class="bars"><i style="--h:92%;transition-delay:.0s"></i><i style="--h:80%;transition-delay:.08s"></i><i style="--h:71%;transition-delay:.16s"></i><i class="low" style="--h:57%;transition-delay:.24s"></i><i class="low" style="--h:50%;transition-delay:.32s"></i><i class="low" style="--h:41%;transition-delay:.4s"></i></div>
-            <svg viewBox="0 0 400 200" preserveAspectRatio="none" aria-hidden="true"><line class="avg" x1="0" x2="400" y1="80" y2="80"/><path class="line" d="M10 150 C 70 140, 100 120, 150 112 S 240 70, 290 58 S 360 30, 392 24"/></svg>
+          <div class="dash" aria-hidden="true">
+            <div class="kp"><div style="transition-delay:.0s"><small>Ventes</small><b class="num" data-to="22145">0</b></div><div style="transition-delay:.1s"><small>Marge</small><b class="num" data-to="31.4" data-pct>0</b></div><div style="transition-delay:.2s"><small>Clients</small><b class="num" data-to="1263">0</b></div></div>
+            <div class="low">
+              <div class="cards">
+                <div class="mc" style="--c:var(--brand);transition-delay:.25s"><h5>Ventes · par mois</h5><div class="v"><b>4 812</b><span class="d up">▲ +24 %</span></div>
+                  <div class="br">févr.<i style="--w:62%"></i></div><div class="br" style="--c:var(--brand)">mars<i style="--w:78%;--c:var(--brand)"></i></div>
+                  <svg viewBox="0 0 100 22" preserveAspectRatio="none"><path d="M2 18 L20 15 L38 16 L56 11 L74 8 L98 3"/></svg></div>
+                <div class="mc" style="--c:var(--red);transition-delay:.4s"><h5>Retours · par mois</h5><div class="v"><b>132</b><span class="d down">▲ +9 %</span></div>
+                  <div class="br">févr.<i style="--w:55%"></i></div><div class="br">mars<i style="--w:61%;--c:var(--red)"></i></div>
+                  <svg viewBox="0 0 100 22" preserveAspectRatio="none"><path d="M2 14 L20 16 L38 12 L56 13 L74 9 L98 7"/></svg></div>
+              </div>
+              <div class="dn" style="transition-delay:.55s"><h5>Part par zone</h5><div class="ring"></div><ul><li style="--c:var(--brand)">Alpha</li><li style="--c:var(--blue)">Bêta</li><li style="--c:var(--amber)">Autres</li></ul></div>
+            </div>
           </div>
           <div class="insight"><div class="t">Point clé trouvé par Hermes</div><p id="typed"></p></div>
         </div>
-        <div class="steps-ui" id="stepsUi"><div><b>1</b><span>Importer</span></div><div><b>2</b><span>Vérifier</span></div><div><b>3</b><span>Analyser</span></div><div><b>4</b><span>Comprendre</span></div></div>
+        <div class="steps-ui" id="stepsUi"><div><b>1</b><span>Importer</span></div><div><b>2</b><span>Vérifier</span></div><div><b>3</b><span>Tableau de bord</span></div><div><b>4</b><span>Comprendre</span></div></div>
       </div>
     </div>
   </section>
 
   <section id="comment" class="alt">
     <div class="wrap">
-      <div class="sec-head"><div class="eyebrow">Fonctionnement</div><h2>Du fichier brut au rapport, en quatre étapes guidées</h2><p>Pas de formule, pas de code. Hermes vous accompagne à chaque étape et vous gardez la main sur chaque décision.</p></div>
+      <div class="sec-head rv"><div class="eyebrow">Fonctionnement</div><h2>Du fichier brut au rapport, en quatre étapes guidées</h2><p>Pas de formule, pas de code. Hermes vous accompagne à chaque étape et vous gardez la main sur chaque décision.</p></div>
       <div class="steps">
-        <div class="step"><span class="n">1</span><h3>Importer</h3><p>Excel, CSV, JSON ou un lien Google Sheets. Les tableaux au format rapport (titres, totaux) sont reconnus.</p></div>
-        <div class="step"><span class="n">2</span><h3>Vérifier</h3><p>Doublons, formats de date, valeurs manquantes : un score de qualité et des corrections à activer une par une.</p></div>
-        <div class="step"><span class="n">3</span><h3>Analyser</h3><p>Graphiques choisis automatiquement : tendances, classements, répartitions, anomalies.</p></div>
-        <div class="step"><span class="n">4</span><h3>Partager</h3><p>Rapports PDF, Excel ou web, et envoi automatique chaque semaine ou chaque mois.</p></div>
+        <div class="step rv"><span class="n">1</span><h3>Importer</h3><p>Excel (plusieurs feuilles), CSV, JSON, Parquet, un lien Google Sheets, un export DHIS2 ou une base PostgreSQL. Les tableaux au format rapport sont reconnus.</p></div>
+        <div class="step rv"><span class="n">2</span><h3>Vérifier</h3><p>Doublons, formats de date, valeurs manquantes : un score de qualité et des corrections à activer une par une.</p></div>
+        <div class="step rv"><span class="n">3</span><h3>Analyser</h3><p>Graphiques commentés, tableau de bord interactif piloté par votre dictionnaire d'indicateurs, questions en français.</p></div>
+        <div class="step rv"><span class="n">4</span><h3>Partager</h3><p>Lien de partage, fichier HTML autonome, rapports PDF ou Excel, et envoi automatique chaque semaine ou chaque mois.</p></div>
       </div>
     </div>
   </section>
 
   <section id="fonctions">
     <div class="wrap">
-      <div class="sec-head"><div class="eyebrow">Fonctionnalités</div><h2>Tout ce qu'une équipe data fait à la main, en quelques clics</h2></div>
+      <div class="sec-head rv"><div class="eyebrow">Fonctionnalités</div><h2>Tout ce qu'une équipe data fait à la main, en quelques clics</h2></div>
       <div class="features">
-        <div class="feat"><svg viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 4.5-3.4 8.3-8 9-4.6-.7-8-4.5-8-9V6zM9 12l2 2 4-4"/></svg><h3>Qualité des données</h3><p>Hermes repère les erreurs et explique chaque correction. Votre fichier d'origine n'est jamais modifié.</p></div>
-        <div class="feat"><svg viewBox="0 0 24 24"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"/></svg><h3>Points clés rédigés</h3><p>Les constats importants en phrases simples, à partir des seuls chiffres de vos données.</p></div>
-        <div class="feat"><svg viewBox="0 0 24 24"><path d="M4 5h16v11H8l-4 4z"/></svg><h3>Questions en français</h3><p>« Quelles zones sont sous l'objectif ? » Hermes calcule et répond avec un tableau ou un graphique.</p></div>
-        <div class="feat"><svg viewBox="0 0 24 24"><path d="M6 20V10M12 20V4M18 20v-7"/></svg><h3>Graphiques décisionnels</h3><p>Évolutions, classements avec moyenne, répartitions : les vues utiles, sans réglage.</p></div>
-        <div class="feat"><svg viewBox="0 0 24 24"><path d="M5 5h14v15H5zM5 10h14M9 3v4M15 3v4"/></svg><h3>Rapports planifiés</h3><p>Hermes relit la source, refait l'analyse et envoie le rapport à jour à vos destinataires.</p></div>
-        <div class="feat"><svg viewBox="0 0 24 24"><path d="M16 11a4 4 0 1 0-8 0M4 20a8 8 0 0 1 16 0"/></svg><h3>Travail en équipe</h3><p>Invitez vos collègues comme propriétaire, analyste ou lecteur. Chaque espace est séparé des autres.</p></div>
+        <div class="feat rv"><svg viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 4.5-3.4 8.3-8 9-4.6-.7-8-4.5-8-9V6zM9 12l2 2 4-4"/></svg><h3>Qualité des données</h3><p>Score de qualité, corrections expliquées et activables une par une. Votre fichier d'origine n'est jamais modifié.</p></div>
+        <div class="feat rv"><svg viewBox="0 0 24 24"><path d="M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z"/></svg><h3>Tableau de bord interactif <span class="new">Nouveau</span></h3><p>Tuiles, cartes de suivi (barres et courbe), classement, camembert. Un clic filtre tout ; « comment ce chiffre est calculé ? » sur chaque tuile.</p></div>
+        <div class="feat rv"><svg viewBox="0 0 24 24"><path d="M5 4h11l3 3v13H5zM9 9h6M9 13h6M9 17h4"/></svg><h3>Dictionnaire d'indicateurs <span class="new">Nouveau</span></h3><p>Importez votre référentiel (codes, types, définitions). Hermes relie chaque indicateur à vos colonnes par une formule que vous validez.</p></div>
+        <div class="feat rv"><svg viewBox="0 0 24 24"><path d="M4 5h16v11H8l-4 4z"/></svg><h3>Questions en français</h3><p>Hermes enchaîne de vrais calculs et montre chaque étape. Les chiffres de sa réponse sont vérifiés avant d'être affichés.</p></div>
+        <div class="feat rv"><svg viewBox="0 0 24 24"><path d="M3 7h18M3 12h18M3 17h18M8 3v18"/></svg><h3>Architecte de données</h3><p>Pour un fichier mal structuré : Hermes propose une structure d'analyse et génère le modèle Excel correspondant.</p></div>
+        <div class="feat rv"><svg viewBox="0 0 24 24"><path d="M10 14a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1M14 10a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1"/></svg><h3>Sources connectées</h3><p>Google Sheets, DHIS2, PostgreSQL : actualisez le tableau de bord sans réimporter. Croisez plusieurs fichiers ou feuilles.</p></div>
+        <div class="feat rv"><svg viewBox="0 0 24 24"><path d="M5 5h14v15H5zM5 10h14M9 3v4M15 3v4"/></svg><h3>Rapports planifiés</h3><p>Hermes relit la source, refait l'analyse et envoie le rapport à jour à vos destinataires.</p></div>
+        <div class="feat rv"><svg viewBox="0 0 24 24"><path d="M16 11a4 4 0 1 0-8 0M4 20a8 8 0 0 1 16 0"/></svg><h3>Travail en équipe</h3><p>Propriétaire, analyste ou lecteur. Chaque espace est séparé, avec son journal d'activité.</p></div>
+        <div class="feat rv"><svg viewBox="0 0 24 24"><path d="M7 3h10v18H7zM11 18h2"/></svg><h3>Sur ordinateur et téléphone</h3><p>Interface adaptée au téléphone, mode sombre, chat Hermes masquable et ouvert à la demande.</p></div>
       </div>
     </div>
   </section>
 
-  <section id="tarifs" class="alt">
+  <section id="commandes" class="alt">
     <div class="wrap">
-      <div class="sec-head"><div class="eyebrow">Tarifs</div><h2>Commencez gratuitement, évoluez à votre rythme</h2><p>Chaque forfait comprend toutes les fonctionnalités. Seuls les volumes changent.</p></div>
+      <div class="sec-head rv"><div class="eyebrow">Commandes</div><h2>Tout ce que vous pouvez demander à KLDataViz</h2><p>Chaque action tient en un clic ou une phrase. Voici les commandes disponibles aujourd'hui.</p></div>
+      <div class="cmd-grid">
+        <div class="palette rv" aria-hidden="true">
+          <div class="q"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg><span id="cmdTyped"></span><span class="caret"></span><kbd>Entrée</kbd></div>
+          <ul id="cmdList"></ul>
+          <div class="res" id="cmdRes"></div>
+        </div>
+        <div class="cmds">
+          <div class="rv"><h3>Importer</h3><div class="chips"><span class="chip">Importer et analyser</span><span class="chip">Essayer avec un exemple</span><span class="chip">Analyser cette feuille <em>classeur</em></span><span class="chip">Croiser avec un autre fichier</span><span class="chip">Source DHIS2</span><span class="chip">Base PostgreSQL</span><span class="chip">Lien Google Sheets</span></div></div>
+          <div class="rv"><h3>Vérifier</h3><div class="chips"><span class="chip">Score de qualité</span><span class="chip">Corrections proposées</span><span class="chip">Analyser sans corriger</span><span class="chip">Proposer une structure</span><span class="chip">Générer le modèle Excel</span></div></div>
+          <div class="rv"><h3>Indicateurs <span class="new">Nouveau</span></h3><div class="chips"><span class="chip">Importer un dictionnaire</span><span class="chip">Vérifier / modifier les formules</span><span class="chip">Valider les propositions sûres</span><span class="chip">Reproposer</span><span class="chip">Enregistrer et mettre à jour le tableau de bord</span></div></div>
+          <div class="rv"><h3>Tableau de bord</h3><div class="chips"><span class="chip">Semaine · Mois · Trimestre</span><span class="chip">Période précédente · Même période N-1</span><span class="chip">Filtrer en un clic <em>classement</em></span><span class="chip">Comment ce chiffre est calculé ?</span><span class="chip">Actualiser la source</span><span class="chip">Supprimer un tableau</span></div></div>
+          <div class="rv"><h3>Demander à Hermes</h3><div class="chips"><span class="chip">« Combien de lignes ? » <em>instantané</em></span><span class="chip">« Compare les régions »</span><span class="chip">« Quelle tendance depuis juin ? »</span><span class="chip">Suggestions de questions</span></div></div>
+          <div class="rv"><h3>Partager et gérer</h3><div class="chips"><span class="chip">Créer un lien de partage</span><span class="chip">Télécharger en HTML</span><span class="chip">Recevoir ce rapport automatiquement</span><span class="chip">Inviter un membre</span><span class="chip">Exporter toutes les données (.zip)</span><span class="chip">Supprimer les données de l'espace</span></div></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="tarifs">
+    <div class="wrap">
+      <div class="sec-head rv"><div class="eyebrow">Tarifs</div><h2>Commencez gratuitement, évoluez à votre rythme</h2><p>Chaque forfait comprend toutes les fonctionnalités. Seuls les volumes changent.</p></div>
       <div class="plans" id="plans"><p class="empty">Chargement des forfaits…</p></div>
     </div>
   </section>
 
-  <section>
+  <section class="alt">
     <div class="wrap sec-grid">
       <div class="sec-head" style="margin:0"><div class="eyebrow">Sécurité</div><h2>Vos données restent les vôtres</h2><p>KLDataViz est conçu pour des données sensibles : santé, finances, ressources humaines.</p></div>
       <div class="checks">
@@ -288,16 +379,20 @@ footer a{color:var(--muted)}
         <div><svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7"/></svg><div><b>Calculs isolés</b><span>Les calculs de l'IA s'exécutent à part, sans accès aux fichiers ni aux clés du service.</span></div></div>
         <div><svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7"/></svg><div><b>Hébergement européen et connexion chiffrée</b><span>Serveurs à Francfort, HTTPS partout, liens de téléchargement à durée limitée.</span></div></div>
         <div><svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7"/></svg><div><b>Source intacte</b><span>Les corrections s'appliquent à une copie de travail, jamais à votre fichier.</span></div></div>
+        <div><svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7"/></svg><div><b>L'IA ne voit pas vos lignes</b><span>Pour relier vos indicateurs, Hermes n'envoie que les noms de colonnes et les catégories, jamais un nom ou un identifiant.</span></div></div>
+        <div><svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7"/></svg><div><b>Vos données, votre décision</b><span>Journal de l'espace, export complet en un clic et suppression définitive à la demande.</span></div></div>
       </div>
     </div>
   </section>
 
-  <section id="faq" class="alt">
+  <section id="faq">
     <div class="wrap" style="max-width:860px">
-      <div class="sec-head"><div class="eyebrow">Questions</div><h2>Questions fréquentes</h2></div>
+      <div class="sec-head rv"><div class="eyebrow">Questions</div><h2>Questions fréquentes</h2></div>
       <details class="faq"><summary>Faut-il savoir programmer ?</summary><p>Non. Vous déposez un fichier, vous choisissez les corrections et vous posez vos questions en français.</p></details>
       <details class="faq"><summary>Quels fichiers puis-je importer ?</summary><p>Excel (.xlsx, .xls), CSV, JSON, Parquet et les feuilles Google Sheets partagées par lien. Les tableaux avec lignes de titre ou de totaux sont reconnus.</p></details>
       <details class="faq"><summary>Mes données servent-elles à entraîner une IA ?</summary><p>Non. Hermes envoie à l'IA un résumé statistique et votre question, pas votre fichier, et uniquement pour produire la réponse.</p></details>
+      <details class="faq"><summary>Qu'est-ce que le dictionnaire d'indicateurs ?</summary><p>Votre référentiel d'indicateurs (code, libellé, type Nombre ou Pourcentage). Hermes propose pour chacun une formule sur vos colonnes ; vous la validez ou la corrigez, et le tableau de bord la réutilise ensuite sans IA.</p></details>
+      <details class="faq"><summary>Puis-je connecter DHIS2 ou une base de données ?</summary><p>Oui : un export DHIS2, une feuille Google Sheets ou une base PostgreSQL. Le tableau de bord s'actualise depuis la source, sans réimporter.</p></details>
       <details class="faq"><summary>Que se passe-t-il à la fin de l'essai ?</summary><p>Votre espace est mis en pause, sans perte de données. Choisissez un forfait pour le réactiver.</p></details>
       <details class="faq"><summary>Puis-je inviter mon équipe ?</summary><p>Oui : propriétaire, analyste ou lecteur. Le nombre de membres dépend du forfait.</p></details>
     </div>
@@ -362,14 +457,20 @@ async function loadPlans(){
 /* ---- motion design : boucle de 4 actes ---- */
 const stage=$('#stage'),rows=[...document.querySelectorAll('#table .trow')],steps=[...document.querySelectorAll('#stepsUi div')];
 const INSIGHT='Les ventes ont augmenté de <b>24 %</b> depuis mars. La <b>Zone Epsilon</b> est en tête, la <b>Zone Delta</b> reste sous la moyenne.';
-const ACTS=[3200,3400,3200,4600];
+const ACTS=[3200,3400,3600,4600];
 let timers=[],running=false,gen=0;
 const CELLS=[...document.querySelectorAll('[data-fix]')].map(el=>({el,orig:el.textContent,fix:el.dataset.fix}));
 // Chaque lecture porte un numéro : un minuteur d'une lecture précédente ne peut plus agir.
 const later=(ms,fn)=>{const g=gen;timers.push(setTimeout(()=>{if(g===gen&&running)fn()},ms))};
 function clearAll(){timers.forEach(clearTimeout);timers=[]}
 function setStep(i){steps.forEach((s,k)=>{s.classList.toggle('on',k===i);s.style.setProperty('--dur',ACTS[i]+'ms')})}
+// Tuiles du tableau de bord : les chiffres montent jusqu'à leur valeur
+const KP=[...document.querySelectorAll('.dash .kp b')];
+const fmtN=(v,pct)=>pct?String(v.toFixed(1)).replace('.',',')+' %':Math.round(v).toLocaleString('fr-FR').replace(/\u202f|\u00a0/g,' ');
+function countUp(){const g=gen,t0=performance.now();const tick=t=>{if(g!==gen||!running)return;const k=Math.min(1,(t-t0)/1300),e=1-Math.pow(1-k,3);
+  KP.forEach(b=>{b.textContent=fmtN(+b.dataset.to*e,b.hasAttribute('data-pct'))});if(k<1)requestAnimationFrame(tick)};requestAnimationFrame(tick)}
 function resetScene(){
+  KP.forEach(b=>b.textContent='0');
   $('#table').classList.remove('show');rows.forEach(r=>r.style.transitionDelay='0s');
   CELLS.forEach(c=>{c.el.textContent=c.orig;c.el.classList.remove('fixed');c.el.classList.add('bad')});
   setScore(62);$('#scoreT').textContent='4 corrections';$('#typed').innerHTML='';
@@ -386,19 +487,47 @@ function play(){
     CELLS.forEach((c,k)=>later(400+k*320,()=>{c.el.classList.remove('bad');c.el.classList.add('fixed');c.el.textContent=c.fix}));
     later(300,()=>countTo(62,96,1700));later(1900,()=>{$('#scoreT').textContent='Données prêtes'})});
   const t3=ACTS[0]+ACTS[1];
-  later(t3,()=>{stage.dataset.act='3';setStep(2)});
+  later(t3,()=>{stage.dataset.act='3';setStep(2);countUp()});
   const t4=t3+ACTS[2];
   later(t4,()=>{stage.dataset.act='4';setStep(3);later(450,()=>type(INSIGHT,2200))});
   later(t4+ACTS[3],play);
 }
 function start(){if(!running){running=true;play()}}
 function stop(){running=false;gen++;clearAll()}
-function staticFinal(){stage.dataset.act='4';setStep(3);CELLS.forEach(c=>{c.el.textContent=c.fix;c.el.classList.replace('bad','fixed')});$('#typed').innerHTML=INSIGHT}
-if(reduce){staticFinal()}
+function staticFinal(){KP.forEach(b=>b.textContent=fmtN(+b.dataset.to,b.hasAttribute('data-pct')));stage.dataset.act='4';setStep(3);CELLS.forEach(c=>{c.el.textContent=c.fix;c.el.classList.replace('bad','fixed')});$('#typed').innerHTML=INSIGHT}
+/* ---- palette de commandes : une commande est tapée, choisie, son résultat s'affiche ---- */
+const SVG=d=>`<svg viewBox="0 0 24 24"><path d="${d}"/></svg>`;
+const CMDS=[
+  {q:'importer',items:[['Importer et analyser','Excel, CSV, JSON, Parquet','M12 16V4M7 9l5-5 5 5M5 20h14'],['Source DHIS2','indicateurs lus directement','M10 14a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1'],['Croiser avec un autre fichier','jointure guidée','M8 7h12M4 17h12M16 3l4 4-4 4M8 13l-4 4 4 4']],
+   res:'<b>ventes_2026.xlsx</b> · 3 feuilles reconnues, la feuille « Données » est recommandée.'},
+  {q:'dictionnaire',items:[['Importer un dictionnaire','codes, types, définitions','M5 4h11l3 3v13H5zM9 9h6M9 13h6'],['Valider les propositions sûres','formules vérifiées','M5 12.5l4.5 4.5L19 7'],['Reproposer','nouvelles formules','M4 12a8 8 0 0 1 14-5l2 2M20 12a8 8 0 0 1-14 5l-2-2']],
+   res:'<b>12 indicateurs</b> reliés à vos colonnes · 9 sûrs, 3 à vérifier.'},
+  {q:'tableau de bord',items:[['Comparer avec la période précédente','écart dans la bonne unité','M6 20V10M12 20V4M18 20v-7'],['Filtrer en un clic','depuis le classement','M4 5h16l-6 8v6l-4-2v-4z'],['Télécharger en HTML','fichier autonome','M12 4v12M7 11l5 5 5-5M5 20h14']],
+   res:'Ventes de mars : <b>4 812</b> · <b>▲ +24 %</b> par rapport à février.'},
+  {q:'combien de lignes ?',items:[['Demander à Hermes','réponse instantanée','M4 5h16v11H8l-4 4z'],['Suggestions de questions','idées adaptées au fichier','M9 18h6M10 21h4M12 3a6 6 0 0 0-4 10.5c.8.8 1 1.5 1 2.5h6c0-1 .2-1.7 1-2.5A6 6 0 0 0 12 3z'],['Voir les étapes du calcul','code et résultat réels','M8 9l-4 3 4 3M16 9l4 3-4 3']],
+   res:'« ventes_2026.xlsx » contient <b>1 263 lignes</b>.'},
+  {q:'planifier',items:[['Recevoir ce rapport automatiquement','chaque semaine ou chaque mois','M5 5h14v15H5zM5 10h14M9 3v4M15 3v4'],['Créer un lien de partage','lecture seule, révocable','M10 14a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1M14 10a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1'],['Exporter toutes les données (.zip)','vos données, votre décision','M12 4v12M7 11l5 5 5-5M5 20h14']],
+   res:'Rapport envoyé <b>chaque lundi à 8 h</b> à 3 destinataires.'}];
+const cmdT=$('#cmdTyped'),cmdL=$('#cmdList'),cmdR=$('#cmdRes');let cmdGen=0,cmdOn=false;
+function cmdRender(c,sel){cmdL.innerHTML=c.items.map((it,k)=>`<li class="${k===sel?'on':''}"><span class="i">${SVG(it[2])}</span><span>${esc(it[0])}<br><small>${esc(it[1])}</small></span><small>${k===sel?'Entrée':''}</small></li>`).join('')}
+function cmdPlay(i){if(!cmdOn)return;const g=++cmdGen,c=CMDS[i%CMDS.length];let n=0;cmdR.innerHTML='';cmdL.innerHTML='';cmdT.textContent='';
+  const wait=(ms,fn)=>setTimeout(()=>{if(g===cmdGen&&cmdOn)fn()},ms);
+  const typeQ=()=>{n++;cmdT.textContent=c.q.slice(0,n);if(n<c.q.length)wait(70,typeQ);else{cmdRender(c,-1);wait(500,()=>cmdRender(c,0));wait(1100,()=>{cmdR.innerHTML=c.res});wait(3800,()=>cmdPlay(i+1))}};typeQ()}
+function cmdStatic(){const c=CMDS[2];cmdT.textContent=c.q;cmdRender(c,0);cmdR.innerHTML=c.res}
+
+/* ---- apparition des blocs au défilement ---- */
+const RV=[...document.querySelectorAll('.rv')];
+if(reduce||!('IntersectionObserver' in window)){RV.forEach(e=>e.classList.add('in'))}
+else{const io=new IntersectionObserver(es=>es.forEach(e=>{if(e.isIntersecting){e.target.classList.add('in');io.unobserve(e.target)}}),{threshold:.15,rootMargin:'0px 0px -40px 0px'});
+  RV.forEach((e,k)=>{e.style.transitionDelay=(k%3)*.08+'s';io.observe(e)})}
+
+if(reduce){staticFinal();cmdStatic()}
 else{
   let visible=false;
   new IntersectionObserver(es=>es.forEach(e=>{visible=e.isIntersecting;visible&&!document.hidden?start():stop()}),{threshold:.25}).observe(stage);
   document.addEventListener('visibilitychange',()=>{document.hidden||!visible?stop():start()});
+  let pv=false;const pal=$('.palette');
+  new IntersectionObserver(es=>es.forEach(e=>{pv=e.isIntersecting;if(pv&&!cmdOn){cmdOn=true;cmdPlay(0)}else if(!pv){cmdOn=false;cmdGen++}}),{threshold:.3}).observe(pal);
 }
 </script>
 </body>
