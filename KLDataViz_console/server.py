@@ -1424,9 +1424,9 @@ def _llm_config():
         return {"provider": "anthropic", "api_key": key, "model": modele or CLAUDE_MODELE} if key else None
     if T.CLOUD:
         key = os.environ.get("DEEPSEEK_API_KEY")
-        return {"provider": "deepseek", "api_key": key,
-                "model": (admin.get("model") if str(admin.get("model", "")).startswith("deepseek") else None)
-                or os.environ.get("DEEPSEEK_MODEL", "deepseek-v4-pro"),
+        impose = admin.get("model") if str(admin.get("model", "")).startswith("deepseek") else None
+        return {"provider": "deepseek", "api_key": key, "model_impose": bool(impose),
+                "model": impose or os.environ.get("DEEPSEEK_MODEL", "deepseek-v4-pro"),
                 "base_url": os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com/chat/completions")} if key else None
     return dict(local, provider="deepseek") if local else None
 
@@ -1461,7 +1461,8 @@ def _claude_call(cfg, msgs, max_tokens, timeout, model, effort):
                                         messages=conv, output_config={"effort": niveau},
                                         betas=["server-side-fallback-2026-07-01"], fallbacks="default")
     except anthropic.APIStatusError as e:
-        return None, e.status_code, f"HTTP {e.status_code}"
+        attente = e.response.headers.get("retry-after") if e.response is not None else None
+        return None, e.status_code, f"HTTP {e.status_code}" + (f" (réessayer après {attente} s)" if attente else "")
     except anthropic.APITimeoutError:
         return None, None, "délai dépassé"
     except anthropic.APIConnectionError:
@@ -1516,7 +1517,8 @@ def _llm_call(messages, max_tokens=8000, temperature=0, timeout=120, model=None,
         msgs[0]["content"] = str(msgs[0].get("content", "")) + GARDE_DONNEES
     if cfg.get("provider") == "anthropic":
         return _llm_call_claude(cfg, msgs, max_tokens, timeout, model, effort, attempts)
-    payload = {"model": model or cfg.get("model", "deepseek-v4-pro"), "messages": msgs,
+    # Modèle choisi dans l'administration : il s'impose aux modèles par défaut de chaque agent (« deepseek-flash »)
+    payload = {"model": cfg["model"] if cfg.get("model_impose") else (model or cfg.get("model", "deepseek-v4-pro")), "messages": msgs,
                "temperature": temperature, "max_tokens": max_tokens}
     if effort:
         payload["reasoning_effort"] = effort
@@ -1570,7 +1572,13 @@ def _llm_call_claude(cfg, msgs, max_tokens, timeout, model, effort, attempts):
     pauses, panne = [2, 6, 12], False
     for attempt in range(attempts):
         t0 = time.time()
-        texte, code, motif = _claude_call(cfg, msgs, max_tokens, timeout, model, effort)
+        try:
+            texte, code, motif = _claude_call(cfg, msgs, max_tokens, timeout, model, effort)
+        except ImportError:
+            sys.stderr.write("[ia] SDK anthropic absent : installer les dépendances (requirements.txt)\n")
+            return None
+        except Exception as e:  # réponse inattendue : même contrat que DeepSeek, repli par règles
+            texte, code, motif = None, None, type(e).__name__
         if texte:
             _ia_resultat(True)
             return texte
@@ -1585,7 +1593,8 @@ def _llm_call_claude(cfg, msgs, max_tokens, timeout, model, effort, attempts):
         panne = True
         sys.stderr.write(f"[ia] essai {attempt + 1}/{attempts} échoué (Claude, {motif}, {time.time() - t0:.1f} s)\n")
         if attempt < attempts - 1:
-            time.sleep(pauses[min(attempt, len(pauses) - 1)])
+            m = re.search(r"réessayer après ([\d.]+) s", motif or "")
+            time.sleep(min(20.0, float(m.group(1))) if m else pauses[min(attempt, len(pauses) - 1)])
     if panne:
         _ia_resultat(False)
     return None

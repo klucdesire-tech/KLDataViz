@@ -129,3 +129,25 @@ def test_enregistrement_controle_et_page_publique(server, monkeypatch):
     monkeypatch.setattr(cloud, "_all_settings", lambda: {"hero_title": "T", "ia_provider": "anthropic"})
     assert cloud.site_settings() == {"hero_title": "T"}                 # le réglage IA n'est jamais public
     assert cloud.admin_ia(None)["cles"]["anthropic"] is True
+
+
+def test_relecture_hermes_modele_deepseek_impose_et_erreurs(server, monkeypatch):
+    _cloud(server, monkeypatch)
+    monkeypatch.setattr(server.T, "CLOUD", True)
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "cle-de-test")
+    monkeypatch.setattr(server.cloud, "ia_settings", lambda: {"provider": "deepseek", "model": "deepseek-v4-pro"})
+    envoye = {}
+
+    class _R:
+        def read(self):
+            return b'{"choices":[{"message":{"content":"ok"}}]}'
+    monkeypatch.setattr(server.urllib.request, "urlopen",
+                        lambda req, timeout=0: envoye.setdefault("body", req.data) and _R())
+    assert server._llm_call([{"role": "user", "content": "x"}], model="deepseek-flash") == "ok"
+    assert b'"deepseek-v4-pro"' in envoye["body"]              # le choix de l'administration s'impose
+    monkeypatch.setattr(server.cloud, "ia_settings", lambda: {"provider": "anthropic"})
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "cle-de-test")
+    monkeypatch.setattr(server, "_claude_call", lambda *a: (_ for _ in ()).throw(ValueError("inattendu")))
+    assert server._llm_call([{"role": "user", "content": "x"}], attempts=2) is None   # jamais d'exception
+    monkeypatch.setattr(server, "_claude_call", lambda *a: (_ for _ in ()).throw(ImportError("anthropic")))
+    assert server._llm_call([{"role": "user", "content": "x"}], attempts=2) is None
