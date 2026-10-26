@@ -1387,6 +1387,31 @@ def chat_query(question):
                      f"Aperçu (5 premières lignes) — posez par ex. « somme de {value_col or '…'} par {group_col or '…'} » :",
             "type": "table", "table": {"columns": cols, "rows": rows}}
 
+# Questions SANS condition, calculées sur le fichier OUVERT : répondues sans IA (instantané). Tout le reste
+# (somme, moyenne, « combien de X avec filtre », comparaisons…) passe à l'agent : le chemin déterministe ignore
+# les conditions et lirait le registre, pas forcément le fichier ouvert. Afficher un chiffre faux sans prévenir
+# serait pire que d'attendre l'agent.
+def _chat_rapide(question):
+    """Réponse instantanée pour une question sans condition sur le fichier ouvert. None sinon (agent IA)."""
+    ql = (question or "").strip().lower()
+    path = T.state().get("current_path")
+    if not path:
+        return None
+    if re.search(r"combien de ligne|combien d.enregistrement|nb ligne|nombre de ligne", ql):
+        df, _err = _read_df(path)
+        if df is None:
+            return None
+        return {"answer": f"« {source_label(path)} » contient {len(df):,} lignes.", "type": "text"}
+    if re.search(r"combien de colonne|nb colonne|nombre de colonne", ql) or (
+            "colonne" in ql and re.search(r"\b(liste|quelles?)\b", ql)):
+        df, _err = _read_df(path)
+        if df is None:
+            return None
+        cols = [str(c) for c in df.columns]
+        return {"answer": f"« {source_label(path)} » a {len(cols)} colonnes : {', '.join(cols)}", "type": "text"}
+    return None
+
+
 # ---------- Chat LLM (DeepSeek, texte -> pandas + visualisation) ----------
 def _llm_config():
     if T.CLOUD:
@@ -2799,6 +2824,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
             def answer(progress=None):
                 linked = p.get("fichiers_lies") if isinstance(p.get("fichiers_lies"), list) else None
+                rapide = _chat_rapide(question)  # question simple : réponse instantanée, aucun appel IA
+                if rapide is not None:
+                    return rapide
                 resp = llm_chat(question, p.get("contexte"), history, progress, linked)
                 return resp if resp is not None else chat_query(question)  # repli par règles sans IA
             if path == "/api/chat/start":  # plusieurs allers-retours avec l'IA : tâche de fond suivie en direct
