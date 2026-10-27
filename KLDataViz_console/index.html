@@ -578,7 +578,7 @@ tr.versions td{background:var(--surface-2);font-size:13px}
             <div>
               <h2>Lien de partage</h2>
               <p class="sub">Vos collègues ouvrent le tableau de bord <b>sans compte</b>. Le lien affiche toujours la dernière version
-                (données à jour si la source est connectée). Expiration obligatoire, révocable à tout moment.</p>
+                (données à jour si la source est connectée) et un bouton « Actualiser » pour relire la source. Expiration obligatoire, révocable à tout moment.</p>
               <p class="alert info" style="margin:10px 0">Toute personne qui possède le lien peut voir ce tableau : jamais de données nominatives (patients, élèves, salariés).</p>
               <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
                 <label class="sub" for="shDays">Valable</label>
@@ -589,7 +589,7 @@ tr.versions td{background:var(--surface-2);font-size:13px}
             </div>
             <div>
               <h2>Envoi par e-mail</h2>
-              <p class="sub">Le tableau de bord part en pièce jointe (fichier interactif), actualisé juste avant si la source est connectée.</p>
+              <p class="sub">L'e-mail contient le <b>lien de partage</b> (version en ligne, actualisable d'un clic) et le tableau de bord en pièce jointe (fichier interactif), actualisé juste avant si la source est connectée.</p>
               <form class="form" id="shMail" style="margin-top:10px">
                 <label class="field" for="shTo" style="grid-column:1/-1">Destinataires<input type="text" id="shTo" placeholder="nom@organisation.org, autre@organisation.org" autocomplete="off"></label>
                 <label class="field" for="shFreq" style="grid-column:1/-1">Fréquence<select id="shFreq"><option value="off">Pas d'envoi automatique</option><option value="weekly">Chaque lundi (7 h)</option><option value="monthly">Le 1er du mois (7 h)</option></select></label>
