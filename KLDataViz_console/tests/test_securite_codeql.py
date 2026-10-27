@@ -34,6 +34,8 @@ def test_agent_ingestion_suffixe_de_fichier_sain(monkeypatch, tmp_path):
     monkeypatch.setattr(agent, "_netguard", lambda: FakeNetguard)
     assert agent._download("https://exemple.org/x.csv").suffix == ".csv"
     assert agent._download("https://exemple.org/x.c$v/../../").suffix == ".csv"
+    assert agent._download("https://exemple.org/x.XLSX").suffix == ".xlsx"
+    assert agent._download("https://exemple.org/x.sh").suffix == ".csv"  # hors liste
 
 
 def test_dsn_masque_partout():
@@ -44,6 +46,8 @@ def test_dsn_masque_partout():
     assert "S3cret" not in agent._mask("host=db user=lecteur password=S3cret dbname=base")
     assert agent._mask("postgresql://u:a/b@h/db") == "postgresql://u:***@h/db"  # « / » dans le mot de passe
     assert agent._mask("postgresql://u@h/db") == "postgresql://u@h/db"
+    from ingestion import store  # noqa: PLC0415  le registre (--summary) masque aussi la forme URL
+    assert store._mask("postgresql://lecteur:S3cret@db/base") == "postgresql://lecteur:***@db/base"
     t = time.time()
     agent._mask("://!:" * 20_000)  # pas de retour arrière catastrophique
     assert time.time() - t < 1

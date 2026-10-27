@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import time
 import traceback
 import uuid
@@ -24,7 +23,7 @@ from pathlib import Path
 from typing import Any
 
 from . import detectors, readers
-from .store import Registry, default_dsn
+from .store import Registry, _mask, default_dsn
 from .versioner import Versioner, dataset_id_for, dataset_version_id_for, now_iso
 
 INGESTED_BY = os.environ.get("KLINGEST_USER") or os.environ.get("USERNAME") or os.environ.get("USER") or "agent"
@@ -338,6 +337,9 @@ def sha256_dataframe(df) -> str:
     return h.hexdigest()
 
 
+_DOWNLOAD_EXT = (".csv", ".tsv", ".txt", ".json", ".xlsx", ".xls", ".xlsm", ".parquet", ".zip")
+
+
 def _download(url: str) -> Path:
     """Télécharge une source distante dans le scratch local (la source distante reste intacte).
 
@@ -348,9 +350,8 @@ def _download(url: str) -> Path:
     netguard = _netguard()
     cloud = os.environ.get("KLDV_MODE", "local").strip().lower() == "cloud"
     data, _ctype = netguard.fetch(url, allow_private=not cloud, https_only=cloud)
-    ext = Path(url.split("?")[0]).suffix or ".csv"
-    if not re.fullmatch(r"\.[A-Za-z0-9]{1,8}", ext):
-        ext = ".csv"
+    suffix = Path(url.split("?")[0]).suffix.lower()
+    ext = next((e for e in _DOWNLOAD_EXT if e == suffix), ".csv")  # extension prise dans une liste fixe
     tmp = Path(tempfile.mkdtemp(prefix="klingest_")) / f"source{ext}"
     tmp.write_bytes(data)
     return tmp
@@ -366,32 +367,6 @@ def _netguard():
         sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
         import netguard
     return netguard
-
-
-def _mask(dsn: str) -> str:
-    """Masque le mot de passe d'un DSN (« postgres://u:secret@h/db » ou « … password=secret … »).
-
-    Analyse par recherche de sous-chaînes (str.find), sans regex à retour arrière."""
-    text = re.sub(r"(password=)\S+", r"\1***", str(dsn))
-    out, pos, ws_end = [], 0, -1
-    while True:
-        start = text.find("://", pos)
-        if start == -1:
-            break
-        creds_start = start + 3
-        if ws_end < creds_start:  # fin du mot (espace) : recalculée seulement après l'avoir dépassée
-            ws_end = min([k for k in (text.find(c, creds_start) for c in " \t\n") if k != -1] or [len(text)])
-        end = ws_end  # pas « / » comme limite : un mot de passe peut en contenir
-        at = text.rfind("@", creds_start, end)
-        colon = text.find(":", creds_start, at) if at != -1 else -1
-        if colon > creds_start:
-            out.append(text[pos:colon + 1] + "***")
-            pos = at
-        else:
-            out.append(text[pos:creds_start])
-            pos = creds_start
-    out.append(text[pos:])
-    return "".join(out)
 
 
 def ingest_to_json(source: str, **kwargs) -> str:
