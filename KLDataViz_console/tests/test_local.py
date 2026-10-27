@@ -150,7 +150,7 @@ def test_pas_de_fausse_correction_trim():
 
 
 def _wait_job(base, job):
-    for _ in range(100):
+    for _ in range(300):  # 30 s : les machines d'intégration continue sont plus lentes qu'un poste de travail
         j = call(base, f"/api/architect/job?id={job['job']}")[1]
         if j.get("status") == "done":
             return j["result"]
