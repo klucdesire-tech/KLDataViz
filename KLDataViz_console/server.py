@@ -2566,9 +2566,15 @@ def _with_refresh_bar(html, src, maj):
     except ValueError:
         lu = ""
     msg = _MAJ_MSG.get(maj, "")
+    connecte = src.get("connected", True)
+    if not connecte and not msg:
+        # Sans ce message, un collaborateur qui n'a jamais vu le bouton ne sait pas qu'il n'existe pas pour lui :
+        # il le signale comme un bug (vu en production). On l'affiche des le premier chargement, pas seulement
+        # apres une tentative d'actualisation (impossible ici puisque le bouton n'existe pas).
+        msg = _MAJ_MSG["static"]
     bouton = ('<a href="?actualiser=1" style="background:#1F7A4D;color:#fff;text-decoration:none;font-weight:600;'
               'padding:7px 14px;border-radius:8px;white-space:nowrap">↻ Actualiser</a>'
-              if src.get("connected", True) else "")
+              if connecte else "")
     bar = ('<div id="kldv-maj" style="position:sticky;top:0;z-index:9999;display:flex;gap:12px;align-items:center;'
            'flex-wrap:wrap;justify-content:space-between;padding:10px 16px;background:#EEF5F0;border-bottom:1px solid #CFE3D6;'
            'font:14px/1.4 system-ui,-apple-system,Segoe UI,sans-serif;color:#11241A">'
