@@ -237,7 +237,7 @@ def _emails(to) -> list:
     return out
 
 
-def set_mail(source_id: str, to, freq: str, hour: int = 7):
+def set_mail(source_id: str, to, freq: str, hour: int = 7, base_url=None):
     import studio
     if freq not in MAIL_FREQS:
         raise ValueError("Fréquence d'envoi inconnue.")
@@ -248,14 +248,33 @@ def set_mail(source_id: str, to, freq: str, hour: int = 7):
         raise ValueError("20 destinataires au maximum.")
     upd = {"mail_to": to, "mail_freq": freq,
            "next_mail": studio.next_run(freq, hour).isoformat(timespec="seconds") if freq != "off" else None}
+    if base_url:
+        upd["public_base"] = base_url  # adresse du service : le lien de partage des envois planifiés
     if not next((x for x in _load() if x["id"] == source_id), None):
         raise KeyError("Tableau de bord introuvable.")
     _update(source_id, upd)
     return get(source_id, with_html=False)
 
 
-def send_mail_now(source_id: str, read_df, build, to=None):
-    """Envoie le tableau de bord (fichier HTML interactif en pièce jointe), actualisé d'abord s'il est connecté."""
+LINK_MIN_DAYS = 7  # un lien envoyé par e-mail reste valable au moins une semaine (sinon on en crée un neuf)
+
+
+def share_link(source_id: str, base_url):
+    """Lien de partage à joindre à un e-mail : le lien actif le plus durable, ou un lien neuf de 30 jours.
+    (lien, date d'expiration) ; (None, None) sans adresse publique du service (console locale)."""
+    import shares
+    base = (os.environ.get("KLDV_PUBLIC_URL") or base_url or "").rstrip("/")
+    if not base:
+        return None, None
+    limite = (dt.datetime.now() + dt.timedelta(days=LINK_MIN_DAYS)).isoformat()
+    actifs = sorted(shares.list_for(source_id), key=lambda x: x["expires_at"])
+    lien = actifs[-1] if actifs and actifs[-1]["expires_at"] > limite else shares.create(source_id, 30)
+    return f"{base}/t/{lien['token']}", lien["expires_at"]
+
+
+def send_mail_now(source_id: str, read_df, build, to=None, base_url=None):
+    """Envoie le tableau de bord (fichier HTML interactif en pièce jointe), actualisé d'abord s'il est connecté,
+    avec le lien de partage : la version en ligne, toujours à jour, actualisable d'un clic."""
     import re
     import studio
     s = next((x for x in _load() if x["id"] == source_id), None)
@@ -271,6 +290,19 @@ def send_mail_now(source_id: str, read_df, build, to=None):
             refresh(source_id, read_df, build)
         except Exception:
             pass  # on envoie la dernière version disponible
+        s = next((x for x in _load() if x["id"] == source_id), s)  # date de lecture à jour dans le message
+    if base_url and base_url != s.get("public_base"):
+        _update(source_id, {"public_base": base_url})
+    try:
+        lien, expire = share_link(source_id, base_url or s.get("public_base"))
+    except ValueError:  # 10 liens actifs au maximum : on envoie sans lien plutôt que de bloquer l'envoi
+        lien, expire = None, None
+    en_ligne = ""
+    if lien:
+        jusqu = dt.datetime.fromisoformat(expire).strftime("%d/%m/%Y")
+        en_ligne = (f"Version en ligne, toujours à jour (sans compte, valable jusqu'au {jusqu}) :\n{lien}\n"
+                    + ("Le bouton « Actualiser » en haut de la page relit les données à la source.\n\n"
+                       if s.get("connected", True) else "\n"))
     name = re.sub(r"[^\w\-]+", "_", os.path.splitext(os.path.basename(str(s.get("name") or "tableau")))[0])[:40] or "tableau"
     att = os.path.join(_dir(), f"tableau_de_bord_{name}.html")
     with open(os.path.join(_dir(), source_id + ".html"), encoding="utf-8") as f, open(att, "w", encoding="utf-8") as g:
@@ -279,9 +311,12 @@ def send_mail_now(source_id: str, read_df, build, to=None):
         studio.send_mail(dest, f"Tableau de bord KLDataViz : {s.get('name')}",
                          f"Bonjour,\n\nVoici le tableau de bord « {s.get('name')} » (données lues le "
                          f"{str(s.get('refreshed_at') or '')[:16].replace('T', ' à ')}).\n\n"
-                         "Ouvrez la pièce jointe dans votre navigateur : le tableau est interactif (filtres, périodes), "
-                         "même sans connexion.\n\nKLDataViz", att)
-        status = f"Envoyé à {len(dest)} destinataire(s) le {_now()[:16].replace('T', ' à ')}"
+                         + en_ligne +
+                         ("En pièce jointe, la même version à ouvrir dans votre navigateur" if lien else
+                          "Ouvrez la pièce jointe dans votre navigateur")
+                         + " : le tableau est interactif (filtres, périodes), même sans connexion.\n\nKLDataViz", att)
+        status = (f"Envoyé à {len(dest)} destinataire(s) le {_now()[:16].replace('T', ' à ')}"
+                  + (" avec le lien de partage" if lien else ""))
     except Exception as exc:
         status = f"Envoi impossible : {exc}"[:300]
     finally:

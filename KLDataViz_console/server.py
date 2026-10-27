@@ -2513,6 +2513,71 @@ def _safe_name(name):
     return stem + ext.lower()
 
 
+SHARE_REFRESH_S = int(os.environ.get("KLDV_SHARE_REFRESH_S", "300"))  # un lien public ne relit pas la source en boucle
+_share_refreshed = {}
+_share_refresh_lock = threading.Lock()
+_MAJ_MSG = {
+    "ok": "Données actualisées à l'instant.",
+    "same": "Déjà à jour : la source n'a pas changé.",
+    "wait": "Actualisé il y a moins de 5 minutes : voici la dernière version.",
+    "busy": "Serveur occupé : réessayez dans un instant.",
+    "err": "La source n'a pas pu être relue : voici la dernière version disponible.",
+    "static": "Ce tableau vient d'un fichier importé : il n'a pas de source à relire.",
+}
+
+
+def _share_refresh(org, sid):
+    """Relit la source d'un tableau partagé. Code court du résultat (clé de _MAJ_MSG)."""
+    key = (org, sid)
+    with _share_refresh_lock:
+        last = _share_refreshed.get(key, 0)
+        if time.time() - last < SHARE_REFRESH_S:
+            return "wait"
+        _share_refreshed[key] = time.time()
+    if not _HEAVY.acquire(blocking=False):  # 2 traitements lourds au plus : le lien public ne fait pas la queue
+        with _share_refresh_lock:
+            _share_refreshed[key] = last
+        return "busy"
+    try:
+        ctx = T.LOCAL if org == "local" else cloud.org_ctx(org)
+        with T.use(ctx):
+            if not sources.get(sid, with_html=False).get("connected", True):
+                return "static"
+            res = sources.refresh(sid, _read_df, build_dashboard)
+        if res.get("error"):
+            return "err"
+        return "ok" if res.get("changed") else "same"
+    except Exception as exc:
+        sys.stderr.write(f"[partage] actualisation impossible : {type(exc).__name__} : {exc}\n")
+        return "err"
+    finally:
+        _HEAVY.release()
+
+
+def _with_refresh_bar(html, src, maj):
+    """Bandeau en haut de la page partagée : date de lecture des données et bouton « Actualiser »
+    (simple lien : la page est isolée, sans script d'appel au serveur)."""
+    import datetime as dt
+    import html as H
+    src = src or {}
+    lu = str(src.get("refreshed_at") or src.get("connected_at") or "")[:16]
+    try:
+        lu = dt.datetime.fromisoformat(lu).strftime("%d/%m/%Y à %H:%M")
+    except ValueError:
+        lu = ""
+    msg = _MAJ_MSG.get(maj, "")
+    bouton = ('<a href="?actualiser=1" style="background:#1F7A4D;color:#fff;text-decoration:none;font-weight:600;'
+              'padding:7px 14px;border-radius:8px;white-space:nowrap">↻ Actualiser</a>'
+              if src.get("connected", True) else "")
+    bar = ('<div id="kldv-maj" style="position:sticky;top:0;z-index:9999;display:flex;gap:12px;align-items:center;'
+           'flex-wrap:wrap;justify-content:space-between;padding:10px 16px;background:#EEF5F0;border-bottom:1px solid #CFE3D6;'
+           'font:14px/1.4 system-ui,-apple-system,Segoe UI,sans-serif;color:#11241A">'
+           f'<span>{"Données lues le " + H.escape(lu) if lu else "Tableau de bord partagé"}'
+           f'{" · <b>" + H.escape(msg, quote=False) + "</b>" if msg else ""}</span>{bouton}</div>')
+    m = re.search(r"<body[^>]*>", html, re.IGNORECASE)
+    return html[:m.end()] + bar + html[m.end():] if m else bar + html
+
+
 class Handler(http.server.BaseHTTPRequestHandler):
     server_version = "KLDataViz"
     sys_version = ""
@@ -2591,7 +2656,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if method == "GET" and path.startswith("/download/"):
                 return self._download()
             if method == "GET" and path.startswith("/t/"):
-                return self._shared(path[3:].strip("/"))
+                return self._shared(path[3:].strip("/"), parse_qs(urlparse(self.path).query))
             if not path.startswith("/api/"):
                 return self._send(404, {"error": "Page introuvable."})
             if T.CLOUD and method == "GET" and path.startswith("/api/public/"):
@@ -2637,18 +2702,47 @@ class Handler(http.server.BaseHTTPRequestHandler):
                              + "".join(traceback.format_exception(e)[-4:]))
             self._send(500, {"error": f"Erreur interne (réf. {ref}). Réessayez." if T.CLOUD else f"{type(e).__name__} : {e}"})
 
-    def _shared(self, token):
-        """Tableau de bord partagé par lien (sans compte) : dernière version enregistrée, page isolée."""
+    def _public_base(self):
+        """Adresse publique du service (liens envoyés par e-mail) : KLDV_PUBLIC_URL, sinon l'adresse de la requête
+        en ligne. None pour la console locale (un lien vers 127.0.0.1 ne servirait à personne)."""
+        env = (os.environ.get("KLDV_PUBLIC_URL") or "").strip().rstrip("/")
+        if env:
+            return env
+        if not T.CLOUD:
+            return None
+        host = (self.headers.get("X-Forwarded-Host") or self.headers.get("Host") or "").split(",")[0].strip()
+        if not re.fullmatch(r"[A-Za-z0-9.-]{1,253}(:\d{1,5})?", host):
+            return None
+        proto = (self.headers.get("X-Forwarded-Proto") or "https").split(",")[0].strip().lower()
+        return f"{'http' if proto == 'http' else 'https'}://{host}"
+
+    def _shared(self, token, qs=None):
+        """Tableau de bord partagé par lien (sans compte) : dernière version enregistrée, page isolée.
+        « ?actualiser=1 » relit la source (au plus une fois toutes les SHARE_REFRESH_S secondes par tableau),
+        puis redirige vers l'adresse propre du lien avec le résultat."""
+        qs = qs or {}
         hit = shares.resolve(token)
-        html = None
+        html, src = None, None
         if hit:
             org, sid = hit
             ctx = T.LOCAL if org == "local" else T.Ctx(key="share", org_id=org)
+            if qs.get("actualiser") == ["1"]:
+                etat = _share_refresh(org, sid)
+                self.send_response(303)
+                self.send_header("Location", f"/t/{token}?maj={etat}")
+                self.send_header("Cache-Control", "no-store")
+                self.send_header("Referrer-Policy", "no-referrer")
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+                return
             with T.use(ctx):
                 try:
-                    html = sources.get(sid).get("html")
+                    src = sources.get(sid)
+                    html = src.get("html")
                 except KeyError:
                     html = None
+        if html:
+            html = _with_refresh_bar(html, src, (qs.get("maj") or [""])[0])
         if not html:
             body = ("<!doctype html><meta charset=utf-8><title>Lien indisponible</title>"
                     "<body style='font:16px system-ui;padding:48px;color:#11241A'><h1>Lien indisponible</h1>"
@@ -2871,9 +2965,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
             journal.ajouter("lien de partage révoqué")
             return self._send(200, {"ok": True})
         if path == "/api/sources/mail":
-            return self._send(200, sources.set_mail(str(p.get("id")), p.get("to"), str(p.get("freq") or "off")))
+            return self._send(200, sources.set_mail(str(p.get("id")), p.get("to"), str(p.get("freq") or "off"),
+                                                    base_url=self._public_base()))
         if path == "/api/sources/send":
-            return self._send(200, sources.send_mail_now(str(p.get("id")), _read_df, build_dashboard, p.get("to") or None))
+            return self._send(200, sources.send_mail_now(str(p.get("id")), _read_df, build_dashboard, p.get("to") or None,
+                                                         base_url=self._public_base()))
         if path == "/api/clean":
             hermes = p.get("hermes") if isinstance(p.get("hermes"), list) else None
             return self._send(200, clean(str(p.get("file_path") or ""), p.get("skip") or None, hermes))
