@@ -646,6 +646,18 @@ def profile(df: pd.DataFrame, info: dict | None = None) -> dict:
 MAX_SPEC_REGEX = 500
 
 
+def _brace_quantifier(text: str):
+    """« {n} », « {n,} », « {n,m} » au début de `text` → (True, répétition_variable) ; sinon (False, False).
+    Analyse caractère par caractère, sans regex (aucun retour arrière possible)."""
+    if not text.startswith("{"):
+        return False, False
+    end = text.find("}", 1, 40)
+    body = text[1:end] if end != -1 else ""
+    if not body or body.count(",") > 1 or any(c not in "0123456789," for c in body):
+        return False, False
+    return True, "," in body  # « {n,} » ou « {n,m} » : nombre de répétitions variable
+
+
 def _nested_quantifier(pattern: str) -> bool:
     """Vrai si un groupe qui contient un quantificateur est lui-même quantifié : « (a+)+ », « ((ab)*)+ »,
     « (x+){2,} »… = retour arrière exponentiel (ReDoS). Une regex de plan n'en a jamais besoin."""
@@ -665,11 +677,11 @@ def _nested_quantifier(pattern: str) -> bool:
         elif ch == ")" and len(stack) > 1:
             inner = stack.pop()
             nxt = pattern[i + 1:i + 2]
-            quantified = nxt in ("+", "*") or (nxt == "{" and re.match(r"\{\d*,", pattern[i + 1:]))
+            quantified = nxt in ("+", "*") or _brace_quantifier(pattern[i + 1:])[1]
             if inner and quantified:
                 return True
             stack[-1] = stack[-1] or inner or bool(quantified)
-        elif ch in "+*" or (ch == "{" and re.match(r"\{\d*,?\d*\}", pattern[i:])):
+        elif ch in "+*" or _brace_quantifier(pattern[i:])[0]:
             stack[-1] = True
         i += 1
     return False
