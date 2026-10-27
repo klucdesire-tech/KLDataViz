@@ -42,8 +42,10 @@ def test_dsn_masque_partout():
     assert agent._mask("postgresql://lecteur:S3cret!@db.exemple.org:5432/base") == \
         "postgresql://lecteur:***@db.exemple.org:5432/base"
     assert "S3cret" not in agent._mask("host=db user=lecteur password=S3cret dbname=base")
+    assert agent._mask("postgresql://u:a/b@h/db") == "postgresql://u:***@h/db"  # « / » dans le mot de passe
+    assert agent._mask("postgresql://u@h/db") == "postgresql://u@h/db"
     t = time.time()
-    agent._mask("://" + "a" * 50_000)  # pas de retour arrière quadratique
+    agent._mask("://!:" * 20_000)  # pas de retour arrière catastrophique
     assert time.time() - t < 1
 
 
@@ -67,7 +69,7 @@ def test_regex_de_plan_dangereuse_refusee():
     import data_architect  # noqa: PLC0415
     for ok in (r"^(\S+)", r"(\d+)-(\d+)", r"(?P<periode>\S+ \d{4}) - (?P<mesure>.+?)$"):
         data_architect._spec_regex(ok)
-    for mauvaise in (r"(a+)+$", r"(\w*)*x", r"((ab)*)+", r"(x+){2,}", "a" * 600, "(non fermée"):
+    for mauvaise in (r"(a+)+$", r"(\w*)*x", r"((ab)*)+", r"(x+){2,}", r"(a{1,9})+", "a" * 600, "(non fermée"):
         with pytest.raises(ValueError):
             data_architect._spec_regex(mauvaise)
 
