@@ -167,3 +167,20 @@ def test_lecture_deterministe_exacte_et_alignee():
     assert t.startswith("X passe de 0 à 40") and "stable" not in t
     t = HC._reading_fallback({"kind": "ranking", "labels": ["A", "B"], "values": [[1499, 1020]]})
     assert "1 499" in t and "1 020" in t
+
+
+def test_sens_d_evolution_contredit():
+    """Une lecture qui annonce une baisse sur une série qui ne fait que monter (ou l'inverse) est rejetée ;
+    hausse et baisse mêlées (creux ponctuel) restent acceptées ; « montant » n'est pas une hausse."""
+    _, HC = _load()
+    monte = {"kind": "trend", "values": [[12000, 12500, 13100, 13800]]}
+    creux = {"kind": "trend", "values": [[12000, 11500, 13100, 13800]]}
+    descend = {"kind": "trend", "values": [[100, 90, 80]]}
+    assert HC._sens_contredit(monte, "Baisse de 1 800 consultations entre janvier et avril.")
+    assert not HC._sens_contredit(monte, "Les consultations progressent de 1 800.")
+    assert not HC._sens_contredit(creux, "Les consultations baissent en février.")
+    assert not HC._sens_contredit(creux, "Après un recul en février, elles progressent.")
+    assert HC._sens_contredit(descend, "Le nombre de cas augmente.")
+    assert not HC._sens_contredit(descend, "Le montant total diminue.")
+    assert not HC._sens_contredit(monte, "Le plus bas est en janvier, le pic en avril.")
+    assert not HC._sens_contredit({"kind": "ranking", "values": [[3, 1]]}, "Baisse")
