@@ -265,6 +265,130 @@ def _compact(c):
     return out
 
 
+def _reading_fallback(c):
+    """Lecture déterministe (texte) d'un graphique que l'IA n'a pas commentée. Lit les vraies valeurs."""
+    kind = c.get("kind")
+    labels = [str(x) for x in (c.get("labels") or [])]
+    values = c.get("values") or []
+    names = c.get("seriesNames") or []
+
+    def nf(x):
+        try:
+            x = float(x)
+        except (TypeError, ValueError):
+            return "—"
+        if not np.isfinite(x):
+            return "—"
+        if abs(x) >= 1e6:
+            s = f"{x / 1e6:.1f}".replace(".", ",")
+            return (s[:-2] if s.endswith(",0") else s) + " M"
+        s = f"{x:,.1f}".replace(",", "\u202f").replace(".", ",")  # 13 800 et non « 14 k » : on lit le chiffre exact
+        return s[:-2] if s.endswith(",0") else s
+
+    def points(i):
+        """(libellé, valeur) de la série i, sans les valeurs manquantes : libellé et valeur restent alignés."""
+        serie = values[i] if i < len(values) else []
+        out = []
+        for lab, v in zip(labels, serie):
+            try:
+                fv = float(v)
+            except (TypeError, ValueError):
+                continue
+            if np.isfinite(fv):
+                out.append((lab, fv))
+        return out
+
+    if kind == "trend":
+        name = names[0] if names else "La mesure"
+        pts = points(0)
+        if len(pts) >= 2:
+            (l0, first), (l1, last) = pts[0], pts[-1]
+            if first:
+                chg = (last - first) / abs(first) * 100
+                sens = "progresse" if chg > 5 else "recule" if chg < -5 else "reste globalement stable"
+                txt = (f"{name} {sens} entre {l0} et {l1} (de {nf(first)} à {nf(last)}, "
+                       f"soit {'+' if chg >= 0 else ''}{nf(chg)} %)")
+            else:  # départ à 0 : pas de pourcentage d'évolution
+                sens = "passe" if last else "reste"
+                txt = f"{name} {sens} de {nf(first)} à {nf(last)} entre {l0} et {l1}"
+            lh, hi = max(pts, key=lambda p: p[1])
+            ll, lo = min(pts, key=lambda p: p[1])
+            if hi != lo:
+                txt += f". Le pic est en {lh} ({nf(hi)}), le plus bas en {ll} ({nf(lo)})."
+            else:
+                txt += "."
+            return txt
+    if kind in ("ranking", "report", "share"):
+        pts = points(0)
+        if pts:
+            pairs = sorted(pts, key=lambda x: -x[1])
+            l1, v1 = pairs[0]
+            if kind == "share":
+                tot = sum(v for _, v in pts)
+                if tot:
+                    return f"{l1} représente la plus grande part ({nf(v1 / tot * 100)} % du total)."
+            txt = f"{l1} arrive en tête ({nf(v1)})"
+            if len(pairs) > 1:
+                ln, vn = pairs[-1]
+                txt += f", {ln} ferme la marche ({nf(vn)})"
+            return txt + "."
+    if kind == "distribution":
+        pts = points(0)
+        if pts:
+            lab, top = max(pts, key=lambda p: p[1])
+            return f"La tranche la plus représentée est {lab} ({int(top)} lignes)."
+    if kind == "relation":
+        m = re.search(r"r = (-?[\d.,]+)", str(c.get("subtitle") or "").replace(",", "."))
+        if m:
+            r = float(m.group(1))
+            sens = "positive" if r > 0.3 else "négative" if r < -0.3 else "faible"
+            return f"La corrélation entre {c.get('xTitle', 'x')} et {c.get('yTitle', 'y')} est {sens} (r = {r:.2f})."
+        return f"Nuage de points entre {c.get('xTitle', 'x')} et {c.get('yTitle', 'y')}."
+    return "Voir le graphique."
+
+
+def _lecture_est_fidele(c, lecture):
+    """Faux si l'IA cite un nombre significatif qu'aucune lecture honnête des valeurs du graphique ne donne.
+
+    Admis : valeurs exactes (aussi écrites « 12 k », « 1,3 M »), parts du total, écarts et variations en %
+    entre deux valeurs, valeur de référence. Pas les sommes (« 25 000 » = 12 000 + 13 100 serait inventé).
+    Années et petits comptages (« 3 sites ») sont ignorés — même lecture des nombres que ``verif_chiffres``."""
+    import verif_chiffres as V
+    vals = []
+    for serie in (c.get("values") or []):
+        for v in serie:
+            try:
+                fv = float(v)
+            except (TypeError, ValueError):
+                continue
+            if np.isfinite(fv):
+                vals.append(fv)
+    ref = (c.get("ref") or {}).get("value")
+    try:
+        if ref is not None and np.isfinite(float(ref)):
+            vals.append(float(ref))
+    except (TypeError, ValueError):
+        pass
+    if not vals:
+        return True  # rien à vérifier (nuage de points, distribution sans valeurs…)
+    ok = set(vals)
+    tot = sum(vals)
+    if tot:
+        ok.update(v / tot * 100 for v in vals)                    # part du total (%)
+    uniques = sorted(set(vals), key=lambda v: -abs(v))[:60]
+    for i, a in enumerate(uniques):
+        for b in uniques[i + 1:]:
+            ok.update((a - b, b - a))                               # écart
+            if b:
+                ok.update(((a / b - 1) * 100, a / b * 100))           # variation, rapport (%)
+            if a:
+                ok.update(((b / a - 1) * 100, b / a * 100))
+    for x in V.nombres(lecture):
+        if V._significatif(x) and not any(V._proche(abs(x), abs(r)) for r in ok):
+            return False
+    return True
+
+
 def run(df, file_name, base_charts, llm, parse, period_of, progress=lambda _t: None, comprehension=None):
     """Graphiques choisis et commentés par Hermes ; repli sur base_charts (graphiques automatiques)."""
     if llm is None:
@@ -294,5 +418,10 @@ def run(df, file_name, base_charts, llm, parse, period_of, progress=lambda _t: N
             continue
         if 0 <= i < len(charts) and it.get("lecture"):
             charts[i] = dict(charts[i], lecture=re.sub(r"\s+", " ", str(it["lecture"])).strip()[:900])
+    # Garantie : CHAQUE graphique a une lecture FIDÈLE. Si l'IA en a oublié un, ou a cité un nombre
+    # absent des vraies valeurs (hallucination), on reprend la lecture déterministe (toujours correcte).
+    for i, c in enumerate(charts):
+        if not c.get("lecture") or not _lecture_est_fidele(c, c["lecture"]):
+            charts[i] = dict(c, lecture=_reading_fallback(c))
     synthese = str(data.get("synthese") or "")[:900] if isinstance(data, dict) else ""
     return {"charts": charts, "ia": True, "source": source, "synthese": synthese, "erreurs": errors}

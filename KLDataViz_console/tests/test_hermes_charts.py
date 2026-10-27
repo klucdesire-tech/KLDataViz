@@ -88,3 +88,82 @@ def test_lecture_par_regles_des_graphiques_automatiques():
         rank = next(c for c in charts if c["kind"] == "ranking")
         assert rank["subtitle"].startswith("Dernière période (2025-03)")              # file active = stock
         assert rank["values"][0][0] == 153                                             # Site 5 en mars, pas la somme
+
+
+def test_tous_les_graphiques_sont_interpretes():
+    """Chaque graphique généré a une lecture, même si l'IA n'en renvoie aucune (fallback déterministe)."""
+    server, HC = _load()
+    calls = []
+
+    def llm(messages, max_tokens):
+        calls.append(messages)
+        if len(calls) == 1:
+            return json.dumps(SPECS)
+        return json.dumps({"lectures": [], "synthese": ""})  # l'IA n'interprète rien
+
+    r = HC.run(_df(), "fa.csv", [], llm, server._parse_llm_json, server._period_series)
+    assert len(r["charts"]) == 3
+    assert all(c.get("lecture") for c in r["charts"])  # aucun graphique sans lecture
+    assert "tête" in r["charts"][1]["lecture"] or "arrive en tête" in r["charts"][1]["lecture"]
+
+
+def test_lecture_hallucinee_remplacee():
+    """L'IA cite un nombre absent des vraies valeurs → la lecture déterministe (fidèle) la remplace."""
+    server, HC = _load()
+    calls = []
+
+    def llm(messages, max_tokens):
+        calls.append(messages)
+        if len(calls) == 1:
+            return json.dumps(SPECS)
+        return json.dumps({"lectures": [{"index": 0, "lecture": "La file active passe de 100 à 999."}], "synthese": ""})
+
+    r = HC.run(_df(), "fa.csv", [], llm, server._parse_llm_json, server._period_series)
+    evo = r["charts"][0]
+    assert "999" not in evo["lecture"]          # le chiffre inventé a disparu
+    assert "750" in evo["lecture"]              # remplacé par la lecture déterministe (vraies valeurs)
+
+
+def test_lecture_fidele_conservee():
+    """Une lecture aux chiffres cohérents est conservée telle quelle."""
+    server, HC = _load()
+    calls = []
+
+    def llm(messages, max_tokens):
+        calls.append(messages)
+        if len(calls) == 1:
+            return json.dumps(SPECS)
+        # valeurs du fichier _df : file active = 750 → 768 sur les 4 mois
+        return json.dumps({"lectures": [{"index": 0, "lecture": "La file active progresse de 750 à 768."}], "synthese": ""})
+
+    r = HC.run(_df(), "fa.csv", [], llm, server._parse_llm_json, server._period_series)
+    assert "750" in r["charts"][0]["lecture"]   # lecture fidèle conservée
+
+
+def test_verification_lecture_ecritures_et_derives():
+    """Écritures « 12 k » / « 1 800 » et écarts/variations reconnus ; somme ou valeur inventée refusée."""
+    _, HC = _load()
+    c = {"kind": "trend", "labels": ["2025-01", "2025-02", "2025-03", "2025-04"],
+         "values": [[12000, 12500, 13100, 13800]], "seriesNames": ["Consultations"]}
+    for ok in ("Les consultations passent de 12 k à 13,8 k.",
+               "Elles augmentent de 1 800 entre janvier et avril (+15 %).",
+               "Hausse de 700 consultations en avril."):
+        assert HC._lecture_est_fidele(c, ok), ok
+    for faux in ("Les consultations atteignent 25 000 en avril.",   # somme de deux mois, pas une valeur
+                 "Les consultations atteignent 14 500."):
+        assert not HC._lecture_est_fidele(c, faux), faux
+
+
+def test_lecture_deterministe_exacte_et_alignee():
+    """Chiffres exacts (pas « 14 k » pour 13 800), libellés alignés malgré les valeurs manquantes, départ à 0."""
+    _, HC = _load()
+    t = HC._reading_fallback({"kind": "trend", "labels": ["2025-01", "2025-04"],
+                              "values": [[12000, 13800]], "seriesNames": ["Consultations"]})
+    assert "13 800" in t and "14 k" not in t
+    t = HC._reading_fallback({"kind": "trend", "labels": ["a", "b", "c", "d"],
+                              "values": [[None, 10, 50, 20]], "seriesNames": ["X"]})
+    assert "entre b et d" in t and "pic est en c (50)" in t and "plus bas en b (10)" in t
+    t = HC._reading_fallback({"kind": "trend", "labels": ["a", "b"], "values": [[0, 40]], "seriesNames": ["X"]})
+    assert t.startswith("X passe de 0 à 40") and "stable" not in t
+    t = HC._reading_fallback({"kind": "ranking", "labels": ["A", "B"], "values": [[1499, 1020]]})
+    assert "1 499" in t and "1 020" in t
