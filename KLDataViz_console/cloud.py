@@ -244,7 +244,7 @@ def team(ctx: Ctx) -> dict:
 def invite(ctx: Ctx, email: str, role: str) -> dict:
     require(ctx, "owner")
     email = (email or "").strip().lower()
-    if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", email):
+    if not re.match(r"^[^@\s]{1,64}@[^@\s.]{1,63}(?:\.[^@\s.]{1,63})+$", email):
         raise ValueError("Adresse e-mail invalide.")
     if role not in ROLES:
         raise ValueError("Rôle inconnu.")
@@ -401,7 +401,7 @@ def admin_invite_client(ctx: Ctx, org_name: str, email: str, plan: str) -> dict:
     org_name, email = (org_name or "").strip()[:80], (email or "").strip().lower()
     if len(org_name) < 2:
         raise ValueError("Indiquez le nom de l'organisation du client.")
-    if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", email):
+    if not re.match(r"^[^@\s]{1,64}@[^@\s.]{1,63}(?:\.[^@\s.]{1,63})+$", email):
         raise ValueError("Adresse e-mail invalide.")
     catalog = plans()
     if plan not in catalog:
@@ -530,7 +530,7 @@ def admin_admins(ctx: Ctx) -> list:
 def admin_admin_add(ctx: Ctx, email: str):
     _admin(ctx)
     email = (email or "").strip().lower()
-    if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", email):
+    if not re.match(r"^[^@\s]{1,64}@[^@\s.]{1,63}(?:\.[^@\s.]{1,63})+$", email):
         raise ValueError("Adresse e-mail invalide.")
     q("insert into app.platform_admins (email, added_by) values (%s, %s) on conflict do nothing", (email, ctx.email))
     _cache.pop("admins", None)

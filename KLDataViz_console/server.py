@@ -189,18 +189,29 @@ def _auto_charts(df):
     return charts
 
 
+def _host_is(url_or_parsed, *hosts):
+    """Vrai si l'hôte de l'URL est exactement l'un de `hosts` (ou un de leurs sous-domaines).
+
+    Comparaison sur le nom d'hôte analysé, jamais par sous-chaîne : « docs.google.com.piege.test »
+    ou « piege.test/?docs.google.com » ne passent pas pour Google."""
+    from urllib.parse import urlparse
+    u = urlparse(url_or_parsed) if isinstance(url_or_parsed, str) else url_or_parsed
+    host = (u.hostname or "").lower().rstrip(".")
+    return any(host == h or host.endswith("." + h) for h in hosts)
+
+
 def normalize_source_url(url):
     """Transforme un lien de partage (Google Sheets, Google Drive) en lien de téléchargement direct."""
     import re
     from urllib.parse import urlparse, parse_qs
     u = urlparse(url)
-    if "docs.google.com" in u.netloc and "/spreadsheets/d/" in u.path:
+    if _host_is(u, "docs.google.com") and "/spreadsheets/d/" in u.path:
         m = re.search(r"/spreadsheets/d/([^/]+)", u.path)
         if m and m.group(1) != "e":  # /d/e/... = lien « publié sur le web », déjà téléchargeable
             gid = (parse_qs(u.query).get("gid") or parse_qs(u.fragment).get("gid") or [None])[0]
             return (f"https://docs.google.com/spreadsheets/d/{m.group(1)}/export?format=csv"
                     + (f"&gid={gid}" if gid else ""))
-    if "drive.google.com" in u.netloc:
+    if _host_is(u, "drive.google.com"):
         m = re.search(r"/file/d/([^/]+)", u.path) or re.search(r"[?&]id=([^&]+)", url)
         if m:
             return f"https://drive.google.com/uc?export=download&id={m.group(1)}"
@@ -213,7 +224,7 @@ def source_label(file_path):
     from urllib.parse import urlparse
     if file_path.startswith(("http://", "https://")):
         u = urlparse(file_path)
-        if "docs.google.com" in u.netloc and "/spreadsheets/" in u.path:
+        if _host_is(u, "docs.google.com") and "/spreadsheets/" in u.path:
             m = re.search(r"/d/([^/]+)", u.path)
             name = "google_sheet_" + (m.group(1)[:8] if m else "")
         else:
@@ -292,12 +303,12 @@ def _read_df_raw(file_path, sheet=None):
         except netguard.BlockedURL as e:
             return None, str(e)
         except Exception as e:
-            if "google.com" in url and getattr(e, "code", None) in (401, 403, 404):
+            if _host_is(url, "google.com") and getattr(e, "code", None) in (401, 403, 404):
                 return None, ("Google refuse l'accès à cette feuille. Vérifiez le lien, puis dans Google Sheets "
                               "cliquez sur Partager → « Tous les utilisateurs disposant du lien » (Lecteur).")
             return None, f"Téléchargement impossible : {e}"
         if "text/html" in ctype or data[:300].lstrip().lower().startswith((b"<!doctype html", b"<html")):
-            if "google.com" in url:
+            if _host_is(url, "google.com"):
                 return None, ("Google renvoie une page de connexion au lieu des données. Dans Google Sheets, "
                               "cliquez sur Partager puis « Tous les utilisateurs disposant du lien » (Lecteur), "
                               "et réessayez avec le même lien.")

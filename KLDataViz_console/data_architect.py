@@ -643,6 +643,53 @@ def profile(df: pd.DataFrame, info: dict | None = None) -> dict:
 #   }
 # }
 
+MAX_SPEC_REGEX = 500
+
+
+def _nested_quantifier(pattern: str) -> bool:
+    """Vrai si un groupe qui contient un quantificateur est lui-même quantifié : « (a+)+ », « ((ab)*)+ »,
+    « (x+){2,} »… = retour arrière exponentiel (ReDoS). Une regex de plan n'en a jamais besoin."""
+    stack, i, n = [False], 0, len(pattern)
+    in_class = False
+    while i < n:
+        ch = pattern[i]
+        if ch == "\\":
+            i += 2
+            continue
+        if in_class:
+            in_class = ch != "]"
+        elif ch == "[":
+            in_class = True
+        elif ch == "(":
+            stack.append(False)
+        elif ch == ")" and len(stack) > 1:
+            inner = stack.pop()
+            nxt = pattern[i + 1:i + 2]
+            quantified = nxt in ("+", "*") or (nxt == "{" and re.match(r"\{\d*,", pattern[i + 1:]))
+            if inner and quantified:
+                return True
+            stack[-1] = stack[-1] or inner or bool(quantified)
+        elif ch in "+*" or (ch == "{" and re.match(r"\{\d*,?\d*\}", pattern[i:])):
+            stack[-1] = True
+        i += 1
+    return False
+
+
+def _spec_regex(pattern) -> re.Pattern:
+    """Compile une regex venue d'un plan de restructuration (rédigé par l'IA ou l'utilisateur).
+
+    Refuse les regex trop longues ou à quantificateurs imbriqués, qui pourraient bloquer le serveur."""
+    pattern = str(pattern or "")
+    if len(pattern) > MAX_SPEC_REGEX:
+        raise ValueError(f"Expression régulière trop longue (plus de {MAX_SPEC_REGEX} caractères).")
+    if _nested_quantifier(pattern):
+        raise ValueError("Expression régulière refusée : quantificateurs imbriqués (risque de blocage).")
+    try:
+        return re.compile(pattern, flags=re.IGNORECASE)
+    except re.error as exc:
+        raise ValueError(f"Expression régulière invalide : {exc}") from exc
+
+
 def restructure(df: pd.DataFrame, spec: dict) -> dict[str, pd.DataFrame]:
     df = df.copy()
     df = df.drop(columns=[c for c in spec.get("drop_columns", []) if c in df.columns])
@@ -652,7 +699,7 @@ def restructure(df: pd.DataFrame, spec: dict) -> dict[str, pd.DataFrame]:
     else:
         removed = df.iloc[0:0]
     for new, rule in spec.get("derive", {}).items():
-        df[new] = df[rule["from"]].astype(str).str.extract(rule["regex"], flags=re.IGNORECASE)[0]
+        df[new] = df[rule["from"]].astype(str).str.extract(_spec_regex(rule["regex"]))[0]
 
     id_cols = [c for c in spec.get("id_columns", []) if c in df.columns]
     id_cols += [c for c in spec.get("derive", {}) if c not in id_cols]
@@ -672,7 +719,7 @@ def restructure(df: pd.DataFrame, spec: dict) -> dict[str, pd.DataFrame]:
                  for c in value_cols]
             ).set_index("_col")
         else:
-            rx = re.compile(melt["regex"], flags=re.IGNORECASE)
+            rx = _spec_regex(melt["regex"])
             value_cols = [c for c in df.columns if c not in id_cols and rx.search(c)]
         unmatched = [c for c in df.columns if c not in id_cols and c not in value_cols]
         long = df.melt(id_vars=id_cols, value_vars=value_cols, var_name="_col", value_name=melt.get("value_name", "valeur"))

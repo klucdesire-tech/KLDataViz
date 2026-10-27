@@ -231,7 +231,7 @@ def _emails(to) -> list:
     import re
     items = to if isinstance(to, (list, tuple)) else re.split(r"[,;\s]+", str(to or ""))
     out = [str(x).strip() for x in items if str(x).strip()]
-    bad = [x for x in out if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", x)]
+    bad = [x for x in out if not re.match(r"^[^@\s]{1,64}@[^@\s.]{1,63}(?:\.[^@\s.]{1,63})+$", x)]
     if bad:
         raise ValueError("Adresse e-mail invalide : " + ", ".join(bad))
     return out
