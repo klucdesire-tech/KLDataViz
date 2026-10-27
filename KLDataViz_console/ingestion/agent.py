@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import time
 import traceback
 import uuid
@@ -64,16 +65,18 @@ def ingest(source: str, *, kind: str = "auto", sheet: str | int | None = None, t
     store_info: dict[str, Any] = {}
     cached_read: tuple[Any, dict] | None = None
     logical = dataset_name or (table or Path(str(source)).stem or "dataset")
+    origin_key = None
 
     try:
-        step("resolution_source", {"source": source, "kind": kind})
+        step("resolution_source", {"source": _mask(source), "kind": kind})
         if kind == "auto":
             kind = "postgres" if (str(source).startswith(("postgres://", "postgresql://", "host=")) or table) else "fichier"
 
         # ------------------------------------------------------------------ identité du dataset
         if kind == "postgres":
             logical = dataset_name or table or "table"
-            origin = f"{source}::{schema_name}.{table}"
+            origin_key = f"{source}::{schema_name}.{table}"  # identité stable (jamais stockée telle quelle)
+            origin = f"{_mask(source)}::{schema_name}.{table}"  # mot de passe masqué dans le registre et l'audit
             source_metadata = {"kind": "postgres", "origin": origin, "table": f"{schema_name}.{table}",
                                "dsn": _mask(source), "where": where, "retrieved_at": now_iso()}
         elif kind == "sqlite":
@@ -91,7 +94,7 @@ def ingest(source: str, *, kind: str = "auto", sheet: str | int | None = None, t
             source_metadata = {"kind": "fichier", "origin": origin, "path": str(local), "is_url": is_url,
                                "filename": Path(local).name, "retrieved_at": now_iso()}
 
-        dataset_id = dataset_id_for(kind, logical, _norm_origin(origin))
+        dataset_id = dataset_id_for(kind, logical, _norm_origin(origin_key if kind == "postgres" else origin))
         audit.append({"step": "identite_dataset", "at": now_iso(),
                       "detail": {"dataset_id": dataset_id, "nom_logique": logical}})
 
@@ -336,23 +339,39 @@ def sha256_dataframe(df) -> str:
 
 
 def _download(url: str) -> Path:
-    """Télécharge une source distante dans le scratch local (la source distante reste intacte)."""
-    import tempfile
-    import urllib.request
+    """Télécharge une source distante dans le scratch local (la source distante reste intacte).
 
-    req = urllib.request.Request(url, headers={"User-Agent": "KLDataViz-Ingestion/1.0"})
-    with urllib.request.urlopen(req, timeout=60) as r:
-        data = r.read()
+    Passe par ``netguard`` (anti-SSRF, taille et durée limitées, redirections revérifiées) :
+    en ligne (KLDV_MODE=cloud) les adresses internes et le http:// sont refusés."""
+    import tempfile
+
+    netguard = _netguard()
+    cloud = os.environ.get("KLDV_MODE", "local").strip().lower() == "cloud"
+    data, _ctype = netguard.fetch(url, allow_private=not cloud, https_only=cloud)
     ext = Path(url.split("?")[0]).suffix or ".csv"
+    if not re.fullmatch(r"\.[A-Za-z0-9]{1,8}", ext):
+        ext = ".csv"
     tmp = Path(tempfile.mkdtemp(prefix="klingest_")) / f"source{ext}"
     tmp.write_bytes(data)
     return tmp
 
 
-def _mask(dsn: str) -> str:
-    import re
+def _netguard():
+    """Module netguard du dossier KLDataViz_console (importable aussi quand l'agent est lancé seul)."""
+    try:
+        import netguard
+    except ImportError:
+        import sys
 
-    return re.sub(r"(password=)\S+", r"\1***", re.sub(r"://([^:]+):[^@]+@", r"://\1:***@", str(dsn)))
+        sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+        import netguard
+    return netguard
+
+
+def _mask(dsn: str) -> str:
+    """Masque le mot de passe d'un DSN (« postgres://u:secret@h/db » ou « … password=secret … »)."""
+    text = re.sub(r"(password=)\S+", r"\1***", str(dsn))
+    return re.sub(r"://([^:/@\s]+):[^@\s]+@", r"://\1:***@", text)
 
 
 def ingest_to_json(source: str, **kwargs) -> str:
