@@ -1,0 +1,25 @@
+version: 2
+updates:
+  - package-ecosystem: "pip"
+    directory: "/KLDataViz_console"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      timezone: "Africa/Abidjan"
+    open-pull-requests-limit: 5
+    groups:
+      python-deps:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+
+  - package-ecosystem: "docker"
+    directory: "/KLDataViz_console"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      timezone: "Africa/Abidjan"
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "monthly"
