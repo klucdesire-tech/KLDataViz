@@ -1,0 +1,68 @@
+# Vérification automatique à chaque PR et à chaque push sur main (dépôt privé : remplace CodeQL
+# et l'analyse des secrets de GitHub, réservés aux dépôts publics sur un compte personnel).
+# Une étape en échec bloque la PR (case rouge) : à corriger avant de fusionner.
+name: Securite et tests
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "17 6 * * 1"  # chaque lundi : nouvelles règles appliquées même sans modification du code
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: securite-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  secrets:
+    name: Secrets oublies (Gitleaks)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # tout l'historique : un secret effacé reste dans les anciens commits
+      - name: Installer Gitleaks
+        run: |
+          curl -sSL -o gl.tgz https://github.com/gitleaks/gitleaks/releases/download/v8.21.2/gitleaks_8.21.2_linux_x64.tar.gz
+          echo "5bc41815076e6ed6ef8fbecc9d9b75bcae31f39029ceb55da08086315316e3ba  gl.tgz" | sha256sum -c -
+          tar xzf gl.tgz gitleaks
+      - name: Chercher des secrets dans tout l'historique
+        run: ./gitleaks git . --redact --no-banner --exit-code 1
+
+  code:
+    name: Failles dans le code (Bandit)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - run: pip install "bandit==1.9.4"
+      - name: Failles graves (bloquant)
+        run: bandit -r KLDataViz_console HERMES_DA -x "*/tests/*,*/.venv/*" -q --severity-level high --confidence-level high
+      - name: Points a surveiller (informatif, ne bloque pas)
+        run: bandit -r KLDataViz_console HERMES_DA -x "*/tests/*,*/.venv/*" -q --severity-level medium --confidence-level medium || true
+
+  tests:
+    name: Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: KLDataViz_console
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: KLDataViz_console/requirements.txt
+      - run: pip install -r requirements.txt pytest
+      - run: python -m pytest -q -p no:cacheprovider tests

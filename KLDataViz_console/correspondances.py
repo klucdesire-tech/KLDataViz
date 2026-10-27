@@ -43,7 +43,7 @@ def signature(df, dictionnaire=None) -> str:
     Un dictionnaire réimporté ou modifié (codes, types) redonne donc de nouvelles propositions."""
     cols = sorted(str(c).strip().lower() for c in df.columns)
     dico = sorted(f"{i.get('code', '')}:{i.get('type', '')}".lower() for i in (dictionnaire or []))
-    return hashlib.sha1(("|".join(cols) + "#" + "|".join(dico)).encode("utf-8")).hexdigest()[:16]
+    return hashlib.sha1(("|".join(cols) + "#" + "|".join(dico)).encode("utf-8"), usedforsecurity=False).hexdigest()[:16]
 
 
 def _tout():

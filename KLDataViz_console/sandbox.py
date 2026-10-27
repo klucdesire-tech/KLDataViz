@@ -136,6 +136,9 @@ def validate(code: str) -> None:
 # (« échec du calcul : KeyboardInterrupt » vu en ligne).
 THREAD_ENV = {k: "1" for k in ("OPENBLAS_NUM_THREADS", "OMP_NUM_THREADS", "MKL_NUM_THREADS",
                                "NUMEXPR_NUM_THREADS", "VECLIB_MAXIMUM_THREADS", "ARROW_IO_THREADS")}
+# pyarrow ≥ 26 : son allocateur (mimalloc/jemalloc) réserve un grand espace d'adresses au démarrage ; sous la limite
+# RLIMIT_AS du bac à sable, la lecture des données restait alors bloquée jusqu'au délai (vu en production et en CI).
+THREAD_ENV["ARROW_DEFAULT_MEMORY_POOL"] = "system"
 NPROC_MARGIN = 8  # fils que le calcul peut encore créer (pyarrow, numpy…)
 THREAD_FAILURE = re.compile(r"KeyboardInterrupt|pthread_create|can't start new thread|Resource temporarily unavailable")
 
