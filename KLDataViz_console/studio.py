@@ -204,7 +204,7 @@ def create_schedule(payload):
     fmt = payload.get("format") if payload.get("format") in ("pdf", "excel", "html") else "pdf"
     hour = int(payload.get("hour") or 7)
     to = [x.strip() for x in re.split(r"[,;\s]+", str(payload.get("to") or "")) if x.strip()]
-    bad = [x for x in to if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", x)]
+    bad = [x for x in to if not re.match(r"^[^@\s]{1,64}@[^@\s.]{1,63}(?:\.[^@\s.]{1,63})+$", x)]
     if bad:
         raise ValueError("Adresse e-mail invalide : " + ", ".join(bad))
     job = {"id": uuid.uuid4().hex[:10], "source": source,
