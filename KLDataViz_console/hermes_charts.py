@@ -389,6 +389,39 @@ def _lecture_est_fidele(c, lecture):
     return True
 
 
+_HAUSSE = re.compile(r"\b(hausse|progress\w*|augment\w*|croissan\w*|cro[iî]t\w*|mont(?:e|ent|é|ée|ées|és|er)\b|grimp\w*|accro\w*|"
+                     r"envol\w*|bond\w*|amélior\w*|gagn\w*|plus élevé\w*)", re.IGNORECASE)
+_BAISSE = re.compile(r"\b(baiss\w*|recul\w*|diminu\w*|décro\w*|chut\w*|régress\w*|repli\w*|perd\w*|"
+                     r"dégrad\w*|effondr\w*|plus bas\w*|recul)", re.IGNORECASE)
+
+
+def _sens_contredit(c, lecture):
+    """Vrai si la lecture d'une évolution annonce un sens qu'AUCUNE période de la série ne montre.
+
+    Prudent : une lecture qui parle à la fois de hausse et de baisse est acceptée (creux ponctuel, reprise…),
+    et « le plus bas » / « pic » sont des repères, pas un sens. On ne juge que les courbes d'évolution."""
+    if c.get("kind") != "trend":
+        return False
+    serie = (c.get("values") or [[]])[0]
+    vals = []
+    for v in serie:
+        try:
+            fv = float(v)
+        except (TypeError, ValueError):
+            continue
+        if np.isfinite(fv):
+            vals.append(fv)
+    if len(vals) < 2:
+        return False
+    txt = re.sub(r"(le |la )?(plus bas|plus élevé\w*)", " ", str(lecture), flags=re.IGNORECASE)
+    dit_hausse, dit_baisse = bool(_HAUSSE.search(txt)), bool(_BAISSE.search(txt))
+    if dit_hausse == dit_baisse:  # aucun sens annoncé, ou les deux : rien à contredire
+        return False
+    montee = any(b > a for a, b in zip(vals, vals[1:]))   # la moindre hausse réelle suffit : on ne rejette
+    descente = any(b < a for a, b in zip(vals, vals[1:]))  # que ce que la série dément entièrement
+    return (dit_hausse and not montee) or (dit_baisse and not descente)
+
+
 def run(df, file_name, base_charts, llm, parse, period_of, progress=lambda _t: None, comprehension=None):
     """Graphiques choisis et commentés par Hermes ; repli sur base_charts (graphiques automatiques)."""
     if llm is None:
@@ -419,9 +452,10 @@ def run(df, file_name, base_charts, llm, parse, period_of, progress=lambda _t: N
         if 0 <= i < len(charts) and it.get("lecture"):
             charts[i] = dict(charts[i], lecture=re.sub(r"\s+", " ", str(it["lecture"])).strip()[:900])
     # Garantie : CHAQUE graphique a une lecture FIDÈLE. Si l'IA en a oublié un, ou a cité un nombre
-    # absent des vraies valeurs (hallucination), on reprend la lecture déterministe (toujours correcte).
+    # absent des vraies valeurs ou un sens d'évolution démenti par la série (hallucination), on reprend la
+    # lecture déterministe (toujours correcte).
     for i, c in enumerate(charts):
-        if not c.get("lecture") or not _lecture_est_fidele(c, c["lecture"]):
+        if not c.get("lecture") or not _lecture_est_fidele(c, c["lecture"]) or _sens_contredit(c, c["lecture"]):
             charts[i] = dict(c, lecture=_reading_fallback(c))
     synthese = str(data.get("synthese") or "")[:900] if isinstance(data, dict) else ""
     return {"charts": charts, "ia": True, "source": source, "synthese": synthese, "erreurs": errors}

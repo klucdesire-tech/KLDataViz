@@ -155,7 +155,7 @@ def excel_sheets(path: str | Path) -> list[dict]:
         for name in xl.sheet_names:
             hidden, nrows, _ = meta.get(name, (False, 0, 0))
             try:
-                raw = xl.parse(name, header=None, nrows=SHEET_SAMPLE, dtype=str)
+                raw = pd.read_excel(xl, sheet_name=name, header=None, nrows=SHEET_SAMPLE, dtype=str)
             except Exception:  # feuille graphique, protégée…
                 raw = pd.DataFrame()
             s = raw.dropna(how="all").dropna(axis=1, how="all")
