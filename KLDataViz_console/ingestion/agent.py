@@ -369,9 +369,29 @@ def _netguard():
 
 
 def _mask(dsn: str) -> str:
-    """Masque le mot de passe d'un DSN (« postgres://u:secret@h/db » ou « … password=secret … »)."""
+    """Masque le mot de passe d'un DSN (« postgres://u:secret@h/db » ou « … password=secret … »).
+
+    Analyse par recherche de sous-chaînes (str.find), sans regex à retour arrière."""
     text = re.sub(r"(password=)\S+", r"\1***", str(dsn))
-    return re.sub(r"://([^:/@\s]+):[^@\s]+@", r"://\1:***@", text)
+    out, pos, ws_end = [], 0, -1
+    while True:
+        start = text.find("://", pos)
+        if start == -1:
+            break
+        creds_start = start + 3
+        if ws_end < creds_start:  # fin du mot (espace) : recalculée seulement après l'avoir dépassée
+            ws_end = min([k for k in (text.find(c, creds_start) for c in " \t\n") if k != -1] or [len(text)])
+        end = ws_end  # pas « / » comme limite : un mot de passe peut en contenir
+        at = text.rfind("@", creds_start, end)
+        colon = text.find(":", creds_start, at) if at != -1 else -1
+        if colon > creds_start:
+            out.append(text[pos:colon + 1] + "***")
+            pos = at
+        else:
+            out.append(text[pos:creds_start])
+            pos = creds_start
+    out.append(text[pos:])
+    return "".join(out)
 
 
 def ingest_to_json(source: str, **kwargs) -> str:
