@@ -273,7 +273,7 @@ def run_schedule(job_id, analyze_fn, exporters, exports_dir, commentary_fn=None)
     if "error" in result:
         status = "Erreur : " + str(result["error"])
     else:
-        # Ce qui a changé depuis l'envoi précédent (Hermes, ou règles sans IA) : en tête du rapport et dans l'e-mail
+        # Ce qui a changé depuis l'envoi précédent (Adifa, ou règles sans IA) : en tête du rapport et dans l'e-mail
         ev = None
         if commentary_fn is not None:
             try:
@@ -361,7 +361,7 @@ def insights(result, llm_call):
     s = load_settings()
     lang = "anglais" if s.get("langue") == "English" else "français"
     system = (
-        f"Tu es Hermes, analyste de données. Écris en {lang}, phrases courtes, pour un décideur non technique.\n"
+        f"Tu es Adifa, analyste de données. Écris en {lang}, phrases courtes, pour un décideur non technique.\n"
         "À partir du résumé statistique fourni, rédige les 3 constats les plus utiles (tendance, écart entre groupes, "
         "anomalie, relation, problème de qualité). Utilise UNIQUEMENT des chiffres présents dans le résumé, arrondis "
         "simplement. N'invente aucune cause : si une explication est une hypothèse, dis-le.\n"

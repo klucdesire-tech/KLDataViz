@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """Correspondances validées entre le dictionnaire d'indicateurs et les colonnes d'un fichier, par espace.
 
-Parcours : à la première génération d'un tableau de bord sur une structure de fichier (mêmes colonnes), Hermes
+Parcours : à la première génération d'un tableau de bord sur une structure de fichier (mêmes colonnes), Adifa
 PROPOSE une formule par indicateur (règles, puis IA pour ce que les règles n'ont pas trouvé) ; l'utilisateur les
 valide, corrige ou ignore ; elles sont mémorisées pour cette structure et réutilisées ensuite (actualisation d'une
 source connectée comprise, sans rappeler l'IA). Les calculs sont faits par hermes_da.correspondance.

@@ -1,7 +1,7 @@
 """Description des jeux de données du registre (page Données).
 
 Aucun appel à l'IA ici : le titre, le résumé, la période, les mots-clés et le rôle des colonnes viennent de la
-compréhension rédigée par Hermes à l'étape Vérifier (hermes_clean) ; les changements d'une version à l'autre sont
+compréhension rédigée par Adifa à l'étape Vérifier (hermes_clean) ; les changements d'une version à l'autre sont
 calculés par règles (lignes, colonnes ajoutées ou retirées, période étendue). Un petit fichier JSON par jeu de
 données, à côté du registre, garde le tout.
 """
