@@ -169,7 +169,7 @@ def test_e_mail_avec_lien_de_partage(monkeypatch):
 
 def test_page_partagee_actualisable(monkeypatch):
     """Bandeau « Actualiser » sur la page partagée : relit la source, redirige vers l'adresse propre,
-    limite a une relecture toutes les SHARE_REFRESH_S secondes ; pas de bouton pour un fichier importe."""
+    limité à une relecture toutes les SHARE_REFRESH_S secondes ; pas de bouton pour un fichier importé."""
     reset_app_modules()
     import server  # noqa: PLC0415
     T, sources, shares = server.T, server.sources, server.shares
@@ -203,7 +203,7 @@ def test_page_partagee_actualisable(monkeypatch):
         with pytest.raises(urllib.error.HTTPError) as e:                                # lien révoqué : rien n'est relu
             brut.open(base + "/t/jeton-inconnu?actualiser=1")
         assert e.value.code == 404
-        # fichier importe (non connecte) : pas de bouton, mais le pourquoi est explique des le premier chargement
+        # fichier importé (non connecté) : pas de bouton, mais le pourquoi est expliqué dès le premier chargement
         with T.use(T.LOCAL):
             sources._update(s["id"], {"connected": False})
         with urllib.request.urlopen(base + "/t/" + lien["token"]) as r:
