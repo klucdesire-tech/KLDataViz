@@ -472,7 +472,7 @@ tr.versions td{background:var(--surface-2);font-size:13px}
         <div class="card" id="archCard">
           <div class="toolbar"><h2>Structure recommandée pour l'analyse</h2><span class="spacer"></span><span class="aibadge" id="archBadge"></span>
             <button class="btn ghost sm" id="archRun">Proposer une structure</button></div>
-          <p class="sub" id="archLead">Adifa examine le fichier comme un architecte de données : ce que représente une ligne, les dimensions cachées dans les en-têtes, les lignes de total, les valeurs imputées. Il propose ensuite des tables prêtes pour Power BI ou un tableau croisé.</p>
+          <p class="sub" id="archLead">Adifa examine le fichier comme un architecte de données : ce que représente une ligne, les dimensions cachées dans les en-têtes, les lignes de total, les valeurs imputées. Elle propose ensuite des tables prêtes pour Power BI ou un tableau croisé.</p>
           <div class="chips" id="archFiles"></div>
           <input type="file" id="archFileInput" accept=".csv,.xlsx,.xls,.xlsm,.json,.parquet" hidden>
           <div id="archOut"></div>
@@ -510,7 +510,7 @@ tr.versions td{background:var(--surface-2);font-size:13px}
         <div class="card" id="ingestOut" hidden></div>
         <div class="card">
           <h2>Recevoir ce rapport automatiquement</h2>
-          <p class="sub">Adifa relit la source, refait l'analyse et produit le rapport à jour. Avec des destinataires, il l'envoie aussi par e-mail.</p>
+          <p class="sub">Adifa relit la source, refait l'analyse et produit le rapport à jour. Avec des destinataires, elle l'envoie aussi par e-mail.</p>
           <form class="form" id="shareSched" style="margin-top:12px">
             <label class="field" for="ssFreq">Fréquence<select id="ssFreq"><option value="monthly">Le 1er du mois</option><option value="weekly">Chaque lundi</option><option value="daily">Chaque jour</option></select></label>
             <label class="field" for="ssHour">Heure<select id="ssHour"></select></label>
@@ -1043,7 +1043,7 @@ async function loadHermesClean(path){
   if(state.clean!==cl)return;
   r=r||{error:'Adifa met trop de temps à répondre.'};
   state.hclean={for:cl,status:'done',...r};
-  // Accord par défaut sur les corrections d'Adifa ; celles des règles qu'il déconseille sont décochées
+  // Accord par défaut sur les corrections d'Adifa ; celles des règles qu'elle déconseille sont décochées
   (r.corrections||[]).forEach(c=>state.accept.add(c.id));
   (r.avis||[]).filter(a=>a.verdict==='deconseille').forEach(a=>state.accept.delete(a.id));
   maybeDescribe();
