@@ -130,10 +130,13 @@ def fetch_onedrive(url: str, allow_private: bool = False, https_only: bool = Tru
     ident = (re.search(r"sourcedoc=(?:%7B|\{)([0-9a-fA-F-]{36})", final, re.I)
              or re.search(r"download\.aspx\?UniqueId=([0-9a-fA-F-]{36})", page))
     u = urllib.parse.urlparse(final)
-    perso = re.match(r"(/personal/[^/]+)/", u.path)
-    if not (ident and perso):
+    perso = re.match(r"(/personal/[A-Za-z0-9_.-]+)/", u.path)
+    hote = (u.hostname or "").lower()
+    microsoft = allow_private or hote == "onedrive.live.com" or hote.endswith((".sharepoint.com", ".microsoftpersonalcontent.com"))
+    if not (ident and perso and microsoft):
         return data, ctype  # page sans fichier (lien expiré, accès restreint) : l'appelant explique
-    lien = f"{u.scheme}://{u.netloc}{perso.group(1)}/_layouts/15/download.aspx?UniqueId={ident.group(1)}&Translate=false"
+    hote_port = hote + (f":{u.port}" if u.port else "")  # jamais d'identifiants « user@ » repris de l'URL
+    lien = f"{u.scheme}://{hote_port}{perso.group(1)}/_layouts/15/download.aspx?UniqueId={ident.group(1)}&Translate=false"
     check_url(lien, allow_private, https_only)
     with opener.open(urllib.request.Request(lien, headers=entetes), timeout=TIMEOUT_S) as resp:
         return _lire(resp, max_bytes)

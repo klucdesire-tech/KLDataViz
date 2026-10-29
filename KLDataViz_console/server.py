@@ -231,6 +231,10 @@ def _telecharger(url, **kw):
     return netguard.fetch(url, **kw)
 
 
+def _est_page_web(data, ctype):
+    return "text/html" in (ctype or "") or data[:300].lstrip().lower().startswith((b"<!doctype html", b"<html"))
+
+
 ONEDRIVE_PARTAGE = ("OneDrive refuse l'accès à ce fichier. Dans OneDrive, cliquez sur Partager → « Toute personne disposant "
                     "du lien » (affichage), copiez ce lien et réessayez. Un lien réservé à votre organisation ne peut pas "
                     "être lu par KLDataViz.")
@@ -332,7 +336,7 @@ def _read_df_raw(file_path, sheet=None):
             if _host_is(url, "sharepoint.com", "onedrive.com", "onedrive.live.com", "1drv.ms") and getattr(e, "code", None) in (401, 403, 404, 500):
                 return None, ONEDRIVE_PARTAGE
             return None, f"Téléchargement impossible : {e}"
-        if "text/html" in ctype or data[:300].lstrip().lower().startswith((b"<!doctype html", b"<html")):
+        if _est_page_web(data, ctype):
             if _host_is(url, "google.com"):
                 return None, ("Google renvoie une page de connexion au lieu des données. Dans Google Sheets, "
                               "cliquez sur Partager puis « Tous les utilisateurs disposant du lien » (Lecteur), "
@@ -3203,10 +3207,15 @@ class Handler(http.server.BaseHTTPRequestHandler):
             kwargs["dataset_name"] = os.path.basename(local)
             source = local
         elif source.startswith(("http://", "https://")):
-            nom = source_label(source)  # sur le lien d'origine : le lien normalisé d'OneDrive finit par « content »
+            nom = source_label(source)  # sur le lien d'origine, lisible et stable (« onedrive_… », « google_sheet_… »)
             source = normalize_source_url(source)
             if T.CLOUD:  # téléchargé par le serveur (protection SSRF), puis ingéré comme fichier
                 data, ctype = _telecharger(source)
+                if _est_page_web(data, ctype):  # lien expiré ou restreint : jamais ingéré comme un CSV
+                    raise ValueError(ONEDRIVE_PARTAGE if _host_is(source, "sharepoint.com", "onedrive.com",
+                                                                  "onedrive.live.com", "1drv.ms")
+                                     else "Ce lien renvoie une page web, pas un fichier de données. Utilisez un lien "
+                                          "direct vers un fichier CSV, Excel ou JSON.")
                 ext = ".xlsx" if data[:2] == b"PK" else ".json" if data[:1] in (b"{", b"[") else ".csv"
                 local = os.path.join(T.uploads_dir(), nom + ext)
                 with open(local, "wb") as f:

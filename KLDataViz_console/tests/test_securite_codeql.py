@@ -159,8 +159,13 @@ def test_onedrive_personnel_comme_un_navigateur():
                 self.end_headers()
             elif self.path.startswith("/personal/abc/_layouts/15/Doc.aspx"):
                 self._repondre(b"<!DOCTYPE html><title>Classeur1.xlsx</title>", "text/html")
-            elif self.path == f"/personal/abc/_layouts/15/download.aspx?UniqueId={uid}&Translate=false"                     and "FedAuth=jeton" in (self.headers.get("Cookie") or ""):
-                self._repondre(b"PK classeur", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+            elif self.path == f"/personal/abc/_layouts/15/download.aspx?UniqueId={uid}&Translate=false" \
+                    and "FedAuth=jeton" in (self.headers.get("Cookie") or ""):
+                self._repondre(b"PK classeur" + b"x" * 5000, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+            elif self.path.startswith("/direct"):   # lien qui renvoie déjà le fichier
+                self._repondre(b"a;b\n1;2\n", "text/csv")
+            elif self.path.startswith("/vide"):     # lien expiré ou restreint : page sans fichier
+                self._repondre(b"<!DOCTYPE html><title>Connexion</title>", "text/html")
             else:
                 self.send_response(403)
                 self.end_headers()
@@ -174,12 +179,26 @@ def test_onedrive_personnel_comme_un_navigateur():
 
     srv = http.server.HTTPServer(("127.0.0.1", 0), Faux)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
+    base = f"http://127.0.0.1:{srv.server_port}"
+    lire = lambda chemin, **k: netguard.fetch_onedrive(base + chemin, allow_private=True, https_only=False, **k)  # noqa: E731
     try:
-        data, ctype = netguard.fetch_onedrive(f"http://127.0.0.1:{srv.server_port}/x/c/abc/IQB?e=1",
-                                              allow_private=True, https_only=False)
+        data, ctype = lire("/x/c/abc/IQB?e=1")
         assert data.startswith(b"PK") and "spreadsheetml" in ctype
+        assert lire("/direct") == (b"a;b\n1;2\n", "text/csv")
+        data, ctype = lire("/vide")                      # renvoyée telle quelle : l'appelant affiche ONEDRIVE_PARTAGE
+        assert "text/html" in ctype and b"Connexion" in data
+        with pytest.raises(ValueError, match="trop volumineux"):
+            lire("/x/c/abc/IQB?e=1", max_bytes=1000)     # plafond appliqué aussi au téléchargement final
     finally:
         srv.shutdown()
+
+
+def test_page_web_jamais_prise_pour_un_fichier():
+    reset_app_modules()
+    import server  # noqa: PLC0415
+    assert server._est_page_web(b"<!DOCTYPE html><html>", "")
+    assert server._est_page_web(b"a;b", "text/html; charset=utf-8")
+    assert not server._est_page_web(b"PK\x03\x04", "application/octet-stream")
 
 
 def test_onedrive_personnel_refuse_les_adresses_internes():
