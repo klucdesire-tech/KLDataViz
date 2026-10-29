@@ -240,9 +240,11 @@ def read_postgres_table(dsn: str, table: str, schema: str = "public", limit: int
                         where: str | None = None) -> tuple[pd.DataFrame, dict]:
     """Lit une table PostgreSQL (source externe) et en produit un instantané en mémoire."""
     import psycopg
+    from psycopg import sql
 
     warnings: list[str] = []
     with psycopg.connect(dsn) as conn:
+        cible = sql.Identifier(schema, table)  # nom cité par psycopg : un « " » dans le nom ne sort pas de l'identifiant
         with conn.cursor() as cur:
             cur.execute(
                 """
@@ -264,17 +266,19 @@ def read_postgres_table(dsn: str, table: str, schema: str = "public", limit: int
                 JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey)
                 WHERE i.indrelid = %s::regclass AND i.indisprimary
                 """,
-                (f"{schema}.{table}",),
+                (cible.as_string(conn),),
             )
             pk = [r[0] for r in cur.fetchall()]
-            cur.execute(f'SELECT count(*) FROM "{schema}"."{table}"' + (f" WHERE {where}" if where else ""))
+            filtre = sql.SQL(" WHERE " + where) if where else sql.SQL("")  # option de la ligne de commande seulement
+            cur.execute(sql.SQL("SELECT count(*) FROM {}{}").format(cible, filtre))
             total = int(cur.fetchone()[0])
-            sql = f'SELECT * FROM "{schema}"."{table}"' + (f" WHERE {where}" if where else "") + (f" LIMIT {int(limit)}" if limit else "")
+            requete = sql.SQL("SELECT * FROM {}{}{}").format(
+                cible, filtre, sql.SQL(" LIMIT {}").format(sql.Literal(int(limit))) if limit else sql.SQL("")).as_string(conn)
             import warnings as _warnings
 
             with _warnings.catch_warnings():
                 _warnings.filterwarnings("ignore", message=".*SQLAlchemy.*", category=UserWarning)
-                df = pd.read_sql_query(sql, conn)
+                df = pd.read_sql_query(requete, conn)
             cur.execute("SELECT current_database(), current_user, version()")
             db, user, version = cur.fetchone()
 
@@ -302,7 +306,9 @@ def read_postgres_table(dsn: str, table: str, schema: str = "public", limit: int
 
 
 def _mask_dsn(dsn: str) -> str:
-    return re.sub(r"(password=)[^ ]+", r"\1***", dsn)
+    from .store import _mask  # aussi « postgresql://u:mdp@hôte » (avant : seul « password=… » était masqué)
+
+    return _mask(dsn)
 
 
 # --------------------------------------------------------------------------------------

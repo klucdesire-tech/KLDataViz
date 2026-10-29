@@ -95,3 +95,41 @@ def fetch(url: str, allow_private: bool = False, https_only: bool = True, max_by
         if len(data) > max_bytes:
             raise ValueError(f"Fichier trop volumineux (plus de {max_bytes // (1024 * 1024)} Mo).")
         return data, (resp.headers.get("Content-Type") or "").lower()
+
+
+PG_KEYS = {"host", "port", "dbname", "user", "password", "sslmode", "application_name"}
+PG_STATEMENT_TIMEOUT_MS = 60_000
+
+
+def safe_pg_conninfo(dsn: str) -> str:
+    """Connexion PostgreSQL saisie par un client (version en ligne), rendue sûre pour le serveur :
+
+    - seuls les paramètres usuels sont acceptés (pas de `hostaddr`, `options`, `passfile`, `service`, certificats…) ;
+    - un seul hôte, joignable sur Internet : adresses internes refusées, et la connexion est épinglée sur
+      l'adresse vérifiée (`hostaddr`), comme pour les téléchargements (pas de « DNS rebinding ») ;
+    - chiffrement obligatoire (`sslmode=require`, ou `verify-full` avec les autorités du système si demandé) ;
+    - session en lecture seule, délai de connexion de 10 s et de requête de 60 s.
+    Lève BlockedURL avec un message lisible."""
+    from psycopg.conninfo import conninfo_to_dict, make_conninfo
+
+    try:
+        params = {k: v for k, v in conninfo_to_dict(dsn).items() if v not in (None, "")}
+    except Exception:
+        raise BlockedURL("Chaîne de connexion PostgreSQL invalide (exemple : postgresql://utilisateur:motdepasse@serveur:5432/base).")
+    refuses = sorted(set(params) - PG_KEYS)
+    if refuses:
+        raise BlockedURL("Paramètre de connexion non autorisé en ligne : " + ", ".join(refuses) + ".")
+    host = str(params.get("host") or "").strip()
+    if not host or host.startswith("/") or "," in host:
+        raise BlockedURL("Indiquez l'adresse Internet d'un seul serveur PostgreSQL (pas localhost ni un socket local).")
+    port = str(params.get("port") or "5432")
+    if not port.isdigit() or not 0 < int(port) < 65536:
+        raise BlockedURL("Port PostgreSQL invalide.")
+    ip = public_ips(host, int(port))[0]  # refuse 127.0.0.1, 10.x, 192.168.x, 169.254.169.254…
+    if params.get("sslmode") in ("verify-ca", "verify-full"):
+        params["sslrootcert"] = "system"
+    else:
+        params["sslmode"] = "require"
+    params.update(host=host, hostaddr=ip, port=port, connect_timeout="10",
+                  options=f"-c default_transaction_read_only=on -c statement_timeout={PG_STATEMENT_TIMEOUT_MS}")
+    return make_conninfo(**params)
