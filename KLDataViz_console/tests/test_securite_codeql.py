@@ -95,12 +95,10 @@ def test_liens_onedrive_et_sharepoint_convertis():
     reset_app_modules()
     import server  # noqa: PLC0415
     n = server.normalize_source_url
-    # jeton de référence figé (base64url sans « = » du lien d'origine, format « u! » de l'API de partage)
-    assert n("https://1drv.ms/x/s!AbCdEf123?e=xyz") == \
-        "https://api.onedrive.com/v1.0/shares/u!aHR0cHM6Ly8xZHJ2Lm1zL3gvcyFBYkNkRWYxMjM_ZT14eXo/root/content"
-    direct = "https://onedrive.live.com/download?cid=1&resid=2"
-    assert n(direct) == direct                                     # déjà un lien de téléchargement
-    assert n("https://onedrive.live.com/downloadxyz?a=1").startswith("https://api.onedrive.com/")
+    # OneDrive personnel : lien laissé tel quel, lu par netguard.fetch_onedrive (l'API anonyme répond 401)
+    for perso in ("https://1drv.ms/x/s!AbCdEf123?e=xyz", "https://1drv.ms/x/c/7374a4e6/IQBTHmm4?e=74a2Tl",
+                  "https://onedrive.live.com/download?cid=1&resid=2"):
+        assert n(perso) == perso
     pro = "https://contoso-my.sharepoint.com/:x:/g/personal/awa_contoso_com/EaBc?e=4f2"
     assert n(pro) == pro + "&download=1"
     assert n(pro + "&download=1") == pro + "&download=1"
@@ -135,6 +133,76 @@ def test_acces_onedrive_refuse(monkeypatch):
     def refus(url, *a, **k):
         raise urllib.error.HTTPError(url, 403, "Forbidden", {}, None)
     monkeypatch.setattr(server.netguard, "fetch", refus)
+    monkeypatch.setattr(server.netguard, "fetch_onedrive", refus)
     for lien in ("https://1drv.ms/x/s!AbC", "https://contoso-my.sharepoint.com/:x:/g/personal/awa/EaBc"):
         df, err = server._read_df_raw(lien)
         assert df is None and err == server.ONEDRIVE_PARTAGE
+
+
+def test_onedrive_personnel_comme_un_navigateur():
+    """Nouveau OneDrive (1drv.ms/x/c/…) : lien → page d'aperçu avec cookie de partage → download.aspx?UniqueId=…
+    Simulé par un petit serveur local ; le fichier n'est rendu qu'avec le cookie déposé à la première étape."""
+    import http.server  # noqa: PLC0415
+    import threading  # noqa: PLC0415
+    import netguard  # noqa: PLC0415
+    uid = "b8691e53-6a5f-469d-a008-4b320652d5b6"
+
+    class Faux(http.server.BaseHTTPRequestHandler):
+        def log_message(self, *a):
+            pass
+
+        def do_GET(self):
+            if self.path.startswith("/x/c/"):
+                self.send_response(302)
+                self.send_header("Set-Cookie", "FedAuth=jeton; Path=/")
+                self.send_header("Location", f"/personal/abc/_layouts/15/Doc.aspx?sourcedoc=%7B{uid}%7D&action=default")
+                self.end_headers()
+            elif self.path.startswith("/personal/abc/_layouts/15/Doc.aspx"):
+                self._repondre(b"<!DOCTYPE html><title>Classeur1.xlsx</title>", "text/html")
+            elif self.path == f"/personal/abc/_layouts/15/download.aspx?UniqueId={uid}&Translate=false" \
+                    and "FedAuth=jeton" in (self.headers.get("Cookie") or ""):
+                self._repondre(b"PK classeur" + b"x" * 5000, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+            elif self.path.startswith("/direct"):   # lien qui renvoie déjà le fichier
+                self._repondre(b"a;b\n1;2\n", "text/csv")
+            elif self.path.startswith("/vide"):     # lien expiré ou restreint : page sans fichier
+                self._repondre(b"<!DOCTYPE html><title>Connexion</title>", "text/html")
+            else:
+                self.send_response(403)
+                self.end_headers()
+
+        def _repondre(self, corps, ctype):
+            self.send_response(200)
+            self.send_header("Content-Type", ctype)
+            self.send_header("Content-Length", str(len(corps)))
+            self.end_headers()
+            self.wfile.write(corps)
+
+    srv = http.server.HTTPServer(("127.0.0.1", 0), Faux)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    base = f"http://127.0.0.1:{srv.server_port}"
+    lire = lambda chemin, **k: netguard.fetch_onedrive(base + chemin, allow_private=True, https_only=False, **k)  # noqa: E731
+    try:
+        data, ctype = lire("/x/c/abc/IQB?e=1")
+        assert data.startswith(b"PK") and "spreadsheetml" in ctype
+        assert lire("/direct") == (b"a;b\n1;2\n", "text/csv")
+        data, ctype = lire("/vide")                      # renvoyée telle quelle : l'appelant affiche ONEDRIVE_PARTAGE
+        assert "text/html" in ctype and b"Connexion" in data
+        with pytest.raises(ValueError, match="trop volumineux"):
+            lire("/x/c/abc/IQB?e=1", max_bytes=1000)     # plafond appliqué aussi au téléchargement final
+    finally:
+        srv.shutdown()
+
+
+def test_page_web_jamais_prise_pour_un_fichier():
+    reset_app_modules()
+    import server  # noqa: PLC0415
+    assert server._est_page_web(b"<!DOCTYPE html><html>", "")
+    assert server._est_page_web(b"a;b", "text/html; charset=utf-8")
+    assert not server._est_page_web(b"PK\x03\x04", "application/octet-stream")
+
+
+def test_onedrive_personnel_refuse_les_adresses_internes():
+    import netguard  # noqa: PLC0415
+    import pytest  # noqa: PLC0415
+    with pytest.raises(netguard.BlockedURL):
+        netguard.fetch_onedrive("http://127.0.0.1:9/x/c/abc", allow_private=False, https_only=False)

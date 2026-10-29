@@ -91,19 +91,64 @@ class _CheckedRedirect(urllib.request.HTTPRedirectHandler):
         return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 
+def _lire(resp, max_bytes: int):
+    size = resp.headers.get("Content-Length")
+    if size and size.isdigit() and int(size) > max_bytes:
+        raise ValueError(f"Fichier trop volumineux (plus de {max_bytes // (1024 * 1024)} Mo).")
+    data = resp.read(max_bytes + 1)
+    if len(data) > max_bytes:
+        raise ValueError(f"Fichier trop volumineux (plus de {max_bytes // (1024 * 1024)} Mo).")
+    return data, (resp.headers.get("Content-Type") or "").lower()
+
+
 def fetch(url: str, allow_private: bool = False, https_only: bool = True, max_bytes: int = MAX_BYTES):
     """Renvoie (contenu, content_type). Lève BlockedURL, urllib.error.URLError ou ValueError."""
     check_url(url, allow_private, https_only)
     opener = urllib.request.build_opener(_CheckedRedirect(allow_private, https_only), *handlers(allow_private))
     req = urllib.request.Request(url, headers={"User-Agent": "KLDataViz/1.0"})
     with opener.open(req, timeout=TIMEOUT_S) as resp:
-        size = resp.headers.get("Content-Length")
-        if size and size.isdigit() and int(size) > max_bytes:
-            raise ValueError(f"Fichier trop volumineux (plus de {max_bytes // (1024 * 1024)} Mo).")
-        data = resp.read(max_bytes + 1)
-        if len(data) > max_bytes:
-            raise ValueError(f"Fichier trop volumineux (plus de {max_bytes // (1024 * 1024)} Mo).")
-        return data, (resp.headers.get("Content-Type") or "").lower()
+        return _lire(resp, max_bytes)
+
+
+NAVIGATEUR = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) "
+              "Chrome/130.0 Safari/537.36")
+
+
+def fetch_onedrive(url: str, allow_private: bool = False, https_only: bool = True, max_bytes: int = MAX_BYTES):
+    """Lien de partage OneDrive personnel (1drv.ms, onedrive.live.com), y compris le nouveau format
+    « 1drv.ms/x/c/… » : l'ancienne API anonyme api.onedrive.com répond désormais 401.
+
+    Comme un navigateur : le lien est ouvert (cookie de partage déposé au passage), la page d'aperçu donne
+    l'identifiant du fichier (« sourcedoc={…} »), puis download.aspx?UniqueId=… renvoie le fichier lui-même.
+    Chaque étape et chaque redirection passent par les mêmes contrôles que fetch (adresses internes refusées,
+    connexion épinglée, taille limitée)."""
+    import http.cookiejar
+    import re
+
+    check_url(url, allow_private, https_only)
+    opener = urllib.request.build_opener(_CheckedRedirect(allow_private, https_only),
+                                         urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()),
+                                         *handlers(allow_private))
+    entetes = {"User-Agent": NAVIGATEUR}
+    with opener.open(urllib.request.Request(url, headers=entetes), timeout=TIMEOUT_S) as resp:
+        final = resp.geturl()
+        data, ctype = _lire(resp, max_bytes)
+    if "text/html" not in ctype:
+        return data, ctype  # le lien donnait déjà le fichier
+    page = data.decode("utf-8", "replace")
+    ident = (re.search(r"sourcedoc=(?:%7B|\{)([0-9a-fA-F-]{36})", final, re.I)
+             or re.search(r"download\.aspx\?UniqueId=([0-9a-fA-F-]{36})", page))
+    u = urllib.parse.urlparse(final)
+    perso = re.match(r"(/personal/[A-Za-z0-9_.-]+)/", u.path)
+    hote = (u.hostname or "").lower()
+    microsoft = allow_private or hote == "onedrive.live.com" or hote.endswith((".sharepoint.com", ".microsoftpersonalcontent.com"))
+    if not (ident and perso and microsoft):
+        return data, ctype  # page sans fichier (lien expiré, accès restreint) : l'appelant explique
+    hote_port = hote + (f":{u.port}" if u.port else "")  # jamais d'identifiants « user@ » repris de l'URL
+    lien = f"{u.scheme}://{hote_port}{perso.group(1)}/_layouts/15/download.aspx?UniqueId={ident.group(1)}&Translate=false"
+    check_url(lien, allow_private, https_only)
+    with opener.open(urllib.request.Request(lien, headers=entetes), timeout=TIMEOUT_S) as resp:
+        return _lire(resp, max_bytes)
 
 
 PG_KEYS = {"host", "port", "dbname", "user", "password", "sslmode", "application_name"}
