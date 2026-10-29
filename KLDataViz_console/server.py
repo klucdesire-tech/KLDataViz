@@ -3218,7 +3218,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             source = netguard.safe_pg_conninfo(source)
             if not p.get("table"):
                 raise ValueError("Indiquez le nom de la table à importer.")
-            p = {**p, "limit": min(int(p.get("limit") or PG_MAX_ROWS), PG_MAX_ROWS)}
+            p = {**p, "limit": max(1, min(int(p.get("limit") or PG_MAX_ROWS), PG_MAX_ROWS))}
         elif T.CLOUD and not T.current().owns(source):
             raise PermissionError("source hors de l'espace")
         if T.CLOUD and p.get("kind") == "sqlite":

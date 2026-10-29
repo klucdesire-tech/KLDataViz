@@ -6,6 +6,7 @@ vérifie chaque redirection et limite la taille et la durée du téléchargement
 """
 import http.client
 import ipaddress
+import os
 import socket
 import urllib.error
 import urllib.parse
@@ -38,9 +39,17 @@ def public_ips(host: str, port: int) -> list:
         raise BlockedURL(f"Adresse introuvable : {host}")
     for info in infos:
         ip = ipaddress.ip_address(info[4][0].split("%")[0])
-        if not ip.is_global or ip.is_multicast:
+        if not ip.is_global or ip.is_multicast or _ipv4_embarquee(ip):
             raise BlockedURL("Ce lien pointe vers une adresse interne : il est refusé.")
     return list(dict.fromkeys(info[4][0] for info in infos))
+
+
+_NAT64 = (ipaddress.ip_network("64:ff9b::/96"), ipaddress.ip_network("64:ff9b:1::/48"))
+
+
+def _ipv4_embarquee(ip) -> bool:
+    """IPv6 qui transporte une adresse IPv4 (::ffff:a.b.c.d, 6to4, NAT64) : refusée, l'IPv4 cachée peut être interne."""
+    return ip.version == 6 and bool(ip.ipv4_mapped or ip.sixtofour or any(ip in n for n in _NAT64))
 
 
 class _PinnedHTTPSConnection(http.client.HTTPSConnection):
@@ -108,7 +117,11 @@ def safe_pg_conninfo(dsn: str) -> str:
     - un seul hôte, joignable sur Internet : adresses internes refusées, et la connexion est épinglée sur
       l'adresse vérifiée (`hostaddr`), comme pour les téléchargements (pas de « DNS rebinding ») ;
     - chiffrement obligatoire (`sslmode=require`, ou `verify-full` avec les autorités du système si demandé) ;
-    - session en lecture seule, délai de connexion de 10 s et de requête de 60 s.
+    - session en lecture seule, délai de connexion de 10 s et de requête de 60 s ; un serveur qui se tait est
+      abandonné (keepalives, tcp_user_timeout) ;
+    - AUCUN identifiant du serveur KLDataViz ne peut partir chez le client : utilisateur, base et mot de passe
+      sont toujours explicites (un service PGSERVICE ne peut donc plus les fournir), et PGPASSWORD, le fichier
+      .pgpass et un certificat client (PGSSLCERT) sont neutralisés.
     Lève BlockedURL avec un message lisible."""
     from psycopg.conninfo import conninfo_to_dict, make_conninfo
 
@@ -122,6 +135,8 @@ def safe_pg_conninfo(dsn: str) -> str:
     host = str(params.get("host") or "").strip()
     if not host or host.startswith("/") or "," in host:
         raise BlockedURL("Indiquez l'adresse Internet d'un seul serveur PostgreSQL (pas localhost ni un socket local).")
+    if not params.get("user") or not params.get("dbname"):
+        raise BlockedURL("Indiquez l'utilisateur et la base dans la connexion (postgresql://utilisateur:motdepasse@serveur:5432/base).")
     port = str(params.get("port") or "5432")
     if not port.isdigit() or not 0 < int(port) < 65536:
         raise BlockedURL("Port PostgreSQL invalide.")
@@ -131,5 +146,12 @@ def safe_pg_conninfo(dsn: str) -> str:
     else:
         params["sslmode"] = "require"
     params.update(host=host, hostaddr=ip, port=port, connect_timeout="10",
-                  options=f"-c default_transaction_read_only=on -c statement_timeout={PG_STATEMENT_TIMEOUT_MS}")
+                  options=f"-c default_transaction_read_only=on -c statement_timeout={PG_STATEMENT_TIMEOUT_MS}",
+                  # rien de l'environnement du serveur : ni mot de passe (PGPASSWORD, .pgpass), ni service, ni certificat
+                  # (un service PGSERVICE ne complète que les paramètres absents : tous ceux qui comptent sont fixés ici ;
+                  # « service='' » n'est pas possible, libpq le cherche et échoue)
+                  password=params.get("password", ""), passfile=os.devnull, sslcertmode="disable",
+                  gssencmode="disable",
+                  keepalives="1", keepalives_idle="30", keepalives_interval="10", keepalives_count="3",
+                  tcp_user_timeout=str(PG_STATEMENT_TIMEOUT_MS + 30_000))
     return make_conninfo(**params)

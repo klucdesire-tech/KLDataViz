@@ -273,12 +273,19 @@ def read_postgres_table(dsn: str, table: str, schema: str = "public", limit: int
             cur.execute(sql.SQL("SELECT count(*) FROM {}{}").format(cible, filtre))
             total = int(cur.fetchone()[0])
             requete = sql.SQL("SELECT * FROM {}{}{}").format(
-                cible, filtre, sql.SQL(" LIMIT {}").format(sql.Literal(int(limit))) if limit else sql.SQL("")).as_string(conn)
-            import warnings as _warnings
-
-            with _warnings.catch_warnings():
-                _warnings.filterwarnings("ignore", message=".*SQLAlchemy.*", category=UserWarning)
-                df = pd.read_sql_query(requete, conn)
+                cible, filtre, sql.SQL(" LIMIT {}").format(sql.Literal(int(limit))) if limit else sql.SQL(""))
+            # Curseur côté serveur, lu par lots : la limite est tenue AUSSI de notre côté (un serveur qui ignorerait
+            # le LIMIT n'envoie pas la table entière en mémoire d'un coup).
+            with conn.cursor(name="kldv_lecture") as lect:
+                lect.execute(requete)
+                noms = [d.name for d in lect.description]
+                lignes: list = []
+                while lot := lect.fetchmany(5000):
+                    lignes.extend(lot)
+                    if limit and len(lignes) >= int(limit):
+                        del lignes[int(limit):]
+                        break
+            df = pd.DataFrame.from_records(lignes, columns=noms, coerce_float=True)
             cur.execute("SELECT current_database(), current_user, version()")
             db, user, version = cur.fetchone()
 
