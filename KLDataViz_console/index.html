@@ -739,7 +739,7 @@ const md=s=>esc(s).replace(/^#{1,4}\s*(.+)$/gm,'<b>$1</b>').replace(/\*\*(.+?)\*
 const nf=n=>Number(n).toLocaleString('fr-FR').replace(/ /g,' ');
 const dec=n=>String(n).replace('.',',');
 const reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;
-const baseName=p=>/docs\.google\.com\/spreadsheets/.test(p)?'Google Sheets':(String(p).split(/[\\/]/).pop().split('?')[0]||String(p));
+const baseName=p=>/docs\.google\.com\/spreadsheets/.test(p)?'Google Sheets':/^https:\/\/([^/]+\.)?(1drv\.ms|onedrive\.live\.com|sharepoint\.com)\//.test(p)?'Fichier OneDrive':(String(p).split(/[\\/]/).pop().split('?')[0]||String(p));
 const IC={check:'<svg class="i" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7"/></svg>',
   alert:'<svg class="i" viewBox="0 0 24 24"><path d="M12 9v4M12 17h.01M10.3 3.9 2.4 18a2 2 0 0 0 1.7 3h15.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>',
   x:'<svg class="i" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg>',
@@ -2112,8 +2112,8 @@ const ROLE={owner:'Propriétaire',analyst:'Analyste',viewer:'Lecteur'};
 function loadScript(src){return new Promise((ok,ko)=>{const s=document.createElement('script');s.src=src;s.onload=ok;s.onerror=ko;document.head.append(s)})}
 function applyCloudUI(){
   ['[data-src="path"]','[data-src="db"]','#taskSrcBtn','#classicCard','#smtpCard','nav.menu [data-nav="tasks"]','#dbCard'].forEach(sel=>$$(sel).forEach(el=>el.hidden=true));
-  $('#userbox').hidden=false;$('#pathTitle').textContent='Lien Google Sheets ou web';
-  $('#pathHint').textContent='Collez le lien d\'une feuille Google Sheets (partagée avec « Tous les utilisateurs disposant du lien ») ou l\'URL https d\'un fichier CSV, Excel ou JSON.';
+  $('#userbox').hidden=false;$('#pathTitle').textContent='Lien Google Sheets, OneDrive ou web';
+  $('#pathHint').textContent='Collez le lien de partage d’une feuille Google Sheets (« Tous les utilisateurs disposant du lien ») ou d’un fichier OneDrive / SharePoint (« Toute personne disposant du lien »), ou l’URL https d’un fichier CSV, Excel ou JSON.';
   $('#pathInput').placeholder='https://docs.google.com/spreadsheets/…';
 }
 function meter(label,used,max){const pct=max?Math.min(100,Math.round(used/max*100)):100;return `<div class="row"><span>${label}</span><span class="num">${nf(used)} / ${nf(max)}</span></div><div class="meter"><i class="${pct>=90?'bad':pct>=70?'warn':''}" style="width:${pct}%"></i></div>`}
