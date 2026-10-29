@@ -1,10 +1,10 @@
-"""Adifa choisit les graphiques d'un fichier et en rédige la lecture.
+"""Adifa’ choisit les graphiques d'un fichier et en rédige la lecture.
 
 Deux appels à l'IA, chacun sur un résumé (jamais le fichier entier) :
-1. `propose` : à partir du profil des colonnes, Adifa écrit une « recette » par graphique
+1. `propose` : à partir du profil des colonnes, Adifa’ écrit une « recette » par graphique
    (type, mesure, agrégation, axe, série, filtre). Le moteur l'exécute avec pandas en vérifiant chaque
    colonne : une recette invalide est écartée, aucune valeur n'est inventée par l'IA.
-2. `interpret` : Adifa lit les chiffres réellement calculés et rédige la lecture de chaque graphique.
+2. `interpret` : Adifa’ lit les chiffres réellement calculés et rédige la lecture de chaque graphique.
 
 Les graphiques produits ont le même format que `server._smart_charts` (kind, type, title, labels, values…),
 plus `question` et `lecture`. Sans IA ou en cas d'échec, on retombe sur les graphiques automatiques.
@@ -52,7 +52,7 @@ def _r(x):
 
 
 SYSTEM_PROPOSE = (
-    "Tu es Adifa, analyste de données en santé publique et en gestion. On te donne le profil des colonnes "
+    "Tu es Adifa’, analyste de données en santé publique et en gestion. On te donne le profil des colonnes "
     "d'un fichier (pas les données). Choisis au plus {n} graphiques qui répondent aux questions qu'un "
     "responsable se pose vraiment sur ces données (évolution d'un indicateur clé, classement des sites ou "
     "districts, écart entre groupes, répartition, valeurs inhabituelles). Évite les graphiques redondants ou "
@@ -75,7 +75,7 @@ SYSTEM_PROPOSE = (
 )
 
 SYSTEM_INTERPRET = (
-    "Tu es Adifa, analyste de données. Pour chaque graphique fourni (avec ses valeurs exactes), écris une "
+    "Tu es Adifa’, analyste de données. Pour chaque graphique fourni (avec ses valeurs exactes), écris une "
     "lecture de 2 à 3 phrases pour un décideur non technique : le constat principal, l'écart ou la tendance "
     "chiffrés, et ce qui mérite d'être vérifié. Utilise UNIQUEMENT les chiffres fournis, arrondis simplement, "
     "au format français (1 234,5). N'invente aucune cause : une explication possible est présentée comme une "
@@ -423,10 +423,10 @@ def _sens_contredit(c, lecture):
 
 
 def run(df, file_name, base_charts, llm, parse, period_of, progress=lambda _t: None, comprehension=None):
-    """Graphiques choisis et commentés par Adifa ; repli sur base_charts (graphiques automatiques)."""
+    """Graphiques choisis et commentés par Adifa’ ; repli sur base_charts (graphiques automatiques)."""
     if llm is None:
         return {"charts": base_charts, "ia": False, "source": "regles", "raison": "IA non configurée"}
-    progress("Adifa étudie les colonnes du fichier…")
+    progress("Adifa’ étudie les colonnes du fichier…")
     prof = profile(df, file_name, period_of)
     if comprehension:  # rôles déjà établis à l'étape Vérifier (stock, flux, taux…) : même lecture du fichier
         prof["comprehension_etape_verifier"] = {k: comprehension.get(k) for k in ("resume", "grain", "colonnes")}
@@ -439,7 +439,7 @@ def run(df, file_name, base_charts, llm, parse, period_of, progress=lambda _t: N
         charts, source = list(base_charts), "automatiques"
     if not charts:
         return {"charts": [], "ia": True, "source": source, "erreurs": errors}
-    progress("Adifa rédige la lecture des graphiques…")
+    progress("Adifa’ rédige la lecture des graphiques…")
     payload = [dict(_compact(c), index=i) for i, c in enumerate(charts)]
     content = llm([{"role": "system", "content": SYSTEM_INTERPRET},
                    {"role": "user", "content": json.dumps(payload, ensure_ascii=False, default=str)}], 6000)

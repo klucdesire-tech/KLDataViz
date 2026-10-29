@@ -23,7 +23,7 @@ from .. import artifacts, config
 from ..contracts import new_job_id
 from .quality import _load_dataset
 
-SYSTEM = """Tu es le DATA VISUALIZATION & DASHBOARD AGENT d'Adifa (santé publique, BI).
+SYSTEM = """Tu es le DATA VISUALIZATION & DASHBOARD AGENT d'Adifa’ (santé publique, BI).
 On te donne le PROFIL d'un dataset (colonnes, types, valeurs d'exemple, répartition)
 et un OBJECTIF MÉTIER. Propose les KPI les plus pertinents et les graphiques adaptés.
 Réponds en JSON STRICT, sans aucun texte hors du JSON, exactement sous cette forme :
@@ -1011,7 +1011,7 @@ function buildFilters(){var el=document.getElementById('filters');el.innerHTML='
     mb.textContent=showMore?'Moins de filtres':'Plus de filtres ('+(F.length-3)+')';mb.onclick=function(){showMore=!showMore;buildFilters()};el.appendChild(mb)}}
 
 // « Comment ce chiffre est calculé ? » : la méthode de chaque tuile, en clair (survol, clic ou clavier)
-function howCalc(k,rows){if(k.formule){var t0=(k.description||'')+(k.statut==='propose'?' Formule proposée par Adifa, à valider.':' Formule validée.');
+function howCalc(k,rows){if(k.formule){var t0=(k.description||'')+(k.statut==='propose'?' Formule proposée par Adifa’, à valider.':' Formule validée.');
     if(k.dimension)t0+=' « En tête » : la catégorie de « '+nice(k.dimension)+' » qui a la valeur la plus haute.';
     return t0+(rows.length<DATA.length?' Calculé sur les '+fmt(rows.length)+' lignes retenues par les filtres.':'')}
   var a=(k.agregation||'').toLowerCase(),c=k.colonne?'« '+nice(k.colonne)+' »':'',n=rows.length,t;
@@ -1049,7 +1049,7 @@ function renderKpis(all){document.getElementById('kpis').innerHTML=KPIDEFS.slice
   var u=(k.formule?k.pct:isRate(k.agregation))&&v!=null?' %':'';
   if(k.dimension){var t=(k.formule?rankedF(rows,k.formule,k.dimension,1):ranked(rows,k.colonne,k.agregation,k.dimension,1))[0];if(t)sub='En tête : '+esc(label(t[0]))+'<br>'+fmt(t[1])+u}
   var how=howCalc(k,rows);
-  var badge=k.statut==='propose'?' <span class="hd" title="Formule proposée par Adifa : à valider dans KLDataViz">à valider</span>':'';
+  var badge=k.statut==='propose'?' <span class="hd" title="Formule proposée par Adifa’ : à valider dans KLDataViz">à valider</span>':'';
   return '<div class="kpi k'+i+'"><div class="n">'+esc(k.nom)+badge+' <span class="info" tabindex="0" role="note" aria-label="Comment ce chiffre est calculé : '+esc(how)+'">i<span class="tip">'+esc(how)+'</span></span></div><div class="row"><div class="v">'+fmt(v)+u+'</div><div class="s">'+sub+'</div></div></div>'}).join('')}
 
 function card(id,title,sub,extra){return '<div class="card"><div class="card-h"><div><h2>'+esc(nice(title))+'</h2>'+(sub?'<small>'+esc(sub)+'</small>':'')+'</div>'+(extra||'')+'</div>'+id+'</div>'}
@@ -1239,7 +1239,7 @@ function renderDict(rows){var el=document.getElementById('dict'),D=META.dictionn
   if(dictOpen===null)dictOpen=!relies;  // indicateurs reliés en tête : le reste du dictionnaire reste replié
   el.innerHTML='<details class="dict-wrap"'+(dictOpen?' open':'')+'><summary class="card-h"><div><h2>'+(relies?'Autres indicateurs du dictionnaire':'Indicateurs du dictionnaire')+'</h2><small>'
     +(relies?(F.length?F.length+' de plus calculé'+(F.length>1?'s':''):'Aucun autre calculable')+(A.length?' · '+A.length+' absent'+(A.length>1?'s':'')+' de ces données':'')
-      :F.length+' calculé'+(F.length>1?'s':'')+' selon votre référentiel · les indicateurs clés du haut sont choisis par Adifa')+'</small></div>'
+      :F.length+' calculé'+(F.length>1?'s':'')+' selon votre référentiel · les indicateurs clés du haut sont choisis par Adifa’')+'</small></div>'
     +'<span class="dict-tog" aria-hidden="true"></span></summary><div class="dict-body">'
     +(F.length?'<div class="gaps-grid">'+F.slice(0,VIS).map(tile).join('')+'</div>':relies?'':'<p class="gaps-ct">Aucun indicateur du dictionnaire n\'est calculable de façon sûre avec ces données.</p>')
     +(more.length?'<details class="dict-abs"><summary>'+more.length+' autre'+(more.length>1?'s':'')+' indicateur'+(more.length>1?'s':'')+' calculé'+(more.length>1?'s':'')+'</summary><div class="gaps-grid" style="margin-top:10px">'+more.map(function(r,i){return tile(r,i+VIS)}).join('')+'</div></details>':'')
@@ -1384,7 +1384,7 @@ def generate_dashboard(df, objective: str = "", job_id: str | None = None, llm=N
     Retourne : html (le tableau de bord autonome), path (fichier écrit si job_id), kpis, charts, ia, spec.
     `spec` (facultatif) : indicateurs et graphiques déjà choisis (« spec » d'un appel précédent) → actualisation
     d'une source connectée : mêmes indicateurs sur les nouvelles données, sans appel à l'IA.
-    `correspondance` (facultatif) : formules reliant le dictionnaire aux colonnes (proposées par Adifa, validées
+    `correspondance` (facultatif) : formules reliant le dictionnaire aux colonnes (proposées par Adifa’, validées
     par l'utilisateur). Présente, elle PILOTE le tableau de bord : tuiles, répartitions, courbes et écarts sont
     calculés par ces formules (hermes_da.correspondance en Python, evalF dans la page), sur les données d'origine.
     `dictionnaire` (facultatif) : indicateurs importés par l'espace (Mode B). La console passe celui de
