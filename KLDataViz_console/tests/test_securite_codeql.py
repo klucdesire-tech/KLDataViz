@@ -89,3 +89,30 @@ def test_regex_email_lineaire(module):
     t = time.time()
     rx.match("a@" + "b" * 200_000 + "!")
     assert time.time() - t < 1
+
+
+def test_liens_onedrive_et_sharepoint_convertis():
+    reset_app_modules()
+    import base64  # noqa: PLC0415
+    import server  # noqa: PLC0415
+    perso = "https://1drv.ms/x/s!AbCdEf123?e=xyz"
+    jeton = base64.urlsafe_b64encode(perso.encode()).decode().rstrip("=")
+    assert server.normalize_source_url(perso) == f"https://api.onedrive.com/v1.0/shares/u!{jeton}/root/content"
+    assert server.normalize_source_url("https://onedrive.live.com/download?cid=1&resid=2") == \
+        "https://onedrive.live.com/download?cid=1&resid=2"  # déjà un lien de téléchargement
+    pro = "https://contoso-my.sharepoint.com/:x:/g/personal/awa_contoso_com/EaBc?e=4f2"
+    assert server.normalize_source_url(pro) == pro + "&download=1"
+    assert server.normalize_source_url(pro + "&download=1") == pro + "&download=1"
+    assert server.normalize_source_url("https://contoso.sharepoint.com/:x:/s/ventes/EaBc#x") == \
+        "https://contoso.sharepoint.com/:x:/s/ventes/EaBc?download=1"
+    # un faux domaine n'est jamais réécrit
+    for faux in ("https://1drv.ms.piege.test/x/s!abc", "https://piege.test/?u=sharepoint.com"):
+        assert server.normalize_source_url(faux) == faux
+
+
+def test_page_onedrive_au_lieu_du_fichier(monkeypatch):
+    reset_app_modules()
+    import server  # noqa: PLC0415
+    monkeypatch.setattr(server.netguard, "fetch", lambda *a, **k: (b"<!DOCTYPE html><html>connexion</html>", "text/html"))
+    df, err = server._read_df_raw("https://contoso-my.sharepoint.com/:x:/g/personal/awa/EaBc")
+    assert df is None and "Toute personne disposant du lien" in err

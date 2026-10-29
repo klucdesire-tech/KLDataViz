@@ -201,10 +201,20 @@ def _host_is(url_or_parsed, *hosts):
 
 
 def normalize_source_url(url):
-    """Transforme un lien de partage (Google Sheets, Google Drive) en lien de téléchargement direct."""
+    """Transforme un lien de partage (Google Sheets, Google Drive, OneDrive, SharePoint) en lien de téléchargement direct."""
+    import base64
     import re
-    from urllib.parse import urlparse, parse_qs
+    from urllib.parse import urlparse, parse_qs, urlunparse
     u = urlparse(url)
+    if _host_is(u, "sharepoint.com"):  # OneDrive professionnel / SharePoint : le lien de partage télécharge avec download=1
+        if "download" in parse_qs(u.query) or "/_layouts/15/download.aspx" in u.path.lower():
+            return url
+        return urlunparse(u._replace(query=(u.query + "&" if u.query else "") + "download=1", fragment=""))
+    if _host_is(u, "1drv.ms", "onedrive.live.com"):  # OneDrive personnel : API de partage, qui renvoie le fichier lui-même
+        if _host_is(u, "onedrive.live.com") and u.path.lower().startswith("/download"):
+            return url
+        jeton = base64.urlsafe_b64encode(url.encode("utf-8")).decode("ascii").rstrip("=")
+        return f"https://api.onedrive.com/v1.0/shares/u!{jeton}/root/content"
     if _host_is(u, "docs.google.com") and "/spreadsheets/d/" in u.path:
         m = re.search(r"/spreadsheets/d/([^/]+)", u.path)
         if m and m.group(1) != "e":  # /d/e/... = lien « publié sur le web », déjà téléchargeable
@@ -216,6 +226,11 @@ def normalize_source_url(url):
         if m:
             return f"https://drive.google.com/uc?export=download&id={m.group(1)}"
     return url
+
+
+ONEDRIVE_PARTAGE = ("OneDrive refuse l'accès à ce fichier. Dans OneDrive, cliquez sur Partager → « Toute personne disposant "
+                    "du lien » (affichage), copiez ce lien et réessayez. Un lien réservé à votre organisation ne peut pas "
+                    "être lu par KLDataViz.")
 
 
 def source_label(file_path):
@@ -306,12 +321,16 @@ def _read_df_raw(file_path, sheet=None):
             if _host_is(url, "google.com") and getattr(e, "code", None) in (401, 403, 404):
                 return None, ("Google refuse l'accès à cette feuille. Vérifiez le lien, puis dans Google Sheets "
                               "cliquez sur Partager → « Tous les utilisateurs disposant du lien » (Lecteur).")
+            if _host_is(url, "sharepoint.com", "onedrive.com") and getattr(e, "code", None) in (401, 403, 404, 500):
+                return None, ONEDRIVE_PARTAGE
             return None, f"Téléchargement impossible : {e}"
         if "text/html" in ctype or data[:300].lstrip().lower().startswith((b"<!doctype html", b"<html")):
             if _host_is(url, "google.com"):
                 return None, ("Google renvoie une page de connexion au lieu des données. Dans Google Sheets, "
                               "cliquez sur Partager puis « Tous les utilisateurs disposant du lien » (Lecteur), "
                               "et réessayez avec le même lien.")
+            if _host_is(url, "sharepoint.com", "onedrive.com"):
+                return None, ONEDRIVE_PARTAGE
             return None, ("Ce lien renvoie une page web, pas un fichier de données. Utilisez un lien direct "
                           "vers un fichier CSV, Excel ou JSON.")
         ext = os.path.splitext(url.split("?")[0])[1].lower()
