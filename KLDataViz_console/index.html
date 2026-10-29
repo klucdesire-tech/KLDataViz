@@ -9,7 +9,7 @@
 <script src="/chart.umd.min.js"></script>
 <script src="/config.js"></script>
 <style>
-/* Layout: nav rail | guided workspace (Importer → Vérifier → Analyser → Partager) | Adifa chat */
+/* Layout: nav rail | guided workspace (Importer → Vérifier → Analyser → Partager) | Adifa’ chat */
 :root{
   --bg:#F3F6F4; --surface:#FFFFFF; --surface-2:#EBF1ED; --line:#D9E3DD;
   --fg:#11241A; --muted:#55685D; --brand:#1D7A4C; --brand-strong:#15633D; --brand-soft:#DCEFE4; --on-brand:#FFFFFF;
@@ -266,7 +266,7 @@ tr.versions td{background:var(--surface-2);font-size:13px}
 .composer input{flex:1;min-width:0}
 .composer .btn{padding:0 14px}
 .fab{display:none;position:relative}
-/* Chat masquable sur grand écran : le contenu prend toute la largeur ; le bouton « Adifa » le rouvre */
+/* Chat masquable sur grand écran : le contenu prend toute la largeur ; le bouton « Adifa’ » le rouvre */
 .app.nochat{grid-template-columns:232px minmax(0,1fr) 0}.app.nochat .chat{display:none}.app.nochat .fab{display:inline-flex}
 .fab .dot{position:absolute;top:-3px;right:-3px;width:10px;height:10px;border-radius:50%;background:var(--brand);border:2px solid var(--surface)}
 .toast{position:fixed;left:50%;bottom:calc(24px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--fg);color:var(--bg);padding:10px 16px;border-radius:10px;font-size:13.5px;box-shadow:var(--shadow);z-index:50;max-width:calc(100% - 32px)}
@@ -338,7 +338,7 @@ tr.versions td{background:var(--surface-2);font-size:13px}
 <body>
 <div class="app">
   <aside class="rail" aria-label="Navigation">
-    <div class="brand"><img src="/logo.png" alt=""><div><b>KLDataViz</b><small>Studio · agent Adifa</small></div></div>
+    <div class="brand"><img src="/logo.png" alt=""><div><b>KLDataViz</b><small>Studio · agent Adifa’</small></div></div>
     <div class="ws"><span id="orgName">Équipe Data</span><span>Espace de travail local</span></div>
     <nav class="menu">
       <button aria-current="page" data-nav="home"><svg class="i" viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5V21h-6v-6H9v6H3z"/></svg>Analyse</button>
@@ -358,7 +358,7 @@ tr.versions td{background:var(--surface-2);font-size:13px}
       <span class="spacer"></span>
       <div class="userbox" id="userbox" hidden><a class="btn ghost sm" id="adminLink" href="/admin" hidden>Administration</a><span id="userEmail"></span><button class="btn ghost sm" id="logoutBtn">Déconnexion</button></div>
       <button class="iconbtn" id="themeBtn" aria-label="Changer de thème" title="Changer de thème"><svg class="i" viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 0 1 9.5 4 8 8 0 1 0 20 14.5z"/></svg></button>
-      <button class="btn ghost fab" id="chatOpen" aria-label="Discuter avec Adifa" title="Discuter avec Adifa"><svg class="i" viewBox="0 0 24 24"><path d="M4 5h16v11H8l-4 4z"/></svg><span class="hide-sm">Adifa</span></button>
+      <button class="btn ghost fab" id="chatOpen" aria-label="Discuter avec Adifa’" title="Discuter avec Adifa’"><svg class="i" viewBox="0 0 24 24"><path d="M4 5h16v11H8l-4 4z"/></svg><span class="hide-sm">Adifa’</span></button>
       <button class="btn primary" id="newBtn"><svg class="i" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg><span class="hide-sm">Nouvelle analyse</span></button>
     </div>
 
@@ -370,7 +370,7 @@ tr.versions td{background:var(--surface-2);font-size:13px}
       <!-- 1. IMPORTER -->
       <section class="view" data-view="import">
         <div class="head"><h1>Quelles données voulez-vous comprendre ?</h1>
-          <p>Déposez un fichier. Adifa le lit, vérifie sa qualité et prépare l'analyse. Votre fichier d'origine n'est jamais modifié.</p></div>
+          <p>Déposez un fichier. Adifa’ le lit, vérifie sa qualité et prépare l'analyse. Votre fichier d'origine n'est jamais modifié.</p></div>
         <div class="drop" id="drop">
           <div class="big"><svg class="i" viewBox="0 0 24 24"><path d="M12 16V4M7 9l5-5 5 5M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/></svg></div>
           <h2>Glissez votre fichier ici</h2>
@@ -403,7 +403,7 @@ tr.versions td{background:var(--surface-2);font-size:13px}
         </div>
         <div class="card" id="dbCard" hidden>
           <h2>Base PostgreSQL</h2>
-          <p class="sub">Adifa copie la table dans une version de travail. La base n'est jamais modifiée.</p>
+          <p class="sub">Adifa’ copie la table dans une version de travail. La base n'est jamais modifiée.</p>
           <form class="form" id="dbForm" style="margin-top:12px">
             <label class="field" for="dbDsn" style="grid-column:1/-1">Connexion<input type="text" id="dbDsn" placeholder="postgresql://utilisateur:motdepasse@localhost:5432/base" autocomplete="off"></label>
             <label class="field" for="dbSchema">Schéma<input type="text" id="dbSchema" placeholder="public"></label>
@@ -433,7 +433,7 @@ tr.versions td{background:var(--surface-2);font-size:13px}
 
       <!-- 1b. PIPELINE -->
       <section class="view" data-view="run" hidden>
-        <div class="head"><h1>Adifa prépare vos données</h1><p id="runFile"></p></div>
+        <div class="head"><h1>Adifa’ prépare vos données</h1><p id="runFile"></p></div>
         <div class="run">
           <div class="card"><div id="feed"></div><div id="runErr" class="actions" style="margin-top:12px" hidden>
             <button class="btn ghost" id="runBack">Changer de source</button><button class="btn primary" id="runRetry">Réessayer</button></div></div>
@@ -456,7 +456,7 @@ tr.versions td{background:var(--surface-2);font-size:13px}
               <div class="scoreline"><span class="sub" style="margin:0">Avec les corrections choisies :</span><span class="num" id="scoreAfter">–</span></div>
               <p class="sub" id="ringTxt"></p><div class="chips" id="dsChips"></div></div>
           </div>
-          <div class="card"><h2>Ce qu'Adifa a compris</h2><div class="sub" style="font-size:14px;color:var(--fg);margin-top:8px" id="understood"></div></div>
+          <div class="card"><h2>Ce qu'Adifa’ a compris</h2><div class="sub" style="font-size:14px;color:var(--fg);margin-top:8px" id="understood"></div></div>
         </div>
         <div class="card">
           <div class="toolbar"><h2>Corrections proposées</h2><span class="spacer"></span><button class="btn ghost sm" id="toggleAll"></button></div>
@@ -472,7 +472,7 @@ tr.versions td{background:var(--surface-2);font-size:13px}
         <div class="card" id="archCard">
           <div class="toolbar"><h2>Structure recommandée pour l'analyse</h2><span class="spacer"></span><span class="aibadge" id="archBadge"></span>
             <button class="btn ghost sm" id="archRun">Proposer une structure</button></div>
-          <p class="sub" id="archLead">Adifa examine le fichier comme un architecte de données : ce que représente une ligne, les dimensions cachées dans les en-têtes, les lignes de total, les valeurs imputées. Elle propose ensuite des tables prêtes pour Power BI ou un tableau croisé.</p>
+          <p class="sub" id="archLead">Adifa’ examine le fichier comme un architecte de données : ce que représente une ligne, les dimensions cachées dans les en-têtes, les lignes de total, les valeurs imputées. Elle propose ensuite des tables prêtes pour Power BI ou un tableau croisé.</p>
           <div class="chips" id="archFiles"></div>
           <input type="file" id="archFileInput" accept=".csv,.xlsx,.xls,.xlsm,.json,.parquet" hidden>
           <div id="archOut"></div>
@@ -490,7 +490,7 @@ tr.versions td{background:var(--surface-2);font-size:13px}
       <section class="view" data-view="analyze" hidden>
         <div class="head"><h1>Ce que disent vos données</h1><p id="anLead"></p></div>
         <div class="kpis" id="kpis"></div>
-        <div><div class="toolbar" style="margin-bottom:10px"><div class="label">Points clés trouvés par Adifa</div><span class="spacer"></span><span class="aibadge" id="aiBadge"></span></div><div class="insights" id="insights"></div></div>
+        <div><div class="toolbar" style="margin-bottom:10px"><div class="label">Points clés trouvés par Adifa’</div><span class="spacer"></span><span class="aibadge" id="aiBadge"></span></div><div class="insights" id="insights"></div></div>
         <div><div class="toolbar" style="margin-bottom:10px"><div class="label">Graphiques</div><span class="aibadge" id="hermesBadge" style="margin-left:10px"></span><span class="spacer"></span><button class="btn ghost sm" id="moreCharts" hidden></button></div>
           <p class="sub" id="hermesSynth" hidden style="margin:-2px 0 10px"></p>
           <div class="charts" id="charts"></div></div>
@@ -510,7 +510,7 @@ tr.versions td{background:var(--surface-2);font-size:13px}
         <div class="card" id="ingestOut" hidden></div>
         <div class="card">
           <h2>Recevoir ce rapport automatiquement</h2>
-          <p class="sub">Adifa relit la source, refait l'analyse et produit le rapport à jour. Avec des destinataires, elle l'envoie aussi par e-mail.</p>
+          <p class="sub">Adifa’ relit la source, refait l'analyse et produit le rapport à jour. Avec des destinataires, elle l'envoie aussi par e-mail.</p>
           <form class="form" id="shareSched" style="margin-top:12px">
             <label class="field" for="ssFreq">Fréquence<select id="ssFreq"><option value="monthly">Le 1er du mois</option><option value="weekly">Chaque lundi</option><option value="daily">Chaque jour</option></select></label>
             <label class="field" for="ssHour">Heure<select id="ssHour"></select></label>
@@ -538,7 +538,7 @@ tr.versions td{background:var(--surface-2);font-size:13px}
 
       <!-- PLANIFIÉ -->
       <section class="view" data-view="schedule" hidden>
-        <div class="head"><h1>Rapports planifiés</h1><p>Adifa relit la source, refait l'analyse et produit le rapport à l'heure prévue, tant que la console est ouverte.</p></div>
+        <div class="head"><h1>Rapports planifiés</h1><p>Adifa’ relit la source, refait l'analyse et produit le rapport à l'heure prévue, tant que la console est ouverte.</p></div>
         <div class="card">
           <h2>Nouvelle planification</h2>
           <form class="form" id="schedForm" style="margin-top:12px">
@@ -611,7 +611,7 @@ tr.versions td{background:var(--surface-2);font-size:13px}
 
       <!-- RÉGLAGES -->
       <section class="view" data-view="settings" hidden>
-        <div class="head"><h1>Réglages</h1><p>Votre profil, le comportement d'Adifa, l'envoi des rapports par e-mail et l'état des services.</p></div>
+        <div class="head"><h1>Réglages</h1><p>Votre profil, le comportement d'Adifa’, l'envoi des rapports par e-mail et l'état des services.</p></div>
         <form id="settingsForm" style="display:grid;gap:16px">
           <div class="grid2">
             <div class="card"><h2>Profil</h2>
@@ -619,7 +619,7 @@ tr.versions td{background:var(--surface-2);font-size:13px}
                 <label class="field" for="stName">Nom<input type="text" id="stName" autocomplete="name"></label>
                 <label class="field" for="stOrg">Organisation<input type="text" id="stOrg"></label>
               </div></div>
-            <div class="card"><h2>Comportement d'Adifa</h2>
+            <div class="card"><h2>Comportement d'Adifa’</h2>
               <div class="form" style="margin-top:12px">
                 <label class="field" for="stLang">Langue des réponses<select id="stLang"><option>Français</option><option>English</option></select></label>
                 <label class="field" for="stDetail">Niveau de détail<select id="stDetail"><option value="simple">Simple, pour la direction</option><option value="detaille">Détaillé, pour les analystes</option></select></label>
@@ -640,7 +640,7 @@ tr.versions td{background:var(--surface-2);font-size:13px}
           <p class="sub">Facultatif. Importez le référentiel de votre organisation (ex. indicateurs MER PEPFAR) : une ligne par indicateur,
             avec au moins les colonnes <b>Code</b> et <b>Indicateur</b> ; <b>Type</b> (Nombre / Pourcentage) et <b>Calcul du total annuel</b> rendent les calculs exacts.
             Les tableaux de bord de l'espace calculent alors ces indicateurs, signalent ceux absents des données et marquent les tuiles « hors dictionnaire ».
-            Sans dictionnaire, Adifa applique les normes internationales du domaine.</p>
+            Sans dictionnaire, Adifa’ applique les normes internationales du domaine.</p>
           <div id="dictInfo" class="sub" style="margin-top:10px"></div>
           <div class="actions" style="margin-top:10px;justify-content:flex-start;gap:8px">
             <button class="btn primary sm" type="button" id="dictImport">Importer un dictionnaire</button>
@@ -694,10 +694,10 @@ tr.versions td{background:var(--surface-2);font-size:13px}
     </div>
   </main>
 
-  <aside class="chat" id="chat" aria-label="Discussion avec Adifa">
+  <aside class="chat" id="chat" aria-label="Discussion avec Adifa’">
     <header>
       <div class="av"><svg class="i" viewBox="0 0 24 24"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"/></svg></div>
-      <div><b>Adifa</b><small>Posez vos questions sur les données</small></div>
+      <div><b>Adifa’</b><small>Posez vos questions sur les données</small></div>
       <div class="hbtns"><button class="iconbtn" id="chatWide" aria-label="Agrandir la discussion" title="Agrandir"><svg class="i" viewBox="0 0 24 24"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg></button>
       <button class="iconbtn" id="chatClose" aria-label="Masquer la discussion" title="Masquer"><svg class="i" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button></div>
     </header>
@@ -904,7 +904,7 @@ async function openSource(path,name,size){
   const rec=fs.find(f=>f.recommandee)||ok[0],dim=f=>`${f.lignes_approx?'plus de ':''}${nf(f.lignes)} ligne${f.lignes>1?'s':''} × ${f.colonnes} colonne${f.colonnes>1?'s':''}`;
   const MAXC=6;  // croisement par l'architecte : 6 tables au plus ; l'empilement n'a pas cette limite
   importMsg(`<div class="card"><h2 style="margin:0">Ce classeur contient ${fs.length} feuilles</h2>
-    <p class="sub" style="margin:6px 0 4px">Cochez une ou plusieurs feuilles. Adifa recommande <b>${esc(rec.nom)}</b> (le plus grand tableau de données).</p>
+    <p class="sub" style="margin:6px 0 4px">Cochez une ou plusieurs feuilles. Adifa’ recommande <b>${esc(rec.nom)}</b> (le plus grand tableau de données).</p>
     <div class="actions" style="justify-content:flex-start;margin:6px 0 2px"><button class="btn ghost sm" id="sheetToggle">Tout cocher</button>
       ${groups.map((g,i)=>`<button class="btn ghost sm" data-group="${i}">Cocher les ${g.length} feuilles de même structure (${esc(g[0].nom)}…)</button>`).join('')}</div>
     <div role="group" aria-label="Feuilles à analyser">${fs.map((f,i)=>`<label class="issue" style="grid-template-columns:auto minmax(0,1fr);cursor:${f.vide?'default':'pointer'}">
@@ -991,12 +991,12 @@ async function autoRegister(path,name){
   await fetchRegistry();
   if(!$('[data-view="datasets"]').hidden)renderDatasets();
 }
-// Description du jeu de données dans le registre : titre, résumé, période, mots-clés (compréhension d'Adifa,
-// sans appel IA de plus) et changements de version (règles). Envoyée une fois la relecture d'Adifa terminée.
+// Description du jeu de données dans le registre : titre, résumé, période, mots-clés (compréhension d'Adifa’,
+// sans appel IA de plus) et changements de version (règles). Envoyée une fois la relecture d'Adifa’ terminée.
 async function maybeDescribe(){
   const g=state.reg;if(!g||g.described||g.path!==state.path)return;
   const hc=state.hclean?.for===state.clean?state.hclean:null;
-  if(!state.cleanTried||(state.clean&&hc?.status!=='done'))return;  // on attend le nettoyage puis Adifa (ou son échec)
+  if(!state.cleanTried||(state.clean&&hc?.status!=='done'))return;  // on attend le nettoyage puis Adifa’ (ou son échec)
   g.described=true;
   const r=await api('/api/registry/describe',{file_path:g.path,name:g.name,dataset_id:g.dataset_id,version_no:g.version_no,comprehension:hc?.comprehension||null});
   if(r.error){console.warn('Description : '+r.error);return}
@@ -1028,10 +1028,10 @@ function issuesOf(){
   if(state.hclean?.for===state.clean)(state.hclean.corrections||[]).forEach(c=>out.push({id:c.id,sev:'info',hermes:c,t:'✦ '+(c.titre||c.type),d:hermesCorrText(c)}));
   return out;
 }
-// Adifa relit les corrections des règles et en propose d'autres (recettes vérifiées par le moteur).
+// Adifa’ relit les corrections des règles et en propose d'autres (recettes vérifiées par le moteur).
 async function loadHermesClean(path){
   const cl=state.clean;if(!cl)return;
-  state.hclean={for:cl,status:'running',etape:'Adifa relit les corrections…'};if(state.step===1)renderVerify();
+  state.hclean={for:cl,status:'running',etape:'Adifa’ relit les corrections…'};if(state.step===1)renderVerify();
   const s=await api('/api/hermes/clean',{file_path:path});
   let r=s.error?s:null;
   for(let i=0;!r&&i<60;i++){
@@ -1041,9 +1041,9 @@ async function loadHermesClean(path){
     if(j.error)r=j;else if(j.status==='done')r=j.result;
   }
   if(state.clean!==cl)return;
-  r=r||{error:'Adifa met trop de temps à répondre.'};
+  r=r||{error:'Adifa’ met trop de temps à répondre.'};
   state.hclean={for:cl,status:'done',...r};
-  // Accord par défaut sur les corrections d'Adifa ; celles des règles qu'elle déconseille sont décochées
+  // Accord par défaut sur les corrections d'Adifa’ ; celles des règles qu'elle déconseille sont décochées
   (r.corrections||[]).forEach(c=>state.accept.add(c.id));
   (r.avis||[]).filter(a=>a.verdict==='deconseille').forEach(a=>state.accept.delete(a.id));
   maybeDescribe();
@@ -1052,13 +1052,13 @@ async function loadHermesClean(path){
   if(r.comprehension?.resume)say(`Voici ce que je comprends de **${state.name}** : ${r.comprehension.resume}`);
   if(r.ia&&(n||d))say(`J'ai relu les corrections : ${n?`**${n}** correction(s) supplémentaire(s) proposée(s)`:''}${n&&d?' et ':''}${d?`**${d}** correction(s) automatique(s) déconseillée(s), désactivée(s)`:''}. Vous gardez la main sur chacune.`);
 }
-// Compréhension du fichier par Adifa : résumé, grain, période, colonnes par rôle, pièges.
+// Compréhension du fichier par Adifa’ : résumé, grain, période, colonnes par rôle, pièges.
 const ROLE_FR={identifiant:'Identifiants',dimension:'Axes d\'analyse',periode:'Période',mesure_flux:'Mesures (flux, s\'additionnent)',
   mesure_stock:'Mesures (stock, à une date)',taux:'Taux',texte_libre:'Texte libre',autre:'Autres'};
 function understoodHtml(c){
   const by={};(c.colonnes||[]).forEach(x=>(by[x.role]=by[x.role]||[]).push(x));
   const roles=Object.keys(ROLE_FR).filter(r=>by[r]);
-  return `<span class="aibadge" style="display:inline-block;margin-bottom:6px">✦ Adifa</span><br>${md(c.resume)}`+
+  return `<span class="aibadge" style="display:inline-block;margin-bottom:6px">✦ Adifa’</span><br>${md(c.resume)}`+
     (c.grain?`<p style="margin:8px 0 0"><b>Une ligne :</b> ${esc(c.grain.replace(/^\s*une ligne\s*(=|:|représente|correspond à)\s*/i,''))}</p>`:'')+
     (c.periode?`<p style="margin:4px 0 0"><b>Période :</b> ${esc(c.periode)}</p>`:'')+
     (roles.length?`<div style="margin-top:8px;display:grid;gap:4px">${roles.map(r=>`<div><b>${ROLE_FR[r]} :</b> ${by[r].map(x=>`<code title="${esc(x.sens)}">${esc(x.nom)}</code>`).join(' ')}</div>`).join('')}</div>`:'')+
@@ -1108,16 +1108,16 @@ function renderVerify(){
     (ids.length?` Identifiant probable : <code>${esc(ids[0])}</code>.`:'')+(cor?` Relation la plus forte : <code>${esc(cor.a)}</code> et <code>${esc(cor.b)}</code>.`:'');
   const hu=state.hclean?.for===state.clean?state.hclean:null;
   if(hu?.comprehension?.resume)$('#understood').innerHTML=understoodHtml(hu.comprehension);
-  else if(hu?.status==='running')$('#understood').innerHTML+=`<span class="aibadge" style="display:block;margin-top:8px"><span class="spin"></span> Adifa étudie le fichier…</span>`;
+  else if(hu?.status==='running')$('#understood').innerHTML+=`<span class="aibadge" style="display:block;margin-top:8px"><span class="spin"></span> Adifa’ étudie le fichier…</span>`;
   const items=issuesOf();
   $('#issues').innerHTML=!state.clean?`<div class="alert info">Le module de nettoyage n'est pas disponible. Vous pouvez analyser le fichier tel quel.</div>`
-    :items.length?items.map(x=>{const on=isOn(x),det=corrDetail(x);return `<div class="issue toggle ${on?'':'off'}"><span class="sev ${x.sev==='bad'?'':x.sev}" style="${x.sev==='bad'?'background:var(--red)':''}"></span><div><b>${esc(x.t)}</b><span>${esc(x.d)}</span>${(av=>av?`<span style="display:block;margin-top:4px;color:${av.verdict==='deconseille'?'var(--amber)':'var(--brand)'}">✦ Adifa : ${av.verdict==='deconseille'?'déconseillé':'recommandé'}${av.raison?' — '+esc(av.raison):''}</span>`:'')(hermesAvis(x))}${det?`<details class="corr"><summary>Voir le détail</summary>${det}</details>`:''}</div>
+    :items.length?items.map(x=>{const on=isOn(x),det=corrDetail(x);return `<div class="issue toggle ${on?'':'off'}"><span class="sev ${x.sev==='bad'?'':x.sev}" style="${x.sev==='bad'?'background:var(--red)':''}"></span><div><b>${esc(x.t)}</b><span>${esc(x.d)}</span>${(av=>av?`<span style="display:block;margin-top:4px;color:${av.verdict==='deconseille'?'var(--amber)':'var(--brand)'}">✦ Adifa’ : ${av.verdict==='deconseille'?'déconseillé':'recommandé'}${av.raison?' — '+esc(av.raison):''}</span>`:'')(hermesAvis(x))}${det?`<details class="corr"><summary>Voir le détail</summary>${det}</details>`:''}</div>
       <button class="switch" role="switch" aria-checked="${on}" aria-label="Appliquer : ${esc(x.t)}" data-acc="${esc(x.id)}"></button></div>`}).join('')
     :`<div class="empty">${IC.check} Aucune correction nécessaire. Les données sont propres.</div>`;
   const n=items.filter(isOn).length;
   const hc=state.hclean?.for===state.clean?state.hclean:null;
-  $('#verifyLead').innerHTML=(!state.clean?'Adifa a profilé le fichier.':items.length?`${items.length} correction(s) proposée(s). Rien n'est appliqué sans votre accord.`:'Le fichier est déjà propre.')+
-    (hc?.status==='running'?` <span class="aibadge"><span class="spin"></span> ${esc(hc.etape||'Adifa relit les corrections…')}</span>`:hc?.ia?' <span class="aibadge">✦ Relu par Adifa</span>':hc?.status==='done'&&hc.raison?` <span class="aibadge">${esc(hc.raison)}</span>`:'');
+  $('#verifyLead').innerHTML=(!state.clean?'Adifa’ a profilé le fichier.':items.length?`${items.length} correction(s) proposée(s). Rien n'est appliqué sans votre accord.`:'Le fichier est déjà propre.')+
+    (hc?.status==='running'?` <span class="aibadge"><span class="spin"></span> ${esc(hc.etape||'Adifa’ relit les corrections…')}</span>`:hc?.ia?' <span class="aibadge">✦ Relu par Adifa’</span>':hc?.status==='done'&&hc.raison?` <span class="aibadge">${esc(hc.raison)}</span>`:'');
   $('#toggleAll').hidden=items.length<2;$('#toggleAll').textContent=n===items.length?'Tout désactiver':'Tout activer';
   $('#applyClean').hidden=!items.length;
   $('#applyClean').disabled=!n;
@@ -1148,7 +1148,7 @@ function renderWb(){
   const wb=state.wb,card=$('#wbCard');card.hidden=!wb;if(!wb)return;
   const r=wb.res,out=$('#wbOut');
   $('#wbBadge').textContent=r&&!r.error?(r.ia?'✦ Analyse IA':'Analyse par règles'):'';
-  if(!r){out.innerHTML=`<p class="sub"><span class="spin"></span> ${esc(wb.etape||'Adifa étudie les feuilles')}… (environ 1 min)</p>`;return}
+  if(!r){out.innerHTML=`<p class="sub"><span class="spin"></span> ${esc(wb.etape||'Adifa’ étudie les feuilles')}… (environ 1 min)</p>`;return}
   if(r.error){out.innerHTML=`<div class="alert">${esc(r.error)}</div>`;return}
   const c=r.comprehension||{},ROLE={'données brutes':'ok','référentiel':'type','paramètres':'type','synthèse':'warn','tableau de bord':'warn'};
   out.innerHTML=(!r.ia?`<div class="alert info" style="margin-top:8px">${r.ia_disponible===false?'Analyse IA non configurée':'L\'IA n\'a pas répondu à temps'} : lecture par règles.</div>`:'')+
@@ -1209,7 +1209,7 @@ function renderArch(){
       :`<span class="sub">Aucune structure n'a pu être exécutée${r.spec_error?` (erreur : ${esc(r.spec_error)})`:''}. Relancez l'analyse ; si le problème persiste, vérifiez que le fichier contient bien un en-tête de colonnes.</span> <button class="btn ghost sm" id="archRetry">Relancer</button>`)+`</div>`;
 }
 $('#archRun').onclick=async()=>{
-  const b=$('#archRun');b.disabled=true;b.innerHTML='<span class="spin"></span> Adifa étudie le fichier (environ 1 min)…';
+  const b=$('#archRun');b.disabled=true;b.innerHTML='<span class="spin"></span> Adifa’ étudie le fichier (environ 1 min)…';
   const path=state.path,s=await api('/api/architect',{file_paths:archPaths()});
   let r=s.error?s:null;
   for(let i=0;!r&&i<100;i++){  // tâche de fond interrogée toutes les 3 s ; 5 min couvrent les 2 essais IA (2 min + 1 min 30)
@@ -1336,13 +1336,13 @@ function ruleInsights(a){
 }
 function renderInsights(list,ai){
   $('#aiBadge').innerHTML=ai?`${IC.spark} Rédigé par l'IA à partir des chiffres de l'analyse`:'';
-  $('#insights').innerHTML=list.length?list.map(x=>`<div class="ins"><span class="tag ${x.severity}" style="justify-self:start">${esc(x.tag)}</span><p>${md(x.text)}</p><span class="why">${md(x.detail)}</span>${x.question?`<button data-ask="${esc(x.question)}">Demander à Adifa →</button>`:''}</div>`).join('')
-    :'<div class="ins"><p>Aucun point saillant détecté automatiquement. Posez une question à Adifa pour explorer.</p></div>';
+  $('#insights').innerHTML=list.length?list.map(x=>`<div class="ins"><span class="tag ${x.severity}" style="justify-self:start">${esc(x.tag)}</span><p>${md(x.text)}</p><span class="why">${md(x.detail)}</span>${x.question?`<button data-ask="${esc(x.question)}">Demander à Adifa’ →</button>`:''}</div>`).join('')
+    :'<div class="ins"><p>Aucun point saillant détecté automatiquement. Posez une question à Adifa’ pour explorer.</p></div>';
 }
-// Graphiques choisis et commentés par Adifa, pour l'analyse affichée (tâche de fond, ~1 min).
+// Graphiques choisis et commentés par Adifa’, pour l'analyse affichée (tâche de fond, ~1 min).
 async function loadHermesCharts(){
   const a=state.analysis;if(!a)return;
-  state.hermes={for:a,status:'running',etape:'Adifa choisit les graphiques…'};renderHermesBar();
+  state.hermes={for:a,status:'running',etape:'Adifa’ choisit les graphiques…'};renderHermesBar();
   const comp=state.hclean?.for===state.clean?state.hclean.comprehension:null;  // rôles des colonnes (stock, flux, taux…)
   const s=await api('/api/hermes/charts',{file_path:currentDataPath(),...(comp&&!state.structView?{comprehension:comp}:{})});
   let r=s.error?s:null;
@@ -1353,20 +1353,20 @@ async function loadHermesCharts(){
     if(j.error)r=j;else if(j.status==='done')r=j.result;else if(j.etape){state.hermes.etape=j.etape;renderHermesBar()}
   }
   if(state.analysis!==a)return;
-  r=r||{error:'Adifa met trop de temps à répondre.'};
+  r=r||{error:'Adifa’ met trop de temps à répondre.'};
   state.hermes={for:a,status:'done',...r};
   if(r.ia&&(r.charts||[]).length&&state.step===2)drawAnalyzeCharts();else renderHermesBar();
 }
 function renderHermesBar(){
   const h=state.hermes,a=state.analysis,b=$('#hermesBadge'),syn=$('#hermesSynth');if(!b)return;
   const ok=h&&h.for===a&&h.status==='done'&&h.ia&&(h.charts||[]).length;
-  b.innerHTML=!h||h.for!==a?'':h.status==='running'?`<span class="spin"></span> ${esc(h.etape||'Adifa prépare ses graphiques…')} Les graphiques ci-dessous seront remplacés.`
-    :ok?(h.source==='hermes'?'✦ Choisis et commentés par Adifa':'✦ Commentés par Adifa'):'';
+  b.innerHTML=!h||h.for!==a?'':h.status==='running'?`<span class="spin"></span> ${esc(h.etape||'Adifa’ prépare ses graphiques…')} Les graphiques ci-dessous seront remplacés.`
+    :ok?(h.source==='hermes'?'✦ Choisis et commentés par Adifa’':'✦ Commentés par Adifa’'):'';
   syn.hidden=!(ok&&h.synthese);syn.innerHTML=ok&&h.synthese?`<b>Synthèse :</b> ${md(h.synthese)}`:'';
 }
 async function loadAiInsights(){
   const a=state.analysis,key=a;
-  $('#aiBadge').innerHTML='<span class="spin"></span> Adifa rédige les points clés…';
+  $('#aiBadge').innerHTML='<span class="spin"></span> Adifa’ rédige les points clés…';
   const d=await api('/api/insights',{});
   if(state.analysis!==key)return;
   if(Array.isArray(d.insights)&&d.insights.length){state.ai=d.insights;renderInsights(d.insights,true)}
@@ -1450,7 +1450,7 @@ function drawAnalyzeCharts(){
   const base=baseCharts(a);
   const shown=state.showAll?[...base,...(smart.length?perVar:perVar.slice(6))]:base;
   const wide=c=>c.kind==='trend'||(c.kind==='ranking'&&c.labels.length>8);
-  $('#charts').innerHTML=shown.length?shown.map((c,i)=>`<div class="card${wide(c)?' wide':''}"><h2 style="font-size:14.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(c.title)}">${esc(c.title)}</h2>${c.subtitle?`<p class="sub">${esc(c.subtitle)}</p>`:''}<div class="cbox" style="${c.kind==='ranking'?`height:${Math.max(220,c.labels.length*30+50)}px`:''}"><canvas id="ac${i}" role="img" aria-label="${esc(c.title)}"></canvas></div>${c.lecture||c.lecture_auto?`<div class="alert info" style="margin-top:10px;color:var(--fg)"><b>${c.lecture?'✦ Lecture d’Adifa':'Lecture'} :</b> ${md(c.lecture||c.lecture_auto)}</div>`:''}</div>`).join('')
+  $('#charts').innerHTML=shown.length?shown.map((c,i)=>`<div class="card${wide(c)?' wide':''}"><h2 style="font-size:14.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(c.title)}">${esc(c.title)}</h2>${c.subtitle?`<p class="sub">${esc(c.subtitle)}</p>`:''}<div class="cbox" style="${c.kind==='ranking'?`height:${Math.max(220,c.labels.length*30+50)}px`:''}"><canvas id="ac${i}" role="img" aria-label="${esc(c.title)}"></canvas></div>${c.lecture||c.lecture_auto?`<div class="alert info" style="margin-top:10px;color:var(--fg)"><b>${c.lecture?'✦ Lecture d’Adifa’':'Lecture'} :</b> ${md(c.lecture||c.lecture_auto)}</div>`:''}</div>`).join('')
     :'<div class="card empty">Aucun graphique pour ce fichier.</div>';
   shown.forEach((c,i)=>{const cv=document.getElementById('ac'+i);if(cv){const ch=drawChart(cv,c);if(ch)state.charts.push(ch)}});
   renderHermesBar();
@@ -1512,7 +1512,7 @@ $('#dbRegen').onclick=()=>loadDashboard(true);
   m.addEventListener('keydown',e=>{if(e.key==='Escape'){set(false);b.focus()}});
   $('#dbActPanel').addEventListener('click',e=>{if(e.target.closest('button.act')){set(false);if(document.activeElement)document.activeElement.blur()}});
 })();
-// ---- Correspondance des indicateurs : Adifa propose une formule par indicateur du dictionnaire, l'utilisateur valide
+// ---- Correspondance des indicateurs : Adifa’ propose une formule par indicateur du dictionnaire, l'utilisateur valide
 const STAT={propose:'Proposé',valide:'Validé',ignore:'Ignoré'},SRC={regles:'règles',ia:'IA',utilisateur:'vous'};
 const MODES={comptage:'Nombre de lignes où…',taux:'Taux (%) : lignes où… / lignes de référence',somme:'Somme d’une colonne',moyenne:'Moyenne d’une colonne',mediane:'Médiane d’une colonne',rapport:'Rapport (%) de deux sommes'};
 function corrVal(i){if(i.valeur==null)return '—';const p=(i.formule||{}).mode==='taux'||(i.formule||{}).mode==='rapport';return nf(Math.round(i.valeur*10)/10)+(p?' %':'')}
@@ -1526,7 +1526,7 @@ function renderCorr(){const C=state.dash?.corr,el=$('#corrPanel');if(!C||!(C.ind
       ${nv0?`<span class="tag" style="margin-left:6px">${nv0} à vérifier</span>`:''}</div>
       <button class="btn ghost sm" id="corrOpen" aria-expanded="false" aria-controls="corrPanel">${canEdit?'Vérifier / modifier':'Voir les formules'}</button></div>`;return}
   el.innerHTML=`<div class="card-h" style="display:flex;gap:10px;align-items:flex-start;flex-wrap:wrap"><div style="flex:1;min-width:240px"><h2>Correspondance des indicateurs</h2>
-      <p class="sub">Adifa a relié ${C.indicateurs.length} indicateur${C.indicateurs.length>1?'s':''} de votre dictionnaire à vos colonnes (${nv} validé${nv>1?'s':''}).
+      <p class="sub">Adifa’ a relié ${C.indicateurs.length} indicateur${C.indicateurs.length>1?'s':''} de votre dictionnaire à vos colonnes (${nv} validé${nv>1?'s':''}).
       Vérifiez chaque formule : une fois enregistrées, elles sont réutilisées pour ce type de fichier, sans IA.</p></div>
       <div style="display:flex;gap:8px;flex-wrap:wrap">${canEdit?`<button class="btn ghost sm" id="corrAll" title="Valide seulement les propositions sûres (confiance d'au moins 90 %, sans erreur) ; les autres restent à vérifier">Valider les propositions sûres</button><button class="btn ghost sm" id="corrRe" title="Oublier ces propositions et en demander de nouvelles (règles + IA)">Reproposer</button>`:''}<button class="btn ghost sm" id="corrClose" aria-expanded="true">Fermer</button></div></div>
     <div id="corrList">${C.indicateurs.map((i,k)=>`<div class="corr-row" data-k="${k}">
@@ -1964,7 +1964,7 @@ function say(text){return addMsg('agent',text)}
 let chatDotReady=false;addEventListener('load',()=>setTimeout(()=>{chatDotReady=true},1500));  // pas de point pour l'accueil
 function addMsg(role,text,table,charts){
   const m=document.createElement('div');m.className='m '+role;
-  // Réponse arrivée chat masqué : point sur le bouton « Adifa »
+  // Réponse arrivée chat masqué : point sur le bouton « Adifa’ »
   if(role!=='user'&&chatDotReady&&!$('#chat').classList.contains('open')&&($('.app').classList.contains('nochat')||innerWidth<=1240)&&!$('#chatOpen .dot'))
     $('#chatOpen').insertAdjacentHTML('beforeend','<span class="dot" aria-label="Nouveau message"></span>');
   if(role==='user')m.textContent=text;
@@ -2004,7 +2004,7 @@ function screenContext(){
 }
 // Mémoire courte de la conversation, envoyée avec chaque question (« et pour Buyo ? »).
 const chatHistory=[];
-const GREETING='Bonjour, je suis **Adifa**. Déposez un fichier Excel, CSV ou JSON, ou connectez une base : je vérifie sa qualité, je l\'analyse et je prépare vos rapports. Ensuite, posez-moi vos questions en français.';
+const GREETING='Bonjour, je suis **Adifa’**. Déposez un fichier Excel, CSV ou JSON, ou connectez une base : je vérifie sa qualité, je l\'analyse et je prépare vos rapports. Ensuite, posez-moi vos questions en français.';
 let chatSession=0;  // change à chaque nouvelle conversation : une réponse en retard de l'ancienne est ignorée
 // Nouveau fichier (ou nouvelle analyse) : messages, mémoire et suggestions repartent de zéro.
 function resetChat(greeting){
@@ -2014,7 +2014,7 @@ function resetChat(greeting){
 }
 async function ask(q){
   openChat();addMsg('user',q);
-  const w=addMsg('agent','');const setStep=t=>{w.innerHTML=`<span class="spin"></span> ${esc(t||'Adifa analyse…')}`};setStep();
+  const w=addMsg('agent','');const setStep=t=>{w.innerHTML=`<span class="spin"></span> ${esc(t||'Adifa’ analyse…')}`};setStep();
   // L'agent enchaîne plusieurs calculs : tâche de fond dont on affiche l'étape en cours.
   const session=chatSession;
   const s=await api('/api/chat/start',{question:q,file_path:currentDataPath()||undefined,contexte:screenContext(),

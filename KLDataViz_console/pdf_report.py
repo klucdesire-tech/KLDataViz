@@ -826,7 +826,7 @@ def build(result, path):
         since = f"{since[8:10]}/{since[5:7]}/{since[:4]}" if len(since) == 10 else ""
         story.append(Paragraph(("Depuis le dernier envoi" + (f" ({since})" if since else "")) if ev.get("depuis")
                                else "Premier envoi de ce rapport", st["h2"]))
-        story.append(callout(("<b>Adifa</b> — " if ev.get("ia") else "") + md(ev.get("resume", "")), st))
+        story.append(callout(("<b>Adifa’</b> — " if ev.get("ia") else "") + md(ev.get("resume", "")), st))
         story.append(Spacer(1, 4))
         if ev.get("alertes"):
             story.append(callout("<b>Points d'attention</b><br/>" + "<br/>".join("• " + md(a) for a in ev["alertes"]), st, "warn"))
@@ -872,10 +872,10 @@ def build(result, path):
                              f"({', '.join(esc(t) for t in totals)}). Utilisez « Proposer une structure » dans KLDataViz pour les séparer automatiquement.", st, "warn"))
         story.append(Spacer(1, 4))
     if r.get("_hermes_synthese"):
-        story.append(callout(f"<b>Synthèse d'Adifa</b> — {md(r['_hermes_synthese'])}", st))
+        story.append(callout(f"<b>Synthèse d'Adifa’</b> — {md(r['_hermes_synthese'])}", st))
         story.append(Spacer(1, 4))
     if insights:
-        story.append(Paragraph("Constats de l'IA (Adifa)", st["h2"]))
+        story.append(Paragraph("Constats de l'IA (Adifa’)", st["h2"]))
         for it in insights:
             lvl = it.get("severity") if it.get("severity") in ("warn", "bad") else "info"
             story.append(KeepTogether([callout(f"<b>{esc(it.get('tag', 'Constat'))}</b> — {md(it.get('text'))}"
@@ -937,7 +937,7 @@ def build(result, path):
             block.append(Spacer(1, 3))
             block.append(fig)
             if c.get("lecture"):
-                block.append(Paragraph(f"<b>Lecture d'Adifa :</b> {md(c['lecture'])}", st["interp"]))
+                block.append(Paragraph(f"<b>Lecture d'Adifa’ :</b> {md(c['lecture'])}", st["interp"]))
             else:
                 txt = interpret_chart(c)
                 if txt:
