@@ -518,7 +518,7 @@ def _infer_kind(c):
 
 def _with_rule_readings(charts):
     """Lecture chiffrée calculée par règles pour chaque graphique automatique (la même que dans le PDF) :
-    affichée tout de suite, avant que Hermes ne rédige la sienne."""
+    affichée tout de suite, avant qu'Adifa ne rédige la sienne."""
     import html as _html
     try:
         import pdf_report
@@ -1014,7 +1014,7 @@ def _cell_safe(v):
 def clean(file_path, skip=None, hermes=None):
     """Agent 2 — modélisation : nettoie, met en forme et sauvegarde un fichier.
     `skip` : corrections refusées par l'utilisateur (voir modeling.clean_dataframe).
-    `hermes` : corrections de Hermes acceptées (hermes_clean), appliquées AVANT les règles."""
+    `hermes` : corrections d'Adifa acceptées (hermes_clean), appliquées AVANT les règles."""
     df, err = _read_df(file_path)
     if err:
         return {"error": err}
@@ -1025,7 +1025,7 @@ def clean(file_path, skip=None, hermes=None):
         h_applied = [c for c in hermes if isinstance(c, dict)][:20]
         df, h_details, keep_text = HCL.apply(df, h_applied)
         skip = list(skip or []) + [f"type:{c}" for c in keep_text]  # codes gardés en texte
-        # Valeurs que Hermes vient de vider (vides déguisés, valeurs impossibles) : ne pas les recompléter
+        # Valeurs qu'Adifa vient de vider (vides déguisés, valeurs impossibles) : ne pas les recompléter
         skip += [f"imput:{c.get('colonne')}" for c in h_applied
                  if c.get("type") == "plage" or (c.get("type") == "remplacer" and c.get("par") is None)]
     df_clean, rapport = clean_dataframe(df, skip=skip) if skip else clean_dataframe(df)
@@ -1916,7 +1916,7 @@ def llm_chat(question, ui_context=None, history=None, progress=None, linked=None
                                          "exemples": [str(v) for v in ldf[c].dropna().head(3).tolist()]}
                                         for c in ldf.columns[:80]]})
     system = (
-        "Tu es Hermes, l'analyste de données de KLDataViz. Réponds en français, de façon fiable.\n"
+        "Tu es Adifa, l'analyste de données de KLDataViz. Réponds en français, de façon fiable.\n"
         + studio.chat_preamble() +
         "Sauf mention contraire, la question porte sur le fichier en cours d'analyse (premier dataset de la liste).\n"
         "Datasets disponibles (nom, nombre de lignes, colonnes avec type et exemples) :\n"
@@ -1952,7 +1952,7 @@ def llm_chat(question, ui_context=None, history=None, progress=None, linked=None
         return paths
 
     etapes, last_table, last_chart = [], None, None
-    progress("Hermes réfléchit à la question…")
+    progress("Adifa réfléchit à la question…")
     for _tour in range(CHAT_MAX_CALCULS + 2):
         content = _chat_llm(messages)
         if not content:
@@ -1988,7 +1988,7 @@ def llm_chat(question, ui_context=None, history=None, progress=None, linked=None
                      "Fais un autre calcul si c'est nécessaire, sinon conclus avec action \"reponse\".")
             messages += [{"role": "assistant", "content": content},
                          {"role": "user", "content": f"Résultat réel du calcul {n} :\n{feedback}\n\n{suite}"}]
-            progress("Hermes lit le résultat…")
+            progress("Adifa lit le résultat…")
             continue
         answer = str(data.get("answer") or data.get("reponse") or "").strip()
         if action == "calcul" and not answer:  # limite atteinte mais l'IA voulait encore calculer
@@ -2126,7 +2126,7 @@ def sheets_extract(file_path, sheets, stack=False):
     return {"fichiers": out}
 
 
-SYSTEM_CLASSEUR = """Tu es Hermes, analyste de données. On te donne plusieurs feuilles d'un même classeur Excel avec
+SYSTEM_CLASSEUR = """Tu es Adifa, analyste de données. On te donne plusieurs feuilles d'un même classeur Excel avec
 des FAITS MESURÉS : le profil de chaque feuille, les formules qui relient les feuilles (qui calcule à partir de qui,
 avec quelles fonctions), les valeurs communes entre colonnes (jointures possibles) et les feuilles de même structure.
 Explique la logique du classeur puis propose des analyses. Appuie-toi uniquement sur ces faits ; un lien supposé
@@ -2225,7 +2225,7 @@ def workbook_understand(file_path, sheets, progress=lambda _t: None):
              "colonnes_communes": rels[:15], "feuilles_meme_structure": groups}
     result, ia, cfg = None, False, _llm_config()
     if cfg:
-        progress("Hermes interprète la logique du classeur")
+        progress("Adifa interprète la logique du classeur")
         model = os.environ.get("KLDV_ARCHITECT_MODEL") or cfg.get("architect_model") or "deepseek-flash"
         msgs = [{"role": "system", "content": SYSTEM_CLASSEUR},
                 {"role": "user", "content": "Classeur : " + os.path.basename(file_path) + "\nFAITS :\n"
@@ -2374,7 +2374,7 @@ def _rule_items(rapport):
 
 
 def hermes_clean(file_path, progress=lambda _t: None):
-    """Avis de Hermes sur les corrections des règles et corrections supplémentaires vérifiées."""
+    """Avis d'Adifa sur les corrections des règles et corrections supplémentaires vérifiées."""
     import hermes_clean as HCL
     df, err = _read_df(file_path)
     if err:
@@ -2394,7 +2394,7 @@ def _registry_meta_dir():
 
 
 def schedule_commentary(job, result):
-    """Rapport planifié : ce qui a changé depuis l'envoi précédent, rédigé par Hermes (règles sans IA ou hors quota)."""
+    """Rapport planifié : ce qui a changé depuis l'envoi précédent, rédigé par Adifa (règles sans IA ou hors quota)."""
     import hermes_report as HR
     cfg = _llm_config()
     llm = None
@@ -2411,7 +2411,7 @@ def schedule_commentary(job, result):
 
 
 def hermes_charts(file_path, progress=lambda _t: None, comprehension=None):
-    """Graphiques choisis et commentés par Hermes pour le fichier analysé (repli : graphiques automatiques)."""
+    """Graphiques choisis et commentés par Adifa pour le fichier analysé (repli : graphiques automatiques)."""
     import hermes_charts as HC
     df, err = _read_df(file_path)
     if err:

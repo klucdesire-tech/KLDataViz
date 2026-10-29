@@ -17,7 +17,7 @@ from typing import Any
 from .. import artifacts, config
 from .quality import _load_dataset
 
-SYSTEM = """Tu es Hermes, analyste de données senior (santé publique, BI).
+SYSTEM = """Tu es Adifa, analyste de données senior (santé publique, BI).
 On te donne des RÉSULTATS MESURÉS (statistiques, anomalies, indicateurs calculés sur les données).
 Rédige une interprétation objective en français, en 4 sections distinctes et titrées :
 - FAITS : uniquement des chiffres mesurés, sans jugement.

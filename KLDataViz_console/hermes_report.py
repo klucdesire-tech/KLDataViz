@@ -5,7 +5,7 @@
    graphique) dans un petit fichier JSON par planification ;
 2. `compare` calcule, par règles, les écarts avec l'instantané précédent (dernière valeur d'une évolution,
    changement de tête d'un classement, plus fortes hausses et baisses, moyennes qui bougent) ;
-3. `comment` demande à Hermes de rédiger un résumé, les évolutions et les alertes à partir de ces SEULS écarts ;
+3. `comment` demande à Adifa de rédiger un résumé, les évolutions et les alertes à partir de ces SEULS écarts ;
    sans IA (ou si elle échoue), un résumé par règles est produit.
 Le commentaire est repris en tête du rapport PDF (`_evolution`) et dans le corps de l'e-mail.
 """
@@ -137,7 +137,7 @@ def rule_comment(prev, cur, diffs):
 
 
 SYSTEM = (
-    "Tu es Hermes, analyste de données. Un rapport est envoyé automatiquement à intervalles réguliers. On te "
+    "Tu es Adifa, analyste de données. Un rapport est envoyé automatiquement à intervalles réguliers. On te "
     "donne les chiffres clés de l'envoi précédent, ceux de cet envoi et la liste des écarts calculés. Rédige "
     "pour un décideur non technique : un résumé de 2 phrases, les évolutions les plus importantes (au plus 6, "
     "une phrase chacune avec ses chiffres) et les alertes (baisse marquée, hausse anormale, complétude ou "
@@ -186,7 +186,7 @@ def email_text(job_name, result, ev):
     lines = ["Bonjour,", "", f"Voici le rapport « {job_name} » ({_nf(result.get('rows'), 0)} lignes, "
              f"complétude {_nf(result.get('completeness_pct'))} %)."]
     if ev:
-        lines += ["", ("Ce qu'il faut retenir (Hermes) :" if ev.get("ia") else "Ce qu'il faut retenir :"), ev.get("resume", "")]
+        lines += ["", ("Ce qu'il faut retenir (Adifa) :" if ev.get("ia") else "Ce qu'il faut retenir :"), ev.get("resume", "")]
         if ev.get("alertes"):
             lines += ["", "Points d'attention :"] + [f"  • {a}" for a in ev["alertes"]]
         if ev.get("evolutions"):

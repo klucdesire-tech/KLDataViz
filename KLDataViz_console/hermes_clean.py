@@ -1,4 +1,4 @@
-"""Hermes relit les corrections proposées par les règles et en propose de plus fines.
+"""Adifa relit les corrections proposées par les règles et en propose de plus fines.
 
 Un seul appel à l'IA, sur un profil du fichier (jamais les lignes complètes) :
 - `avis` : pour chaque correction des règles (doublons, types, imputations…), « recommande » ou « deconseille »
@@ -38,7 +38,7 @@ def _col(df, name):
 
 
 def profile(df, rule_items, file_name):
-    """Ce que Hermes voit : par colonne, valeurs fréquentes, variantes proches, valeurs suspectes, plages."""
+    """Ce qu'Adifa voit : par colonne, valeurs fréquentes, variantes proches, valeurs suspectes, plages."""
     cols = []
     for c in df.columns:
         s = df[c]
@@ -79,7 +79,7 @@ def _f(x):
 
 
 SYSTEM = (
-    "Tu es Hermes, data manager expérimenté (données sanitaires et de gestion). On te donne le profil d'un "
+    "Tu es Adifa, data manager expérimentée (données sanitaires et de gestion). On te donne le profil d'un "
     "fichier et la liste des corrections automatiques proposées par des règles.\n"
     "0. Explique ce que contient le fichier à un utilisateur non technique : sujet, ce que représente UNE ligne "
     "(grain), période couverte si elle se voit, rôle de chaque colonne (identifiant, dimension, periode, "
@@ -244,13 +244,13 @@ def apply(df, corrections):
 def run(df, rule_items, file_name, llm, parse, progress=lambda _t: None):
     if llm is None:
         return {"ia": False, "avis": [], "corrections": [], "raison": "IA non configurée"}
-    progress("Hermes étudie le fichier et relit les corrections…")
+    progress("Adifa étudie le fichier et relit les corrections…")
     prof = profile(df, rule_items, file_name)
     content = llm([{"role": "system", "content": SYSTEM.format(n=MAX_CORR)},
                    {"role": "user", "content": json.dumps(prof, ensure_ascii=False, default=str)}], 12000)
     data = parse(content)
     if not isinstance(data, dict):  # pas de réponse exploitable : on le dit, les règles restent seules
-        return {"ia": False, "avis": [], "corrections": [], "raison": "Hermes n'a pas répondu à temps."}
+        return {"ia": False, "avis": [], "corrections": [], "raison": "Adifa n'a pas répondu à temps."}
     known = {str(it.get("id")) for it in rule_items}
     avis = []
     for a in data.get("avis") or []:
@@ -269,7 +269,7 @@ def _txt(v, n):
 
 
 def understanding(df, comp):
-    """Compréhension du fichier par Hermes, limitée aux colonnes qui existent vraiment."""
+    """Compréhension du fichier par Adifa, limitée aux colonnes qui existent vraiment."""
     if not isinstance(comp, dict):
         return None
     cols = []
