@@ -201,10 +201,21 @@ def _host_is(url_or_parsed, *hosts):
 
 
 def normalize_source_url(url):
-    """Transforme un lien de partage (Google Sheets, Google Drive) en lien de téléchargement direct."""
+    """Transforme un lien de partage (Google Sheets, Google Drive, OneDrive, SharePoint) en lien de téléchargement direct."""
+    import base64
     import re
-    from urllib.parse import urlparse, parse_qs
+    from urllib.parse import urlparse, parse_qs, urlunparse
     u = urlparse(url)
+    if _host_is(u, "sharepoint.com"):  # OneDrive professionnel / SharePoint : le lien de partage télécharge avec download=1
+        params = [x for x in u.query.split("&") if x and not x.lower().startswith("download=")]
+        if "/_layouts/15/download.aspx" in u.path.lower():
+            return url
+        return urlunparse(u._replace(query="&".join(params + ["download=1"]), fragment=""))
+    if _host_is(u, "1drv.ms", "onedrive.live.com"):  # OneDrive personnel : API de partage, qui renvoie le fichier lui-même
+        if _host_is(u, "onedrive.live.com") and u.path.lower() in ("/download", "/download.aspx"):
+            return url
+        jeton = base64.urlsafe_b64encode(url.encode("utf-8")).decode("ascii").rstrip("=")
+        return f"https://api.onedrive.com/v1.0/shares/u!{jeton}/root/content"
     if _host_is(u, "docs.google.com") and "/spreadsheets/d/" in u.path:
         m = re.search(r"/spreadsheets/d/([^/]+)", u.path)
         if m and m.group(1) != "e":  # /d/e/... = lien « publié sur le web », déjà téléchargeable
@@ -218,6 +229,11 @@ def normalize_source_url(url):
     return url
 
 
+ONEDRIVE_PARTAGE = ("OneDrive refuse l'accès à ce fichier. Dans OneDrive, cliquez sur Partager → « Toute personne disposant "
+                    "du lien » (affichage), copiez ce lien et réessayez. Un lien réservé à votre organisation ne peut pas "
+                    "être lu par KLDataViz.")
+
+
 def source_label(file_path):
     """Nom lisible et sans caractère interdit pour une source (fichier ou URL)."""
     import re
@@ -227,6 +243,11 @@ def source_label(file_path):
         if _host_is(u, "docs.google.com") and "/spreadsheets/" in u.path:
             m = re.search(r"/d/([^/]+)", u.path)
             name = "google_sheet_" + (m.group(1)[:8] if m else "")
+        elif _host_is(u, "1drv.ms", "onedrive.live.com", "onedrive.com", "sharepoint.com"):
+            # Un lien de partage n'a pas de nom de fichier lisible (« s!AbC… », « content ») : nom stable par lien,
+            # pour que deux fichiers OneDrive différents ne deviennent pas le même jeu de données.
+            import hashlib  # noqa: PLC0415
+            name = "onedrive_" + hashlib.sha1(file_path.encode("utf-8"), usedforsecurity=False).hexdigest()[:8]
         else:
             name = os.path.splitext(os.path.basename(u.path))[0] or u.netloc
     else:
@@ -306,12 +327,16 @@ def _read_df_raw(file_path, sheet=None):
             if _host_is(url, "google.com") and getattr(e, "code", None) in (401, 403, 404):
                 return None, ("Google refuse l'accès à cette feuille. Vérifiez le lien, puis dans Google Sheets "
                               "cliquez sur Partager → « Tous les utilisateurs disposant du lien » (Lecteur).")
+            if _host_is(url, "sharepoint.com", "onedrive.com", "onedrive.live.com", "1drv.ms") and getattr(e, "code", None) in (401, 403, 404, 500):
+                return None, ONEDRIVE_PARTAGE
             return None, f"Téléchargement impossible : {e}"
         if "text/html" in ctype or data[:300].lstrip().lower().startswith((b"<!doctype html", b"<html")):
             if _host_is(url, "google.com"):
                 return None, ("Google renvoie une page de connexion au lieu des données. Dans Google Sheets, "
                               "cliquez sur Partager puis « Tous les utilisateurs disposant du lien » (Lecteur), "
                               "et réessayez avec le même lien.")
+            if _host_is(url, "sharepoint.com", "onedrive.com", "onedrive.live.com", "1drv.ms"):
+                return None, ONEDRIVE_PARTAGE
             return None, ("Ce lien renvoie une page web, pas un fichier de données. Utilisez un lien direct "
                           "vers un fichier CSV, Excel ou JSON.")
         ext = os.path.splitext(url.split("?")[0])[1].lower()
@@ -3176,14 +3201,15 @@ class Handler(http.server.BaseHTTPRequestHandler):
             kwargs["dataset_name"] = os.path.basename(local)
             source = local
         elif source.startswith(("http://", "https://")):
+            nom = source_label(source)  # sur le lien d'origine : le lien normalisé d'OneDrive finit par « content »
             source = normalize_source_url(source)
             if T.CLOUD:  # téléchargé par le serveur (protection SSRF), puis ingéré comme fichier
                 data, ctype = netguard.fetch(source)
                 ext = ".xlsx" if data[:2] == b"PK" else ".json" if data[:1] in (b"{", b"[") else ".csv"
-                local = os.path.join(T.uploads_dir(), source_label(source) + ext)
+                local = os.path.join(T.uploads_dir(), nom + ext)
                 with open(local, "wb") as f:
                     f.write(data)
-                kwargs["dataset_name"] = source_label(source) + ext
+                kwargs["dataset_name"] = nom + ext
                 source = local
         elif T.CLOUD and not T.current().owns(source):
             raise PermissionError("source hors de l'espace")

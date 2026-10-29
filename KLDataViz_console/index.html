@@ -386,7 +386,7 @@ tr.versions td{background:var(--surface-2);font-size:13px}
           <div class="label" style="margin-bottom:10px">Ou connectez une source</div>
           <div class="sources">
             <button class="src" data-src="path"><div class="ic"><svg class="i" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg></div><b>Chemin du fichier</b><span>Un fichier déjà sur cet ordinateur</span></button>
-            <button class="src" data-src="url"><div class="ic"><svg class="i" viewBox="0 0 24 24"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></svg></div><b>Google Sheets ou lien web</b><span>Lien de partage, ou URL d'un CSV, Excel, JSON</span></button>
+            <button class="src" data-src="url"><div class="ic"><svg class="i" viewBox="0 0 24 24"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></svg></div><b>Google Sheets, OneDrive ou lien web</b><span>Lien de partage, ou URL d'un CSV, Excel, JSON</span></button>
             <button class="src" data-src="db"><div class="ic"><svg class="i" viewBox="0 0 24 24"><path d="M4 6c0-1.7 3.6-3 8-3s8 1.3 8 3-3.6 3-8 3-8-1.3-8-3zm0 0v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></svg></div><b>Base PostgreSQL</b><span>Une table, copiée sans la modifier</span></button>
             <button class="src" data-src="dhis2"><div class="ic"><svg class="i" viewBox="0 0 24 24"><path d="M12 3v18M3 12h18M6.5 6.5l11 11M17.5 6.5l-11 11"/></svg></div><b>DHIS2</b><span>Indicateurs lus directement, actualisables</span></button>
             <button class="src" data-src="reg"><div class="ic"><svg class="i" viewBox="0 0 24 24"><path d="M12 7v5l3 2M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z"/></svg></div><b>Jeu déjà enregistré</b><span>Réanalyser une version du registre</span></button>
@@ -739,7 +739,7 @@ const md=s=>esc(s).replace(/^#{1,4}\s*(.+)$/gm,'<b>$1</b>').replace(/\*\*(.+?)\*
 const nf=n=>Number(n).toLocaleString('fr-FR').replace(/ /g,' ');
 const dec=n=>String(n).replace('.',',');
 const reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;
-const baseName=p=>/docs\.google\.com\/spreadsheets/.test(p)?'Google Sheets':(String(p).split(/[\\/]/).pop().split('?')[0]||String(p));
+const baseName=p=>/docs\.google\.com\/spreadsheets/.test(p)?'Google Sheets':/^https:\/\/([^/]+\.)?(1drv\.ms|onedrive\.live\.com|sharepoint\.com)\//.test(p)?'Fichier OneDrive':(String(p).split(/[\\/]/).pop().split('?')[0]||String(p));
 const IC={check:'<svg class="i" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7"/></svg>',
   alert:'<svg class="i" viewBox="0 0 24 24"><path d="M12 9v4M12 17h.01M10.3 3.9 2.4 18a2 2 0 0 0 1.7 3h15.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>',
   x:'<svg class="i" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg>',
@@ -858,7 +858,7 @@ $$('.src').forEach(b=>b.onclick=()=>{
   $('#dbCard').hidden=k!=='db';$('#dhis2Card').hidden=k!=='dhis2';$('#pathCard').hidden=k==='db'||k==='reg'||k==='dhis2';
   if(k==='dhis2')$('#dhLink').focus();
   if(k==='path'){$('#pathTitle').textContent='Chemin du fichier';$('#pathHint').textContent='Copiez le chemin complet du fichier, par exemple C:\\Users\\…\\donnees.xlsx.';$('#pathInput').placeholder='C:\\Users\\…\\donnees.csv';$('#pathInput').focus()}
-  if(k==='url'){$('#pathTitle').textContent='Google Sheets ou lien web';$('#pathHint').textContent='Collez le lien d\'une feuille Google Sheets (partagée avec « Tous les utilisateurs disposant du lien »), ou une URL qui renvoie un fichier CSV, Excel ou JSON.';$('#pathInput').placeholder='https://…';$('#pathInput').focus()}
+  if(k==='url'){$('#pathTitle').textContent='Google Sheets, OneDrive ou lien web';$('#pathHint').textContent='Collez le lien de partage d’une feuille Google Sheets (« Tous les utilisateurs disposant du lien ») ou d’un fichier OneDrive / SharePoint (« Toute personne disposant du lien »), ou une URL qui renvoie un fichier CSV, Excel ou JSON.';$('#pathInput').placeholder='https://…';$('#pathInput').focus()}
   if(k==='db')$('#dbDsn').focus();
   if(k==='reg')$('#recentCard').scrollIntoView({behavior:reduce?'auto':'smooth'});
 });
@@ -2112,8 +2112,8 @@ const ROLE={owner:'Propriétaire',analyst:'Analyste',viewer:'Lecteur'};
 function loadScript(src){return new Promise((ok,ko)=>{const s=document.createElement('script');s.src=src;s.onload=ok;s.onerror=ko;document.head.append(s)})}
 function applyCloudUI(){
   ['[data-src="path"]','[data-src="db"]','#taskSrcBtn','#classicCard','#smtpCard','nav.menu [data-nav="tasks"]','#dbCard'].forEach(sel=>$$(sel).forEach(el=>el.hidden=true));
-  $('#userbox').hidden=false;$('#pathTitle').textContent='Lien Google Sheets ou web';
-  $('#pathHint').textContent='Collez le lien d\'une feuille Google Sheets (partagée avec « Tous les utilisateurs disposant du lien ») ou l\'URL https d\'un fichier CSV, Excel ou JSON.';
+  $('#userbox').hidden=false;$('#pathTitle').textContent='Lien Google Sheets, OneDrive ou web';
+  $('#pathHint').textContent='Collez le lien de partage d’une feuille Google Sheets (« Tous les utilisateurs disposant du lien ») ou d’un fichier OneDrive / SharePoint (« Toute personne disposant du lien »), ou l’URL https d’un fichier CSV, Excel ou JSON.';
   $('#pathInput').placeholder='https://docs.google.com/spreadsheets/…';
 }
 function meter(label,used,max){const pct=max?Math.min(100,Math.round(used/max*100)):100;return `<div class="row"><span>${label}</span><span class="num">${nf(used)} / ${nf(max)}</span></div><div class="meter"><i class="${pct>=90?'bad':pct>=70?'warn':''}" style="width:${pct}%"></i></div>`}
