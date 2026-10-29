@@ -363,11 +363,22 @@ def _download(url: str) -> Path:
     en ligne (KLDV_MODE=cloud) les adresses internes et le http:// sont refusés."""
     import tempfile
 
+    from urllib.parse import urlparse
+
     netguard = _netguard()
     cloud = os.environ.get("KLDV_MODE", "local").strip().lower() == "cloud"
-    data, _ctype = netguard.fetch(url, allow_private=not cloud, https_only=cloud)
+    hote = (urlparse(url).hostname or "").lower()
+    onedrive = any(hote == h or hote.endswith("." + h) for h in ("1drv.ms", "onedrive.live.com"))
+    lire = netguard.fetch_onedrive if onedrive else netguard.fetch  # OneDrive personnel : parcours d'un navigateur
+    data, ctype = lire(url, allow_private=not cloud, https_only=cloud)
+    if "text/html" in (ctype or "") or data[:300].lstrip().lower().startswith((b"<!doctype html", b"<html")):
+        raise ValueError("Ce lien renvoie une page web, pas un fichier de données"
+                         + (" : dans OneDrive, partagez avec « Toute personne disposant du lien »." if onedrive else
+                            ". Utilisez un lien direct vers un fichier CSV, Excel ou JSON."))
     suffix = Path(url.split("?")[0]).suffix.lower()
-    ext = next((e for e in _DOWNLOAD_EXT if e == suffix), ".csv")  # extension prise dans une liste fixe
+    ext = next((e for e in _DOWNLOAD_EXT if e == suffix), None)  # extension prise dans une liste fixe
+    if ext is None:  # lien de partage sans extension : d'après le contenu (un classeur Excel commence par « PK »)
+        ext = ".xlsx" if data[:2] == b"PK" else ".json" if data.lstrip()[:1] in (b"{", b"[") else ".csv"
     tmp = Path(tempfile.mkdtemp(prefix="klingest_")) / f"source{ext}"
     tmp.write_bytes(data)
     return tmp

@@ -206,3 +206,19 @@ def test_onedrive_personnel_refuse_les_adresses_internes():
     import pytest  # noqa: PLC0415
     with pytest.raises(netguard.BlockedURL):
         netguard.fetch_onedrive("http://127.0.0.1:9/x/c/abc", allow_private=False, https_only=False)
+
+
+def test_ingestion_locale_onedrive_et_page_web(monkeypatch):
+    """Version installée : l'agent d'ingestion lit OneDrive comme un navigateur, refuse une page web et nomme
+    un classeur sans extension d'après son contenu (avant : enregistré en .csv)."""
+    reset_app_modules()
+    import netguard  # noqa: PLC0415
+    from ingestion import agent  # noqa: PLC0415
+    appels = []
+    monkeypatch.setattr(netguard, "fetch_onedrive", lambda url, **k: (appels.append("onedrive"), (b"PK\x03\x04", "application/octet-stream"))[1])
+    monkeypatch.setattr(netguard, "fetch", lambda url, **k: (appels.append("web"), (b"<!DOCTYPE html><html>", "text/html"))[1])
+    chemin = agent._download("https://1drv.ms/x/c/abc/IQB?e=1")
+    assert appels == ["onedrive"] and chemin.suffix == ".xlsx"
+    with pytest.raises(ValueError, match="page web"):
+        agent._download("https://exemple.org/rapport")
+    assert appels == ["onedrive", "web"]
