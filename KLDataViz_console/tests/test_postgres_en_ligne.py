@@ -152,3 +152,101 @@ def test_identite_du_jeu_sans_mot_de_passe_ni_ip(monkeypatch):
     b = netguard.safe_pg_conninfo("postgresql://lecteur:deux@db.exemple.com/ventes")
     assert agent._identite_pg(a) == agent._identite_pg(b) == "postgresql://lecteur@db.exemple.com:5432/ventes"
     assert agent._identite_pg("postgresql://u:p@localhost/db") is None  # local : identité inchangée
+
+
+def _faux_serveur(scenario):
+    """Faux PostgreSQL local : « sspi » demande une authentification SSPI ; « muet » accepte le mot de passe
+    (AuthenticationOk, ReadyForQuery) puis ne répond plus jamais aux requêtes."""
+    import struct
+    import threading
+    srv = socket.socket()
+    srv.bind(("127.0.0.1", 0))
+    srv.listen(1)
+    vu = {"octets_apres_auth": b""}
+
+    def servir():
+        c, _ = srv.accept()
+        c.settimeout(30)
+        try:
+            n = struct.unpack("!I", c.recv(4))[0]
+            c.recv(n - 4)
+            if scenario == "sspi":
+                c.sendall(b"R" + struct.pack("!II", 8, 9))  # AuthenticationSSPI
+                vu["octets_apres_auth"] = c.recv(4096)
+            else:
+                c.sendall(b"R" + struct.pack("!II", 8, 3))  # mot de passe en clair (require_auth l'accepte)
+                c.recv(4096)                                 # message « p » du client
+                c.sendall(b"R" + struct.pack("!II", 8, 0)  # AuthenticationOk
+                          + b"S" + struct.pack("!I", 4 + 16 + 5) + b"client_encoding\0UTF8\0"
+                          + b"Z" + struct.pack("!I", 5) + b"I")       # ReadyForQuery
+                while c.recv(4096):                                    # requêtes reçues… et jamais de réponse
+                    pass
+        except OSError:
+            pass
+        finally:
+            c.close()
+            srv.close()
+
+    threading.Thread(target=servir, daemon=True).start()
+    return srv.getsockname()[1], vu
+
+
+def _conninfo_vers_local(monkeypatch, port):
+    from psycopg.conninfo import conninfo_to_dict, make_conninfo
+    _dns(monkeypatch, "93.184.216.34")
+    d = conninfo_to_dict(netguard.safe_pg_conninfo("postgresql://client:mdp@db.exemple.com/ventes"))
+    d.update(hostaddr="127.0.0.1", port=str(port), sslmode="disable")  # le faux serveur n'a pas de TLS
+    return make_conninfo(**d)
+
+
+def test_authentification_sspi_ou_kerberos_refusee(monkeypatch):
+    import psycopg
+    port, vu = _faux_serveur("sspi")
+    with pytest.raises(psycopg.OperationalError):
+        psycopg.connect(_conninfo_vers_local(monkeypatch, port)).close()
+    assert vu["octets_apres_auth"] == b""  # aucun jeton SSPI/Kerberos envoyé
+
+
+@pytest.mark.parametrize("ip", ["::7f00:1", "::ffff:0:7f00:1", "fec0::1"])
+def test_ipv6_obsoletes_refusees(monkeypatch, ip):
+    monkeypatch.setattr(netguard.socket, "getaddrinfo",
+                        lambda host, port, **k: [(socket.AF_INET6, socket.SOCK_STREAM, 6, "", (ip, port, 0, 0))])
+    with pytest.raises(netguard.BlockedURL):
+        netguard.safe_pg_conninfo("postgresql://u:p@base.piege.test/db")
+
+
+def test_serveur_muet_coupe_a_l_echeance(monkeypatch):
+    import time
+    port, _ = _faux_serveur("muet")
+    monkeypatch.setattr(readers, "PG_ECHEANCE_EN_LIGNE_S", 2)
+    debut = time.time()
+    with pytest.raises(Exception):
+        readers.read_postgres_table(_conninfo_vers_local(monkeypatch, port), "ventes")
+    duree = time.time() - debut
+    assert 1.5 < duree < 15  # coupé par l'échéance (2 s) ; sans elle : bloqué indéfiniment (statement_timeout ignoré)
+
+
+def test_authentification_trust_refusee(monkeypatch):
+    """Un faux serveur qui accepte sans mot de passe (« trust ») est refusé : require_auth."""
+    import psycopg
+    import struct
+    import threading
+    srv = socket.socket()
+    srv.bind(("127.0.0.1", 0))
+    srv.listen(1)
+
+    def servir():
+        c, _ = srv.accept()
+        try:
+            c.recv(4096)
+            c.sendall(b"R" + struct.pack("!II", 8, 0) + b"Z" + struct.pack("!I", 5) + b"I")
+            c.recv(4096)
+        except OSError:
+            pass
+        finally:
+            c.close()
+            srv.close()
+
+    threading.Thread(target=servir, daemon=True).start()
+    with pytest.raises(psycopg.OperationalError, match="authentication method requirement"):
+        psycopg.connect(_conninfo_vers_local(monkeypatch, srv.getsockname()[1])).close()
