@@ -24,6 +24,21 @@ from typing import Any
 
 from . import detectors, readers
 from .store import Registry, _mask, default_dsn
+
+
+def _identite_pg(dsn: str) -> str | None:
+    """Connexion préparée par la version en ligne (adresse épinglée `hostaddr`) : identité lisible SANS mot de passe
+    ni adresse IP (stable si le mot de passe ou l'IP change). None pour une connexion locale : identité inchangée,
+    les versions déjà enregistrées restent rattachées au même jeu de données."""
+    try:
+        from psycopg.conninfo import conninfo_to_dict
+
+        d = conninfo_to_dict(str(dsn))
+    except Exception:
+        return None
+    if not d.get("hostaddr"):
+        return None
+    return f"postgresql://{d.get('user', '')}@{d.get('host', '')}:{d.get('port', '5432')}/{d.get('dbname', '')}"
 from .versioner import Versioner, dataset_id_for, dataset_version_id_for, now_iso
 
 INGESTED_BY = os.environ.get("KLINGEST_USER") or os.environ.get("USERNAME") or os.environ.get("USER") or "agent"
@@ -74,10 +89,11 @@ def ingest(source: str, *, kind: str = "auto", sheet: str | int | None = None, t
         # ------------------------------------------------------------------ identité du dataset
         if kind == "postgres":
             logical = dataset_name or table or "table"
-            origin_key = f"{source}::{schema_name}.{table}"  # identité stable (jamais stockée telle quelle)
-            origin = f"{_mask(source)}::{schema_name}.{table}"  # mot de passe masqué dans le registre et l'audit
+            affiche = _identite_pg(source) or _mask(source)
+            origin_key = f"{_identite_pg(source) or source}::{schema_name}.{table}"  # identité stable (jamais stockée)
+            origin = f"{affiche}::{schema_name}.{table}"  # mot de passe masqué dans le registre et l'audit
             source_metadata = {"kind": "postgres", "origin": origin, "table": f"{schema_name}.{table}",
-                               "dsn": _mask(source), "where": where, "retrieved_at": now_iso()}
+                               "dsn": affiche, "where": where, "retrieved_at": now_iso()}
         elif kind == "sqlite":
             logical = dataset_name or table or Path(source).stem
             origin = f"{source}::{table}"

@@ -240,9 +240,11 @@ def read_postgres_table(dsn: str, table: str, schema: str = "public", limit: int
                         where: str | None = None) -> tuple[pd.DataFrame, dict]:
     """Lit une table PostgreSQL (source externe) et en produit un instantané en mémoire."""
     import psycopg
+    from psycopg import sql
 
     warnings: list[str] = []
     with psycopg.connect(dsn) as conn:
+        cible = sql.Identifier(schema, table)  # nom cité par psycopg : un « " » dans le nom ne sort pas de l'identifiant
         with conn.cursor() as cur:
             cur.execute(
                 """
@@ -264,17 +266,26 @@ def read_postgres_table(dsn: str, table: str, schema: str = "public", limit: int
                 JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey)
                 WHERE i.indrelid = %s::regclass AND i.indisprimary
                 """,
-                (f"{schema}.{table}",),
+                (cible.as_string(conn),),
             )
             pk = [r[0] for r in cur.fetchall()]
-            cur.execute(f'SELECT count(*) FROM "{schema}"."{table}"' + (f" WHERE {where}" if where else ""))
+            filtre = sql.SQL(" WHERE " + where) if where else sql.SQL("")  # option de la ligne de commande seulement
+            cur.execute(sql.SQL("SELECT count(*) FROM {}{}").format(cible, filtre))
             total = int(cur.fetchone()[0])
-            sql = f'SELECT * FROM "{schema}"."{table}"' + (f" WHERE {where}" if where else "") + (f" LIMIT {int(limit)}" if limit else "")
-            import warnings as _warnings
-
-            with _warnings.catch_warnings():
-                _warnings.filterwarnings("ignore", message=".*SQLAlchemy.*", category=UserWarning)
-                df = pd.read_sql_query(sql, conn)
+            requete = sql.SQL("SELECT * FROM {}{}{}").format(
+                cible, filtre, sql.SQL(" LIMIT {}").format(sql.Literal(int(limit))) if limit else sql.SQL(""))
+            # Curseur côté serveur, lu par lots : la limite est tenue AUSSI de notre côté (un serveur qui ignorerait
+            # le LIMIT n'envoie pas la table entière en mémoire d'un coup).
+            with conn.cursor(name="kldv_lecture") as lect:
+                lect.execute(requete)
+                noms = [d.name for d in lect.description]
+                lignes: list = []
+                while lot := lect.fetchmany(5000):
+                    lignes.extend(lot)
+                    if limit and len(lignes) >= int(limit):
+                        del lignes[int(limit):]
+                        break
+            df = pd.DataFrame.from_records(lignes, columns=noms, coerce_float=True)
             cur.execute("SELECT current_database(), current_user, version()")
             db, user, version = cur.fetchone()
 
@@ -302,7 +313,9 @@ def read_postgres_table(dsn: str, table: str, schema: str = "public", limit: int
 
 
 def _mask_dsn(dsn: str) -> str:
-    return re.sub(r"(password=)[^ ]+", r"\1***", dsn)
+    from .store import _mask  # aussi « postgresql://u:mdp@hôte » (avant : seul « password=… » était masqué)
+
+    return _mask(dsn)
 
 
 # --------------------------------------------------------------------------------------

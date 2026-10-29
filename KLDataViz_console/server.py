@@ -2486,6 +2486,7 @@ SECRET = (os.environ.get("KLDV_SECRET") or secrets.token_hex(32)).encode()  # si
 # En ligne, l'envoi arrive en base64 dans du JSON puis est décodé : ~3 fois sa taille en mémoire
 MAX_UPLOAD = int(os.environ.get("KLDV_MAX_UPLOAD_MB", "25" if T.CLOUD else "50")) * 1024 * 1024
 MAX_JSON = 2 * 1024 * 1024
+PG_MAX_ROWS = int(os.environ.get("KLDV_PG_MAX_ROWS", "200000"))  # en ligne : lignes copiées au plus depuis une base
 ALLOWED_EXT = (".csv", ".xlsx", ".xls", ".xlsm", ".json", ".parquet")
 EXPORTERS = {"pdf": export_pdf, "excel": export_excel, "html": export_html}
 STATIC = {"/": ("index.html", "text/html"), "/index.html": ("index.html", "text/html"),
@@ -3222,10 +3223,17 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     f.write(data)
                 kwargs["dataset_name"] = nom + ext
                 source = local
+        elif T.CLOUD and p.get("kind") == "postgres":
+            # Base du client sur Internet : adresse publique vérifiée et épinglée, SSL, lecture seule, délais
+            # (netguard.safe_pg_conninfo). Le mot de passe ne sert qu'à cette copie : il n'est pas conservé.
+            source = netguard.safe_pg_conninfo(source)
+            if not p.get("table"):
+                raise ValueError("Indiquez le nom de la table à importer.")
+            p = {**p, "limit": max(1, min(int(p.get("limit") or PG_MAX_ROWS), PG_MAX_ROWS))}
         elif T.CLOUD and not T.current().owns(source):
             raise PermissionError("source hors de l'espace")
-        if T.CLOUD and p.get("kind") in ("postgres", "sqlite"):
-            raise ValueError("L'import depuis une base de données n'est pas disponible dans la version en ligne.")
+        if T.CLOUD and p.get("kind") == "sqlite":
+            raise ValueError("L'import depuis un fichier SQLite n'est pas disponible dans la version en ligne.")
         sheet = p.get("sheet")
         if sheet not in (None, ""):
             try:

@@ -423,7 +423,8 @@ def _mask(dsn: str) -> str:
     Analyse par recherche de sous-chaînes (str.find), sans regex à retour arrière."""
     import re
 
-    text = re.sub(r"(password=)\S+", r"\1***", str(dsn))
+    # valeur entre apostrophes (« password='très secret' », écrite ainsi par libpq dès qu'il y a une espace) ou mot
+    text = re.sub(r"(password=)('(?:[^'\\]|\\.)*'|\S+)", r"\1***", str(dsn))
     out, pos, ws_end = [], 0, -1
     while True:
         start = text.find("://", pos)
