@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Guide d'utilisation · KLDataViz</title>
+<meta name="description" content="Comment importer, vérifier, analyser et partager vos données avec KLDataViz et Adifa’, sans Python ni Power BI.">
+<link rel="icon" href="/logo.png">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@500;600&family=Fira+Sans:wght@400;500;600;700;800&display=swap">
+<style>
+:root{
+  --bg:#F3F6F4; --surface:#FFFFFF; --surface-2:#EBF1ED; --line:#D9E3DD; --fg:#11241A; --muted:#55685D;
+  --brand:#1D7A4C; --brand-strong:#15633D; --brand-soft:#DCEFE4; --on-brand:#FFFFFF;
+  --sans:'Fira Sans',system-ui,-apple-system,'Segoe UI',sans-serif; color-scheme:light;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#0D1411; --surface:#141D18; --surface-2:#1A2620; --line:#273730; --fg:#E4EEE8; --muted:#93A79B;
+  --brand:#3FBF7E; --brand-strong:#5FD196; --brand-soft:#173826; --on-brand:#06140C; color-scheme:dark}}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--fg);font:17px/1.65 var(--sans);-webkit-font-smoothing:antialiased}
+a{color:var(--brand)}
+:focus-visible{outline:2px solid var(--brand);outline-offset:3px;border-radius:6px}
+.wrap{max-width:820px;margin:0 auto;padding-inline:16px}
+header{background:var(--surface);border-bottom:1px solid var(--line)}
+.bar{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:64px}
+.logo{display:flex;align-items:center;gap:10px;font-weight:700;color:var(--fg);text-decoration:none}
+.logo img{width:30px;height:30px;object-fit:contain}
+.btn{display:inline-flex;align-items:center;min-height:44px;padding:0 16px;border-radius:12px;background:var(--brand);color:var(--on-brand);font-weight:600;font-size:15px;text-decoration:none}
+.btn:hover{background:var(--brand-strong)}
+main{padding-block:40px 56px}
+h1,h2,h3{margin:0;line-height:1.2;letter-spacing:-.02em;text-wrap:balance}
+h1{font-size:clamp(32px,6vw,44px);font-weight:800}
+h2{font-size:27px;margin-top:48px;padding-top:8px}
+h3{font-size:20px;margin-top:32px;display:flex;align-items:center;gap:10px}
+.n{flex:none;display:inline-grid;place-items:center;width:30px;height:30px;border-radius:50%;background:var(--brand-soft);color:var(--brand);font-size:15px;font-weight:700}
+.lead{font-size:19px;color:var(--muted);margin:14px 0 0}
+p,ul,ol{margin:12px 0 0}
+li{margin-top:6px}
+.note{margin-top:20px;padding:12px 16px;border-radius:12px;background:var(--brand-soft);font-size:15.5px}
+figure{margin:18px 0 0}
+figure img{display:block;width:100%;height:auto;border:1px solid var(--line);border-radius:12px;background:var(--surface)}
+.tbl{margin-top:14px;overflow-x:auto;border:1px solid var(--line);border-radius:12px;background:var(--surface)}
+table{width:100%;border-collapse:collapse;font-size:15.5px}
+th,td{padding:11px 14px;text-align:left;vertical-align:top;border-top:1px solid var(--line)}
+th{border-top:0;background:var(--surface-2);font-weight:600}
+footer{border-top:1px solid var(--line);padding-block:20px;color:var(--muted);font-size:14.5px}
+</style>
+</head>
+<body>
+<header><div class="wrap bar">
+  <a class="logo" href="/"><img src="/logo.png" alt="">KLDataViz</a>
+  <a class="btn" href="/login?signup=1">Essai gratuit</a>
+</div></header>
+<main class="wrap">
+  <h1>Guide d'utilisation</h1>
+  <p class="lead">KLDataViz transforme vos fichiers de données en analyses, graphiques, tableaux de bord et rapports, sans Python, sans Power BI et sans formules. Adifa’, son assistante IA, vous accompagne à chaque étape.</p>
+  <p class="note">Toutes les captures de ce guide utilisent le jeu d'exemple fictif intégré à l'application.</p>
+
+  <h2>Avant de commencer</h2>
+  <ol>
+    <li>Ouvrez KLDataViz et créez votre compte avec votre e-mail et un mot de passe.</li>
+    <li>Donnez un nom à votre espace. L'essai gratuit dure 14 jours.</li>
+  </ol>
+  <p>Vous voulez juste découvrir l'outil ? Cliquez sur <b>Essayer avec un exemple</b> : un jeu de données fictif (12 centres de santé sur 18 mois) se charge tout seul.</p>
+
+  <h2>Les 4 étapes d'une analyse</h2>
+
+  <h3><span class="n">1</span>Importer</h3>
+  <p>Déposez votre fichier dans la zone prévue : Excel, CSV ou Parquet. Vous pouvez aussi partir d'une source connectée, par exemple Google Sheets, une base PostgreSQL, DHIS2 ou un lien web.</p>
+  <p>Si votre classeur Excel contient plusieurs feuilles, cochez celles qui vous intéressent.</p>
+  <figure><img src="/guide/importer.png" alt="Écran Importer : zone de dépôt du fichier et sources connectées" width="1440" height="900" loading="lazy"></figure>
+
+  <h3><span class="n">2</span>Vérifier</h3>
+  <p>Adifa’ examine le fichier et affiche :</p>
+  <ul>
+    <li>un <b>score de qualité</b> sur 100 ;</li>
+    <li>la liste des <b>corrections proposées</b>, que vous activez ou désactivez une par une ;</li>
+    <li>une <b>structure recommandée</b>, si le fichier n'est pas au bon format pour l'analyse.</li>
+  </ul>
+  <p>Rien n'est appliqué sans votre accord. Les corrections se font sur une copie : votre fichier d'origine reste intact. Cliquez ensuite sur <b>Appliquer les corrections et analyser</b>.</p>
+
+  <h3><span class="n">3</span>Analyser</h3>
+  <p>Vous obtenez les chiffres clés, les points importants (relations, anomalies, écarts entre groupes) et des graphiques commentés en français.</p>
+  <figure><img src="/guide/analyser.png" alt="Écran Analyser : chiffres clés et points importants" width="1440" height="900" loading="lazy"></figure>
+  <figure><img src="/guide/graphiques.png" alt="Graphiques par district et par région, avec leur lecture en français" width="1440" height="900" loading="lazy"></figure>
+  <p><b>Posez vos questions à Adifa’.</b> Cliquez sur le bouton <b>Adifa’</b> en haut à droite et écrivez comme à un collègue, par exemple : « Quel district a le plus de cas confirmés en 2025 ? ». Elle calcule la réponse sur vos données, et <b>Voir le calcul</b> vous montre comment elle l'a obtenue.</p>
+
+  <h3><span class="n">4</span>Partager</h3>
+  <p>Exportez le résultat en PDF, en classeur Excel ou en page web, ou enregistrez-le dans le registre.</p>
+  <p>Vous pouvez aussi <b>planifier un rapport automatique</b> : choisissez la fréquence, l'heure et le format. Si vous ajoutez des destinataires et que l'envoi par e-mail est configuré, le rapport leur est envoyé.</p>
+  <figure><img src="/guide/partager.png" alt="Écran Partager : exports et rapport automatique" width="1440" height="900" loading="lazy"></figure>
+
+  <h2>Le tableau de bord</h2>
+  <p>Dans le menu de gauche, ouvrez <b>Tableau de bord</b>. KLDataViz le construit à partir des données analysées : indicateurs, comparaison entre périodes, graphiques et filtres.</p>
+  <p>Survolez l'icône <b>ⓘ</b> d'un indicateur pour savoir <b>comment ce chiffre est calculé</b>.</p>
+  <p>Le menu <b>Actions</b> permet de le partager par un lien que vos collègues ouvrent sans compte. Ce lien expire et peut être révoqué à tout moment.</p>
+  <figure><img src="/guide/tableau-de-bord.png" alt="Tableau de bord : filtres, indicateurs et comparaison entre périodes" width="1440" height="900" loading="lazy"></figure>
+
+  <h2>Travailler en équipe</h2>
+  <p>Chaque espace a trois rôles :</p>
+  <div class="tbl"><table>
+    <tr><th scope="col">Rôle</th><th scope="col">Ce qu'il peut faire</th></tr>
+    <tr><td>Propriétaire</td><td>Tout, y compris inviter des membres, exporter ou supprimer les données de l'espace</td></tr>
+    <tr><td>Analyste</td><td>Importer, analyser, créer des tableaux de bord et des liens de partage</td></tr>
+    <tr><td>Lecteur</td><td>Consulter</td></tr>
+  </table></div>
+
+  <h2>Vos données</h2>
+  <ul>
+    <li>Chaque organisation dispose d'un espace séparé.</li>
+    <li>Le propriétaire peut exporter toutes les données de l'espace ou les supprimer définitivement, depuis <b>Réglages</b>.</li>
+    <li>N'importez que des données que vous avez le droit de traiter. Pour des données de santé, retirez les informations qui identifient les patients.</li>
+  </ul>
+
+  <h2>Si quelque chose ne marche pas</h2>
+  <div class="tbl"><table>
+    <tr><th scope="col">Situation</th><th scope="col">Que faire</th></tr>
+    <tr><td>Le fichier est refusé</td><td>Vérifiez son format et sa taille (25 Mo maximum en ligne).</td></tr>
+    <tr><td>« Adifa’ n'a pas répondu à temps »</td><td>L'analyse continue avec des règles automatiques. Réessayez un peu plus tard pour obtenir l'avis de l'IA.</td></tr>
+    <tr><td>Le premier chargement est lent</td><td>Patientez quelques secondes, puis rechargez la page.</td></tr>
+  </table></div>
+</main>
+<footer><div class="wrap">© KLDataViz · Adifa’ · <a href="/">Retour à l'accueil</a></div></footer>
+</body>
+</html>

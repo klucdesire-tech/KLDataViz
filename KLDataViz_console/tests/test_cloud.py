@@ -142,6 +142,8 @@ def test_pages_publiques_en_ligne(base):
     assert call(base, "/app", raw=True)[0] == 200
     assert call(base, "/admin", raw=True)[0] == 200
     assert call(base, "/login", raw=True)[0] == 200
+    assert call(base, "/guide", raw=True)[0] == 200
+    assert call(base, "/guide/importer.png", raw=True)[0] == 200
 
 
 def test_donnees_publiques_sans_connexion(base):

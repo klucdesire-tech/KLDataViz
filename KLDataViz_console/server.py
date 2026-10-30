@@ -2491,7 +2491,10 @@ ALLOWED_EXT = (".csv", ".xlsx", ".xls", ".xlsm", ".json", ".parquet")
 EXPORTERS = {"pdf": export_pdf, "excel": export_excel, "html": export_html}
 STATIC = {"/": ("index.html", "text/html"), "/index.html": ("index.html", "text/html"),
           "/login": ("login.html", "text/html"), "/logo.png": ("logo.png", "image/png"),
-          "/favicon.png": ("logo.png", "image/png"), "/chart.umd.min.js": ("chart.umd.min.js", "application/javascript")}
+          "/favicon.png": ("logo.png", "image/png"), "/chart.umd.min.js": ("chart.umd.min.js", "application/javascript"),
+          "/guide": ("guide.html", "text/html")}
+STATIC.update({f"/guide/{n}.png": (f"guide_images/{n}.png", "image/png")
+               for n in ("importer", "analyser", "graphiques", "partager", "tableau-de-bord")})
 if T.CLOUD:  # en ligne : page d'accueil publique, application sur /app, administration sur /admin
     STATIC.update({"/": ("landing.html", "text/html"), "/app": ("index.html", "text/html"),
                    "/admin": ("admin.html", "text/html")})
