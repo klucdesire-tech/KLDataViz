@@ -204,3 +204,59 @@ def test_statistiques_effacees(monde):
     monde.jeu("DS-A", monde.depot / "ventes.csv")
     monde.server._supprimer_jeu("DS-A")
     assert os.listdir(monde.meta) == []
+
+
+def test_homonyme_nettoye_d_un_autre_jeu_conserve(monde):
+    """« export_nettoye.csv » de l'utilisateur n'est pas la copie nettoyée d'« export.csv »."""
+    copie = monde.nettoyes / "export_nettoye.csv"
+    copie.write_text("a\n", encoding="utf-8")
+    monde.server.mark_agrege(str(copie))
+    monde.jeu("DS-A", monde.tmp / "docs" / "export_nettoye.csv")
+    monde.jeu("DS-B", monde.tmp / "autre" / "export.csv")
+    monde.server._supprimer_jeu("DS-A")
+    assert copie.exists() and len(os.listdir(monde.nettoyes)) == 2
+
+
+def test_depot_sans_rapport_avec_le_jeu_conserve(monde):
+    envoi = monde.depot / "ventes.csv"
+    envoi.write_text("a\n", encoding="utf-8")
+    monde.jeu("DS-A", monde.tmp / "docs" / "ventes.csv")
+    monde.server._supprimer_jeu("DS-A")
+    assert envoi.exists()
+
+
+def test_refus_si_tableau_de_bord_sur_la_copie_nettoyee(monde):
+    copie = monde.nettoyes / "ventes_nettoye.csv"
+    copie.write_text("a\n", encoding="utf-8")
+    monde.jeu("DS-A", monde.tmp / "docs" / "ventes.csv")
+    monde.sources.append({"id": "1", "name": "Tableau Ventes", "path": str(copie)})
+    with pytest.raises(ValueError, match="Tableau Ventes"):
+        monde.server._supprimer_jeu("DS-A")
+    assert copie.exists() and len(monde.reg.list_datasets()) == 1
+
+
+def test_refus_si_planification_sur_la_copie_nettoyee(monde):
+    copie = monde.nettoyes / "ventes_nettoye.csv"
+    copie.write_text("a\n", encoding="utf-8")
+    monde.jeu("DS-A", monde.tmp / "docs" / "ventes.csv")
+    monde.planifs.append({"source": str(copie)})
+    with pytest.raises(ValueError, match="planifi"):
+        monde.server._supprimer_jeu("DS-A")
+
+
+def test_copie_nettoyee_d_une_source_url_effacee(monde):
+    url = "https://exemple.ci/ventes.csv"
+    label = monde.server.source_label(url)
+    copie = monde.nettoyes / f"{label}_nettoye.csv"
+    copie.write_text("a\n", encoding="utf-8")
+    monde.jeu("DS-A", url)
+    monde.server._supprimer_jeu("DS-A")
+    assert not copie.exists()
+
+
+def test_panne_du_registre_ne_bloque_pas_la_description(monde, monkeypatch):
+    def panne():
+        raise RuntimeError("Registre PostgreSQL injoignable")
+    assert monde.server._jeu_existe("DS-INCONNU") is False
+    monkeypatch.setattr(monde.server.T, "registry", panne)
+    assert monde.server._jeu_existe("DS-A") is True
