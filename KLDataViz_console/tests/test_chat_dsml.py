@@ -39,3 +39,10 @@ def test_code_indente_et_guillemets_simples():
     obj = server._parse_llm_json(x)
     assert obj["action"] == "calcul" and obj["code"] == "d = data['demo']\nresult = len(d)"
     compile(obj["code"], "<calc>", "exec")
+
+
+def test_reponse_json_avec_retours_a_la_ligne_bruts():
+    reset_app_modules()
+    import server  # noqa: PLC0415
+    obj = server._parse_llm_json('{"action":"reponse","answer":"Yopougon-Est.\n\n- 1 862 cas","montrer_tableau":true}')
+    assert obj["action"] == "reponse" and obj["answer"].startswith("Yopougon-Est.")
