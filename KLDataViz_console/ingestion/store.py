@@ -386,6 +386,35 @@ class Registry:
         t = f"{self.schema}.datasets" if self.backend == "postgres" else "datasets"
         return self.query(f"SELECT * FROM {t} ORDER BY updated_at DESC")
 
+    def delete_dataset(self, dataset_id: str, pendant=None) -> None:
+        """Retire le jeu, ses versions, ses colonnes et ses exécutions, d'un seul tenant.
+
+        `pendant` (effacement des fichiers) s'exécute dans la transaction : base injoignable, rien n'est touché ;
+        échec des fichiers, la ligne reste et la suppression peut être rejouée."""
+        conn = self.connect()
+        pg = self.backend == "postgres"  # connect() peut basculer sur SQLite
+        pre = f"{self.schema}." if pg else ""
+        ph = self.placeholder
+
+        def effacer():
+            cur = conn.cursor()
+            cur.execute(f"DELETE FROM {pre}dataset_columns WHERE dataset_version_id IN "
+                        f"(SELECT dataset_version_id FROM {pre}dataset_versions WHERE dataset_id = {ph})", (dataset_id,))
+            for table in ("ingestion_runs", "dataset_versions", "datasets"):
+                cur.execute(f"DELETE FROM {pre}{table} WHERE dataset_id = {ph}", (dataset_id,))
+            if pendant:
+                pendant()
+
+        try:
+            if pg:
+                with conn.transaction():
+                    effacer()
+            else:
+                effacer()
+                conn.commit()
+        finally:
+            conn.close()
+
     def list_versions(self, dataset_id: str) -> list[dict]:
         t = f"{self.schema}.dataset_versions" if self.backend == "postgres" else "dataset_versions"
         return self.query(f"SELECT * FROM {t} WHERE dataset_id = {self.placeholder} ORDER BY version_no", (dataset_id,))

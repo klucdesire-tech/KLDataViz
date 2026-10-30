@@ -180,6 +180,11 @@ def test_notification_paiement_rejouee_si_cinetpay_ne_repond_pas(base, monkeypat
     assert call(base, "/api/paiement/notification", {"merchant_transaction_id": "T"})[0] == 502
 
 
+def test_lecteur_ne_peut_pas_supprimer_un_jeu(base):
+    assert call(base, "/api/ingest/delete", {"id": "DS-X"}, "tok-v")[0] == 403
+    assert call(base, "/api/ingest/delete", {"id": "DS-X"})[0] == 401
+
+
 def test_lecteur_ne_peut_pas_payer(base):
     assert call(base, "/api/billing/checkout", {"plan": "pro", "months": 1}, "tok-v")[0] == 403
     assert call(base, "/api/billing/sync", {}, "tok-v")[0] == 403

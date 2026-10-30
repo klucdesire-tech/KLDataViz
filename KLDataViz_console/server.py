@@ -2425,6 +2425,81 @@ def _registry_meta_dir():
     return T.current().dir(os.path.join("storage", "registry_meta"))
 
 
+def _chemin_comparable(chemin):
+    return chemin if chemin.startswith(("http://", "https://")) else os.path.normcase(os.path.realpath(chemin))
+
+
+def _est_url(chemin):
+    return chemin.startswith(("http://", "https://"))
+
+
+def _racines_du_jeu(versions, nettoyes):
+    """Nom de base des copies d'un jeu. Seule une source qui EST une copie nettoyée perd son suffixe :
+    un fichier de l'utilisateur appelé « export_nettoye.csv » n'est pas la copie d'« export.csv »."""
+    racines = set()
+    for src in {str(v["source_path"]) for v in versions if v.get("source_path")}:
+        label = source_label(src)
+        copie = not _est_url(src) and os.path.dirname(os.path.realpath(src)) == nettoyes
+        racines.add(label.removesuffix("_nettoye") if copie else label)
+    return racines
+
+
+def _copies_du_jeu(versions, versions_autres):
+    """Copies gardées par KLDataViz pour ce jeu, si aucun autre jeu n'y prétend. Seuls le dépôt et les fichiers nettoyés
+    sont visés : le fichier de l'utilisateur, ailleurs sur son ordinateur, n'est jamais touché."""
+    depot, nettoyes = os.path.realpath(T.uploads_dir()), os.path.realpath(T.cleaned_dir())
+    racines = _racines_du_jeu(versions, nettoyes) - _racines_du_jeu(versions_autres, nettoyes)
+    sources_jeu = {str(v["source_path"]) for v in versions if v.get("source_path") and not _est_url(str(v["source_path"]))}
+    cibles = {x for x in sources_jeu if os.path.dirname(os.path.realpath(x)) in (depot, nettoyes)}
+    cibles |= {os.path.join(T.cleaned_dir(), f"{r}_nettoye.csv") for r in racines}
+    if any(os.path.dirname(os.path.realpath(x)) == nettoyes for x in sources_jeu):  # le dépôt d'où vient la copie nettoyée
+        cibles |= {os.path.join(T.uploads_dir(), f) for f in os.listdir(depot) if source_label(f) in racines}
+    gardes = {_chemin_comparable(str(v["source_path"])) for v in versions_autres if v.get("source_path")}
+    return [x for x in cibles if os.path.isfile(x) and _chemin_comparable(x) not in gardes]
+
+
+def _supprimer_jeu(dataset_id):
+    """Efface un jeu du registre et ses copies, dans la transaction de la base (voir Registry.delete_dataset)."""
+    reg = T.registry()
+    reg.ensure()
+    jeux = reg.list_datasets()
+    ds = next((d for d in jeux if d.get("dataset_id") == dataset_id), None)
+    if ds is None:
+        raise FileNotFoundError("Jeu de données introuvable.")
+    versions = reg.list_versions(dataset_id)
+    versions_autres = [v for d in jeux if d["dataset_id"] != dataset_id for v in reg.list_versions(d["dataset_id"])]
+    copies = _copies_du_jeu(versions, versions_autres)
+    chemins = {_chemin_comparable(str(v[k])) for v in versions for k in ("work_path", "raw_path", "source_path") if v.get(k)}
+    chemins = {x for x in chemins if not _est_url(x)} | {_chemin_comparable(x) for x in copies}  # une URL reste lisible
+    if any(_chemin_comparable(str(j.get("source") or "")) in chemins for j in studio.list_schedules()):
+        raise ValueError("Un rapport planifié utilise ce jeu de données : supprimez d'abord sa planification.")
+    lie = next((x for x in sources.list_sources() if _chemin_comparable(str(x.get("path") or "")) in chemins), None)
+    if lie:  # un lien public montrerait encore ces données
+        raise ValueError(f"Le tableau de bord « {lie.get('name') or 'sans nom'} » utilise ce jeu de données : "
+                         "supprimez-le d'abord depuis la page Tableau de bord.")
+    from ingestion.versioner import Versioner
+    import registry_meta as RM
+
+    def fichiers():
+        Versioner(T.storage_root()).delete_dataset(dataset_id)
+        RM.supprimer(_registry_meta_dir(), dataset_id)
+        for x in copies:
+            os.remove(x)
+            mark_agrege(x, False)
+
+    reg.delete_dataset(dataset_id, pendant=fichiers)
+    journal.ajouter("jeu de données supprimé",
+                    details={"id": dataset_id, "nom": str(ds.get("dataset_name") or "")[:120], "versions": len(versions)})
+
+
+def _jeu_existe(dataset_id):
+    """Faux seulement si le registre répond que le jeu n'existe plus : une panne ne bloque pas la description."""
+    try:
+        return bool(T.registry().list_versions(dataset_id))
+    except Exception:
+        return True
+
+
 def schedule_commentary(job, result):
     """Rapport planifié : ce qui a changé depuis l'envoi précédent, rédigé par Adifa’ (règles sans IA ou hors quota)."""
     import hermes_report as HR
@@ -3025,6 +3100,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             df, err = _read_df(str(p.get("file_path") or ""))
             if err:
                 return self._send(200, {"error": err})
+            if not _jeu_existe(str(p.get("dataset_id") or "")):  # jeu supprimé entre-temps
+                return self._send(200, {"meta": None})
             meta = RM.describe(_registry_meta_dir(), p.get("dataset_id"), p.get("version_no"), df, _period_series,
                                p.get("comprehension") if isinstance(p.get("comprehension"), dict) else None,
                                str(p.get("name") or "")[:200])
@@ -3059,6 +3136,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return self._send(200, sheets_extract(str(p.get("file_path") or ""), sheets, bool(p.get("empiler"))))
         if path == "/api/ingest":
             return self._ingest(p)
+        if path == "/api/ingest/delete":
+            if T.CLOUD:
+                cloud.require(T.current(), "owner", "analyst")
+            _supprimer_jeu(str(p.get("id") or ""))
+            return self._send(200, {"ok": True})
         if path in ("/api/export/pdf", "/api/export/excel", "/api/export/html"):
             if st["last_result"] is None:
                 return self._send(400, {"error": "Lancez d'abord une analyse."})
