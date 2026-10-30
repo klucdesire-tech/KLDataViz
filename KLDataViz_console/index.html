@@ -2151,11 +2151,16 @@ const frDate=d=>new Date(d).toLocaleDateString('fr-FR',{day:'numeric',month:'lon
 async function loadBilling(){
   const b=await api('/api/billing');$('#billingCard').hidden=!!b.error;if(b.error)return;
   const fin=b.paid_until&&new Date(b.paid_until),actif=fin&&fin>new Date();
-  $('#billTag').textContent=b.test&&b.actif?'Mode test':'';
+  $('#billTag').textContent=b.apercu?'Aperçu':b.test&&b.actif?'Mode test':'';
   $('#billState').textContent=actif?`Forfait ${b.offres.find(o=>o.key===b.plan_paye)?.label||b.plan_paye}, actif jusqu'au ${frDate(fin)}. Le renouvellement n'est pas automatique : vous recevez un rappel avant la fin.`
     :fin?`Votre abonnement a pris fin le ${frDate(fin)}. Vos données sont conservées : choisissez un forfait pour reprendre.`
     :'Choisissez un forfait et réglez par mobile money ou par carte, sur la page sécurisée de CinetPay.';
-  $('#billOffers').innerHTML=!b.offres.length?'<p class="sub">Les forfaits sont sur devis pour le moment : contactez-nous.</p>'
+  $('#billOffers').innerHTML=b.apercu?`<p class="sub">Aperçu réservé aux administrateurs : vos clients ne peuvent pas encore payer. Les boutons s'activeront avec les prix et les clés CinetPay.</p>
+    <div class="offers">${b.offres.map(o=>`<div class="offer"><b>${esc(o.label)}</b><div class="prix">${o.price?`${nf(o.price)} ${esc(o.currency)} <small>/ mois</small>`:'<small>Prix à définir</small>'}</div>
+      <p class="sub">${nf(o.analyses)} analyses · ${nf(o.ai)} questions IA · ${nf(o.members)} membre${o.members>1?'s':''}</p>
+      <button class="btn primary sm" type="button" disabled>Choisir</button></div>`).join('')}</div>
+    <label class="field" for="billMonths" style="margin-top:12px;max-width:220px">Durée<select id="billMonths" disabled>${b.durees.map(m=>`<option value="${m}">${m} mois</option>`).join('')}</select></label>`
+    :!b.offres.length?'<p class="sub">Les forfaits sont sur devis pour le moment : contactez-nous.</p>'
     :!b.actif?'<p class="sub">Le paiement en ligne sera bientôt disponible. Contactez-nous pour choisir un forfait.</p>'
     :!b.peut_payer?'<p class="sub">Seul le propriétaire de l\'espace peut régler l\'abonnement.</p>'
     :`<div class="offers">${b.offres.map(o=>`<div class="offer"><b>${esc(o.label)}</b><div class="prix">${nf(o.price)} ${esc(o.currency)} <small>/ mois</small></div>

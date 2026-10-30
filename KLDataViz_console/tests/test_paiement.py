@@ -88,6 +88,30 @@ def test_erreur_sans_identifiant_dans_le_message(modules, monkeypatch):
     assert "secret" not in str(e.value) and "sk_test" not in str(e.value)
 
 
+def _billing(cloud, monkeypatch, is_admin):
+    forfaits = [{"key": "essai", "price": 0, "days": 14}, {"key": "pro", "price": None, "days": None},
+                {"key": "equipe", "price": 50000.0, "days": None}, {"key": "suspendu", "price": 0, "days": None}]
+    monkeypatch.setattr(cloud, "public_plans", lambda: forfaits)
+    monkeypatch.setattr(cloud, "q", lambda *a, **k: {} if k.get("one") else [])
+    ctx = cloud.Ctx(key="u", org_id="o", user_id="u", email="a@b.ci", role="owner", is_admin=is_admin, plan={"key": "essai"})
+    return cloud.billing(ctx)
+
+
+def test_apercu_reserve_a_l_administrateur(modules, monkeypatch):
+    cloud, _, _ = modules
+    monkeypatch.delenv("CINETPAY_API_KEY")
+    b = _billing(cloud, monkeypatch, True)
+    assert b["apercu"] is True and b["actif"] is False and [o["key"] for o in b["offres"]] == ["pro", "equipe"]
+    b = _billing(cloud, monkeypatch, False)
+    assert b["apercu"] is False and b["actif"] is False and [o["key"] for o in b["offres"]] == ["equipe"]
+
+
+def test_un_forfait_sans_prix_reste_invendable(modules, monkeypatch):
+    cloud, _, _ = modules
+    monkeypatch.setattr(cloud, "public_plans", lambda: [{"key": "pro", "price": None, "days": None}])
+    assert cloud._offres() == []
+
+
 # ---- parcours complet, sur PostgreSQL
 @pytest.fixture
 def pg(modules):
