@@ -1721,7 +1721,7 @@ def _parse_llm_json(content):
         text = re.sub(r"^```[a-zA-Z]*\s*", "", text)
         text = re.sub(r"\s*```$", "", text)
     try:
-        return json.loads(text)
+        return json.loads(text, strict=False)  # strict=False : retours à la ligne bruts dans « answer »
     except Exception:
         pass
     # Plusieurs objets à la suite (ex. un calcul ET une conclusion écrite sans en connaître le résultat) :
@@ -1729,7 +1729,7 @@ def _parse_llm_json(content):
     start = text.find("{")
     if start >= 0:
         try:
-            obj, _end = json.JSONDecoder().raw_decode(text[start:])
+            obj, _end = json.JSONDecoder(strict=False).raw_decode(text[start:])
             return obj
         except Exception:
             return None
