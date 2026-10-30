@@ -25,6 +25,10 @@ services:
     envVars:
       - key: KLDV_MODE
         value: cloud
+      - key: CINETPAY_API_KEY     # sk_test_… (bac à sable) ou sk_live_… (production)
+        sync: false
+      - key: CINETPAY_API_PASSWORD
+        sync: false
       - key: KLDV_SECRET          # signe les liens de téléchargement
         generateValue: true
       - key: SUPABASE_URL         # https://<projet>.supabase.co

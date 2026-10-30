@@ -45,6 +45,7 @@ except Exception as _arch_exc:
 import hashlib, hmac, re, secrets
 import tenancy as T
 import sandbox, netguard
+import paiement
 import studio
 import sources
 import shares
@@ -2486,6 +2487,7 @@ SECRET = (os.environ.get("KLDV_SECRET") or secrets.token_hex(32)).encode()  # si
 # En ligne, l'envoi arrive en base64 dans du JSON puis est décodé : ~3 fois sa taille en mémoire
 MAX_UPLOAD = int(os.environ.get("KLDV_MAX_UPLOAD_MB", "25" if T.CLOUD else "50")) * 1024 * 1024
 MAX_JSON = 2 * 1024 * 1024
+MAX_NOTIFICATION = 64 * 1024
 PG_MAX_ROWS = int(os.environ.get("KLDV_PG_MAX_ROWS", "200000"))  # en ligne : lignes copiées au plus depuis une base
 ALLOWED_EXT = (".csv", ".xlsx", ".xls", ".xlsm", ".json", ".parquet")
 EXPORTERS = {"pdf": export_pdf, "excel": export_excel, "html": export_html}
@@ -2700,6 +2702,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 return self._shared(path[3:].strip("/"), parse_qs(urlparse(self.path).query))
             if not path.startswith("/api/"):
                 return self._send(404, {"error": "Page introuvable."})
+            if T.CLOUD and path == "/api/paiement/notification":  # appelée par CinetPay, sans session
+                return self._notification_paiement(method)
             if T.CLOUD and method == "GET" and path.startswith("/api/public/"):
                 return self._public(path)
             if not T.CLOUD:
@@ -2847,6 +2851,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if method == "GET":
             if path == "/api/me":
                 return self._send(200, cloud.me(ctx) if T.CLOUD else {"local": True})
+            if path == "/api/billing" and T.CLOUD:
+                return self._send(200, cloud.billing(ctx))
             if path == "/api/status":
                 if T.CLOUD:
                     return self._send(200, {"status": "CLOUD"})
@@ -3105,6 +3111,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return self._send(200, {"insights": ins})
         if path == "/api/settings":
             return self._send(200, studio.save_settings(p))
+        if path == "/api/billing/checkout" and T.CLOUD:
+            if not _rate_ok(f"{T.current().org_id}:paiement", 10):
+                raise ValueError("Trop de tentatives. Patientez une minute.")
+            return self._send(200, cloud.checkout(T.current(), str(p.get("plan") or ""), p.get("months")))
+        if path == "/api/billing/sync" and T.CLOUD:
+            return self._send(200, cloud.synchroniser_espace(T.current()))
         if path == "/api/schedules":
             return self._send(200, studio.create_schedule(p))
         if path == "/api/schedules/update":
@@ -3140,6 +3152,26 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return self._send(code if code else 502, r)
         return self._send(404, {"error": "not found"})
 
+    def _notification_paiement(self, method):
+        if method != "POST":
+            return self._send(200, {"ok": True})
+        if not _rate_ok("notification-paiement", 300):
+            return self._send(429, {"error": "Trop de requêtes."})
+        ln = int(self.headers.get("Content-Length") or 0)
+        if ln > MAX_NOTIFICATION:
+            return self._send(413, {"error": "Trop volumineux."})
+        raw = self.rfile.read(ln).decode("utf-8", "replace") if ln else ""
+        try:
+            body = json.loads(raw or "{}")
+        except ValueError:
+            body = {k: v[0] for k, v in parse_qs(raw).items()}
+        try:
+            ok = isinstance(body, dict) and cloud.notification(body)
+        except paiement.PaiementError as e:  # 502 : CinetPay renverra la notification
+            sys.stderr.write(f"[paiement] notification non traitée : {e}\n")
+            return self._send(502, {"error": "Vérification impossible."})
+        return self._send(200 if ok else 401, {"ok": bool(ok)})
+
     def _public(self, path):
         """Données publiques de la page d'accueil (sans connexion)."""
         if path == "/api/public/plans":
@@ -3162,6 +3194,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                       "/api/admin/orgs": lambda: cloud.admin_orgs(ctx, arg("q")),
                       "/api/admin/org": lambda: cloud.admin_org_detail(ctx, arg("id")),
                       "/api/admin/plans": lambda: cloud.admin_plans(ctx),
+                      "/api/admin/payments": lambda: cloud.admin_payments(ctx),
                       "/api/admin/admins": lambda: cloud.admin_admins(ctx),
                       "/api/admin/announcements": lambda: cloud.admin_announcements(ctx),
                       "/api/admin/site": lambda: cloud.site_settings(),
@@ -3274,6 +3307,8 @@ if __name__ == "__main__":
         threading.Thread(target=heartbeat_loop, daemon=True).start()
     studio.start_scheduler(analyze, EXPORTERS, T.LOCAL.dir("exports") if not T.CLOUD else None, schedule_commentary)
     sources.start_auto_refresh(_read_df, build_dashboard, cloud.org_ctx if T.CLOUD else None)
+    if T.CLOUD:
+        threading.Thread(target=cloud.boucle_rappels, daemon=True).start()
     host = "0.0.0.0" if T.CLOUD else "127.0.0.1"
     port = int(os.environ.get("PORT") or PORT)
     socketserver.ThreadingTCPServer.allow_reuse_address = True

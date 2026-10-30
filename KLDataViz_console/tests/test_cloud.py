@@ -163,3 +163,28 @@ def test_administration_reservee(base):
 def test_annonces_application(base):
     code, r = call(base, "/api/announcements", token="tok-a")
     assert code == 200 and r[0]["audience"] == "app"
+
+
+def test_notification_paiement_sans_session(base, monkeypatch):
+    vus = []
+    monkeypatch.setattr(cloud, "notification", lambda b: (vus.append(b), b.get("notify_token") == "bon")[1])
+    assert call(base, "/api/paiement/notification", {"merchant_transaction_id": "T", "notify_token": "bon"})[0] == 200
+    assert call(base, "/api/paiement/notification", {"merchant_transaction_id": "T", "notify_token": "faux"})[0] == 401
+    assert len(vus) == 2
+
+
+def test_notification_paiement_rejouee_si_cinetpay_ne_repond_pas(base, monkeypatch):
+    def panne(_):
+        raise server.paiement.PaiementError("injoignable")
+    monkeypatch.setattr(cloud, "notification", panne)
+    assert call(base, "/api/paiement/notification", {"merchant_transaction_id": "T"})[0] == 502
+
+
+def test_lecteur_ne_peut_pas_payer(base):
+    assert call(base, "/api/billing/checkout", {"plan": "pro", "months": 1}, "tok-v")[0] == 403
+    assert call(base, "/api/billing/sync", {}, "tok-v")[0] == 403
+
+
+def test_paiement_exige_une_session(base):
+    assert call(base, "/api/billing/checkout", {"plan": "pro", "months": 1})[0] == 401
+    assert call(base, "/api/billing")[0] == 401

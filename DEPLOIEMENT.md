@@ -58,6 +58,19 @@ La même base de code sert deux usages :
 3. Fais un parcours complet : import, Vérifier, Analyser, chat, export, planification.
 4. Invite un 2ᵉ compte, puis vérifie avec un 3ᵉ compte (autre espace) qu'il ne voit rien.
 
+## Activer le paiement CinetPay
+
+Tant que `CINETPAY_API_KEY` et `CINETPAY_API_PASSWORD` sont vides, l'application affiche « Le paiement en ligne sera bientôt disponible » et rien n'est encaissé.
+
+1. **Avant de déployer le code :** applique `supabase/migrations/20261030000000_paiements.sql`. L'application lit `paid_until` à chaque connexion : sans cette migration, plus personne ne peut se connecter.
+2. Dans **Administration → Forfaits et prix**, renseigne le prix mensuel de chaque forfait. Un forfait sans prix reste « sur devis ».
+3. Crée le compte marchand CinetPay. Récupère la clé (`sk_test_…`, puis `sk_live_…`) et le mot de passe d'API du compte Côte d'Ivoire.
+4. Dans Render, renseigne `CINETPAY_API_KEY`, `CINETPAY_API_PASSWORD` et vérifie `APP_URL` (en `https://`).
+5. Demande à CinetPay si l'adresse IP de sortie du serveur doit être déclarée. Render l'indique dans *Connect → Outbound*.
+6. Teste avec la clé `sk_test_` (le badge « Mode test » s'affiche dans Réglages). Passe ensuite à `sk_live_` et fais un vrai petit paiement. La liste est dans **Administration → Paiements**.
+
+Une clé `sk_test_` active réellement le forfait de l'espace : retire-la avant d'ouvrir le service aux clients.
+
 ## Sécurité : ce qui protège les données des clients
 
 - **Espaces séparés.** Chaque espace a son dossier `/data/tenants/<id>/` et son schéma PostgreSQL. Tout chemin hors de l'espace est refusé.
