@@ -393,8 +393,10 @@ def admin_extend_trial(ctx: Ctx, org_id: str, days: int):
     days = int(days)
     if not 1 <= days <= 365:
         raise ValueError("Entre 1 et 365 jours.")
-    q("""update app.organizations set trial_end = greatest(coalesce(trial_end, now()), now()) + make_interval(days => %s)
-         where id = %s""", (days, org_id))
+    q("""update app.organizations set trial_end = greatest(coalesce(trial_end, now()), now()) + make_interval(days => %s),
+           paid_until = case when paid_until is null then null
+                             else greatest(paid_until, now()) + make_interval(days => %s) end
+         where id = %s""", (days, days, org_id))
 
 
 def admin_suspend(ctx: Ctx, org_id: str, suspended: bool):
@@ -809,11 +811,16 @@ def _offres() -> list:
     return [p for p in public_plans() if (p.get("price") or 0) > 0 and not p.get("days") and p["key"] != "suspendu"]
 
 
+def _paiement_ouvert(ctx: Ctx) -> bool:
+    """Une clé de test active un vrai forfait sans argent : elle reste réservée aux administrateurs."""
+    return paiement_actif() and (not paiement.mode_test() or ctx.is_admin)
+
+
 def billing(ctx: Ctx) -> dict:
     org = q("select plan, paid_until, trial_end from app.organizations where id = %s", (ctx.org_id,), one=True) or {}
     hist = q("""select merchant_tx, plan, months, amount, currency, status, created_at, paid_at
                 from app.payments where org_id = %s order by created_at desc limit 20""", (ctx.org_id,))
-    return {"actif": paiement_actif(), "test": paiement.mode_test(), "peut_payer": ctx.role == "owner",
+    return {"actif": _paiement_ouvert(ctx), "test": paiement.mode_test(), "peut_payer": ctx.role == "owner",
             "plan": ctx.plan.get("key"), "plan_paye": org.get("plan"), "offres": _offres(), "durees": list(DUREES),
             "paid_until": org["paid_until"].isoformat() if org.get("paid_until") else None,
             "paiements": [dict(h, created_at=h["created_at"].isoformat(),
@@ -823,8 +830,10 @@ def billing(ctx: Ctx) -> dict:
 def checkout(ctx: Ctx, plan: str, months) -> dict:
     """Prépare le paiement d'un forfait : le prix vient de la base, jamais du navigateur."""
     require(ctx, "owner")
-    if not paiement_actif():
+    if not _paiement_ouvert(ctx):
         raise Unavailable("Le paiement en ligne n'est pas encore activé. Contactez-nous pour choisir un forfait.")
+    if ctx.plan.get("suspended"):  # le paiement ne lèverait pas une suspension décidée par l'administrateur
+        raise ValueError("Votre espace est suspendu. Contactez-nous avant de payer.")
     offre = next((o for o in _offres() if o["key"] == plan), None)
     if offre is None:
         raise ValueError("Ce forfait ne peut pas être acheté en ligne.")
@@ -838,6 +847,12 @@ def checkout(ctx: Ctx, plan: str, months) -> dict:
     if devise is None:
         raise ValueError("Devise non prise en charge pour ce forfait.")
     montant = int(round(offre["price"] * months))
+    if not paiement.MONTANT_MIN <= montant <= paiement.MONTANT_MAX:
+        raise ValueError("Ce montant ne peut pas être réglé en une fois. Choisissez une durée plus courte.")
+    org = q("select plan, paid_until from app.organizations where id = %s", (ctx.org_id,), one=True)
+    if org and org["paid_until"] and org["paid_until"] > dt.datetime.now(dt.timezone.utc) and org["plan"] != plan \
+            and not (plans().get(org["plan"], {}).get("price") or 0) > 0:
+        raise ValueError("Votre forfait actuel est sur devis. Contactez-nous pour en changer.")
     tx = "KLD" + uuid.uuid4().hex[:24]
     mode = "test" if paiement.mode_test() else "live"
     row = q("""insert into app.payments (org_id, user_id, email, plan, months, amount, currency, mode, merchant_tx)
@@ -858,7 +873,8 @@ def checkout(ctx: Ctx, plan: str, months) -> dict:
 def _activer(pay_id: str, transaction_id=None):
     """Active le forfait une seule fois, en une instruction : deux confirmations simultanées n'en comptent qu'une.
 
-    Même forfait : la durée s'ajoute. Changement de forfait : le temps restant est converti au prix du nouveau."""
+    Même forfait : la durée s'ajoute. Changement de forfait : le temps restant est converti au prix du nouveau,
+    et conservé tel quel si l'ancien prix n'est plus connu : un paiement ne doit jamais effacer du temps payé."""
     return q("""with paye as (
                   update app.payments set status = 'paid', paid_at = now(),
                          transaction_id = coalesce(%s, transaction_id)
@@ -870,7 +886,8 @@ def _activer(pay_id: str, transaction_id=None):
                       then greatest(coalesce(o.paid_until, now()), now()) + make_interval(months => paye.months)
                       else now() + make_interval(months => paye.months)
                         + greatest(coalesce(o.paid_until, now()) - now(), interval '0')
-                          * (coalesce((select price from app.plans where key = o.plan), 0)::float8
+                          * (coalesce(nullif((select price from app.plans where key = o.plan), 0)::float8,
+                                      paye.amount::float8 / paye.months)
                              / (paye.amount::float8 / paye.months))
                       end
                   from paye where o.id = paye.org_id
@@ -899,11 +916,6 @@ def _synchroniser(p: dict) -> str:
     if etat == "SUCCESS":
         if str(s.get("merchant_transaction_id") or p["merchant_tx"]) != p["merchant_tx"]:
             raise paiement.PaiementError("Réponse de CinetPay pour une autre transaction.")
-        recu = s.get("amount")
-        if recu is not None and float(recu) < p["amount"]:
-            q("update app.payments set status = 'a_verifier' where id = %s and status <> 'paid'", (p["id"],))
-            print(f"[paiement] montant insuffisant, transaction {p['merchant_tx']}", flush=True)
-            return "a_verifier"
         a = _activer(p["id"], s.get("transaction_id") or None)
         if a:
             _recu(a)
@@ -918,7 +930,7 @@ def notification(body: dict) -> bool:
     """Notification de CinetPay : le jeton l'authentifie, puis le statut est relu chez CinetPay."""
     tx = str(body.get("merchant_transaction_id") or "")[:40]
     jeton = str(body.get("notify_token") or "")
-    p = q("""select id::text, merchant_tx, amount, status, notify_token from app.payments where merchant_tx = %s""",
+    p = q("""select id::text, merchant_tx, status, notify_token from app.payments where merchant_tx = %s""",
           (tx,), one=True) if tx else None
     if not p or not p["notify_token"] or not hmac.compare_digest(p["notify_token"].encode(), jeton.encode()):
         return False
@@ -930,7 +942,7 @@ def notification(body: dict) -> bool:
 def synchroniser_espace(ctx: Ctx) -> dict:
     """Au retour de la page de paiement : relit les paiements en attente, si la notification tarde ou s'est perdue."""
     require(ctx, "owner")
-    attente = q("""select id::text, merchant_tx, amount, status from app.payments
+    attente = q("""select id::text, merchant_tx, status from app.payments
                    where org_id = %s and status = 'pending' and created_at > now() - interval '2 days'
                    order by created_at desc limit 5""", (ctx.org_id,))
     resultats = []
@@ -940,6 +952,34 @@ def synchroniser_espace(ctx: Ctx) -> dict:
         except paiement.PaiementError as e:
             print(f"[paiement] vérification impossible : {e}", flush=True)
     return {"resultats": resultats, "paye": "paid" in resultats}
+
+
+def reconcilier_paiements():
+    """Rattrape les paiements dont la notification s'est perdue ou est arrivée avant la fin de l'opération."""
+    attente = q("""select id::text, merchant_tx, status from app.payments
+                   where status = 'pending' and created_at < now() - interval '2 minutes'
+                     and created_at > now() - interval '2 days'
+                   order by created_at desc limit 50""")
+    for p in attente:
+        try:
+            _synchroniser(p)
+        except paiement.PaiementError as e:
+            print(f"[paiement] vérification impossible : {e}", flush=True)
+    q("update app.payments set status = 'failed' where status = 'pending' and created_at <= now() - interval '2 days'")
+
+
+def admin_verifier_paiement(ctx: Ctx, merchant_tx: str) -> dict:
+    """Relit un paiement chez CinetPay, quel que soit son état : répare un paiement réel resté sans suite."""
+    _admin(ctx)
+    p = q("select id::text, merchant_tx, status from app.payments where merchant_tx = %s", (merchant_tx,), one=True)
+    if p is None:
+        raise ValueError("Paiement introuvable.")
+    if p["status"] != "paid":
+        try:
+            _synchroniser(p)
+        except paiement.PaiementError as e:
+            raise Unavailable(str(e)) from None
+    return q("select status from app.payments where id = %s", (p["id"],), one=True)
 
 
 def admin_payments(ctx: Ctx) -> list:
@@ -977,10 +1017,15 @@ def rappels_abonnement():
             print(f"[paiement] rappel non envoyé : {type(e).__name__}", flush=True)
 
 
-def boucle_rappels():
+def boucle_paiements():
+    tour = 0
     while True:
         try:
-            rappels_abonnement()
+            if paiement_actif():
+                reconcilier_paiements()
+            if tour % 12 == 0:
+                rappels_abonnement()
         except Exception as e:
-            print(f"[paiement] rappels : {type(e).__name__}", flush=True)
-        time.sleep(3600)
+            print(f"[paiement] tâche de fond : {type(e).__name__}", flush=True)
+        tour += 1
+        time.sleep(300)

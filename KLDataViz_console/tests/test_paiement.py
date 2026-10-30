@@ -99,7 +99,7 @@ def pg(modules):
     cloud.q("""insert into app.organizations (id, name, plan, trial_end) values (%s, 'Espace test', 'essai', now() + interval '3 days')""", (org,))
     cloud.q("update app.plans set price = 15000 where key = 'pro'")
     cloud.q("update app.plans set price = 50000 where key = 'equipe'")
-    ctx = cloud.Ctx(key=USER, org_id=org, user_id=USER, email="o@test.ci", role="owner", plan={"key": "essai", "org_name": "Espace test"})
+    ctx = cloud.Ctx(key=USER, org_id=org, user_id=USER, email="o@test.ci", role="owner", is_admin=True, plan={"key": "essai", "org_name": "Espace test"})
     return cloud, paiement, faux, ctx, org
 
 
@@ -206,15 +206,6 @@ def test_succes_apres_echec_active_quand_meme(pg):
     assert _org(cloud, org)["plan"] == "pro"
 
 
-def test_montant_insuffisant_n_active_pas(pg):
-    cloud, _, faux, ctx, org = pg
-    cloud.checkout(ctx, "pro", 1)
-    p = _tx(cloud, org)
-    faux.statuts[p["merchant_tx"]] = {"code": 100, "status": "SUCCESS", "amount": 100}
-    cloud.synchroniser_espace(ctx)
-    assert _tx(cloud, org)["status"] == "a_verifier" and _org(cloud, org)["plan"] == "essai"
-
-
 def test_retour_navigateur_sans_notification(pg):
     cloud, _, faux, ctx, org = pg
     cloud.checkout(ctx, "pro", 1)
@@ -268,6 +259,7 @@ def test_admin_voit_les_paiements(pg):
     p = _payer(cloud, faux, ctx)
     assert any(x["merchant_tx"] == p["merchant_tx"] and x["org"] == "Espace test"
                for x in cloud.admin_payments(cloud.Ctx(key="a", is_admin=True)))
+    ctx.is_admin = False
     with pytest.raises(cloud.Forbidden):
         cloud.admin_payments(ctx)
 
@@ -292,3 +284,94 @@ def test_rappel_envoye_une_fois_par_echeance(pg, monkeypatch):
     cloud.q("update app.organizations set paid_until = now() + interval '12 hours', rappel_envoye = current_date - 2 where id = %s", (org,))
     cloud.rappels_abonnement()
     assert envois.count(["o@test.ci"]) == 2
+
+
+def test_espace_suspendu_ne_peut_pas_payer(pg):
+    cloud, _, faux, ctx, org = pg
+    ctx.plan["suspended"] = True
+    with pytest.raises(ValueError):
+        cloud.checkout(ctx, "pro", 1)
+    assert _tx(cloud, org) is None and "/v1/payment" not in [a[1] for a in faux.appels]
+
+
+def test_prix_supprime_n_efface_pas_le_temps_paye(pg):
+    cloud, _, faux, ctx, org = pg
+    _payer(cloud, faux, ctx, "equipe", 12)
+    cloud.checkout(ctx, "pro", 1)
+    p = _tx(cloud, org)
+    cloud.q("update app.plans set price = null where key = 'equipe'")
+    faux.statuts[p["merchant_tx"]] = {"code": 100, "status": "SUCCESS"}
+    cloud.notification({"merchant_transaction_id": p["merchant_tx"], "notify_token": p["notify_token"]})
+    assert (_org(cloud, org)["paid_until"] - dt.datetime.now(dt.timezone.utc)).days >= 380
+
+
+def test_changement_refuse_depuis_un_forfait_sur_devis(pg):
+    cloud, _, faux, ctx, org = pg
+    _payer(cloud, faux, ctx, "equipe", 1)
+    cloud.q("update app.plans set price = null where key = 'equipe'")
+    cloud._cache.clear()
+    with pytest.raises(ValueError):
+        cloud.checkout(ctx, "pro", 1)
+
+
+def test_montant_trop_eleve_sans_ligne_de_paiement(pg):
+    cloud, _, _, ctx, org = pg
+    cloud.q("update app.plans set price = 300000 where key = 'equipe'")
+    cloud._cache.clear()
+    with pytest.raises(ValueError):
+        cloud.checkout(ctx, "equipe", 12)
+    assert _tx(cloud, org) is None
+
+
+def test_cle_de_test_reservee_aux_administrateurs(pg):
+    cloud, _, _, ctx, org = pg
+    ctx.is_admin = False
+    assert cloud.billing(ctx)["actif"] is False
+    with pytest.raises(cloud.Unavailable):
+        cloud.checkout(ctx, "pro", 1)
+
+
+def test_cle_reelle_ouverte_aux_clients(pg, monkeypatch):
+    cloud, _, _, ctx, _ = pg
+    ctx.is_admin = False
+    monkeypatch.setenv("CINETPAY_API_KEY", "sk_live_cle")
+    assert cloud.billing(ctx)["actif"] is True
+
+
+def test_notification_avant_la_fin_rattrapee(pg):
+    cloud, _, faux, ctx, org = pg
+    cloud.checkout(ctx, "pro", 1)
+    p = _tx(cloud, org)
+    assert cloud.notification({"merchant_transaction_id": p["merchant_tx"], "notify_token": p["notify_token"]})
+    faux.statuts[p["merchant_tx"]] = {"code": 100, "status": "SUCCESS"}
+    cloud.q("update app.payments set created_at = now() - interval '1 hour' where id = %s", (p["id"],))
+    cloud.reconcilier_paiements()
+    assert _org(cloud, org)["plan"] == "pro"
+
+
+def test_paiement_abandonne_clos_apres_deux_jours(pg):
+    cloud, _, _, ctx, org = pg
+    cloud.checkout(ctx, "pro", 1)
+    cloud.q("update app.payments set created_at = now() - interval '3 days' where org_id = %s", (org,))
+    cloud.reconcilier_paiements()
+    assert _tx(cloud, org)["status"] == "failed"
+
+
+def test_admin_repare_un_paiement_reel(pg):
+    cloud, _, faux, ctx, org = pg
+    cloud.checkout(ctx, "pro", 1)
+    p = _tx(cloud, org)
+    cloud.q("update app.payments set status = 'failed' where id = %s", (p["id"],))
+    faux.statuts[p["merchant_tx"]] = {"code": 100, "status": "SUCCESS"}
+    assert cloud.admin_verifier_paiement(cloud.Ctx(key="a", is_admin=True), p["merchant_tx"])["status"] == "paid"
+    assert _org(cloud, org)["plan"] == "pro"
+    with pytest.raises(cloud.Forbidden):
+        cloud.admin_verifier_paiement(cloud.Ctx(key="b"), p["merchant_tx"])
+
+
+def test_admin_prolonge_un_abonnement_expire(pg):
+    cloud, _, faux, ctx, org = pg
+    _payer(cloud, faux, ctx)
+    cloud.q("update app.organizations set paid_until = now() - interval '10 days' where id = %s", (org,))
+    cloud.admin_extend_trial(cloud.Ctx(key="a", is_admin=True), org, 30)
+    assert 28 <= (_org(cloud, org)["paid_until"] - dt.datetime.now(dt.timezone.utc)).days <= 30

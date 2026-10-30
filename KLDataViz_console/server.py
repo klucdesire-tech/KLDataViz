@@ -3201,7 +3201,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                       "/api/admin/ia": lambda: cloud.admin_ia(ctx),
                       "/api/admin/journal": lambda: journal.lire(200, espace=False)}
         else:
-            routes = {"/api/admin/plan": lambda: cloud.admin_set_plan(ctx, str(p.get("org_id")), p.get("plan"), p.get("trial_days")),
+            routes = {"/api/admin/payments/verify": lambda: cloud.admin_verifier_paiement(ctx, str(p.get("merchant_tx") or "")),
+                      "/api/admin/plan": lambda: cloud.admin_set_plan(ctx, str(p.get("org_id")), p.get("plan"), p.get("trial_days")),
                       "/api/admin/extend": lambda: cloud.admin_extend_trial(ctx, str(p.get("org_id")), p.get("days") or 14),
                       "/api/admin/suspend": lambda: cloud.admin_suspend(ctx, str(p.get("org_id")), p.get("suspended")),
                       "/api/admin/invite-client": lambda: cloud.admin_invite_client(ctx, p.get("org"), p.get("email"), p.get("plan")),
@@ -3308,7 +3309,7 @@ if __name__ == "__main__":
     studio.start_scheduler(analyze, EXPORTERS, T.LOCAL.dir("exports") if not T.CLOUD else None, schedule_commentary)
     sources.start_auto_refresh(_read_df, build_dashboard, cloud.org_ctx if T.CLOUD else None)
     if T.CLOUD:
-        threading.Thread(target=cloud.boucle_rappels, daemon=True).start()
+        threading.Thread(target=cloud.boucle_paiements, daemon=True).start()
     host = "0.0.0.0" if T.CLOUD else "127.0.0.1"
     port = int(os.environ.get("PORT") or PORT)
     socketserver.ThreadingTCPServer.allow_reuse_address = True

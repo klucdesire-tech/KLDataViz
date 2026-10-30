@@ -305,9 +305,14 @@ $('#inviteBtn').onclick=()=>{
 /* ---- forfaits ---- */
 async function loadPay(){
   const r=await api('/api/admin/payments');if(!Array.isArray(r)){$('#payList').innerHTML=`<div class="empty">${esc(r.error||'Erreur')}</div>`;return}
-  const st={paid:'Payé',pending:'En attente',failed:'Échoué',a_verifier:'À vérifier'};
-  $('#payList').innerHTML=r.length?`<table><thead><tr><th>Date</th><th>Client</th><th>Forfait</th><th>Montant</th><th>État</th><th>Mode</th><th>Transaction</th></tr></thead><tbody>${r.map(p=>`<tr><td>${esc(new Date(p.created_at).toLocaleString('fr-FR'))}</td><td>${esc(p.org)}<br><small>${esc(p.email)}</small></td><td>${esc(p.plan)} · ${esc(p.months)} mois</td><td>${esc(p.amount)} ${esc(p.currency)}</td><td>${esc(st[p.status]||p.status)}</td><td>${esc(p.mode)}</td><td><small>${esc(p.merchant_tx)}</small></td></tr>`).join('')}</tbody></table>`:'<div class="empty">Aucun paiement pour le moment.</div>';
+  const st={paid:'Payé',pending:'En attente',failed:'Échoué'};
+  $('#payList').innerHTML=r.length?`<table><thead><tr><th>Date</th><th>Client</th><th>Forfait</th><th>Montant</th><th>État</th><th>Mode</th><th>Transaction</th><th></th></tr></thead><tbody>${r.map(p=>`<tr><td>${esc(new Date(p.created_at).toLocaleString('fr-FR'))}</td><td>${esc(p.org)}<br><small>${esc(p.email)}</small></td><td>${esc(p.plan)} · ${esc(p.months)} mois</td><td>${esc(p.amount)} ${esc(p.currency)}</td><td>${esc(st[p.status]||p.status)}</td><td>${esc(p.mode)}</td><td><small>${esc(p.merchant_tx)}</small></td><td>${p.status==='paid'?'':`<button class="btn ghost sm" data-verif="${esc(p.merchant_tx)}">Vérifier</button>`}</td></tr>`).join('')}</tbody></table>`:'<div class="empty">Aucun paiement pour le moment.</div>';
 }
+$('#payList').addEventListener('click',async e=>{
+  const b=e.target.closest('[data-verif]');if(!b)return;b.disabled=true;
+  const r=await api('/api/admin/payments/verify',{merchant_tx:b.dataset.verif});
+  if(r.error){alert(r.error);b.disabled=false;return}loadPay();
+});
 async function loadPlans(){const p=await api('/api/admin/plans');if(Array.isArray(p))PLANS=p}
 async function renderPlans(){
   await loadPlans();

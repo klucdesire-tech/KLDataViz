@@ -18,7 +18,7 @@ create table if not exists app.payments (
   merchant_tx     text not null unique,
   transaction_id  text,
   notify_token    text,
-  status          text not null default 'pending' check (status in ('pending', 'paid', 'failed', 'a_verifier')),
+  status          text not null default 'pending' check (status in ('pending', 'paid', 'failed')),
   created_at      timestamptz not null default now(),
   paid_at         timestamptz
 );
@@ -27,3 +27,4 @@ create index if not exists payments_org_idx on app.payments (org_id, created_at 
 create index if not exists organizations_paid_until_idx on app.organizations (paid_until) where paid_until is not null;
 
 alter table app.payments enable row level security;
+revoke all on all tables in schema app from anon, authenticated;

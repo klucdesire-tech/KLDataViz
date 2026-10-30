@@ -2146,7 +2146,7 @@ $('#onboardForm').addEventListener('submit',async e=>{e.preventDefault();const b
 async function logout(){if(sb)await sb.auth.signOut();location.replace('/login')}
 $('#logoutBtn').onclick=logout;$('#obLogout').onclick=logout;$('#downLogout').onclick=logout;
 // ---- Abonnement : prépayé par CinetPay. Le prix vient du serveur, le paiement se fait sur la page hébergée.
-const BILL_ST={paid:['ok','Payé'],pending:['warn','En attente'],failed:['','Échoué'],a_verifier:['warn','À vérifier']};
+const BILL_ST={paid:['ok','Payé'],pending:['warn','En attente'],failed:['','Échoué']};
 const frDate=d=>new Date(d).toLocaleDateString('fr-FR',{day:'numeric',month:'long',year:'numeric'});
 async function loadBilling(){
   const b=await api('/api/billing');$('#billingCard').hidden=!!b.error;if(b.error)return;
@@ -2179,7 +2179,7 @@ async function retourPaiement(){
   if(etat==='echec'){toast('Le paiement n\'a pas abouti. Aucun montant n\'a été activé.');return}
   const r=await api('/api/billing/sync',{});
   toast(r.paye?'Paiement confirmé : votre abonnement est actif.':'Paiement en cours de confirmation. Revenez dans quelques instants.');
-  if(r.paye)refreshMe();
+  if(r.paye){refreshMe();loadBilling()}
 }
 async function loadTeam(){
   if(state.me?.role!=='owner')return;

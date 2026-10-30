@@ -67,9 +67,9 @@ Tant que `CINETPAY_API_KEY` et `CINETPAY_API_PASSWORD` sont vides, l'application
 3. Crée le compte marchand CinetPay. Récupère la clé (`sk_test_…`, puis `sk_live_…`) et le mot de passe d'API du compte Côte d'Ivoire.
 4. Dans Render, renseigne `CINETPAY_API_KEY`, `CINETPAY_API_PASSWORD` et vérifie `APP_URL` (en `https://`).
 5. Demande à CinetPay si l'adresse IP de sortie du serveur doit être déclarée. Render l'indique dans *Connect → Outbound*.
-6. Teste avec la clé `sk_test_` (le badge « Mode test » s'affiche dans Réglages). Passe ensuite à `sk_live_` et fais un vrai petit paiement. La liste est dans **Administration → Paiements**.
+6. Teste avec la clé `sk_test_` : seuls les comptes de `ADMIN_EMAILS` voient alors le paiement (badge « Mode test »). Les clients continuent de voir « bientôt disponible ». Passe ensuite à `sk_live_` et fais un vrai petit paiement.
 
-Une clé `sk_test_` active réellement le forfait de l'espace : retire-la avant d'ouvrir le service aux clients.
+La liste est dans **Administration → Paiements**. Le bouton **Vérifier** relit un paiement chez CinetPay s'il est resté sans suite. Attribuer un forfait à la main dans l'administration le donne sans échéance ; **Prolonger** ajoute des jours à un abonnement payé.
 
 ## Sécurité : ce qui protège les données des clients
 
