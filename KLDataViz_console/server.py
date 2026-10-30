@@ -2425,6 +2425,32 @@ def _registry_meta_dir():
     return T.current().dir(os.path.join("storage", "registry_meta"))
 
 
+def _supprimer_jeu(dataset_id):
+    """Efface un jeu du registre et ses copies. Les fichiers d'abord : si la base échoue, on peut recommencer."""
+    reg = T.registry()
+    reg.ensure()
+    ds = next((d for d in reg.list_datasets() if d.get("dataset_id") == dataset_id), None)
+    if ds is None:
+        raise FileNotFoundError("Jeu de données introuvable.")
+    versions = reg.list_versions(dataset_id)
+    chemins = {str(v[k]) for v in versions for k in ("work_path", "raw_path", "source_path") if v.get(k)}
+    if any(str(j.get("source") or "") in chemins for j in studio.list_schedules()):
+        raise ValueError("Un rapport planifié utilise ce jeu de données : supprimez d'abord sa planification.")
+    from ingestion.versioner import Versioner
+    import registry_meta as RM
+    Versioner(T.storage_root()).delete_dataset(dataset_id)
+    RM.supprimer(_registry_meta_dir(), dataset_id)
+    reg.delete_dataset(dataset_id)
+    if T.CLOUD:  # en local, source_path est le fichier de l'utilisateur : on n'y touche jamais
+        depot = os.path.realpath(T.uploads_dir())
+        gardes = {str(s.get("path")) for s in sources.list_sources()}
+        gardes.update(str(v.get("source_path")) for d in reg.list_datasets() for v in reg.list_versions(d["dataset_id"]))
+        for src in {str(v["source_path"]) for v in versions if v.get("source_path")} - gardes:
+            if os.path.dirname(os.path.realpath(src)) == depot and os.path.isfile(src):
+                os.remove(src)
+    journal.ajouter("jeu de données supprimé", details={"nom": str(ds.get("dataset_name") or "")[:120], "versions": len(versions)})
+
+
 def schedule_commentary(job, result):
     """Rapport planifié : ce qui a changé depuis l'envoi précédent, rédigé par Adifa’ (règles sans IA ou hors quota)."""
     import hermes_report as HR
@@ -3059,6 +3085,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return self._send(200, sheets_extract(str(p.get("file_path") or ""), sheets, bool(p.get("empiler"))))
         if path == "/api/ingest":
             return self._ingest(p)
+        if path == "/api/ingest/delete":
+            if T.CLOUD:
+                cloud.require(T.current(), "owner", "analyst")
+            _supprimer_jeu(str(p.get("id") or ""))
+            return self._send(200, {"ok": True})
         if path in ("/api/export/pdf", "/api/export/excel", "/api/export/html"):
             if st["last_result"] is None:
                 return self._send(400, {"error": "Lancez d'abord une analyse."})

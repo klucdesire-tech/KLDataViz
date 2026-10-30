@@ -139,6 +139,18 @@ class Versioner:
         d.mkdir(parents=True, exist_ok=True)
         return d
 
+    def delete_dataset(self, dataset_id: str) -> None:
+        """Efface les copies RAW, WORK et VERSIONS d'un jeu. Ne touche jamais au fichier d'origine."""
+        if not dataset_id or not all(c.isascii() and (c.isalnum() or c in "-_") for c in dataset_id):
+            raise ValueError("Jeu de données inconnu.")
+        for zone in (self.raw, self.work, self.versions):
+            dossier = zone / dataset_id
+            if dossier.is_dir():
+                for f in dossier.rglob("*"):  # les copies RAW sont en lecture seule
+                    if f.is_file():
+                        _make_writable(f)
+                shutil.rmtree(dossier)
+
     def write_version_files(self, dataset_id: str, version_no: int, schema: dict,
                             columns: list[dict], source_metadata: dict, manifest: dict) -> dict:
         vdir = self.version_dir(dataset_id, version_no)

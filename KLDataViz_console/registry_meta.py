@@ -26,6 +26,13 @@ def load(meta_dir, dataset_id):
         return {}
 
 
+def supprimer(meta_dir, dataset_id):
+    try:
+        os.remove(_path(meta_dir, dataset_id))
+    except FileNotFoundError:
+        pass
+
+
 def _save(meta_dir, dataset_id, meta):
     p = _path(meta_dir, dataset_id)
     with open(p + ".tmp", "w", encoding="utf-8") as f:
