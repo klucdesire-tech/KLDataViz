@@ -2,6 +2,8 @@
 
 KLDataViz transforme vos fichiers de données en analyses, graphiques, tableaux de bord et rapports, sans Python, sans Power BI et sans formules. Adifa’, son assistante IA, vous accompagne à chaque étape.
 
+**Version en ligne de ce guide :** [kldataviz.onrender.com/guide](https://kldataviz.onrender.com/guide)
+
 **Accès :** [kldataviz.onrender.com](https://kldataviz.onrender.com)
 
 > Toutes les captures de ce guide utilisent le jeu d'exemple fictif intégré à l'application.
@@ -21,7 +23,7 @@ Déposez votre fichier dans la zone prévue : Excel, CSV ou Parquet. Vous pouvez
 
 Si votre classeur Excel contient plusieurs feuilles, cochez celles qui vous intéressent.
 
-![Écran Importer](images/importer.png)
+![Écran Importer](../KLDataViz_console/guide_images/importer.png)
 
 ### 2. Vérifier
 
@@ -39,9 +41,9 @@ Cliquez ensuite sur **Appliquer les corrections et analyser**.
 
 Vous obtenez les chiffres clés, les points importants (relations, anomalies, écarts entre groupes) et des graphiques commentés en français.
 
-![Écran Analyser](images/analyser.png)
+![Écran Analyser](../KLDataViz_console/guide_images/analyser.png)
 
-![Graphiques commentés](images/graphiques.png)
+![Graphiques commentés](../KLDataViz_console/guide_images/graphiques.png)
 
 **Posez vos questions à Adifa’.** Cliquez sur le bouton **Adifa’** en haut à droite et écrivez comme à un collègue, par exemple : « Quel district a le plus de cas confirmés en 2025 ? ». Elle calcule la réponse sur vos données, et **Voir le calcul** vous montre comment elle l'a obtenue.
 
@@ -51,7 +53,7 @@ Exportez le résultat en PDF, en classeur Excel ou en page web, ou enregistrez-l
 
 Vous pouvez aussi **planifier un rapport automatique** : choisissez la fréquence, l'heure et le format. Si vous ajoutez des destinataires et que l'envoi par e-mail est configuré, le rapport leur est envoyé.
 
-![Écran Partager](images/partager.png)
+![Écran Partager](../KLDataViz_console/guide_images/partager.png)
 
 ## Le tableau de bord
 
@@ -61,7 +63,7 @@ Survolez l'icône **ⓘ** d'un indicateur pour savoir **comment ce chiffre est c
 
 Le menu **Actions** permet de le partager par un lien que vos collègues ouvrent sans compte. Ce lien expire et peut être révoqué à tout moment.
 
-![Tableau de bord](images/tableau-de-bord.png)
+![Tableau de bord](../KLDataViz_console/guide_images/tableau-de-bord.png)
 
 ## Travailler en équipe
 
