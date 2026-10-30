@@ -2425,30 +2425,59 @@ def _registry_meta_dir():
     return T.current().dir(os.path.join("storage", "registry_meta"))
 
 
+def _chemin_comparable(chemin):
+    return chemin if chemin.startswith(("http://", "https://")) else os.path.normcase(os.path.realpath(chemin))
+
+
+def _copies_du_jeu(versions, gardes):
+    """Copies gardées par KLDataViz pour ce jeu (dépôt et fichiers nettoyés), si plus rien d'autre ne s'en sert.
+    Seuls ces deux dossiers sont visés : le fichier de l'utilisateur, ailleurs sur son ordinateur, n'est jamais touché."""
+    depot, nettoyes = T.uploads_dir(), T.cleaned_dir()
+    sources_jeu = {str(v["source_path"]) for v in versions if v.get("source_path")}
+    sources_jeu = {x for x in sources_jeu if not x.startswith(("http://", "https://"))}
+    racines = {source_label(x).removesuffix("_nettoye") for x in sources_jeu}
+    cibles = {os.path.join(nettoyes, f"{r}_nettoye.csv") for r in racines}
+    cibles |= {os.path.join(depot, f) for f in os.listdir(depot) if source_label(f) in racines}
+    cibles |= {x for x in sources_jeu if os.path.dirname(os.path.realpath(x)) in
+               (os.path.realpath(depot), os.path.realpath(nettoyes))}
+    return [x for x in cibles if os.path.isfile(x) and _chemin_comparable(x) not in gardes]
+
+
 def _supprimer_jeu(dataset_id):
-    """Efface un jeu du registre et ses copies. Les fichiers d'abord : si la base échoue, on peut recommencer."""
+    """Efface un jeu du registre et ses copies, dans la transaction de la base (voir Registry.delete_dataset)."""
     reg = T.registry()
     reg.ensure()
     ds = next((d for d in reg.list_datasets() if d.get("dataset_id") == dataset_id), None)
     if ds is None:
         raise FileNotFoundError("Jeu de données introuvable.")
     versions = reg.list_versions(dataset_id)
-    chemins = {str(v[k]) for v in versions for k in ("work_path", "raw_path", "source_path") if v.get(k)}
-    if any(str(j.get("source") or "") in chemins for j in studio.list_schedules()):
+    chemins = {_chemin_comparable(str(v[k])) for v in versions for k in ("work_path", "raw_path", "source_path") if v.get(k)}
+    chemins = {x for x in chemins if not x.startswith(("http://", "https://"))}  # une URL reste lisible sans ce jeu
+    if any(_chemin_comparable(str(j.get("source") or "")) in chemins for j in studio.list_schedules()):
         raise ValueError("Un rapport planifié utilise ce jeu de données : supprimez d'abord sa planification.")
+    connectees = sources.list_sources()
+    lie = next((x for x in connectees if _chemin_comparable(str(x.get("path") or "")) in chemins), None)
+    if lie:  # un lien public montrerait encore ces données
+        raise ValueError(f"Le tableau de bord « {lie.get('name') or 'sans nom'} » utilise ce jeu de données : "
+                         "supprimez-le d'abord depuis la page Tableau de bord.")
+    gardes = {_chemin_comparable(str(x.get("path") or "")) for x in connectees}
+    for d in reg.list_datasets():
+        if d["dataset_id"] != dataset_id:
+            gardes.update(_chemin_comparable(str(v["source_path"])) for v in reg.list_versions(d["dataset_id"])
+                          if v.get("source_path"))
     from ingestion.versioner import Versioner
     import registry_meta as RM
-    Versioner(T.storage_root()).delete_dataset(dataset_id)
-    RM.supprimer(_registry_meta_dir(), dataset_id)
-    reg.delete_dataset(dataset_id)
-    if T.CLOUD:  # en local, source_path est le fichier de l'utilisateur : on n'y touche jamais
-        depot = os.path.realpath(T.uploads_dir())
-        gardes = {str(s.get("path")) for s in sources.list_sources()}
-        gardes.update(str(v.get("source_path")) for d in reg.list_datasets() for v in reg.list_versions(d["dataset_id"]))
-        for src in {str(v["source_path"]) for v in versions if v.get("source_path")} - gardes:
-            if os.path.dirname(os.path.realpath(src)) == depot and os.path.isfile(src):
-                os.remove(src)
-    journal.ajouter("jeu de données supprimé", details={"nom": str(ds.get("dataset_name") or "")[:120], "versions": len(versions)})
+
+    def fichiers():
+        Versioner(T.storage_root()).delete_dataset(dataset_id)
+        RM.supprimer(_registry_meta_dir(), dataset_id)
+        for x in _copies_du_jeu(versions, gardes):
+            os.remove(x)
+            mark_agrege(x, False)
+
+    reg.delete_dataset(dataset_id, pendant=fichiers)
+    journal.ajouter("jeu de données supprimé",
+                    details={"id": dataset_id, "nom": str(ds.get("dataset_name") or "")[:120], "versions": len(versions)})
 
 
 def schedule_commentary(job, result):
@@ -3051,6 +3080,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             df, err = _read_df(str(p.get("file_path") or ""))
             if err:
                 return self._send(200, {"error": err})
+            if not T.registry().list_versions(str(p.get("dataset_id") or "")):  # jeu supprimé entre-temps
+                return self._send(200, {"meta": None})
             meta = RM.describe(_registry_meta_dir(), p.get("dataset_id"), p.get("version_no"), df, _period_series,
                                p.get("comprehension") if isinstance(p.get("comprehension"), dict) else None,
                                str(p.get("name") or "")[:200])

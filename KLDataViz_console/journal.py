@@ -17,7 +17,8 @@ import threading
 import tenancy as T
 
 MAX_LIGNES = 5000
-CHAMPS = ("org_id", "plan", "email", "days", "trial_days", "suspended", "key", "id", "role", "nom", "instance", "jours")
+CHAMPS = ("org_id", "plan", "email", "days", "trial_days", "suspended", "key", "id", "role", "nom", "instance", "jours",
+          "versions")
 _lock = threading.Lock()
 
 

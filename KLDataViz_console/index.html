@@ -1809,7 +1809,7 @@ function dsRows(ds,actions){
   return `<div class="tablewrap"><table><thead><tr><th>Nom</th><th>Version</th><th>Format</th><th class="r">Lignes</th><th class="r">Colonnes</th><th>Enregistré le</th>${actions?'<th class="r">Actions</th>':''}</tr></thead><tbody>
     ${ds.map(x=>`<tr><td>${dsCell(x,actions)}</td><td class="num">v${String(x.version_no).padStart(3,'0')}</td><td>${esc(x.source_format||'—')}</td><td class="r num">${nf(x.row_count||0)}</td><td class="r num">${x.column_count??''}</td><td>${fmtDate(x.ingested_at)}</td>
       ${actions?`<td><div class="rowbtns">${(x.version_count||1)>1||actions==='full'?`<button class="btn ghost sm" data-ver="${esc(x.dataset_id)}" aria-expanded="${openDs===x.dataset_id}">Versions</button>`:''}${actions==='full'&&CAN_DEL()&&dsConfirm!==x.dataset_id?`<button class="btn ghost sm dsx" data-dsdel="${esc(x.dataset_id)}" aria-label="Supprimer ${esc(x.dataset_name||'ce jeu de données')}" title="Supprimer"><svg class="i" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button>`:''}${x.work_path?`<button class="btn primary sm" data-an="${esc(x.work_path)}" data-nm="${esc(x.dataset_name)}">Analyser</button>`:''}</div></td>`:''}</tr>
-      ${dsConfirm===x.dataset_id&&actions==='full'?`<tr class="versions"><td colspan="7"><div class="dsconfirm"><span>Supprimer <b>${esc(x.meta?.titre||x.dataset_name||'ce jeu de données')}</b> et ${x.version_count>1?`ses ${nf(x.version_count)} versions`:'sa version'} ? Cette action est définitive. Votre fichier d'origine n'est pas touché.</span><span class="rowbtns"><button class="btn ghost sm" data-dsno>Annuler</button><button class="btn danger sm" data-dsok="${esc(x.dataset_id)}">Supprimer définitivement</button></span></div></td></tr>`:''}
+      ${dsConfirm===x.dataset_id&&actions==='full'?`<tr class="versions"><td colspan="7"><div class="dsconfirm"><span>Supprimer <b>${esc(x.meta?.titre||x.dataset_name||'ce jeu de données')}</b> et ${x.version_count>1?`ses ${nf(x.version_count)} versions`:'sa version'} ? Cette action est définitive : ses copies sur KLDataViz sont effacées. Le fichier sur votre ordinateur n'est pas touché.</span><span class="rowbtns"><button class="btn ghost sm" data-dsno>Annuler</button><button class="btn danger sm" data-dsok="${esc(x.dataset_id)}">Supprimer définitivement</button></span></div></td></tr>`:''}
       ${openDs===x.dataset_id?`<tr class="versions"><td colspan="7" id="ver-${esc(x.dataset_id)}"><span class="spin"></span> Chargement des versions…</td></tr>`:''}`).join('')}</tbody></table></div>`;
 }
 async function loadRecent(){
@@ -1818,7 +1818,7 @@ async function loadRecent(){
   el.className='';el.innerHTML=state.registry.length?dsRows(state.registry.slice(0,4),'short'):'<div class="empty">Aucun jeu de données enregistré pour le moment.</div>';
 }
 async function loadDatasets(){
-  const el=$('#dsBody');const d=await fetchRegistry();
+  dsConfirm=null;const el=$('#dsBody');const d=await fetchRegistry();
   if(d.error){el.className='';el.innerHTML=`<div class="alert">Registre indisponible : ${esc(d.error)}</div>`;return}
   renderDatasets(d);
 }
@@ -1835,13 +1835,16 @@ async function loadVersions(id){
   if(!Array.isArray(v)){cell.textContent='Versions indisponibles : '+(v.error||'');return}
   cell.innerHTML=`<table><tbody>${v.slice().reverse().map(x=>`<tr><td class="num">v${String(x.version_no).padStart(3,'0')}</td><td>${fmtDate(x.ingested_at)}</td><td class="r num">${nf(x.row_count)} lignes</td><td class="sub" style="margin:0">${esc((x.changements||[]).join(' '))}</td><td><span class="tag ${x.status==='OK'?'ok':'warn'}">${esc(x.status)}</span></td><td class="r">${x.work_path?`<button class="btn ghost sm" data-an="${esc(x.work_path)}" data-nm="${esc(baseName(x.source_path||x.work_path))} v${String(x.version_no).padStart(3,'0')}">Analyser</button>`:''}</td></tr>`).join('')}</tbody></table>`;
 }
-$('#dsSearch').addEventListener('input',()=>renderDatasets());
+$('#dsSearch').addEventListener('input',()=>{dsConfirm=null;renderDatasets()});
+function fermerConfirmDs(){const id=dsConfirm;dsConfirm=null;renderDatasets();[...$$('[data-dsdel]')].find(b=>b.dataset.dsdel===id)?.focus()}
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&dsConfirm)fermerConfirmDs()});
 document.addEventListener('click',e=>{
   const v=e.target.closest('[data-ver]'),a=e.target.closest('[data-an]'),x=e.target.closest('[data-dsdel]'),ok=e.target.closest('[data-dsok]');
-  if(x||e.target.closest('[data-dsno]')){dsConfirm=x?x.dataset.dsdel:null;renderDatasets();if(x)$('[data-dsok]')?.focus();return}
+  if(x){dsConfirm=x.dataset.dsdel;renderDatasets();$('[data-dsok]')?.focus();return}
+  if(e.target.closest('[data-dsno]')){fermerConfirmDs();return}
   if(ok){ok.disabled=true;api('/api/ingest/delete',{id:ok.dataset.dsok}).then(r=>{
     if(r.error){ok.disabled=false;toast(r.error);return}
-    dsConfirm=null;if(openDs===ok.dataset.dsok)openDs=null;toast('Jeu de données supprimé');loadDatasets();loadCounts()});return}
+    dsConfirm=null;if(openDs===ok.dataset.dsok)openDs=null;toast('Jeu de données supprimé');loadDatasets();loadCounts();loadRecent()});return}
   if(v){openDs=openDs===v.dataset.ver?null:v.dataset.ver;if(!$('[data-view="datasets"]').hidden)renderDatasets();else{loadRecent().then(()=>openDs&&loadVersions(openDs))}}
   if(a)startRun(a.dataset.an,a.dataset.nm||baseName(a.dataset.an),0,{fromRegistry:true});
 });
