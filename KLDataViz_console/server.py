@@ -2493,8 +2493,8 @@ STATIC = {"/": ("index.html", "text/html"), "/index.html": ("index.html", "text/
           "/login": ("login.html", "text/html"), "/logo.png": ("logo.png", "image/png"),
           "/favicon.png": ("logo.png", "image/png"), "/chart.umd.min.js": ("chart.umd.min.js", "application/javascript"),
           "/guide": ("guide.html", "text/html")}
-STATIC.update({f"/guide/{n}.png": (f"guide_images/{n}.png", "image/png")
-               for n in ("importer", "analyser", "graphiques", "partager", "tableau-de-bord")})
+STATIC.update({f"/guide/{n}": (f"guide_images/{n}", "image/jpeg")
+               for n in os.listdir(os.path.join(BASE, "guide_images")) if n.endswith(".jpg")})
 if T.CLOUD:  # en ligne : page d'accueil publique, application sur /app, administration sur /admin
     STATIC.update({"/": ("landing.html", "text/html"), "/app": ("index.html", "text/html"),
                    "/admin": ("admin.html", "text/html")})

@@ -4,42 +4,56 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>Guide d'utilisation · KLDataViz</title>
-<meta name="description" content="Comment importer, vérifier, analyser et partager vos données avec KLDataViz et Adifa’, sans Python ni Power BI.">
+<meta name="description" content="Le guide complet de KLDataViz : importer, vérifier, analyser, questionner Adifa’, construire un tableau de bord, partager et travailler en équipe, sans Python ni Power BI.">
 <link rel="icon" href="/logo.png">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@500;600&family=Fira+Sans:wght@400;500;600;700;800&display=swap">
 <style>
 :root{
   --bg:#F3F6F4; --surface:#FFFFFF; --surface-2:#EBF1ED; --line:#D9E3DD; --fg:#11241A; --muted:#55685D;
-  --brand:#1D7A4C; --brand-strong:#15633D; --brand-soft:#DCEFE4; --on-brand:#FFFFFF;
+  --brand:#1D7A4C; --brand-strong:#15633D; --brand-soft:#DCEFE4; --on-brand:#FFFFFF; --amber-soft:#FCEFD9;
   --sans:'Fira Sans',system-ui,-apple-system,'Segoe UI',sans-serif; color-scheme:light;
 }
 @media (prefers-color-scheme:dark){:root{
   --bg:#0D1411; --surface:#141D18; --surface-2:#1A2620; --line:#273730; --fg:#E4EEE8; --muted:#93A79B;
-  --brand:#3FBF7E; --brand-strong:#5FD196; --brand-soft:#173826; --on-brand:#06140C; color-scheme:dark}}
+  --brand:#3FBF7E; --brand-strong:#5FD196; --brand-soft:#173826; --on-brand:#06140C; --amber-soft:#3A2A14; color-scheme:dark}}
 *{box-sizing:border-box}
-html{scroll-behavior:smooth}
+html{scroll-behavior:smooth;scroll-padding-top:16px}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
 body{margin:0;background:var(--bg);color:var(--fg);font:17px/1.65 var(--sans);-webkit-font-smoothing:antialiased}
 a{color:var(--brand)}
 :focus-visible{outline:2px solid var(--brand);outline-offset:3px;border-radius:6px}
-.wrap{max-width:820px;margin:0 auto;padding-inline:16px}
+.wrap{max-width:1160px;margin:0 auto;padding-inline:16px}
 header{background:var(--surface);border-bottom:1px solid var(--line)}
 .bar{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:64px}
 .logo{display:flex;align-items:center;gap:10px;font-weight:700;color:var(--fg);text-decoration:none}
 .logo img{width:30px;height:30px;object-fit:contain}
 .btn{display:inline-flex;align-items:center;min-height:44px;padding:0 16px;border-radius:12px;background:var(--brand);color:var(--on-brand);font-weight:600;font-size:15px;text-decoration:none}
 .btn:hover{background:var(--brand-strong)}
-main{padding-block:40px 56px}
+.page{display:grid;grid-template-columns:minmax(0,1fr);gap:32px;padding-block:32px 56px}
+.toc{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px 18px;font-size:15.5px}
+.toc summary{font-weight:700;cursor:pointer;min-height:28px}
+.toc ol{margin:10px 0 0;padding-left:22px}
+.toc li{margin-top:5px}
+.toc a{color:var(--fg);text-decoration:none}
+.toc a:hover{color:var(--brand);text-decoration:underline}
+@media (min-width:1040px){
+  .page{grid-template-columns:250px minmax(0,1fr);gap:44px}
+  .toc{position:sticky;top:16px;align-self:start;max-height:calc(100vh - 32px);overflow-y:auto}
+}
+article{min-width:0;max-width:820px}
 h1,h2,h3{margin:0;line-height:1.2;letter-spacing:-.02em;text-wrap:balance}
 h1{font-size:clamp(32px,6vw,44px);font-weight:800}
-h2{font-size:27px;margin-top:48px;padding-top:8px}
-h3{font-size:20px;margin-top:32px;display:flex;align-items:center;gap:10px}
-.n{flex:none;display:inline-grid;place-items:center;width:30px;height:30px;border-radius:50%;background:var(--brand-soft);color:var(--brand);font-size:15px;font-weight:700}
+h2{font-size:28px;margin-top:56px;padding-top:20px;border-top:1px solid var(--line)}
+h3{font-size:20px;margin-top:30px}
 .lead{font-size:19px;color:var(--muted);margin:14px 0 0}
 p,ul,ol{margin:12px 0 0}
 li{margin-top:6px}
-.note{margin-top:20px;padding:12px 16px;border-radius:12px;background:var(--brand-soft);font-size:15.5px}
+.note,.warn{margin-top:18px;padding:12px 16px;border-radius:12px;font-size:15.5px}
+.note{background:var(--brand-soft)}
+.warn{background:var(--amber-soft)}
 figure{margin:18px 0 0}
 figure img{display:block;width:100%;height:auto;border:1px solid var(--line);border-radius:12px;background:var(--surface)}
+figcaption{margin-top:7px;font-size:14px;color:var(--muted)}
 .tbl{margin-top:14px;overflow-x:auto;border:1px solid var(--line);border-radius:12px;background:var(--surface)}
 table{width:100%;border-collapse:collapse;font-size:15.5px}
 th,td{padding:11px 14px;text-align:left;vertical-align:top;border-top:1px solid var(--line)}
@@ -52,75 +66,265 @@ footer{border-top:1px solid var(--line);padding-block:20px;color:var(--muted);fo
   <a class="logo" href="/"><img src="/logo.png" alt="">KLDataViz</a>
   <a class="btn" href="/login?signup=1">Essai gratuit</a>
 </div></header>
-<main class="wrap">
-  <h1>Guide d'utilisation</h1>
-  <p class="lead">KLDataViz transforme vos fichiers de données en analyses, graphiques, tableaux de bord et rapports, sans Python, sans Power BI et sans formules. Adifa’, son assistante IA, vous accompagne à chaque étape.</p>
-  <p class="note">Toutes les captures de ce guide utilisent le jeu d'exemple fictif intégré à l'application.</p>
+<div class="wrap page">
+  <nav class="toc" aria-label="Sommaire"><details open><summary>Sommaire</summary><ol>
+    <li><a href="#demarrer">Démarrer</a></li>
+    <li><a href="#importer">Importer vos données</a></li>
+    <li><a href="#verifier">Vérifier la qualité</a></li>
+    <li><a href="#structure">Structurer et croiser</a></li>
+    <li><a href="#analyser">Lire l'analyse</a></li>
+    <li><a href="#adifa">Questionner Adifa’</a></li>
+    <li><a href="#tableau">Le tableau de bord</a></li>
+    <li><a href="#dictionnaire">Dictionnaire d'indicateurs</a></li>
+    <li><a href="#partager">Exporter et partager</a></li>
+    <li><a href="#planifier">Rapports planifiés</a></li>
+    <li><a href="#donnees">Données et Rapports</a></li>
+    <li><a href="#equipe">Travailler en équipe</a></li>
+    <li><a href="#reglages">Réglages</a></li>
+    <li><a href="#securite">Confidentialité</a></li>
+    <li><a href="#forfaits">Forfaits</a></li>
+    <li><a href="#aide">En cas de problème</a></li>
+  </ol></details></nav>
 
-  <h2>Avant de commencer</h2>
-  <ol>
-    <li>Ouvrez KLDataViz et créez votre compte avec votre e-mail et un mot de passe.</li>
-    <li>Donnez un nom à votre espace. L'essai gratuit dure 14 jours.</li>
-  </ol>
-  <p>Vous voulez juste découvrir l'outil ? Cliquez sur <b>Essayer avec un exemple</b> : un jeu de données fictif (12 centres de santé sur 18 mois) se charge tout seul.</p>
+  <article>
+    <h1>Guide d'utilisation</h1>
+    <p class="lead">KLDataViz transforme vos fichiers de données en analyses, graphiques, tableaux de bord et rapports. Vous n'avez besoin ni de Python, ni de Power BI, ni de formules : Adifa’, l'assistante IA de KLDataViz, vous accompagne à chaque étape.</p>
+    <p class="note">Les captures utilisent des données entièrement fictives. Elles viennent de la version de démonstration : en ligne, l'en-tête et le menu peuvent légèrement différer (pas de « Chemin du fichier » ni de menu « Tâches », par exemple).</p>
 
-  <h2>Les 4 étapes d'une analyse</h2>
+    <h2 id="demarrer">1. Démarrer</h2>
+    <h3>Créer votre compte</h3>
+    <ol>
+      <li>Ouvrez <a href="/">kldataviz.onrender.com</a> et cliquez sur <b>Essai gratuit</b>.</li>
+      <li>Saisissez votre e-mail et choisissez un mot de passe. Si vous l'oubliez, utilisez <b>Mot de passe oublié</b> sur la page de connexion.</li>
+      <li>Donnez un nom à votre organisation : KLDataViz crée votre espace, avec 14 jours d'essai gratuit.</li>
+    </ol>
+    <p>Si un collègue vous a invité, suivez le lien reçu par e-mail : vous rejoignez directement son espace.</p>
+    <h3>Découvrir l'écran</h3>
+    <div class="tbl"><table>
+      <tr><th scope="col">Élément</th><th scope="col">À quoi il sert</th></tr>
+      <tr><td><b>Analyse</b></td><td>Le parcours guidé : Importer, Vérifier, Analyser, Partager</td></tr>
+      <tr><td><b>Tableau de bord</b></td><td>Le tableau interactif du fichier analysé, et les tableaux enregistrés de l'espace</td></tr>
+      <tr><td><b>Données</b></td><td>Les jeux de données enregistrés et leurs versions</td></tr>
+      <tr><td><b>Rapports</b></td><td>Tous les exports générés</td></tr>
+      <tr><td><b>Planifié</b></td><td>Les rapports automatiques</td></tr>
+      <tr><td><b>Réglages</b></td><td>Profil, comportement d'Adifa’, dictionnaire, équipe, données de l'espace, apparence</td></tr>
+      <tr><td><b>Adifa’</b> (en haut)</td><td>Ouvre ou masque la discussion avec l'assistante</td></tr>
+      <tr><td><b>Nouvelle analyse</b> (en haut)</td><td>Repart de zéro avec un autre fichier</td></tr>
+    </table></div>
+    <p class="note"><b>Pour un premier essai :</b> cliquez sur <b>Essayer avec un exemple</b>. Un jeu fictif (12 centres de santé sur 18 mois) se charge tout seul, et vous pouvez suivre ce guide avec lui.</p>
 
-  <h3><span class="n">1</span>Importer</h3>
-  <p>Déposez votre fichier dans la zone prévue : Excel, CSV ou Parquet. Vous pouvez aussi partir d'une source connectée, par exemple Google Sheets, une base PostgreSQL, DHIS2 ou un lien web.</p>
-  <p>Si votre classeur Excel contient plusieurs feuilles, cochez celles qui vous intéressent.</p>
-  <figure><img src="/guide/importer.png" alt="Écran Importer : zone de dépôt du fichier et sources connectées" width="1440" height="900" loading="lazy"></figure>
+    <h2 id="importer">2. Importer vos données</h2>
+    <p>Votre fichier d'origine n'est jamais modifié. KLDataViz travaille sur une copie.</p>
+    <h3>Déposer un fichier</h3>
+    <p>Glissez votre fichier dans la zone prévue ou cliquez sur <b>Choisir un fichier</b>. Formats acceptés : Excel (.xlsx, .xls, .xlsm), CSV, JSON et Parquet, jusqu'à 25 Mo en ligne. Les tableaux avec lignes de titre ou de totaux sont reconnus.</p>
+    <figure><img src="/guide/importer.jpg" alt="Écran Importer avec la zone de dépôt" width="1440" height="900" loading="lazy"></figure>
+    <h3>Choisir les feuilles d'un classeur Excel</h3>
+    <p>Si le classeur a plusieurs feuilles, KLDataViz les liste et recommande la meilleure. Les sommaires, notes et tableaux de bord sont repérés pour ne pas être pris pour des données.</p>
+    <ul>
+      <li><b>Une feuille :</b> cochez-la, puis cliquez sur <b>Analyser cette feuille</b>.</li>
+      <li><b>Des feuilles de même structure</b> (par exemple une par année) : le bouton <b>Cocher les feuilles de même structure</b> les empile en un seul tableau.</li>
+      <li><b>Des feuilles différentes mais liées :</b> cochez-les, et Adifa’ les croise. Elle explique aussi la <b>logique du classeur</b> : le rôle de chaque feuille, leurs liens et les analyses possibles, chacune avec un bouton <b>Lancer</b>.</li>
+    </ul>
+    <figure><img src="/guide/feuilles.jpg" alt="Liste des feuilles d'un classeur avec la feuille recommandée" width="1440" height="900" loading="lazy"></figure>
+    <h3>Connecter une source</h3>
+    <p>Sous <b>Ou connectez une source</b>, choisissez d'où viennent vos données :</p>
+    <div class="tbl"><table>
+      <tr><th scope="col">Source</th><th scope="col">Comment faire</th><th scope="col">À savoir</th></tr>
+      <tr><td><b>Google Sheets, OneDrive ou lien web</b></td><td>Collez le lien de partage, ou l'adresse d'un fichier CSV, Excel ou JSON.</td><td>Le partage doit être ouvert : « Tous les utilisateurs disposant du lien » (Google) ou « Toute personne disposant du lien » (OneDrive, SharePoint). Actualisable sans réimporter.</td></tr>
+      <tr><td><b>Base PostgreSQL</b></td><td>Renseignez la connexion, le schéma, la table et le nombre maximal de lignes, puis cliquez sur <b>Importer et analyser</b>.</td><td>La base doit être joignable sur Internet. Connexion chiffrée et en lecture seule, 200 000 lignes au plus. Le mot de passe n'est pas conservé : la table ne s'actualise donc pas d'elle-même. Utilisez un compte en lecture seule.</td></tr>
+      <tr><td><b>DHIS2</b></td><td>Collez le lien API d'une visualisation (Visualiseur de données → Télécharger → Données brutes → JSON), ou un lien <code>…/api/analytics.json?dimension=…</code>, puis vos identifiants et <b>Tester et analyser</b>.</td><td>Mot de passe chiffré dans votre espace, jamais affiché. Actualisable. Utilisez un compte en lecture seule.</td></tr>
+      <tr><td><b>Jeu déjà enregistré</b></td><td>Choisissez une version du registre pour la réanalyser.</td><td>Voir <a href="#donnees">Données et Rapports</a>.</td></tr>
+    </table></div>
+    <figure><img src="/guide/lien.jpg" alt="Formulaire de connexion par lien Google Sheets ou OneDrive" width="1440" height="900" loading="lazy"></figure>
+    <figure><img src="/guide/dhis2.jpg" alt="Formulaire de connexion à DHIS2" width="1440" height="900" loading="lazy"></figure>
 
-  <h3><span class="n">2</span>Vérifier</h3>
-  <p>Adifa’ examine le fichier et affiche :</p>
-  <ul>
-    <li>un <b>score de qualité</b> sur 100 ;</li>
-    <li>la liste des <b>corrections proposées</b>, que vous activez ou désactivez une par une ;</li>
-    <li>une <b>structure recommandée</b>, si le fichier n'est pas au bon format pour l'analyse.</li>
-  </ul>
-  <p>Rien n'est appliqué sans votre accord. Les corrections se font sur une copie : votre fichier d'origine reste intact. Cliquez ensuite sur <b>Appliquer les corrections et analyser</b>.</p>
+    <h2 id="verifier">3. Vérifier la qualité</h2>
+    <p>Avant toute analyse, Adifa’ contrôle le fichier et affiche :</p>
+    <ul>
+      <li><b>Le score de qualité sur 100</b>, et le score attendu avec les corrections choisies. <b>Comment le score est calculé</b> en détaille le calcul.</li>
+      <li><b>Ce qu'Adifa’ a compris :</b> ce que représente une ligne, la période, les identifiants, les axes d'analyse et les mesures, ainsi que les points à connaître.</li>
+      <li><b>Les corrections proposées :</b> types de colonnes, doublons, formats de date, valeurs manquantes. Chacune s'active ou se désactive avec son interrupteur, et <b>Voir le détail</b> montre ce qui change.</li>
+      <li><b>Le tableau des colonnes :</b> type, taux de remplissage et nombre de valeurs distinctes.</li>
+    </ul>
+    <figure><img src="/guide/verifier.jpg" alt="Corrections proposées avec leurs interrupteurs" width="1440" height="900" loading="lazy"></figure>
+    <p>Cliquez ensuite sur <b>Appliquer les corrections et analyser</b>, ou sur <b>Analyser sans corriger</b>. Rien n'est appliqué sans votre accord.</p>
 
-  <h3><span class="n">3</span>Analyser</h3>
-  <p>Vous obtenez les chiffres clés, les points importants (relations, anomalies, écarts entre groupes) et des graphiques commentés en français.</p>
-  <figure><img src="/guide/analyser.png" alt="Écran Analyser : chiffres clés et points importants" width="1440" height="900" loading="lazy"></figure>
-  <figure><img src="/guide/graphiques.png" alt="Graphiques par district et par région, avec leur lecture en français" width="1440" height="900" loading="lazy"></figure>
-  <p><b>Posez vos questions à Adifa’.</b> Cliquez sur le bouton <b>Adifa’</b> en haut à droite et écrivez comme à un collègue, par exemple : « Quel district a le plus de cas confirmés en 2025 ? ». Elle calcule la réponse sur vos données, et <b>Voir le calcul</b> vous montre comment elle l'a obtenue.</p>
+    <h2 id="structure">4. Structurer et croiser</h2>
+    <p>Utile quand un fichier est mal organisé : indicateurs en colonnes, dimensions cachées dans les en-têtes, lignes de total mêlées aux détails. À l'étape Vérifier, cliquez sur <b>Proposer une structure</b>. Adifa’ agit comme une architecte de données et indique :</p>
+    <ul>
+      <li>le <b>grain</b>, c'est-à-dire ce que représente une ligne ;</li>
+      <li>la <b>priorité</b> et les <b>problèmes détectés</b> ;</li>
+      <li>les <b>tables proposées</b>, avec un aperçu du résultat, prêtes pour Power BI ou un tableau croisé.</li>
+    </ul>
+    <figure><img src="/guide/structure.jpg" alt="Structure recommandée avec le grain, la priorité et les problèmes détectés" width="1440" height="900" loading="lazy"></figure>
+    <p>Vous pouvez alors :</p>
+    <ul>
+      <li><b>Utiliser cette structure pour l'analyse :</b> applique la structure et passe directement à l'étape Analyser ;</li>
+      <li><b>Générer le modèle Excel :</b> produit un classeur au bon format pour vos prochaines saisies ;</li>
+      <li><b>Croiser avec un autre fichier :</b> ajoute un fichier et recherche les colonnes communes ;</li>
+      <li><b>Relancer :</b> demande une nouvelle proposition.</li>
+    </ul>
+    <p>Les formulaires de rapport (indicateur, sexe et âge en lignes, sites en colonnes) sont reconnus et remis à plat pour produire des graphiques par sexe, par âge et par site.</p>
 
-  <h3><span class="n">4</span>Partager</h3>
-  <p>Exportez le résultat en PDF, en classeur Excel ou en page web, ou enregistrez-le dans le registre.</p>
-  <p>Vous pouvez aussi <b>planifier un rapport automatique</b> : choisissez la fréquence, l'heure et le format. Si vous ajoutez des destinataires et que l'envoi par e-mail est configuré, le rapport leur est envoyé.</p>
-  <figure><img src="/guide/partager.png" alt="Écran Partager : exports et rapport automatique" width="1440" height="900" loading="lazy"></figure>
+    <h2 id="analyser">5. Lire l'analyse</h2>
+    <p>L'écran <b>Ce que disent vos données</b> rassemble :</p>
+    <ul>
+      <li><b>Les chiffres clés :</b> lignes, colonnes, complétude et valeurs aberrantes ;</li>
+      <li><b>Les points clés trouvés par Adifa’ :</b> relations, anomalies, écarts entre groupes. <b>Demander à Adifa’</b> ouvre la discussion sur le point choisi ;</li>
+      <li><b>Les graphiques commentés :</b> choisis selon vos données, chacun avec une <b>lecture en français</b>. <b>Voir aussi les graphiques par variable</b> les affiche colonne par colonne ;</li>
+      <li><b>Le détail :</b> corrections appliquées, statistiques numériques, corrélations, associations entre catégories et anomalies.</li>
+    </ul>
+    <figure><img src="/guide/analyser.jpg" alt="Écran Analyser avec les chiffres clés et les points clés" width="1440" height="900" loading="lazy"></figure>
+    <figure><img src="/guide/graphiques.jpg" alt="Graphiques accompagnés de leur lecture par Adifa’" width="1440" height="900" loading="lazy"></figure>
+    <p class="note">Une corrélation n'est pas une cause. Adifa’ le rappelle, et sépare les faits des hypothèses à vérifier.</p>
 
-  <h2>Le tableau de bord</h2>
-  <p>Dans le menu de gauche, ouvrez <b>Tableau de bord</b>. KLDataViz le construit à partir des données analysées : indicateurs, comparaison entre périodes, graphiques et filtres.</p>
-  <p>Survolez l'icône <b>ⓘ</b> d'un indicateur pour savoir <b>comment ce chiffre est calculé</b>.</p>
-  <p>Le menu <b>Actions</b> permet de le partager par un lien que vos collègues ouvrent sans compte. Ce lien expire et peut être révoqué à tout moment.</p>
-  <figure><img src="/guide/tableau-de-bord.png" alt="Tableau de bord : filtres, indicateurs et comparaison entre périodes" width="1440" height="900" loading="lazy"></figure>
+    <h2 id="adifa">6. Questionner Adifa’</h2>
+    <p>Cliquez sur <b>Adifa’</b> en haut à droite, puis écrivez votre question comme à une collègue. Elle répond sur le fichier en cours et garde le fil de la conversation.</p>
+    <h3>Exemples de questions</h3>
+    <ul>
+      <li>« Combien de lignes ? » : les questions simples sur le fichier reçoivent une réponse instantanée.</li>
+      <li>« Top 5 des districts par valeur »</li>
+      <li>« Compare les régions »</li>
+      <li>« Quelle tendance depuis juin ? »</li>
+      <li>« Résume l'analyse en 5 points »</li>
+      <li>« Fais un graphique des ventes par zone »</li>
+    </ul>
+    <p>Le bouton en forme d'ampoule, à gauche de la zone de saisie, propose des questions adaptées à votre fichier.</p>
+    <figure><img src="/guide/suggestions.jpg" alt="Discussion avec Adifa’ et suggestions de questions" width="1440" height="900" loading="lazy"></figure>
+    <h3>Comment elle répond</h3>
+    <p>Pour une vraie question d'analyse, Adifa’ écrit et exécute de vrais calculs sur vos données, puis les chiffres de sa réponse sont vérifiés avant d'être affichés. Cela peut prendre une à deux minutes. Pendant ce temps, elle indique le calcul en cours.</p>
+    <figure><img src="/guide/chat.jpg" alt="Réponse d'Adifa’ à une question sur les cas de paludisme" width="1440" height="900" loading="lazy"></figure>
+    <p><b>Voir le calcul</b> montre chaque étape et le code exécuté. Vous pouvez donc vérifier la réponse ou la montrer à un collègue.</p>
+    <figure><img src="/guide/calcul.jpg" alt="Détail des calculs exécutés par Adifa’" width="1440" height="900" loading="lazy"></figure>
+    <p>La discussion peut être agrandie, redimensionnée ou masquée.</p>
 
-  <h2>Travailler en équipe</h2>
-  <p>Chaque espace a trois rôles :</p>
-  <div class="tbl"><table>
-    <tr><th scope="col">Rôle</th><th scope="col">Ce qu'il peut faire</th></tr>
-    <tr><td>Propriétaire</td><td>Tout, y compris inviter des membres, exporter ou supprimer les données de l'espace</td></tr>
-    <tr><td>Analyste</td><td>Importer, analyser, créer des tableaux de bord et des liens de partage</td></tr>
-    <tr><td>Lecteur</td><td>Consulter</td></tr>
-  </table></div>
+    <h2 id="tableau">7. Le tableau de bord</h2>
+    <p>Après une analyse, ouvrez <b>Tableau de bord</b> dans le menu. Adifa’ choisit les indicateurs et le construit en une minute environ. Il remplace ce qu'on ferait à la main dans Power BI.</p>
+    <figure><img src="/guide/tableau-de-bord.jpg" alt="Tableau de bord avec filtres, tuiles et comparaison entre périodes" width="1440" height="900" loading="lazy"></figure>
+    <h3>Ce qu'il contient</h3>
+    <ul>
+      <li><b>Les filtres :</b> région, district, centre, période… selon vos données ;</li>
+      <li><b>Les tuiles :</b> les chiffres principaux, avec la catégorie en tête ;</li>
+      <li><b>Les indicateurs clés de suivi :</b> chaque indicateur comparé à la période précédente ou à la même période de l'année d'avant (N-1), avec sa courbe et le nombre d'indicateurs en amélioration, en recul ou stables ;</li>
+      <li><b>Les graphiques :</b> évolutions par semaine, mois ou trimestre, comparaisons, classements et répartitions.</li>
+    </ul>
+    <h3>Filtrer</h3>
+    <p>Un clic sur un filtre ou dans un classement recalcule tout le tableau. Ici, le district Sakassou :</p>
+    <figure><img src="/guide/filtre.jpg" alt="Tableau de bord filtré sur le district Sakassou" width="1440" height="900" loading="lazy"></figure>
+    <h3>Comment ce chiffre est calculé ?</h3>
+    <p>Survolez l'icône <b>ⓘ</b> d'une tuile : KLDataViz explique le calcul. Sur téléphone, touchez-la.</p>
+    <figure><img src="/guide/comment.jpg" alt="Infobulle expliquant le calcul d'un indicateur" width="1440" height="900" loading="lazy"></figure>
+    <h3>Le menu Actions</h3>
+    <figure><img src="/guide/actions.jpg" alt="Menu Actions du tableau de bord" width="1440" height="900" loading="lazy"></figure>
+    <div class="tbl"><table>
+      <tr><th scope="col">Action</th><th scope="col">Effet</th></tr>
+      <tr><td><b>Actualiser les données</b></td><td>Relit la source et recalcule avec les mêmes indicateurs, sans IA.</td></tr>
+      <tr><td><b>Auto</b></td><td>Actualisation automatique : désactivée, toutes les heures ou chaque jour.</td></tr>
+      <tr><td><b>Partager…</b></td><td>Lien de partage et envoi par e-mail (<a href="#partager">voir plus bas</a>).</td></tr>
+      <tr><td><b>Télécharger</b></td><td>Fichier HTML autonome et interactif, à envoyer à vos collègues.</td></tr>
+      <tr><td><b>Ouvrir dans un onglet</b></td><td>Affiche le tableau en grand.</td></tr>
+      <tr><td><b>Régénérer avec l'IA</b></td><td>Demande à Adifa’ de choisir de nouveaux indicateurs.</td></tr>
+    </table></div>
+    <p>Les tableaux sont enregistrés automatiquement. Retrouvez-les sous <b>Tableaux de bord de l'espace</b>, en bas de la page, pour les ouvrir ou les supprimer. Supprimer un tableau désactive ses liens de partage.</p>
 
-  <h2>Vos données</h2>
-  <ul>
-    <li>Chaque organisation dispose d'un espace séparé.</li>
-    <li>Le propriétaire peut exporter toutes les données de l'espace ou les supprimer définitivement, depuis <b>Réglages</b>.</li>
-    <li>N'importez que des données que vous avez le droit de traiter. Pour des données de santé, retirez les informations qui identifient les patients.</li>
-  </ul>
+    <h2 id="dictionnaire">8. Le dictionnaire d'indicateurs</h2>
+    <p>Facultatif, mais précieux si votre organisation a un référentiel officiel, par exemple les indicateurs MER PEPFAR. Sans dictionnaire, Adifa’ applique les normes internationales du domaine.</p>
+    <ol>
+      <li>Préparez un fichier Excel ou CSV d'1 Mo au plus, avec une ligne par indicateur et au moins les colonnes <b>Code</b> et <b>Indicateur</b>. Les colonnes <b>Type</b> (Nombre ou Pourcentage) et <b>Calcul du total annuel</b> rendent les calculs exacts.</li>
+      <li>Dans <b>Réglages</b>, cliquez sur <b>Importer un dictionnaire</b>.</li>
+      <li>Ouvrez le tableau de bord : Adifa’ relie chaque indicateur à vos colonnes par une formule, et les tuiles concernées affichent <b>à valider</b>.</li>
+      <li>Dans <b>Correspondance des indicateurs</b>, cliquez sur <b>Vérifier / modifier</b>. Contrôlez chaque formule, puis utilisez <b>Modifier</b>, <b>Valider les propositions sûres</b> ou <b>Reproposer</b>.</li>
+      <li>Choisissez la <b>période d'activité</b> et la <b>dimension principale</b>, puis cliquez sur <b>Enregistrer et mettre à jour le tableau de bord</b>.</li>
+    </ol>
+    <figure><img src="/guide/correspondance.jpg" alt="Correspondance entre les indicateurs du dictionnaire et les colonnes du fichier" width="1440" height="900" loading="lazy"></figure>
+    <p>Les formules validées sont réutilisées pour ce type de fichier, sans IA. Les indicateurs absents de vos données sont signalés, et les autres tuiles sont marquées « hors dictionnaire ». Pour relier les indicateurs, Adifa’ n'envoie que les noms de colonnes et les catégories.</p>
 
-  <h2>Si quelque chose ne marche pas</h2>
-  <div class="tbl"><table>
-    <tr><th scope="col">Situation</th><th scope="col">Que faire</th></tr>
-    <tr><td>Le fichier est refusé</td><td>Vérifiez son format et sa taille (25 Mo maximum en ligne).</td></tr>
-    <tr><td>« Adifa’ n'a pas répondu à temps »</td><td>L'analyse continue avec des règles automatiques. Réessayez un peu plus tard pour obtenir l'avis de l'IA.</td></tr>
-    <tr><td>Le premier chargement est lent</td><td>Patientez quelques secondes, puis rechargez la page.</td></tr>
-  </table></div>
-</main>
+    <h2 id="partager">9. Exporter et partager</h2>
+    <h3>Depuis l'étape Partager</h3>
+    <div class="tbl"><table>
+      <tr><th scope="col">Format</th><th scope="col">Contenu</th></tr>
+      <tr><td><b>PDF</b></td><td>Rapport à imprimer, synthèse prête pour la direction</td></tr>
+      <tr><td><b>Classeur Excel</b></td><td>Une feuille par section de l'analyse</td></tr>
+      <tr><td><b>Page web</b></td><td>S'ouvre dans n'importe quel navigateur</td></tr>
+      <tr><td><b>Registre</b></td><td>Enregistre une nouvelle version du jeu de données, source intacte</td></tr>
+    </table></div>
+    <figure><img src="/guide/partager.jpg" alt="Écran Partager avec les exports et le rapport automatique" width="1440" height="900" loading="lazy"></figure>
+    <h3>Partager un tableau de bord par lien</h3>
+    <p>Dans le menu <b>Actions</b>, choisissez <b>Partager…</b>, puis une durée de 7, 30 ou 90 jours et <b>Créer un lien</b>. Vos collègues l'ouvrent sans compte et voient toujours la dernière version, avec un bouton pour actualiser si la source est connectée. Vous pouvez <b>Copier</b> ou <b>Révoquer</b> le lien à tout moment.</p>
+    <p class="warn"><b>Attention :</b> toute personne qui possède le lien peut voir le tableau. Ne partagez jamais de données nominatives (patients, élèves, salariés).</p>
+    <figure><img src="/guide/partage.jpg" alt="Panneau Lien de partage et Envoi par e-mail" width="1440" height="900" loading="lazy"></figure>
+    <h3>Envoyer un tableau de bord par e-mail</h3>
+    <p>Dans le même panneau, saisissez les destinataires, puis cliquez sur <b>Envoyer maintenant</b>. Vous pouvez aussi choisir un envoi automatique, chaque lundi ou le 1er du mois à 7 h, et cliquer sur <b>Enregistrer</b>. L'e-mail contient le lien de partage et le tableau en pièce jointe.</p>
+
+    <h2 id="planifier">10. Les rapports planifiés</h2>
+    <p>Adifa’ relit la source, refait l'analyse et produit un rapport à jour, avec les évolutions par rapport à la fois précédente.</p>
+    <ol>
+      <li>À l'étape Partager, utilisez <b>Recevoir ce rapport automatiquement</b>. Vous pouvez aussi ouvrir <b>Planifié</b> et choisir une source.</li>
+      <li>Choisissez la fréquence (chaque jour, chaque lundi ou le 1er du mois), l'heure et le format (PDF, Excel ou HTML).</li>
+      <li>Ajoutez des destinataires si vous le souhaitez, puis cliquez sur <b>Planifier</b>.</li>
+    </ol>
+    <figure><img src="/guide/planifie.jpg" alt="Formulaire de nouvelle planification" width="1440" height="465" loading="lazy"></figure>
+    <p>Le rapport arrive dans <b>Rapports</b> et, si l'envoi d'e-mails est activé, dans la boîte des destinataires. Dans la liste des planifications, <b>Exécuter maintenant</b> lance un essai immédiat.</p>
+    <p class="note">Les corrections choisies ne sont pas rejouées : le rapport planifié porte sur les données d'origine de la source.</p>
+
+    <h2 id="donnees">11. Données et Rapports</h2>
+    <h3>Données</h3>
+    <p>Chaque jeu enregistré garde l'historique de ses versions, avec la source d'origine intacte. Depuis cette page, vous pouvez consulter les versions et relancer une analyse.</p>
+    <h3>Rapports</h3>
+    <p>Tous les exports et les rapports planifiés y sont réunis. Recherchez un rapport, filtrez par PDF, Excel ou HTML, puis utilisez <b>Ouvrir</b>, <b>Télécharger</b> ou <b>Supprimer</b>.</p>
+    <figure><img src="/guide/rapports.jpg" alt="Liste des rapports avec recherche et filtres" width="1440" height="900" loading="lazy"></figure>
+
+    <h2 id="equipe">12. Travailler en équipe</h2>
+    <p>Les membres d'un espace partagent les mêmes données et les mêmes rapports. Dans <b>Réglages</b>, section <b>Équipe</b>, saisissez un e-mail, choisissez un rôle et cliquez sur <b>Inviter</b>. Le nombre de membres dépend du forfait.</p>
+    <div class="tbl"><table>
+      <tr><th scope="col">Rôle</th><th scope="col">Ce qu'il peut faire</th></tr>
+      <tr><td><b>Propriétaire</b></td><td>Tout, y compris gérer l'équipe, exporter ou supprimer les données de l'espace</td></tr>
+      <tr><td><b>Analyste</b></td><td>Importer, analyser, exporter, modifier le dictionnaire et les formules, créer des liens de partage</td></tr>
+      <tr><td><b>Lecteur</b></td><td>Consulter et poser des questions à Adifa’</td></tr>
+    </table></div>
+
+    <h2 id="reglages">13. Les réglages</h2>
+    <figure><img src="/guide/reglages.jpg" alt="Réglages du profil et du comportement d'Adifa’" width="1440" height="365" loading="lazy"></figure>
+    <div class="tbl"><table>
+      <tr><th scope="col">Section</th><th scope="col">Ce que vous pouvez faire</th></tr>
+      <tr><td><b>Profil</b></td><td>Voir votre nom et le nom de l'organisation (modifiable par le propriétaire)</td></tr>
+      <tr><td><b>Comportement d'Adifa’</b></td><td>Langue des réponses (français ou anglais) ; niveau de détail : simple pour la direction, ou détaillé pour les analystes</td></tr>
+      <tr><td><b>Dictionnaire d'indicateurs</b></td><td>Importer, remplacer ou retirer votre référentiel</td></tr>
+      <tr><td><b>Données de l'espace</b></td><td>Tout exporter en .zip, supprimer les données, consulter le journal</td></tr>
+      <tr><td><b>Apparence</b></td><td>Thème système, clair ou sombre</td></tr>
+      <tr><td><b>Équipe</b></td><td>Inviter des membres et gérer les rôles</td></tr>
+      <tr><td><b>Services</b></td><td>Vérifier l'état de l'IA, du registre et de l'envoi d'e-mails</td></tr>
+    </table></div>
+    <p>KLDataViz fonctionne aussi sur téléphone, où la discussion avec Adifa’ s'ouvre à la demande.</p>
+
+    <h2 id="securite">14. Confidentialité et sécurité</h2>
+    <ul>
+      <li><b>Espaces séparés :</b> chaque organisation a son propre stockage et son propre registre.</li>
+      <li><b>Source intacte :</b> les corrections s'appliquent à une copie de travail.</li>
+      <li><b>Calculs isolés :</b> le code écrit par l'IA s'exécute à part, sans accès aux clés du service.</li>
+      <li><b>Ce que voit l'IA :</b> un résumé statistique et votre question, pas votre fichier. Vos données ne servent pas à entraîner une IA.</li>
+      <li><b>Journal de l'espace :</b> exports, suppressions, liens de partage et connexions DHIS2 sont tracés.</li>
+      <li><b>Export et effacement :</b> le propriétaire récupère tout en .zip, ou efface tout. L'effacement est irréversible et demande de saisir le nom exact de l'espace. Les comptes et l'abonnement restent.</li>
+    </ul>
+    <p class="warn"><b>Bonne pratique :</b> n'importez que des données que vous avez le droit de traiter. Pour des données de santé, retirez d'abord les informations qui identifient les personnes.</p>
+
+    <h2 id="forfaits">15. Forfaits</h2>
+    <p>Chaque forfait comprend toutes les fonctionnalités : seuls les volumes changent (analyses, questions à l'IA, membres). Ils sont détaillés dans la section <a href="/#tarifs">Tarifs</a> de la page d'accueil. L'essai gratuit dure 14 jours. À la fin de l'essai, votre espace est mis en pause, sans perte de données : choisissez un forfait pour le réactiver.</p>
+
+    <h2 id="aide">16. En cas de problème</h2>
+    <div class="tbl"><table>
+      <tr><th scope="col">Situation</th><th scope="col">Que faire</th></tr>
+      <tr><td>Le fichier est refusé</td><td>Vérifiez le format et la taille (25 Mo maximum en ligne).</td></tr>
+      <tr><td>Un lien Google ou OneDrive ne fonctionne pas</td><td>Vérifiez que le partage est ouvert à toute personne disposant du lien.</td></tr>
+      <tr><td>La base PostgreSQL est injoignable</td><td>Elle doit être accessible sur Internet : <code>localhost</code> et les adresses du réseau local ne fonctionnent pas en ligne.</td></tr>
+      <tr><td>« Adifa’ n'a pas répondu à temps »</td><td>L'analyse continue avec des règles automatiques. Réessayez plus tard pour obtenir l'avis de l'IA.</td></tr>
+      <tr><td>La réponse d'Adifa’ est longue</td><td>C'est normal pour une vraie analyse : elle exécute plusieurs calculs.</td></tr>
+      <tr><td>« Quota mensuel atteint »</td><td>Les volumes sont comptés par mois : attendez le mois suivant ou choisissez un forfait supérieur.</td></tr>
+      <tr><td>Le premier chargement est lent</td><td>Patientez quelques secondes, puis rechargez la page.</td></tr>
+      <tr><td>Un lien de partage ne s'ouvre plus</td><td>Il a expiré, été révoqué, ou son tableau a été supprimé. Créez-en un nouveau.</td></tr>
+    </table></div>
+  </article>
+</div>
 <footer><div class="wrap">© KLDataViz · Adifa’ · <a href="/">Retour à l'accueil</a></div></footer>
 </body>
 </html>
