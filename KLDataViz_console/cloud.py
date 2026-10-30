@@ -814,8 +814,9 @@ def paiement_actif() -> bool:
     return paiement.pret() and APP_URL.startswith("https://")
 
 
-def _offres() -> list:
-    return [p for p in public_plans() if (p.get("price") or 0) > 0 and not p.get("days") and p["key"] != "suspendu"]
+def _offres(sans_prix=False) -> list:
+    return [p for p in public_plans() if ((p.get("price") or 0) > 0 or (sans_prix and p.get("price") is None))
+            and not p.get("days") and p["key"] != "suspendu"]
 
 
 def _paiement_ouvert(ctx: Ctx) -> bool:
@@ -827,8 +828,11 @@ def billing(ctx: Ctx) -> dict:
     org = q("select plan, paid_until, trial_end from app.organizations where id = %s", (ctx.org_id,), one=True) or {}
     hist = q("""select merchant_tx, plan, months, amount, currency, status, created_at, paid_at
                 from app.payments where org_id = %s order by created_at desc limit 20""", (ctx.org_id,))
-    return {"actif": _paiement_ouvert(ctx), "test": paiement.mode_test(), "peut_payer": ctx.role == "owner",
-            "plan": ctx.plan.get("key"), "plan_paye": org.get("plan"), "offres": _offres(), "durees": list(DUREES),
+    ouvert = _paiement_ouvert(ctx)
+    apercu = ctx.is_admin and not ouvert   # l'administrateur voit l'écran avant l'ouverture du paiement
+    return {"actif": ouvert, "apercu": apercu, "test": paiement.mode_test(), "peut_payer": ctx.role == "owner",
+            "plan": ctx.plan.get("key"), "plan_paye": org.get("plan"), "offres": _offres(sans_prix=apercu),
+            "durees": list(DUREES),
             "paid_until": org["paid_until"].isoformat() if org.get("paid_until") else None,
             "paiements": [dict(h, created_at=h["created_at"].isoformat(),
                                paid_at=h["paid_at"].isoformat() if h["paid_at"] else None) for h in hist]}
