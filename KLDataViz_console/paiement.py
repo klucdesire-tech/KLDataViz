@@ -20,7 +20,7 @@ JETON_TTL = 23 * 3600          # valable 24 h côté CinetPay
 JETON_EXPIRE = {1002, 1003}    # INVALID_TOKEN, EXPIRED_TOKEN
 CODES_OK = {200, 100, 2001, 2002}
 ETATS_TRANSACTION = {"SUCCESS", "INITIATED", "PENDING", "FAILED", "EXPIRED", "INSUFFICIENT_BALANCE", "USER_NOT_FOUND",
-                     "USER_IS_BLOCKED", "NOT_ALLOWED", "OTP_ERROR", "OTP_EXPIRED"}
+                     "USER_IS_BLOCKED", "NOT_ALLOWED", "OTP_ERROR", "OTP_EXPIRED", "NOT_FOUND"}
 MONTANT_MIN, MONTANT_MAX = 100, 2_500_000
 
 _jeton = (0.0, "")
@@ -45,6 +45,10 @@ def pret() -> bool:
 
 def mode_test() -> bool:
     return not _cle().startswith("sk_live_")
+
+
+def mode() -> str:
+    return "test" if mode_test() else "live"
 
 
 def _base() -> str:

@@ -309,9 +309,11 @@ async function loadPay(){
   $('#payList').innerHTML=r.length?`<table><thead><tr><th>Date</th><th>Client</th><th>Forfait</th><th>Montant</th><th>État</th><th>Mode</th><th>Transaction</th><th></th></tr></thead><tbody>${r.map(p=>`<tr><td>${esc(new Date(p.created_at).toLocaleString('fr-FR'))}</td><td>${esc(p.org)}<br><small>${esc(p.email)}</small></td><td>${esc(p.plan)} · ${esc(p.months)} mois</td><td>${esc(p.amount)} ${esc(p.currency)}</td><td>${esc(st[p.status]||p.status)}</td><td>${esc(p.mode)}</td><td><small>${esc(p.merchant_tx)}</small></td><td>${p.status==='paid'?'':`<button class="btn ghost sm" data-verif="${esc(p.merchant_tx)}">Vérifier</button>`}</td></tr>`).join('')}</tbody></table>`:'<div class="empty">Aucun paiement pour le moment.</div>';
 }
 $('#payList').addEventListener('click',async e=>{
-  const b=e.target.closest('[data-verif]');if(!b)return;b.disabled=true;
-  const r=await api('/api/admin/payments/verify',{merchant_tx:b.dataset.verif});
-  if(r.error){alert(r.error);b.disabled=false;return}loadPay();
+  const b=e.target.closest('[data-verif]');if(!b)return;
+  if(!confirm('Relire ce paiement chez CinetPay ? S\'il a réussi, le forfait sera activé.'))return;
+  b.disabled=true;const r=await api('/api/admin/payments/verify',{merchant_tx:b.dataset.verif});
+  if(r.error){alert(r.error);b.disabled=false;return}
+  alert({paid:'Paiement confirmé : forfait activé.',failed:'Paiement échoué chez CinetPay.',pending:'Paiement toujours en attente chez CinetPay.'}[r.status]||r.status);loadPay();
 });
 async function loadPlans(){const p=await api('/api/admin/plans');if(Array.isArray(p))PLANS=p}
 async function renderPlans(){

@@ -286,9 +286,11 @@ def test_rappel_envoye_une_fois_par_echeance(pg, monkeypatch):
     assert envois.count(["o@test.ci"]) == 2
 
 
-def test_espace_suspendu_ne_peut_pas_payer(pg):
+@pytest.mark.parametrize("sql", ["update app.organizations set suspended = true where id = %s",
+                                 "update app.organizations set plan = 'suspendu' where id = %s"])
+def test_espace_suspendu_ne_peut_pas_payer(pg, sql):
     cloud, _, faux, ctx, org = pg
-    ctx.plan["suspended"] = True
+    cloud.q(sql, (org,))
     with pytest.raises(ValueError):
         cloud.checkout(ctx, "pro", 1)
     assert _tx(cloud, org) is None and "/v1/payment" not in [a[1] for a in faux.appels]
@@ -349,12 +351,114 @@ def test_notification_avant_la_fin_rattrapee(pg):
     assert _org(cloud, org)["plan"] == "pro"
 
 
-def test_paiement_abandonne_clos_apres_deux_jours(pg):
+def _vieillir(cloud, org, jours):
+    cloud.q("update app.payments set created_at = now() - make_interval(days => %s) where org_id = %s", (jours, org))
+
+
+def test_abonnement_expire_peut_payer(pg):
+    cloud, _, faux, ctx, org = pg
+    _payer(cloud, faux, ctx)
+    cloud.q("update app.organizations set paid_until = now() - interval '1 day' where id = %s", (org,))
+    ctx.plan.update(key="suspendu", expired=True)
+    assert cloud.checkout(ctx, "pro", 1)["payment_url"]
+
+
+def test_ancien_paiement_jamais_clos_sans_reponse(pg):
+    cloud, _, faux, ctx, org = pg
+    cloud.checkout(ctx, "pro", 1)
+    _vieillir(cloud, org, 30)
+    faux.panne = True
+    cloud.reconcilier_paiements()
+    assert _tx(cloud, org)["status"] == "pending"
+
+
+def test_ancien_paiement_reussi_toujours_active(pg):
+    cloud, _, faux, ctx, org = pg
+    cloud.checkout(ctx, "pro", 1)
+    p = _tx(cloud, org)
+    _vieillir(cloud, org, 30)
+    faux.statuts[p["merchant_tx"]] = {"code": 100, "status": "SUCCESS"}
+    cloud.reconcilier_paiements()
+    assert _org(cloud, org)["plan"] == "pro"
+
+
+def test_paiement_abandonne_clos_apres_confirmation_de_cinetpay(pg):
     cloud, _, _, ctx, org = pg
     cloud.checkout(ctx, "pro", 1)
-    cloud.q("update app.payments set created_at = now() - interval '3 days' where org_id = %s", (org,))
+    _vieillir(cloud, org, 8)
     cloud.reconcilier_paiements()
     assert _tx(cloud, org)["status"] == "failed"
+
+
+def test_paiement_recent_reste_en_attente(pg):
+    cloud, _, _, ctx, org = pg
+    cloud.checkout(ctx, "pro", 1)
+    _vieillir(cloud, org, 3)
+    cloud.reconcilier_paiements()
+    assert _tx(cloud, org)["status"] == "pending"
+
+
+def test_reconciliation_ne_s_arrete_pas_sur_une_ligne(pg, monkeypatch):
+    cloud, _, _, ctx, org = pg
+    for _ in range(3):
+        cloud.checkout(ctx, "pro", 1)
+    _vieillir(cloud, org, 1)
+    vus = []
+
+    def casse(p):
+        vus.append(p["merchant_tx"])
+        raise RuntimeError("base coupée")
+    monkeypatch.setattr(cloud, "_synchroniser", casse)
+    cloud.reconcilier_paiements()
+    assert len(vus) >= 3
+    assert cloud.q("select count(*) n from app.payments where org_id = %s and checked_at is not null", (org,), one=True)["n"] == 3
+
+
+def test_reconciliation_tourne_sur_tout_le_lot(pg, monkeypatch):
+    cloud, _, _, ctx, org = pg
+    monkeypatch.setattr(cloud, "LOT_RECONCILIATION", 2)
+    cloud.q("update app.payments set checked_at = now()")
+    for _ in range(3):
+        cloud.checkout(ctx, "pro", 1)
+    _vieillir(cloud, org, 1)
+    cloud.reconcilier_paiements()
+    cloud.reconcilier_paiements()
+    assert cloud.q("select count(*) n from app.payments where org_id = %s and checked_at is null", (org,), one=True)["n"] == 0
+
+
+def test_client_retrouve_un_paiement_clos_a_tort(pg):
+    cloud, _, faux, ctx, org = pg
+    cloud.checkout(ctx, "pro", 1)
+    p = _tx(cloud, org)
+    cloud.q("update app.payments set status = 'failed' where id = %s", (p["id"],))
+    faux.statuts[p["merchant_tx"]] = {"code": 100, "status": "SUCCESS"}
+    assert cloud.synchroniser_espace(ctx)["paye"] is True
+
+
+def test_paiement_d_un_autre_mode_ignore(pg):
+    cloud, _, faux, ctx, org = pg
+    cloud.checkout(ctx, "pro", 1)
+    cloud.q("update app.payments set mode = 'live', created_at = now() - interval '1 hour' where org_id = %s", (org,))
+    faux.appels.clear()
+    cloud.reconcilier_paiements()
+    p = _tx(cloud, org)
+    assert ("GET", "/v1/payment/" + p["merchant_tx"]) not in faux.appels and p["status"] == "pending"
+
+
+def test_conversion_au_prix_reellement_paye(pg):
+    cloud, _, faux, ctx, org = pg
+    _payer(cloud, faux, ctx, "equipe", 12)
+    cloud.q("update app.plans set price = 200000 where key = 'equipe'")
+    _payer(cloud, faux, ctx, "pro", 1)
+    jours = (_org(cloud, org)["paid_until"] - dt.datetime.now(dt.timezone.utc)).days
+    assert 1200 <= jours <= 1260   # 1 mois + environ 365 j x 50 000 / 15 000
+
+
+def test_forfait_avec_paiement_en_cours_non_supprimable(pg):
+    cloud, _, _, ctx, _ = pg
+    cloud.checkout(ctx, "equipe", 1)
+    with pytest.raises(ValueError):
+        cloud.admin_plan_delete(cloud.Ctx(key="a", is_admin=True), "equipe")
 
 
 def test_admin_repare_un_paiement_reel(pg):

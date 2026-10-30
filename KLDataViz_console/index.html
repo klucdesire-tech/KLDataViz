@@ -2132,7 +2132,7 @@ function meter(label,used,max){const pct=max?Math.min(100,Math.round(used/max*10
 function renderMe(me){
   state.me=me;$('#userEmail').textContent=me.email;$('#orgName').textContent=me.org||'';
   const p=me.plan,u=me.usage,trial=p.key==='essai'&&p.trial_end?`<span>Essai jusqu'au ${new Date(p.trial_end).toLocaleDateString('fr-FR',{day:'numeric',month:'long'})}</span>`
-    :p.paid_until?`<span>Actif jusqu'au ${new Date(p.paid_until).toLocaleDateString('fr-FR',{day:'numeric',month:'long'})}</span>`:'';
+    :p.paid_until?(new Date(p.paid_until)>new Date()?`<span>Actif jusqu'au ${new Date(p.paid_until).toLocaleDateString('fr-FR',{day:'numeric',month:'long'})}</span>`:'<span>Abonnement terminé</span>'):'';
   $('#railfoot').innerHTML=`<div class="row"><span class="pill">${esc(p.label)}</span><span>${esc(ROLE[me.role]||'')}</span></div>${meter('Analyses',u.analyses,p.analyses)}${meter('Questions IA',u.ai,p.ai)}${trial}`;
   $('#teamCard').hidden=me.role!=='owner';$('#adminCard').hidden=!me.is_admin;$('#adminLink').hidden=!me.is_admin;
 }

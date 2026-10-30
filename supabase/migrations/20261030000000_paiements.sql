@@ -20,7 +20,8 @@ create table if not exists app.payments (
   notify_token    text,
   status          text not null default 'pending' check (status in ('pending', 'paid', 'failed')),
   created_at      timestamptz not null default now(),
-  paid_at         timestamptz
+  paid_at         timestamptz,
+  checked_at      timestamptz                   -- dernière relecture chez CinetPay
 );
 
 create index if not exists payments_org_idx on app.payments (org_id, created_at desc);

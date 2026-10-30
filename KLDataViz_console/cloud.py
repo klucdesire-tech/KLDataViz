@@ -520,6 +520,8 @@ def admin_plan_delete(ctx: Ctx, key: str):
         raise ValueError("Les forfaits « essai » et « suspendu » sont indispensables.")
     if q("select 1 from app.organizations where plan = %s limit 1", (key,), one=True):
         raise ValueError("Des espaces utilisent ce forfait : changez-les de forfait d'abord.")
+    if q("select 1 from app.payments where plan = %s and status = 'pending' limit 1", (key,), one=True):
+        raise ValueError("Un paiement de ce forfait est en cours : réessayez plus tard.")
     q("delete from app.plans where key = %s", (key,))
     _cache.pop("plans", None)
 
@@ -800,6 +802,9 @@ def mail_failure(exc: Exception) -> str:
 DUREES = (1, 3, 12)
 DEVISES = {"FCFA": "XOF", "XOF": "XOF", "XAF": "XAF"}
 ECHECS = ("FAILED", "EXPIRED", "INSUFFICIENT_BALANCE", "USER_IS_BLOCKED", "NOT_ALLOWED")
+JOURS_RELECTURE = 7       # au-delà, un paiement resté sans réponse définitive est clos
+LOT_RECONCILIATION = 20
+DUREE_MAX_PASSAGE = 240   # secondes
 _lock_rappels = threading.Lock()
 
 
@@ -832,8 +837,6 @@ def checkout(ctx: Ctx, plan: str, months) -> dict:
     require(ctx, "owner")
     if not _paiement_ouvert(ctx):
         raise Unavailable("Le paiement en ligne n'est pas encore activé. Contactez-nous pour choisir un forfait.")
-    if ctx.plan.get("suspended"):  # le paiement ne lèverait pas une suspension décidée par l'administrateur
-        raise ValueError("Votre espace est suspendu. Contactez-nous avant de payer.")
     offre = next((o for o in _offres() if o["key"] == plan), None)
     if offre is None:
         raise ValueError("Ce forfait ne peut pas être acheté en ligne.")
@@ -847,17 +850,21 @@ def checkout(ctx: Ctx, plan: str, months) -> dict:
     if devise is None:
         raise ValueError("Devise non prise en charge pour ce forfait.")
     montant = int(round(offre["price"] * months))
-    if not paiement.MONTANT_MIN <= montant <= paiement.MONTANT_MAX:
+    if montant < paiement.MONTANT_MIN:
+        raise ValueError("Ce montant est trop faible pour un paiement en ligne.")
+    if montant > paiement.MONTANT_MAX:
         raise ValueError("Ce montant ne peut pas être réglé en une fois. Choisissez une durée plus courte.")
-    org = q("select plan, paid_until from app.organizations where id = %s", (ctx.org_id,), one=True)
+    org = q("select plan, paid_until, suspended from app.organizations where id = %s", (ctx.org_id,), one=True)
+    # Lu en base : un abonnement expiré se présente aussi comme « suspendu » dans ctx.plan, et doit pouvoir payer.
+    if org and (org["suspended"] or org["plan"] == "suspendu"):
+        raise ValueError("Votre espace est suspendu. Contactez-nous avant de payer.")
     if org and org["paid_until"] and org["paid_until"] > dt.datetime.now(dt.timezone.utc) and org["plan"] != plan \
             and not (plans().get(org["plan"], {}).get("price") or 0) > 0:
         raise ValueError("Votre forfait actuel est sur devis. Contactez-nous pour en changer.")
     tx = "KLD" + uuid.uuid4().hex[:24]
-    mode = "test" if paiement.mode_test() else "live"
     row = q("""insert into app.payments (org_id, user_id, email, plan, months, amount, currency, mode, merchant_tx)
                values (%s, %s, %s, %s, %s, %s, %s, %s, %s) returning id::text""",
-            (ctx.org_id, ctx.user_id, ctx.email, plan, months, montant, devise, mode, tx), one=True)
+            (ctx.org_id, ctx.user_id, ctx.email, plan, months, montant, devise, paiement.mode(), tx), one=True)
     try:
         r = paiement.initier(tx, montant, devise, f"KLDataViz {offre['label']} - {months} mois", ctx.email, "Client",
                              (ctx.plan.get("org_name") or "KLDataViz").ljust(2, "."), f"{APP_URL}/app?paiement=ok",
@@ -873,20 +880,23 @@ def checkout(ctx: Ctx, plan: str, months) -> dict:
 def _activer(pay_id: str, transaction_id=None):
     """Active le forfait une seule fois, en une instruction : deux confirmations simultanées n'en comptent qu'une.
 
-    Même forfait : la durée s'ajoute. Changement de forfait : le temps restant est converti au prix du nouveau,
-    et conservé tel quel si l'ancien prix n'est plus connu : un paiement ne doit jamais effacer du temps payé."""
+    Même forfait : la durée s'ajoute. Changement de forfait : le temps restant est converti au prix réellement payé,
+    et conservé tel quel si ce prix n'est plus connu : un paiement ne doit jamais effacer du temps payé."""
     return q("""with paye as (
                   update app.payments set status = 'paid', paid_at = now(),
                          transaction_id = coalesce(%s, transaction_id)
                   where id = %s and status <> 'paid'
-                  returning org_id, plan, months, amount, currency, email),
+                  returning id, org_id, plan, months, amount, currency, email),
                 maj as (
                   update app.organizations o set plan = paye.plan, trial_end = null, rappel_envoye = null,
                     paid_until = case when o.plan = paye.plan
                       then greatest(coalesce(o.paid_until, now()), now()) + make_interval(months => paye.months)
                       else now() + make_interval(months => paye.months)
                         + greatest(coalesce(o.paid_until, now()) - now(), interval '0')
-                          * (coalesce(nullif((select price from app.plans where key = o.plan), 0)::float8,
+                          * (coalesce((select a.amount::float8 / a.months from app.payments a
+                                       where a.org_id = o.id and a.plan = o.plan and a.status = 'paid' and a.id <> paye.id
+                                       order by a.paid_at desc limit 1),
+                                      nullif((select price from app.plans where key = o.plan), 0)::float8,
                                       paye.amount::float8 / paye.months)
                              / (paye.amount::float8 / paye.months))
                       end
@@ -943,8 +953,9 @@ def synchroniser_espace(ctx: Ctx) -> dict:
     """Au retour de la page de paiement : relit les paiements en attente, si la notification tarde ou s'est perdue."""
     require(ctx, "owner")
     attente = q("""select id::text, merchant_tx, status from app.payments
-                   where org_id = %s and status = 'pending' and created_at > now() - interval '2 days'
-                   order by created_at desc limit 5""", (ctx.org_id,))
+                   where org_id = %s and status in ('pending', 'failed') and mode = %s
+                     and created_at > now() - make_interval(days => %s)
+                   order by created_at desc limit 5""", (ctx.org_id, paiement.mode(), JOURS_RELECTURE))
     resultats = []
     for p in attente:
         try:
@@ -956,16 +967,28 @@ def synchroniser_espace(ctx: Ctx) -> dict:
 
 def reconcilier_paiements():
     """Rattrape les paiements dont la notification s'est perdue ou est arrivée avant la fin de l'opération."""
-    attente = q("""select id::text, merchant_tx, status from app.payments
-                   where status = 'pending' and created_at < now() - interval '2 minutes'
-                     and created_at > now() - interval '2 days'
-                   order by created_at desc limit 50""")
-    for p in attente:
+    mode = paiement.mode()
+    lot = q("""select id::text, merchant_tx, status, created_at < now() - make_interval(days => %s) as ancien
+               from app.payments where status = 'pending' and mode = %s and created_at < now() - interval '2 minutes'
+               order by checked_at asc nulls first, created_at limit %s""", (JOURS_RELECTURE, mode, LOT_RECONCILIATION))
+    fin = time.monotonic() + DUREE_MAX_PASSAGE
+    for p in lot:
+        if time.monotonic() > fin:
+            break
         try:
-            _synchroniser(p)
-        except paiement.PaiementError as e:
-            print(f"[paiement] vérification impossible : {e}", flush=True)
-    q("update app.payments set status = 'failed' where status = 'pending' and created_at <= now() - interval '2 days'")
+            etat = _synchroniser(p)
+            # Close seulement sur une réponse de CinetPay : une panne ne doit jamais effacer un paiement réel.
+            if etat == "pending" and p["ancien"]:
+                q("update app.payments set status = 'failed' where id = %s and status = 'pending'", (p["id"],))
+                print(f"[paiement] {p['merchant_tx']} clos sans confirmation", flush=True)
+        except Exception as e:
+            print(f"[paiement] {p['merchant_tx']} non vérifié : {type(e).__name__}", flush=True)
+        try:
+            q("update app.payments set checked_at = now() where id = %s", (p["id"],))
+        except Exception as e:
+            print(f"[paiement] suivi non mis à jour : {type(e).__name__}", flush=True)
+    q("""update app.payments set status = 'failed' where status = 'pending' and mode <> %s
+         and created_at < now() - make_interval(days => %s)""", (mode, JOURS_RELECTURE))
 
 
 def admin_verifier_paiement(ctx: Ctx, merchant_tx: str) -> dict:
@@ -1018,14 +1041,15 @@ def rappels_abonnement():
 
 
 def boucle_paiements():
+    if paiement.pret() and paiement.mode_test() and not os.environ.get("CINETPAY_API_KEY", "").startswith("sk_test_"):
+        print("[paiement] CINETPAY_API_KEY ne commence ni par sk_live_ ni par sk_test_ : paiement fermé aux clients.", flush=True)
     tour = 0
     while True:
-        try:
-            if paiement_actif():
-                reconcilier_paiements()
-            if tour % 12 == 0:
-                rappels_abonnement()
-        except Exception as e:
-            print(f"[paiement] tâche de fond : {type(e).__name__}", flush=True)
+        for actif, tache in ((paiement_actif(), reconcilier_paiements), (tour % 12 == 0, rappels_abonnement)):
+            try:
+                if actif:
+                    tache()
+            except Exception as e:
+                print(f"[paiement] {tache.__name__} : {type(e).__name__}", flush=True)
         tour += 1
         time.sleep(300)
