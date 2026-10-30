@@ -3116,6 +3116,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 raise ValueError("Trop de tentatives. Patientez une minute.")
             return self._send(200, cloud.checkout(T.current(), str(p.get("plan") or ""), p.get("months")))
         if path == "/api/billing/sync" and T.CLOUD:
+            if not _rate_ok(f"{T.current().org_id}:paiement-sync", 10):
+                raise ValueError("Trop de tentatives. Patientez une minute.")
             return self._send(200, cloud.synchroniser_espace(T.current()))
         if path == "/api/schedules":
             return self._send(200, studio.create_schedule(p))

@@ -520,7 +520,8 @@ def admin_plan_delete(ctx: Ctx, key: str):
         raise ValueError("Les forfaits « essai » et « suspendu » sont indispensables.")
     if q("select 1 from app.organizations where plan = %s limit 1", (key,), one=True):
         raise ValueError("Des espaces utilisent ce forfait : changez-les de forfait d'abord.")
-    if q("select 1 from app.payments where plan = %s and status = 'pending' limit 1", (key,), one=True):
+    if q("""select 1 from app.payments where plan = %s and status = 'pending'
+             and created_at > now() - make_interval(days => %s) limit 1""", (key, JOURS_RELECTURE), one=True):
         raise ValueError("Un paiement de ce forfait est en cours : réessayez plus tard.")
     q("delete from app.plans where key = %s", (key,))
     _cache.pop("plans", None)
@@ -803,6 +804,7 @@ DUREES = (1, 3, 12)
 DEVISES = {"FCFA": "XOF", "XOF": "XOF", "XAF": "XAF"}
 ECHECS = ("FAILED", "EXPIRED", "INSUFFICIENT_BALANCE", "USER_IS_BLOCKED", "NOT_ALLOWED")
 JOURS_RELECTURE = 7       # au-delà, un paiement resté sans réponse définitive est clos
+JOURS_RATTRAPAGE = 30     # le retour du client relit encore un paiement clos : activer deux fois est impossible
 LOT_RECONCILIATION = 20
 DUREE_MAX_PASSAGE = 240   # secondes
 _lock_rappels = threading.Lock()
@@ -955,7 +957,7 @@ def synchroniser_espace(ctx: Ctx) -> dict:
     attente = q("""select id::text, merchant_tx, status from app.payments
                    where org_id = %s and status in ('pending', 'failed') and mode = %s
                      and created_at > now() - make_interval(days => %s)
-                   order by created_at desc limit 5""", (ctx.org_id, paiement.mode(), JOURS_RELECTURE))
+                   order by created_at desc limit 5""", (ctx.org_id, paiement.mode(), JOURS_RATTRAPAGE))
     resultats = []
     for p in attente:
         try:

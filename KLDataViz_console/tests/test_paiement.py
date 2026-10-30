@@ -430,7 +430,7 @@ def test_client_retrouve_un_paiement_clos_a_tort(pg):
     cloud, _, faux, ctx, org = pg
     cloud.checkout(ctx, "pro", 1)
     p = _tx(cloud, org)
-    cloud.q("update app.payments set status = 'failed' where id = %s", (p["id"],))
+    cloud.q("update app.payments set status = 'failed', created_at = now() - interval '20 days' where id = %s", (p["id"],))
     faux.statuts[p["merchant_tx"]] = {"code": 100, "status": "SUCCESS"}
     assert cloud.synchroniser_espace(ctx)["paye"] is True
 
@@ -459,6 +459,12 @@ def test_forfait_avec_paiement_en_cours_non_supprimable(pg):
     cloud.checkout(ctx, "equipe", 1)
     with pytest.raises(ValueError):
         cloud.admin_plan_delete(cloud.Ctx(key="a", is_admin=True), "equipe")
+    cloud.q("update app.payments set created_at = now() - interval '8 days' where plan = 'equipe' and status = 'pending'")
+    cloud.q("update app.organizations set plan = 'pro' where plan = 'equipe'")
+    cloud.admin_plan_delete(cloud.Ctx(key="a", is_admin=True), "equipe")
+    assert not cloud.q("select 1 from app.plans where key = 'equipe'")
+    cloud.q("""insert into app.plans (key, label, price, analyses, ai, members, public, sort)
+               values ('equipe', 'Équipe', 50000, 1000, 10000, 25, true, 3)""")
 
 
 def test_admin_repare_un_paiement_reel(pg):
