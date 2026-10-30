@@ -238,6 +238,15 @@ def test_retour_navigateur_sans_notification(pg):
     assert _org(cloud, org)["plan"] == "pro"
 
 
+def test_retour_apres_la_notification(pg):
+    """Cas courant : la notification active le forfait avant le retour du client."""
+    cloud, _, faux, ctx, org = pg
+    _payer(cloud, faux, ctx)
+    assert cloud.synchroniser_espace(ctx)["paye"] is True
+    cloud.q("update app.payments set paid_at = now() - interval '2 hours' where org_id = %s", (org,))
+    assert cloud.synchroniser_espace(ctx)["paye"] is False
+
+
 def test_cinetpay_en_panne_pendant_la_verification(pg):
     cloud, paiement, faux, ctx, org = pg
     cloud.checkout(ctx, "pro", 1)

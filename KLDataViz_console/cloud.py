@@ -968,7 +968,10 @@ def synchroniser_espace(ctx: Ctx) -> dict:
             resultats.append(_synchroniser(p))
         except paiement.PaiementError as e:
             print(f"[paiement] vérification impossible : {e}", flush=True)
-    return {"resultats": resultats, "paye": "paid" in resultats}
+    # La notification arrive souvent avant le client : le paiement est alors déjà activé.
+    recent = q("""select 1 from app.payments where org_id = %s and status = 'paid'
+                  and paid_at > now() - interval '30 minutes' limit 1""", (ctx.org_id,), one=True)
+    return {"resultats": resultats, "paye": "paid" in resultats or bool(recent)}
 
 
 def reconcilier_paiements():
