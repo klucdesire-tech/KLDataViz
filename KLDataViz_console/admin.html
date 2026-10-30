@@ -91,6 +91,7 @@ input:focus,select:focus,textarea:focus{border-color:var(--brand);outline:none}
       <button data-tab="dash" aria-current="page">Tableau de bord</button>
       <button data-tab="orgs">Clients</button>
       <button data-tab="plans">Forfaits et prix</button>
+      <button data-tab="pay">Paiements</button>
       <button data-tab="ann">Annonces</button>
       <button data-tab="admins">Administrateurs</button>
       <button data-tab="site">Page d'accueil</button>
@@ -129,6 +130,10 @@ input:focus,select:focus,textarea:focus{border-color:var(--brand);outline:none}
     </section>
 
     <!-- ANNONCES -->
+    <section data-view="pay" hidden>
+      <h1>Paiements</h1>
+      <div class="card"><div class="tablewrap" id="payList"><div class="empty">Chargement…</div></div></div>
+    </section>
     <section data-view="ann" hidden>
       <div class="head"><div><h1>Annonces</h1><p>Un bandeau en haut de la page d'accueil et/ou de l'application : nouveauté, maintenance, promotion.</p></div><span class="spacer"></span><button class="btn primary" id="newAnn">Nouvelle annonce</button></div>
       <div class="card"><div class="tablewrap" id="annList"></div></div>
@@ -219,7 +224,7 @@ $('#nav').addEventListener('click',e=>{const b=e.target.closest('[data-tab]');if
 function show(tab){
   $$('#nav [data-tab]').forEach(b=>b.dataset.tab===tab?b.setAttribute('aria-current','page'):b.removeAttribute('aria-current'));
   $$('[data-view]').forEach(v=>v.hidden=v.dataset.view!==tab);
-  ({dash:loadDash,orgs:loadOrgs,plans:renderPlans,ann:loadAnn,admins:loadAdmins,site:loadSite,ia:loadIa})[tab]();
+  ({dash:loadDash,orgs:loadOrgs,plans:renderPlans,pay:loadPay,ann:loadAnn,admins:loadAdmins,site:loadSite,ia:loadIa})[tab]();
 }
 function openDrawer(html){$('#panel').innerHTML=html;$('#drawer').hidden=false;$('#panel').querySelector('input,select,textarea,button')?.focus()}
 function closeDrawer(){$('#drawer').hidden=true}
@@ -298,6 +303,18 @@ $('#inviteBtn').onclick=()=>{
 };
 
 /* ---- forfaits ---- */
+async function loadPay(){
+  const r=await api('/api/admin/payments');if(!Array.isArray(r)){$('#payList').innerHTML=`<div class="empty">${esc(r.error||'Erreur')}</div>`;return}
+  const st={paid:'Payé',pending:'En attente',failed:'Échoué'};
+  $('#payList').innerHTML=r.length?`<table><thead><tr><th>Date</th><th>Client</th><th>Forfait</th><th>Montant</th><th>État</th><th>Mode</th><th>Transaction</th><th></th></tr></thead><tbody>${r.map(p=>`<tr><td>${esc(new Date(p.created_at).toLocaleString('fr-FR'))}</td><td>${esc(p.org)}<br><small>${esc(p.email)}</small></td><td>${esc(p.plan)} · ${esc(p.months)} mois</td><td>${esc(p.amount)} ${esc(p.currency)}</td><td>${esc(st[p.status]||p.status)}</td><td>${esc(p.mode)}</td><td><small>${esc(p.merchant_tx)}</small></td><td>${p.status==='paid'?'':`<button class="btn ghost sm" data-verif="${esc(p.merchant_tx)}">Vérifier</button>`}</td></tr>`).join('')}</tbody></table>`:'<div class="empty">Aucun paiement pour le moment.</div>';
+}
+$('#payList').addEventListener('click',async e=>{
+  const b=e.target.closest('[data-verif]');if(!b)return;
+  if(!confirm('Relire ce paiement chez CinetPay ? S\'il a réussi, le forfait sera activé.'))return;
+  b.disabled=true;const r=await api('/api/admin/payments/verify',{merchant_tx:b.dataset.verif});
+  if(r.error){alert(r.error);b.disabled=false;return}
+  alert({paid:'Paiement confirmé : forfait activé.',failed:'Paiement échoué chez CinetPay.',pending:'Paiement toujours en attente chez CinetPay.'}[r.status]||r.status);loadPay();
+});
 async function loadPlans(){const p=await api('/api/admin/plans');if(Array.isArray(p))PLANS=p}
 async function renderPlans(){
   await loadPlans();

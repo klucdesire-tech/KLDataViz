@@ -231,6 +231,9 @@ tr.versions td{background:var(--surface-2);font-size:13px}
 .railfoot .pill{display:inline-flex;font-size:11.5px;font-weight:600;padding:2px 9px;border-radius:99px;background:var(--brand-soft);color:var(--brand-strong)}
 .railfoot b{color:var(--fg);font-weight:600}
 .overlay{position:fixed;inset:0;z-index:60;background:color-mix(in srgb,var(--bg) 70%,transparent);backdrop-filter:blur(4px);display:grid;place-items:center;padding:16px}
+.offers{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-top:12px}
+.offer{border:1px solid var(--line);border-radius:var(--r);padding:14px;display:grid;gap:6px;align-content:start}
+.offer .prix{font-size:20px;font-weight:700}.offer .prix small{font-size:13px;font-weight:400;color:var(--muted)}
 .overlay .card{width:min(440px,100%);display:grid;gap:14px;box-shadow:var(--shadow)}
 .member{display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--line);font-size:14px;flex-wrap:wrap}
 .member:last-child{border-bottom:0}
@@ -671,6 +674,12 @@ tr.versions td{background:var(--surface-2);font-size:13px}
         <div class="card"><h2>Apparence</h2>
           <div class="setrow"><div><b>Thème</b><span>Suivre le système, ou forcer clair ou sombre</span></div>
             <select id="themeSel" style="width:auto"><option value="">Système</option><option value="light">Clair</option><option value="dark">Sombre</option></select></div>
+        </div>
+        <div class="card" id="billingCard" hidden>
+          <h2>Abonnement <span class="tag" id="billTag"></span></h2>
+          <p class="sub" id="billState"></p>
+          <div id="billOffers"></div>
+          <div id="billHist"></div>
         </div>
         <div class="card" id="teamCard" hidden>
           <h2>Équipe</h2>
@@ -1938,7 +1947,7 @@ async function loadSettings(){
     $('#smPass').value='';$('#smPass').placeholder=m.has_password?'Inchangé (déjà enregistré)':'';
     $('#smtpTag').className='tag '+(s.smtp_ready?'ok':'type');$('#smtpTag').textContent=s.smtp_ready?'Configuré':'Non configuré';
   }
-  if(CLOUD){loadTeam();loadAdmin()}
+  if(CLOUD){loadBilling();loadTeam();loadAdmin()}
   loadDict();loadEspace();
   const reg=await api('/api/ingest/list');
   $('#services').innerHTML=`
@@ -2122,7 +2131,8 @@ function applyCloudUI(){
 function meter(label,used,max){const pct=max?Math.min(100,Math.round(used/max*100)):100;return `<div class="row"><span>${label}</span><span class="num">${nf(used)} / ${nf(max)}</span></div><div class="meter"><i class="${pct>=90?'bad':pct>=70?'warn':''}" style="width:${pct}%"></i></div>`}
 function renderMe(me){
   state.me=me;$('#userEmail').textContent=me.email;$('#orgName').textContent=me.org||'';
-  const p=me.plan,u=me.usage,trial=p.key==='essai'&&p.trial_end?`<span>Essai jusqu'au ${new Date(p.trial_end).toLocaleDateString('fr-FR',{day:'numeric',month:'long'})}</span>`:'';
+  const p=me.plan,u=me.usage,trial=p.key==='essai'&&p.trial_end?`<span>Essai jusqu'au ${new Date(p.trial_end).toLocaleDateString('fr-FR',{day:'numeric',month:'long'})}</span>`
+    :p.paid_until?(new Date(p.paid_until)>new Date()?`<span>Actif jusqu'au ${new Date(p.paid_until).toLocaleDateString('fr-FR',{day:'numeric',month:'long'})}</span>`:'<span>Abonnement terminé</span>'):'';
   $('#railfoot').innerHTML=`<div class="row"><span class="pill">${esc(p.label)}</span><span>${esc(ROLE[me.role]||'')}</span></div>${meter('Analyses',u.analyses,p.analyses)}${meter('Questions IA',u.ai,p.ai)}${trial}`;
   $('#teamCard').hidden=me.role!=='owner';$('#adminCard').hidden=!me.is_admin;$('#adminLink').hidden=!me.is_admin;
 }
@@ -2135,6 +2145,42 @@ $('#onboardForm').addEventListener('submit',async e=>{e.preventDefault();const b
   const d=await api('/api/onboarding',{org:$('#obOrg').value.trim()});b.disabled=false;if(d.error){toast(d.error);return}location.reload()});
 async function logout(){if(sb)await sb.auth.signOut();location.replace('/login')}
 $('#logoutBtn').onclick=logout;$('#obLogout').onclick=logout;$('#downLogout').onclick=logout;
+// ---- Abonnement : prépayé par CinetPay. Le prix vient du serveur, le paiement se fait sur la page hébergée.
+const BILL_ST={paid:['ok','Payé'],pending:['warn','En attente'],failed:['','Échoué']};
+const frDate=d=>new Date(d).toLocaleDateString('fr-FR',{day:'numeric',month:'long',year:'numeric'});
+async function loadBilling(){
+  const b=await api('/api/billing');$('#billingCard').hidden=!!b.error;if(b.error)return;
+  const fin=b.paid_until&&new Date(b.paid_until),actif=fin&&fin>new Date();
+  $('#billTag').textContent=b.test&&b.actif?'Mode test':'';
+  $('#billState').textContent=actif?`Forfait ${b.offres.find(o=>o.key===b.plan_paye)?.label||b.plan_paye}, actif jusqu'au ${frDate(fin)}. Le renouvellement n'est pas automatique : vous recevez un rappel avant la fin.`
+    :fin?`Votre abonnement a pris fin le ${frDate(fin)}. Vos données sont conservées : choisissez un forfait pour reprendre.`
+    :'Choisissez un forfait et réglez par mobile money ou par carte, sur la page sécurisée de CinetPay.';
+  $('#billOffers').innerHTML=!b.offres.length?'<p class="sub">Les forfaits sont sur devis pour le moment : contactez-nous.</p>'
+    :!b.actif?'<p class="sub">Le paiement en ligne sera bientôt disponible. Contactez-nous pour choisir un forfait.</p>'
+    :!b.peut_payer?'<p class="sub">Seul le propriétaire de l\'espace peut régler l\'abonnement.</p>'
+    :`<div class="offers">${b.offres.map(o=>`<div class="offer"><b>${esc(o.label)}</b><div class="prix">${nf(o.price)} ${esc(o.currency)} <small>/ mois</small></div>
+      <p class="sub">${nf(o.analyses)} analyses · ${nf(o.ai)} questions IA · ${nf(o.members)} membre${o.members>1?'s':''}</p>
+      <button class="btn ${b.plan_paye===o.key&&actif?'ghost':'primary'} sm" type="button" data-pay="${esc(o.key)}" data-prix="${o.price}" data-dev="${esc(o.currency)}">${b.plan_paye===o.key&&actif?'Renouveler':'Choisir'}</button></div>`).join('')}</div>
+    <label class="field" for="billMonths" style="margin-top:12px;max-width:220px">Durée<select id="billMonths">${b.durees.map(m=>`<option value="${m}">${m} mois</option>`).join('')}</select></label>`;
+  $('#billHist').innerHTML=b.paiements.length?`<h3 style="margin-top:14px;font-size:15px">Historique</h3>${b.paiements.map(p=>{const[c,t]=BILL_ST[p.status]||['',p.status];
+    return `<div class="setrow"><div><b>${nf(p.amount)} ${esc(p.currency==='XOF'?'FCFA':p.currency)}</b><span>${esc(p.plan)} · ${p.months} mois · ${frDate(p.paid_at||p.created_at)}</span></div><span class="tag ${c}">${t}</span></div>`}).join('')}`:'';
+}
+$('#billOffers').addEventListener('click',async e=>{
+  const btn=e.target.closest('[data-pay]');if(!btn)return;
+  const months=+$('#billMonths').value,total=+btn.dataset.prix*months;
+  if(!confirm(`Payer ${nf(total)} ${btn.dataset.dev} pour ${months} mois ? Vous allez être redirigé vers CinetPay.`))return;
+  btn.disabled=true;const r=await api('/api/billing/checkout',{plan:btn.dataset.pay,months});
+  if(r.payment_url){location.href=r.payment_url;return}
+  btn.disabled=false;toast(r.error||'Paiement impossible pour le moment.');
+});
+async function retourPaiement(){
+  const etat=new URLSearchParams(location.search).get('paiement');if(!etat)return;
+  history.replaceState(null,'',location.pathname);
+  if(etat==='echec'){toast('Le paiement n\'a pas abouti. Aucun montant n\'a été activé.');return}
+  const r=await api('/api/billing/sync',{});
+  toast(r.paye?'Paiement confirmé : votre abonnement est actif.':'Paiement en cours de confirmation. Revenez dans quelques instants.');
+  if(r.paye){refreshMe();loadBilling()}
+}
 async function loadTeam(){
   if(state.me?.role!=='owner')return;
   const t=await api('/api/team');if(t.error){$('#teamList').innerHTML=`<div class="alert">${esc(t.error)}</div>`;return}
@@ -2167,6 +2213,7 @@ async function boot(){
     if(me.error){toast(me.error);return}
     renderMe(me);
     loadAnnouncements();
+    retourPaiement();
   }
   go(0);loadCounts();loadSettingsData();
 }

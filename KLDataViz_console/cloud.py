@@ -9,6 +9,7 @@ Toutes les valeurs secrètes viennent des variables d'environnement.
 import base64
 import datetime as dt
 import hashlib
+import hmac
 import json
 import os
 import re
@@ -17,7 +18,9 @@ import threading
 import time
 import urllib.error
 import urllib.request
+import uuid
 
+import paiement
 from tenancy import AuthError, Ctx, Forbidden, QuotaExceeded, Unavailable  # noqa: F401 (réexportées)
 
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "").rstrip("/")
@@ -151,7 +154,7 @@ def verify_token(token: str) -> dict:
 
 def resolve(user: dict) -> Ctx | None:
     """Contexte de l'utilisateur : son organisation et son rôle. Accepte une invitation en attente."""
-    m = q("""select m.org_id::text, m.role, o.plan, o.trial_end, o.name, o.suspended
+    m = q("""select m.org_id::text, m.role, o.plan, o.trial_end, o.paid_until, o.name, o.suspended
              from app.memberships m join app.organizations o on o.id = m.org_id
              where m.user_id = %s order by m.created_at limit 1""", (user["id"],), one=True)
     if m is None:
@@ -166,11 +169,13 @@ def resolve(user: dict) -> Ctx | None:
         return resolve(user)
     catalog = plans()
     plan_key = m["plan"] if m["plan"] in catalog else "essai"
-    expired = catalog.get(plan_key, {}).get("days") and m["trial_end"] and m["trial_end"] < dt.datetime.now(dt.timezone.utc)
+    now = dt.datetime.now(dt.timezone.utc)
+    expired = (catalog.get(plan_key, {}).get("days") and m["trial_end"] and m["trial_end"] < now) \
+        or (m["paid_until"] is not None and m["paid_until"] < now)
     if m["suspended"] or expired:
         plan_key = "suspendu"
     plan = dict(catalog.get(plan_key, _FALLBACK_PLANS["suspendu"]), key=plan_key, trial_end=m["trial_end"],
-                org_name=m["name"], expired=bool(expired), suspended=bool(m["suspended"]))
+                paid_until=m["paid_until"], org_name=m["name"], expired=bool(expired), suspended=bool(m["suspended"]))
     return Ctx(key=user["id"], org_id=m["org_id"], user_id=user["id"], email=user["email"], role=m["role"],
                plan=plan, is_admin=is_platform_admin(user["email"]))
 
@@ -209,9 +214,10 @@ def consume(ctx: Ctx, kind: str):
         what = "analyses" if kind == "analyses" else "questions à l'IA"
         if ctx.plan.get("key") == "suspendu":
             raise QuotaExceeded("Votre espace est suspendu." if ctx.plan.get("suspended") else
-                                "Votre période d'essai est terminée. Contactez-nous pour activer un abonnement.")
+                                "Votre essai ou votre abonnement est terminé. Choisissez un forfait dans Réglages, "
+                                "section Abonnement.")
         raise QuotaExceeded(f"Quota mensuel atteint : {limit} {what} pour le plan {ctx.plan.get('label')}. "
-                            "Contactez-nous pour passer au plan supérieur.")
+                            "Passez au forfait supérieur dans Réglages, section Abonnement.")
     col = "analyses" if kind == "analyses" else "ai_calls"
     q(f"""insert into app.usage_monthly (org_id, month, {col}) values (%s, %s, 1)
           on conflict (org_id, month) do update set {col} = app.usage_monthly.{col} + 1""",
@@ -224,7 +230,8 @@ def me(ctx: Ctx) -> dict:
     return {"email": ctx.email, "role": ctx.role, "is_admin": ctx.is_admin, "org": p.get("org_name"),
             "plan": {"key": p.get("key"), "label": p.get("label"), "analyses": p.get("analyses"), "ai": p.get("ai"),
                      "members": p.get("members"),
-                     "trial_end": p["trial_end"].isoformat() if p.get("trial_end") else None},
+                     "trial_end": p["trial_end"].isoformat() if p.get("trial_end") else None,
+                     "paid_until": p["paid_until"].isoformat() if p.get("paid_until") else None},
             "usage": u}
 
 
@@ -375,10 +382,10 @@ def admin_set_plan(ctx: Ctx, org_id: str, plan: str, trial_days: int | None = No
         raise ValueError("Forfait inconnu.")
     days = trial_days or catalog[plan].get("days")
     if days:
-        q("update app.organizations set plan = %s, trial_end = now() + make_interval(days => %s) where id = %s",
-          (plan, int(days), org_id))
-    else:
-        q("update app.organizations set plan = %s where id = %s", (plan, org_id))
+        q("""update app.organizations set plan = %s, trial_end = now() + make_interval(days => %s), paid_until = null
+             where id = %s""", (plan, int(days), org_id))
+    else:  # forfait attribué à la main : sans échéance
+        q("update app.organizations set plan = %s, paid_until = null where id = %s", (plan, org_id))
 
 
 def admin_extend_trial(ctx: Ctx, org_id: str, days: int):
@@ -386,8 +393,10 @@ def admin_extend_trial(ctx: Ctx, org_id: str, days: int):
     days = int(days)
     if not 1 <= days <= 365:
         raise ValueError("Entre 1 et 365 jours.")
-    q("""update app.organizations set trial_end = greatest(coalesce(trial_end, now()), now()) + make_interval(days => %s)
-         where id = %s""", (days, org_id))
+    q("""update app.organizations set trial_end = greatest(coalesce(trial_end, now()), now()) + make_interval(days => %s),
+           paid_until = case when paid_until is null then null
+                             else greatest(paid_until, now()) + make_interval(days => %s) end
+         where id = %s""", (days, days, org_id))
 
 
 def admin_suspend(ctx: Ctx, org_id: str, suspended: bool):
@@ -511,6 +520,9 @@ def admin_plan_delete(ctx: Ctx, key: str):
         raise ValueError("Les forfaits « essai » et « suspendu » sont indispensables.")
     if q("select 1 from app.organizations where plan = %s limit 1", (key,), one=True):
         raise ValueError("Des espaces utilisent ce forfait : changez-les de forfait d'abord.")
+    if q("""select 1 from app.payments where plan = %s and status = 'pending'
+             and created_at > now() - make_interval(days => %s) limit 1""", (key, JOURS_RELECTURE), one=True):
+        raise ValueError("Un paiement de ce forfait est en cours : réessayez plus tard.")
     q("delete from app.plans where key = %s", (key,))
     _cache.pop("plans", None)
 
@@ -785,3 +797,261 @@ def mail_failure(exc: Exception) -> str:
     msg = str(exc) or exc.__class__.__name__
     print(f"[mail] échec d'envoi : {msg}", flush=True)
     return msg
+
+
+# ---------------------------------------------------------------- abonnements prépayés (CinetPay)
+DUREES = (1, 3, 12)
+DEVISES = {"FCFA": "XOF", "XOF": "XOF", "XAF": "XAF"}
+ECHECS = ("FAILED", "EXPIRED", "INSUFFICIENT_BALANCE", "USER_IS_BLOCKED", "NOT_ALLOWED")
+JOURS_RELECTURE = 7       # au-delà, un paiement resté sans réponse définitive est clos
+JOURS_RATTRAPAGE = 30     # le retour du client relit encore un paiement clos : activer deux fois est impossible
+LOT_RECONCILIATION = 20
+DUREE_MAX_PASSAGE = 240   # secondes
+_lock_rappels = threading.Lock()
+
+
+def paiement_actif() -> bool:
+    return paiement.pret() and APP_URL.startswith("https://")
+
+
+def _offres() -> list:
+    return [p for p in public_plans() if (p.get("price") or 0) > 0 and not p.get("days") and p["key"] != "suspendu"]
+
+
+def _paiement_ouvert(ctx: Ctx) -> bool:
+    """Une clé de test active un vrai forfait sans argent : elle reste réservée aux administrateurs."""
+    return paiement_actif() and (not paiement.mode_test() or ctx.is_admin)
+
+
+def billing(ctx: Ctx) -> dict:
+    org = q("select plan, paid_until, trial_end from app.organizations where id = %s", (ctx.org_id,), one=True) or {}
+    hist = q("""select merchant_tx, plan, months, amount, currency, status, created_at, paid_at
+                from app.payments where org_id = %s order by created_at desc limit 20""", (ctx.org_id,))
+    return {"actif": _paiement_ouvert(ctx), "test": paiement.mode_test(), "peut_payer": ctx.role == "owner",
+            "plan": ctx.plan.get("key"), "plan_paye": org.get("plan"), "offres": _offres(), "durees": list(DUREES),
+            "paid_until": org["paid_until"].isoformat() if org.get("paid_until") else None,
+            "paiements": [dict(h, created_at=h["created_at"].isoformat(),
+                               paid_at=h["paid_at"].isoformat() if h["paid_at"] else None) for h in hist]}
+
+
+def checkout(ctx: Ctx, plan: str, months) -> dict:
+    """Prépare le paiement d'un forfait : le prix vient de la base, jamais du navigateur."""
+    require(ctx, "owner")
+    if not _paiement_ouvert(ctx):
+        raise Unavailable("Le paiement en ligne n'est pas encore activé. Contactez-nous pour choisir un forfait.")
+    offre = next((o for o in _offres() if o["key"] == plan), None)
+    if offre is None:
+        raise ValueError("Ce forfait ne peut pas être acheté en ligne.")
+    try:
+        months = int(months)
+    except (TypeError, ValueError):
+        raise ValueError("Durée invalide.") from None
+    if months not in DUREES:
+        raise ValueError("Durée invalide.")
+    devise = DEVISES.get(str(offre.get("currency") or "FCFA").upper())
+    if devise is None:
+        raise ValueError("Devise non prise en charge pour ce forfait.")
+    montant = int(round(offre["price"] * months))
+    if montant < paiement.MONTANT_MIN:
+        raise ValueError("Ce montant est trop faible pour un paiement en ligne.")
+    if montant > paiement.MONTANT_MAX:
+        raise ValueError("Ce montant ne peut pas être réglé en une fois. Choisissez une durée plus courte.")
+    org = q("select plan, paid_until, suspended from app.organizations where id = %s", (ctx.org_id,), one=True)
+    # Lu en base : un abonnement expiré se présente aussi comme « suspendu » dans ctx.plan, et doit pouvoir payer.
+    if org and (org["suspended"] or org["plan"] == "suspendu"):
+        raise ValueError("Votre espace est suspendu. Contactez-nous avant de payer.")
+    if org and org["paid_until"] and org["paid_until"] > dt.datetime.now(dt.timezone.utc) and org["plan"] != plan \
+            and not (plans().get(org["plan"], {}).get("price") or 0) > 0:
+        raise ValueError("Votre forfait actuel est sur devis. Contactez-nous pour en changer.")
+    tx = "KLD" + uuid.uuid4().hex[:24]
+    row = q("""insert into app.payments (org_id, user_id, email, plan, months, amount, currency, mode, merchant_tx)
+               values (%s, %s, %s, %s, %s, %s, %s, %s, %s) returning id::text""",
+            (ctx.org_id, ctx.user_id, ctx.email, plan, months, montant, devise, paiement.mode(), tx), one=True)
+    try:
+        r = paiement.initier(tx, montant, devise, f"KLDataViz {offre['label']} - {months} mois", ctx.email, "Client",
+                             (ctx.plan.get("org_name") or "KLDataViz").ljust(2, "."), f"{APP_URL}/app?paiement=ok",
+                             f"{APP_URL}/app?paiement=echec", f"{APP_URL}/api/paiement/notification")
+    except paiement.PaiementError as e:
+        q("update app.payments set status = 'failed' where id = %s", (row["id"],))
+        raise Unavailable(f"Paiement impossible pour le moment. {e}") from None
+    q("update app.payments set notify_token = %s, transaction_id = %s where id = %s",
+      (r["notify_token"], r["transaction_id"], row["id"]))
+    return {"payment_url": r["payment_url"]}
+
+
+def _activer(pay_id: str, transaction_id=None):
+    """Active le forfait une seule fois, en une instruction : deux confirmations simultanées n'en comptent qu'une.
+
+    Même forfait : la durée s'ajoute. Changement de forfait : le temps restant est converti au prix réellement payé,
+    et conservé tel quel si ce prix n'est plus connu : un paiement ne doit jamais effacer du temps payé."""
+    return q("""with paye as (
+                  update app.payments set status = 'paid', paid_at = now(),
+                         transaction_id = coalesce(%s, transaction_id)
+                  where id = %s and status <> 'paid'
+                  returning id, org_id, plan, months, amount, currency, email),
+                maj as (
+                  update app.organizations o set plan = paye.plan, trial_end = null, rappel_envoye = null,
+                    paid_until = case when o.plan = paye.plan
+                      then greatest(coalesce(o.paid_until, now()), now()) + make_interval(months => paye.months)
+                      else now() + make_interval(months => paye.months)
+                        + greatest(coalesce(o.paid_until, now()) - now(), interval '0')
+                          * (coalesce((select a.amount::float8 / a.months from app.payments a
+                                       where a.org_id = o.id and a.plan = o.plan and a.status = 'paid' and a.id <> paye.id
+                                       order by a.paid_at desc limit 1),
+                                      nullif((select price from app.plans where key = o.plan), 0)::float8,
+                                      paye.amount::float8 / paye.months)
+                             / (paye.amount::float8 / paye.months))
+                      end
+                  from paye where o.id = paye.org_id
+                  returning o.name, o.paid_until)
+                select paye.*, maj.name, maj.paid_until from paye, maj""", (transaction_id, pay_id), one=True)
+
+
+def _recu(a: dict):
+    if not mail_ready():
+        return
+    fin = a["paid_until"].strftime("%d/%m/%Y")
+    label = plans().get(a["plan"], {}).get("label") or a["plan"]
+    try:
+        send_mail([a["email"]], "Votre abonnement KLDataViz est actif",
+                  f"Bonjour,\n\nNous avons bien reçu votre paiement de {a['amount']} {a['currency']} "
+                  f"pour le forfait {label} ({a['months']} mois) de l'espace {a['name']}.\n"
+                  f"Votre abonnement est actif jusqu'au {fin}.\n\nMerci de votre confiance,\nL'équipe KLDataViz")
+    except Exception as e:
+        print(f"[paiement] reçu non envoyé : {type(e).__name__}", flush=True)
+
+
+def _synchroniser(p: dict) -> str:
+    """Lit l'état réel chez CinetPay et applique le résultat. Seule voie qui active un forfait."""
+    s = paiement.statut(p["merchant_tx"])
+    etat = str(s.get("status") or "")
+    if etat == "SUCCESS":
+        if str(s.get("merchant_transaction_id") or p["merchant_tx"]) != p["merchant_tx"]:
+            raise paiement.PaiementError("Réponse de CinetPay pour une autre transaction.")
+        a = _activer(p["id"], s.get("transaction_id") or None)
+        if a:
+            _recu(a)
+        return "paid"
+    if etat in ECHECS:
+        q("update app.payments set status = 'failed' where id = %s and status = 'pending'", (p["id"],))
+        return "failed"
+    return p["status"]
+
+
+def notification(body: dict) -> bool:
+    """Notification de CinetPay : le jeton l'authentifie, puis le statut est relu chez CinetPay."""
+    tx = str(body.get("merchant_transaction_id") or "")[:40]
+    jeton = str(body.get("notify_token") or "")
+    p = q("""select id::text, merchant_tx, status, notify_token from app.payments where merchant_tx = %s""",
+          (tx,), one=True) if tx else None
+    if not p or not p["notify_token"] or not hmac.compare_digest(p["notify_token"].encode(), jeton.encode()):
+        return False
+    if p["status"] != "paid":
+        _synchroniser(p)
+    return True
+
+
+def synchroniser_espace(ctx: Ctx) -> dict:
+    """Au retour de la page de paiement : relit les paiements en attente, si la notification tarde ou s'est perdue."""
+    require(ctx, "owner")
+    attente = q("""select id::text, merchant_tx, status from app.payments
+                   where org_id = %s and status in ('pending', 'failed') and mode = %s
+                     and created_at > now() - make_interval(days => %s)
+                   order by created_at desc limit 5""", (ctx.org_id, paiement.mode(), JOURS_RATTRAPAGE))
+    resultats = []
+    for p in attente:
+        try:
+            resultats.append(_synchroniser(p))
+        except paiement.PaiementError as e:
+            print(f"[paiement] vérification impossible : {e}", flush=True)
+    return {"resultats": resultats, "paye": "paid" in resultats}
+
+
+def reconcilier_paiements():
+    """Rattrape les paiements dont la notification s'est perdue ou est arrivée avant la fin de l'opération."""
+    mode = paiement.mode()
+    lot = q("""select id::text, merchant_tx, status, created_at < now() - make_interval(days => %s) as ancien
+               from app.payments where status = 'pending' and mode = %s and created_at < now() - interval '2 minutes'
+               order by checked_at asc nulls first, created_at limit %s""", (JOURS_RELECTURE, mode, LOT_RECONCILIATION))
+    fin = time.monotonic() + DUREE_MAX_PASSAGE
+    for p in lot:
+        if time.monotonic() > fin:
+            break
+        try:
+            etat = _synchroniser(p)
+            # Close seulement sur une réponse de CinetPay : une panne ne doit jamais effacer un paiement réel.
+            if etat == "pending" and p["ancien"]:
+                q("update app.payments set status = 'failed' where id = %s and status = 'pending'", (p["id"],))
+                print(f"[paiement] {p['merchant_tx']} clos sans confirmation", flush=True)
+        except Exception as e:
+            print(f"[paiement] {p['merchant_tx']} non vérifié : {type(e).__name__}", flush=True)
+        try:
+            q("update app.payments set checked_at = now() where id = %s", (p["id"],))
+        except Exception as e:
+            print(f"[paiement] suivi non mis à jour : {type(e).__name__}", flush=True)
+    q("""update app.payments set status = 'failed' where status = 'pending' and mode <> %s
+         and created_at < now() - make_interval(days => %s)""", (mode, JOURS_RELECTURE))
+
+
+def admin_verifier_paiement(ctx: Ctx, merchant_tx: str) -> dict:
+    """Relit un paiement chez CinetPay, quel que soit son état : répare un paiement réel resté sans suite."""
+    _admin(ctx)
+    p = q("select id::text, merchant_tx, status from app.payments where merchant_tx = %s", (merchant_tx,), one=True)
+    if p is None:
+        raise ValueError("Paiement introuvable.")
+    if p["status"] != "paid":
+        try:
+            _synchroniser(p)
+        except paiement.PaiementError as e:
+            raise Unavailable(str(e)) from None
+    return q("select status from app.payments where id = %s", (p["id"],), one=True)
+
+
+def admin_payments(ctx: Ctx) -> list:
+    _admin(ctx)
+    rows = q("""select p.merchant_tx, p.transaction_id, p.email, p.plan, p.months, p.amount, p.currency, p.mode,
+                       p.status, p.created_at, p.paid_at, o.name as org
+                from app.payments p join app.organizations o on o.id = p.org_id
+                order by p.created_at desc limit 200""")
+    return [dict(r, created_at=r["created_at"].isoformat(), paid_at=r["paid_at"].isoformat() if r["paid_at"] else None)
+            for r in rows]
+
+
+def rappels_abonnement():
+    """Prévient 7 jours puis 1 jour avant la fin : le mobile money ne se prélève pas tout seul."""
+    if not mail_ready():
+        return
+    with _lock_rappels:
+        orgs = q("""update app.organizations set rappel_envoye = current_date
+                    where paid_until > now() and paid_until < now() + interval '7 days'
+                      and (rappel_envoye is null
+                           or (paid_until < now() + interval '1 day' and rappel_envoye < current_date))
+                    returning id::text, name, paid_until""")
+    for o in orgs:
+        dest = q("""select email from app.payments where org_id = %s and status = 'paid'
+                    order by paid_at desc limit 1""", (o["id"],), one=True)
+        if not dest:
+            continue
+        try:
+            send_mail([dest["email"]], "Votre abonnement KLDataViz arrive à échéance",
+                      f"Bonjour,\n\nL'abonnement de l'espace {o['name']} prend fin le "
+                      f"{o['paid_until'].strftime('%d/%m/%Y')}.\nPour continuer sans interruption, renouvelez-le "
+                      f"dans Réglages, section Abonnement : {APP_URL}/app\n\nVos données restent conservées "
+                      "si l'abonnement s'arrête.\n\nL'équipe KLDataViz")
+        except Exception as e:
+            print(f"[paiement] rappel non envoyé : {type(e).__name__}", flush=True)
+
+
+def boucle_paiements():
+    if paiement.pret() and paiement.mode_test() and not os.environ.get("CINETPAY_API_KEY", "").startswith("sk_test_"):
+        print("[paiement] CINETPAY_API_KEY ne commence ni par sk_live_ ni par sk_test_ : paiement fermé aux clients.", flush=True)
+    tour = 0
+    while True:
+        for actif, tache in ((paiement_actif(), reconcilier_paiements), (tour % 12 == 0, rappels_abonnement)):
+            try:
+                if actif:
+                    tache()
+            except Exception as e:
+                print(f"[paiement] {tache.__name__} : {type(e).__name__}", flush=True)
+        tour += 1
+        time.sleep(300)
