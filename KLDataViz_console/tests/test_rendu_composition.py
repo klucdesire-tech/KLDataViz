@@ -185,6 +185,14 @@ def test_graduations_sans_melange_d_unites(gen, tmp_path):
 
 
 @sans_node
+def test_graduations_sans_melange_k_et_m(gen, tmp_path):
+    df = pd.DataFrame([{"mois": f"2025-{m:02d}", "zone": z, "ventes": 100000 + m * 30000} for m in range(1, 9) for z in "ABCD"])
+    page = re.sub(r"\s", " ", executer(tmp_path, gen(df, composition=True)["html"])["page"])
+    ticks = re.findall(r'text-anchor="end" font-size="12" fill="#52667A">([^<]+)</text>', page[:page.index("</svg>")])
+    assert ticks and not (any(t.endswith("k") for t in ticks) and any(t.endswith("M") for t in ticks))
+
+
+@sans_node
 def test_groupes_tous_egaux_le_disent(gen, tmp_path):
     df = pd.DataFrame([{"mois": f"2025-{m:02d}", "centre": f"C{i:02d}", "tonnage": 500, "valeur": 9000} for m in range(1, 7) for i in range(14)])
     assert "mêmes valeurs" in executer(tmp_path, gen(df, composition=True)["html"])["page"]

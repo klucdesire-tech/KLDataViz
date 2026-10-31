@@ -40,7 +40,7 @@ JS = r"""
 var CP_TEINTES=['#E8F1FA','#C9E0F5','#9CC6EC','#5E9FD8','#1F6FB8','#0B4F8F'],CP_SERIES=['#2A78D6','#EB6834','#1BAF7A','#EDA100','#E87BA4','#008300'];
 var CP_AGR={somme:'Total',moyenne:'Moyenne',dernier:'Dernière valeur'},CP_HAUSSE='#2F62C9',CP_BAISSE='#A8580A',CP_L=1200,CP_R=[],CP_CC=[],CP_JUMELLES=10;
 function cpVal(v){return v==null||isNaN(v)?'—':v&&Math.abs(v)<.01?Number(v).toLocaleString('fr-FR',{maximumSignificantDigits:2}):fmt(v)}
-function cpEtiquettes(ts,pas){var a=ts.map(cpVal),u={},nz=a.filter(function(x,i){return ts[i]}),c=nz.filter(function(x){return /[a-zA-Z]/.test(x)}).length;a.forEach(function(x){u[x]=1});if(Object.keys(u).length===ts.length&&(!c||c===nz.length))return a;var d=Math.min(20,Math.max(0,Math.ceil(-Math.log(pas)/Math.LN10)+1));return ts.map(function(t){return Number(t.toPrecision(12)).toLocaleString('fr-FR',{maximumFractionDigits:d})})}
+function cpEtiquettes(ts,pas){var a=ts.map(cpVal),u={},f={};a.forEach(function(x,i){u[x]=1;if(ts[i])f[x.replace(/[^a-zA-Z]/g,'')]=1});if(Object.keys(u).length===ts.length&&Object.keys(f).length<2)return a;var d=Math.min(20,Math.max(0,Math.ceil(-Math.log(pas)/Math.LN10)+1));return ts.map(function(t){return Number(t.toPrecision(12)).toLocaleString('fr-FR',{maximumFractionDigits:d})})}
 function cpMarge(lab,min){return Math.max(min,8+7*Math.max.apply(null,lab.map(function(x){return x.length})))}
 function cpPct(v){return v.toLocaleString('fr-FR',{maximumFractionDigits:1})+' %'}
 function cpVide(t){return '<p class="cp-vide">'+esc(t||'Pas assez de données pour ce filtre.')+'</p>'}
