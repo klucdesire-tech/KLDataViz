@@ -249,7 +249,20 @@ def test_comparee_axe_negatif_resserre_annonce(mod, tmp_path):
 @sans_node
 def test_comparee_sans_note_d_axe_fausse_sur_de_tres_petites_valeurs(mod, tmp_path):
     df = pd.DataFrame([{"mois": f"2025-{m:02d}", "zone": z, "centre": c, "taux_ecart": .0012 + m * .00001 + i * .0001} for m in range(1, 9) for i, z in enumerate("ABC") for c in "xy"])
-    assert "Axe de 0 à 0" not in re.sub(r"\s", " ", executer(tmp_path, mod.gen(df)["html"])["page"])
+    page = re.sub(r"\s", " ", executer(tmp_path, mod.gen(df)["html"])["page"])
+    assert "Axe de 0,0012 à 0,0015, resserré" in page or "Axe de 0,001 à 0,002, resserré" in page
+    assert not any(t.startswith("Taux ecart : 0 en") for t in titres_de(page))
+
+
+@sans_node
+def test_comparee_etiquettes_dans_le_cadre(mod, tmp_path):
+    noms = ["Yamoussoukro-Centre-Hopital-General", "Bouaké-Nord-Ouest-Quartier-Commerce", "San-Pédro-Bardot-Extension"]
+    df = pd.DataFrame([{"mois": f"2025-{m:02d}", "zone": z, "ventes": 1000 + i * 500 + m} for m in range(1, 9) for i, z in enumerate(noms)])
+    page = re.sub(r"\s", " ", executer(tmp_path, mod.gen(df)["html"])["page"])
+    largeur = int(re.search(r'<div class="cp-cc"[^>]*><svg class="cp-svg" viewBox="0 0 (\d+)', page).group(1))
+    etiquettes = re.findall(r'<text x="(\d+)" y="[\d.]+" font-size="12" fill="#102A43"><tspan font-weight="600">([^<]*)</tspan> ([^<]*)<title>', page)
+    assert len(etiquettes) == 3
+    assert all(int(x) + (len(v) + 1 + len(n)) * 7 <= largeur for x, v, n in etiquettes)
 
 
 @sans_node

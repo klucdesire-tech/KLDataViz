@@ -33,7 +33,7 @@ INTERDITS = re.compile(
     r"|forts?\b|fortes?\b|faibles?\b|nets?\b|nettes?\b|largement|excellent|inquiet|alarm|critiq|tres\b|trop\b|peu\b|plus\b|moins\b"
     r"|double|triple|fois\b|environ|presque|moitie|tiers\b|quarts?\b|demi|dizaine|douzaine|centaine|millier|mille\b|million|milliard"
     r"|pourcent|parts?\b|par\b"
-    r"|kg\b|kilos?\b|grammes?\b|tonnes?\b|litres?\b|m[eè]tres?\b|km\b|hectares?\b|euros?\b|dollars?\b|francs?\b|fcfa\b|cfa\b|xof\b"
+    r"|kg\b|g\b|mg\b|ml\b|cl\b|cm\b|mm\b|kilos?\b|grammes?\b|tonnes?\b|litres?\b|m[eè]tres?\b|km\b|hectares?\b|euros?\b|dollars?\b|francs?\b|fcfa\b|cfa\b|xof\b"
     r"|heures?\b|minutes?\b|secondes?\b|jours?\b|semaines?\b|mois\b|annees?\b|degres?\b|celsius\b|kwh\b|watts?\b|points?\b)")
 
 SYSTEM = """Tu es Adifa’, analyste de données. Tu reçois des noms de colonnes d'un fichier. Pour chacune, donne le nom qu'un analyste écrirait dans le titre d'un graphique.
