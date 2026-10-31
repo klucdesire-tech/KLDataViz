@@ -1161,7 +1161,7 @@ def _corr_llm():
     if not cfg:
         return None
     model = os.environ.get("KLDV_DASHBOARD_MODEL") or cfg.get("dashboard_model") or "deepseek-flash"
-    return lambda m, n: (_llm_call(m, n, model=model, effort="high", timeout=120, attempts=1)
+    return lambda m, n: (_llm_call(m, n, model=model, effort="low", timeout=120, attempts=1)
                          or _llm_call(m, n, model=model, effort="low", timeout=90, attempts=1))
 
 
@@ -1202,7 +1202,7 @@ def build_dashboard(df, spec=None, correspondance=None):  # pas de garde _lourd 
                                   correspondance=correspondance)
     cfg = _llm_config()  # en ligne : clé DEEPSEEK_API_KEY de l'environnement (pas de llm_config.json)
     model = os.environ.get("KLDV_DASHBOARD_MODEL") or (cfg or {}).get("dashboard_model") or "deepseek-flash"
-    llm = (lambda m, n: _llm_call(m, n, model=model, effort="high", timeout=120, attempts=1)
+    llm = (lambda m, n: _llm_call(m, n, model=model, effort="low", timeout=120, attempts=1)
            or _llm_call(m, n, model=model, effort="low", timeout=90, attempts=1)) if cfg else None
     return generate_dashboard(df, "Tableau de bord KLDataViz", llm=llm, dictionnaire=dico, correspondance=correspondance,
                               composition=_composition_active())
@@ -1827,7 +1827,7 @@ def _chat_llm(messages, max_tokens=8000):
     """Modèle rapide pour l'agent (plusieurs allers-retours par question), réflexion réduite en secours."""
     cfg = _llm_config()
     model = os.environ.get("KLDV_CHAT_MODEL") or (cfg or {}).get("chat_model") or "deepseek-flash"
-    return (_llm_call(messages, max_tokens, model=model, effort="high", timeout=90, attempts=1)
+    return (_llm_call(messages, max_tokens, model=model, effort="low", timeout=90, attempts=1)
             or _llm_call(messages, max_tokens, model=model, effort="low", timeout=60, attempts=1))
 
 
@@ -2320,7 +2320,7 @@ def architect_propose(paths):
     model = os.environ.get("KLDV_ARCHITECT_MODEL") or (cfg or {}).get("architect_model") or "deepseek-flash"
 
     def llm(messages, max_tokens):
-        return (_llm_call(messages, max_tokens, model=model, effort="high", timeout=120, attempts=1)
+        return (_llm_call(messages, max_tokens, model=model, effort="low", timeout=120, attempts=1)
                 or _llm_call(messages, max_tokens, model=model, effort="low", timeout=90, attempts=1))
     if len(tables) == 1:
         df, info = next(iter(tables.values()))
@@ -2424,7 +2424,7 @@ def hermes_clean(file_path, progress=lambda _t: None):
     model = os.environ.get("KLDV_CLEAN_MODEL") or (cfg or {}).get("clean_model") or "deepseek-flash"
 
     def llm(messages, max_tokens):
-        return (_llm_call(messages, max_tokens, model=model, effort="high", timeout=100, attempts=1)
+        return (_llm_call(messages, max_tokens, model=model, effort="low", timeout=100, attempts=1)
                 or _llm_call(messages, max_tokens, model=model, effort="low", timeout=70, attempts=1))
     return HCL.run(df, _rule_items(rapport), source_label(file_path), llm if cfg else None, _parse_llm_json, progress)
 
@@ -2518,7 +2518,7 @@ def schedule_commentary(job, result):
             if T.CLOUD:
                 cloud.consume(T.current(), "ai")
             model = os.environ.get("KLDV_REPORT_MODEL") or cfg.get("report_model") or "deepseek-flash"
-            llm = lambda m, n: (_llm_call(m, n, model=model, effort="high", timeout=100, attempts=1)
+            llm = lambda m, n: (_llm_call(m, n, model=model, effort="low", timeout=100, attempts=1)
                                 or _llm_call(m, n, model=model, effort="low", timeout=70, attempts=1))
         except Exception:  # quota atteint : commentaire par règles
             llm = None
@@ -2540,7 +2540,7 @@ def hermes_charts(file_path, progress=lambda _t: None, comprehension=None):
     model = os.environ.get("KLDV_CHARTS_MODEL") or (cfg or {}).get("charts_model") or "deepseek-flash"
 
     def llm(messages, max_tokens):
-        return (_llm_call(messages, max_tokens, model=model, effort="high", timeout=100, attempts=1)
+        return (_llm_call(messages, max_tokens, model=model, effort="low", timeout=100, attempts=1)
                 or _llm_call(messages, max_tokens, model=model, effort="low", timeout=70, attempts=1))
     return HC.run(df, source_label(file_path), base, llm if cfg else None, _parse_llm_json, _period_series, progress,
                   comprehension if isinstance(comprehension, dict) else None)
