@@ -1204,6 +1204,7 @@ function renderGaps(rows){var el=document.getElementById('gaps'),K=META.keyind,D
   var delta=function(g){if(g.pct==null)return '';var d=g.delta!=null?g.delta:g.precedente!=null?g.derniere-g.precedente:null,a=g.sens==='hausse'?'▲ ':g.sens==='baisse'?'▼ ':'';
     if(d==null)return a+(g.pct>0?'+':g.pct<0?'−':'')+f1(Math.abs(g.pct))+(g.pts?' pt':' %');var sg=d>0?'+':d<0?'−':'';
     return a+(g.pts?sg+f1(Math.abs(d))+' pt'+(Math.abs(d)>=2?'s':''):sg+fmt(Math.abs(d))+' ('+sg+f1(Math.abs(g.pct))+' %)')};
+  if(META.composition)return cpIndicateurs(el,{G:G,K:K,D:D,cur:cur,ref:ref,sub:sub,warn:warn,ctl:ctl,val:val,delta:delta});
   var idx=P.indexOf(cur),SP=K.live&&rows&&idx>=0?P.slice(Math.max(0,idx-5),idx+1):[];
   var spark=function(g){if(!g.k||SP.length<3)return '';var v=SP.map(function(p){return gval(g.k,rows,p)});
     var ok=v.filter(function(x){return x!=null});if(ok.length<3)return '';
@@ -1639,13 +1640,13 @@ def generate_dashboard(df, objective: str = "", job_id: str | None = None, llm=N
         meta["gaps"] = _json_safe(gaps)
         periods = sorted(str(k) for k in keys.dropna().unique()) if keys is not None else []
         meta["keyind"] = {"ind": None if ic is None else str(ic), "val": None if vc is None else str(vc), "items": kis,
-                          "last": gaps[0]["periode"], "prev": gaps[0]["periode_prec"], "live": len(data) <= 6000,
+                          "last": gaps[0]["periode"], "prev": gaps[0]["periode_prec"], "live": len(data) <= cube.SEUIL,
                           "periods": periods, "partial": _partial_month(period_series) if period_series is not None else None,
                           "yearly": bool(period_col in df.columns and pd.api.types.is_numeric_dtype(df[period_col]))}
         if keys is not None:
             data = data.assign(__g=keys)
     meta["agrege"] = bool(pivoted or any(k.get("col") for k in (kis or [])))
-    sample = data if len(data) <= 6000 else data.sample(6000, random_state=0)
+    sample = data if len(data) <= cube.SEUIL else data.sample(cube.SEUIL, random_state=0)
     data_json = json.dumps(sample.to_dict(orient="records"), ensure_ascii=False, default=str)
     gros = len(data) > cube.SEUIL
     resume = None

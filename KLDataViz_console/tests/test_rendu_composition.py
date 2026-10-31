@@ -34,13 +34,14 @@ vm.createContext(ctx);
 const html = fs.readFileSync(process.argv[2], 'utf8');
 const scripts = [...html.matchAll(/<script(?![^>]*src=)[^>]*>([\s\S]*?)<\/script>/g)].map(m => m[1]);
 vm.runInContext(scripts[scripts.length - 1], ctx);
-const sortie = { page: el.compo ? el.compo.innerHTML : null, row2: el.row2 ? el.row2.style.display : null, kpis: el.kpis ? el.kpis.innerHTML : '' };
+const sortie = { page: el.compo ? el.compo.innerHTML : null, row2: el.row2 ? el.row2.style.display : null, kpis: el.kpis ? el.kpis.innerHTML : '', gaps: el.gaps ? el.gaps.innerHTML : '' };
 const filtres = JSON.parse(process.argv[3] || '{}');
 if (Object.keys(filtres).length) {
   for (const k in filtres) vm.runInContext('state[' + JSON.stringify(k) + ']=' + JSON.stringify(filtres[k]), ctx);
   vm.runInContext('render()', ctx);
   sortie.filtre = el.compo ? el.compo.innerHTML : null;
   sortie.kpis_filtre = el.kpis ? el.kpis.innerHTML : '';
+  sortie.gaps_filtre = el.gaps ? el.gaps.innerHTML : '';
 }
 console.log(JSON.stringify(sortie));
 """
@@ -205,6 +206,50 @@ def test_beaucoup_de_groupes_nuage_gradue(gen, tmp_path):
     assert "Chaque point" in page and "Axes limités aux valeurs du fichier." in page
     carte = page[page.index("Chaque point"):]
     assert len(re.findall(r'font-size="12" fill="#52667A">[^<]+</text>', carte[:carte.index("</svg>")])) >= 6
+
+
+@sans_node
+def test_indicateurs_replies_par_defaut(gen, tmp_path):
+    g = executer(tmp_path, gen(J.JEUX["sante"](), composition=True)["html"])["gaps"]
+    assert 'aria-expanded="false"' in g and '<div id="cp-i-corps" hidden>' in g and ">Afficher<" in g
+    assert "indicateurs ·" in g and "sv-grid" not in g and "sv-sp" not in g and g.count('class="cp-i-l"') >= 3
+
+
+@sans_node
+def test_page_classique_garde_son_panneau(gen, tmp_path):
+    g = executer(tmp_path, gen(J.JEUX["sante"]())["html"])["gaps"]
+    assert "sv-grid" in g and "cp-i-bt" not in g
+
+
+def _mensuel(colonne):
+    return pd.DataFrame([{"mois": f"2025-{m:02d}", "zone": z, "patients": 10, colonne: 100 + m * 20} for m in range(1, 9) for z in "ABC"])
+
+
+@sans_node
+def test_indicateurs_baisse_sans_sens_connu_reste_neutre(gen, tmp_path):
+    df = _mensuel("tonnage")
+    df["tonnage"] = df["tonnage"].iloc[::-1].values
+    g = executer(tmp_path, gen(df, composition=True)["html"])["gaps"]
+    assert "cp-i-mal" not in g and "cp-i-bon" not in g
+
+
+@sans_node
+def test_indicateurs_hausse_defavorable_en_rouge(gen, tmp_path):
+    from hermes_da.adapters import dashboard  # noqa: PLC0415
+    res = gen(J.JEUX["sante"](), composition=True)
+    html = res["html"].replace('"bon": 1', '"bon": -1')
+    assert dashboard._bon("délai de rendu") == -1
+    g = executer(tmp_path, html)["gaps"]
+    assert "cp-i-bon" in g or "cp-i-mal" in g
+
+
+@sans_node
+def test_indicateurs_gros_fichier_annoncent_qu_ils_ne_suivent_pas_le_filtre(gen, tmp_path, monkeypatch):
+    from hermes_da.adapters import cube  # noqa: PLC0415
+    monkeypatch.setattr(cube, "SEUIL", 1)
+    res = gen(J.JEUX["sante"](), composition=True)
+    s = executer(tmp_path, res["html"], {"district": "Sakassou"})
+    assert "ne suit pas les filtres" in s["gaps_filtre"] and "ne suit pas les filtres" not in s["gaps"]
 
 
 @sans_node
