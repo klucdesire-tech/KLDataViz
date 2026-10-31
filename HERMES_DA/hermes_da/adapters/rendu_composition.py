@@ -7,6 +7,7 @@ le texte garde sa taille sur téléphone comme sur grand écran."""
 
 CSS = """
 #compo{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:16px;margin-bottom:20px}
+.cp-outils{grid-column:1/-1;display:flex;align-items:center;gap:10px;font-size:13px;color:var(--muted)}
 .cp-c{display:flex;flex-direction:column;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;min-width:0;break-inside:avoid}
 .cp-h{display:flex;flex-wrap:wrap;justify-content:space-between;gap:8px 10px;align-items:flex-start;margin-bottom:10px}
 .cp-h h2{font-size:15px;font-weight:700;line-height:1.25}.cp-h small{display:block;color:var(--muted);font-size:12.5px;margin-top:2px}
@@ -22,7 +23,7 @@ CSS = """
 .cp-th{font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden}
 .cp-cl{display:grid;place-items:center;min-height:32px;border-radius:3px;font-size:11.5px;font-variant-numeric:tabular-nums}
 .cp-leg{display:flex;align-items:center;gap:6px;margin-top:8px;font-size:12px;color:var(--muted)}.cp-leg span{width:24px;height:10px}
-.cp-tm{position:relative;flex:1;min-height:280px;border-radius:8px;overflow:hidden}.cp-tm div{position:absolute;box-sizing:border-box;border:1px solid #fff;padding:6px 8px;overflow:hidden;font-size:12.5px;line-height:1.2}.cp-tm b{display:block;font-weight:600}
+.cp-tm{position:relative;flex:1;min-height:280px;border-radius:8px;overflow:hidden}.cp-tm div{position:absolute;box-sizing:border-box;border:1px solid var(--card);padding:6px 8px;overflow:hidden;font-size:12.5px;line-height:1.2}.cp-tm b{display:block;font-weight:600}
 .cp-do{flex:1;display:grid;grid-template-columns:minmax(110px,160px) minmax(0,1fr);gap:14px;align-items:center}.cp-dl{list-style:none;font-size:13px}.cp-dl li{display:grid;grid-template-columns:10px minmax(0,1fr) auto;gap:6px;align-items:center;margin-bottom:5px}.cp-dl i{width:10px;height:10px;border-radius:2px}.cp-dl span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.cp-dl b{font-variant-numeric:tabular-nums;font-weight:600}
 .cp-cc{position:relative;touch-action:pan-y}.cp-bulle{position:absolute;top:6px;z-index:3;min-width:150px;max-width:240px;background:#fff;border:1px solid var(--line);border-radius:8px;padding:7px 10px;font-size:12.5px;box-shadow:0 4px 14px rgba(16,42,67,.12);pointer-events:none}.cp-bt1{font-weight:600;color:var(--muted);margin-bottom:3px}.cp-bulle p{display:grid;grid-template-columns:10px auto minmax(0,1fr);gap:6px;align-items:center}.cp-bulle i{width:10px;height:10px;border-radius:2px}.cp-bulle b{font-weight:700;font-variant-numeric:tabular-nums}.cp-bulle span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .cp-ju{flex:1;display:flex;flex-direction:column;justify-content:space-evenly;gap:8px}.cp-jl{display:grid;grid-template-columns:minmax(80px,1.1fr) minmax(0,1fr) minmax(0,1fr);gap:12px;align-items:end;font-size:13px}.cp-jl>span{align-self:center;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.cp-jl em{display:block;font-style:normal;font-weight:600;font-variant-numeric:tabular-nums;text-align:right}.cp-jh b{font-size:12px;font-weight:600;color:var(--muted);text-align:right}
@@ -41,7 +42,7 @@ HTML = '<section id="compo" aria-label="Tableau de bord composé selon vos donn�
 
 JS = r"""
 // ---- Pages composées : chaque carte vient du plan calculé côté serveur (META.composition)
-var CP_TEINTES=['#E8F1FA','#C9E0F5','#9CC6EC','#5E9FD8','#1F6FB8','#0B4F8F'],CP_SERIES=['#2A78D6','#EB6834','#1BAF7A','#EDA100','#E87BA4','#008300'];
+var CP_TEINTES=['#86B6EF','#5598E7','#256ABF','#184F95','#0D366B'],CP_SERIES=['#2A78D6','#EB6834','#1BAF7A','#EDA100','#E87BA4','#008300'];
 var CP_AGR={somme:'Total',moyenne:'Moyenne',dernier:'Dernière valeur'},CP_HAUSSE='#2F62C9',CP_BAISSE='#A8580A',CP_L=1200,CP_R=[],CP_CC=[],CP_JUMELLES=10;
 function cpVal(v){return v==null||isNaN(v)?'—':v&&Math.abs(v)<.01?Number(v).toLocaleString('fr-FR',{maximumSignificantDigits:2}):fmt(v)}
 function cpEtiquettes(ts,pas){var a=ts.map(cpVal),u={},f={};a.forEach(function(x,i){u[x]=1;if(ts[i])f[x.replace(/[^a-zA-Z]/g,'')]=1});if(Object.keys(u).length===ts.length&&Object.keys(f).length<2)return a;var d=Math.min(20,Math.max(0,Math.ceil(-Math.log(pas)/Math.LN10)+1));return ts.map(function(t){return Number(t.toPrecision(12)).toLocaleString('fr-FR',{maximumFractionDigits:d})})}
@@ -58,7 +59,7 @@ function cpHaut(ma,bas){return ma>0?cpPlafond(ma):bas<0?0:1}
 function cpPlein(){return window.innerWidth<=900}
 function cpW(c){return Math.max(240,Math.round(cpPlein()?CP_L-34:(CP_L-176)/12*c.span+(c.span-1)*16-34))}
 function cpNb(rows){return META.cube?rows.reduce(function(s,r){return s+r.__n},0):rows.length}
-function cpCarte(c,titre,sous,corps,extra){var m=cpMessage(c,CP_R),s=m&&m.indexOf(titre)?[titre,sous].filter(Boolean).join(' · '):sous;return '<article class="cp-c" style="grid-column:span '+c.span+'"><div class="cp-h"><div><h2>'+esc(m||titre)+'</h2>'+(s?'<small>'+esc(s)+'</small>':'')+'</div>'+(extra||'')+'</div><div class="cp-corps">'+corps+'</div></article>'}
+function cpCarte(c,titre,sous,corps){var m=cpMessage(c,CP_R),s=m&&m.indexOf(titre)?[titre,sous].filter(Boolean).join(' · '):sous;return '<article class="cp-c" style="grid-column:span '+c.span+'"><div class="cp-h"><div><h2>'+esc(m||titre)+'</h2>'+(s?'<small>'+esc(s)+'</small>':'')+'</div></div><div class="cp-corps">'+corps+'</div></article>'}
 function cpSousTitre(c){return CP_AGR[c.agregation]||''}
 function cpSerie(rows,c){var g=groupBy(rows,function(r){return pkey(r.__p)});return Object.keys(g).sort().map(function(k){return [k,agg(g[k],c.mesure,c.agregation)]}).filter(function(e){return e[1]!=null})}
 function cpPoints(s,W,H,G,B,T,max,bas){return s.map(function(e,i){return [s.length>1?G+i*((W-G-8)/(s.length-1)):G,H-B-(e[1]-bas)/(max-bas)*(H-B-T)]})}
@@ -79,16 +80,16 @@ function cpGroupes(rows,c,top){var g=groupBy(rows,c.dimension);return Object.key
 function cpListe(h,n){return '<div class="cp-bs'+(n<=6?' cp-gros':'')+'">'+h+'</div>'}
 function cpBarres(e){var v=e.map(function(x){return x[1]}),lo=Math.min.apply(null,v.concat(0)),et=(Math.max.apply(null,v.concat(0))-lo)||1;return cpListe(e.map(function(x){return '<div><div class="cp-bl"><span>'+esc(label(x[0]))+'</span><b>'+esc(cpVal(x[1]))+'</b></div><div class="cp-bt"><i style="margin-left:'+(100*(Math.min(x[1],0)-lo)/et).toFixed(1)+'%;width:'+(100*Math.abs(x[1])/et).toFixed(1)+'%'+(x[1]<0?';background:'+CP_BAISSE:'')+'"></i>'+(lo<0?'<u style="left:'+(100*-lo/et).toFixed(1)+'%"></u>':'')+'</div></div>'}).join(''),e.length)}
 function cpClassement(rows,c){var e=cpGroupes(rows,c);if(!e.length)return cpVide();var n=Object.keys(groupBy(rows,c.dimension)).length;return cpBarres(e)+(n>e.length?'<p class="cp-note">Les '+e.length+' premiers sur '+n+'.</p>':'')}
-function cpAnneau(rows,c){var e=cpGroupes(rows,c,5).filter(function(x){return x[1]>0}),t=e.reduce(function(s,x){return s+x[1]},0);if(e.length<2||!t)return cpVide();
-  var R=15.9155,cum=0,o='<div class="cp-do"><svg class="cp-svg" viewBox="0 0 42 42" role="img" aria-label="'+esc('Répartition '+cpDe(c.mesure))+'">';
-  e.forEach(function(x,i){var p=100*x[1]/t;o+='<circle cx="21" cy="21" r="'+R+'" fill="none" stroke="'+CP_SERIES[i]+'" stroke-width="7" stroke-dasharray="'+Math.max(p-.8,.2).toFixed(2)+' '+(100-Math.max(p-.8,.2)).toFixed(2)+'" stroke-dashoffset="'+(25-cum).toFixed(2)+'"><title>'+esc(label(x[0])+' : '+cpVal(x[1]))+'</title></circle>';cum+=p});
-  return o+'</svg><ul class="cp-dl">'+e.map(function(x,i){return '<li><i style="background:'+CP_SERIES[i]+'"></i><span>'+esc(label(x[0]))+'</span><b>'+cpPct(100*x[1]/t)+'</b></li>'}).join('')+'</ul></div>'}
+function cpAnneau(rows,c){var e=cpGroupes(rows,c,5).filter(function(x){return x[1]>0}),t=e.reduce(function(s,x){return s+x[1]},0);if(e.length<2||!t)return cpVide();if(e.length<3||(e[0][1]-e[e.length-1][1])/t<.05)return cpBarres(e);
+  var R=15.9155,cum=0,coul=cpCouleurs(c.dimension),o='<div class="cp-do"><svg class="cp-svg" viewBox="0 0 42 42" role="img" aria-label="'+esc('Répartition '+cpDe(c.mesure))+'">';
+  e.forEach(function(x){var p=100*x[1]/t;o+='<circle cx="21" cy="21" r="'+R+'" fill="none" stroke="'+coul[x[0]]+'" stroke-width="7" stroke-dasharray="'+Math.max(p-.8,.2).toFixed(2)+' '+(100-Math.max(p-.8,.2)).toFixed(2)+'" stroke-dashoffset="'+(25-cum).toFixed(2)+'"><title>'+esc(label(x[0])+' : '+cpVal(x[1]))+'</title></circle>';cum+=p});
+  return o+'</svg><ul class="cp-dl">'+e.map(function(x){return '<li><i style="background:'+coul[x[0]]+'"></i><span>'+esc(label(x[0]))+'</span><b>'+cpPct(100*x[1]/t)+'</b></li>'}).join('')+'</ul></div>'}
 function cpDecoupe(a,x,y,w,h,o){if(a.length===1){o.push({k:a[0][0],v:a[0][1],x:x,y:y,w:w,h:h});return}var t=a.reduce(function(s,e){return s+e[1]},0),c=0,n=0;
   while(n<a.length-1&&c+a[n][1]/2<t/2){c+=a[n][1];n++}n=Math.max(1,n);var A=a.slice(0,n),B=a.slice(n),f=A.reduce(function(s,e){return s+e[1]},0)/t;
   if(w*1.7>=h){cpDecoupe(A,x,y,w*f,h,o);cpDecoupe(B,x+w*f,y,w*(1-f),h,o)}else{cpDecoupe(A,x,y,w,h*f,o);cpDecoupe(B,x,y+h*f,w,h*(1-f),o)}}
-function cpTreemap(rows,c){var e=cpGroupes(rows,c,40).filter(function(x){return x[1]>0}),t=e.reduce(function(s,x){return s+x[1]},0);if(e.length<2||!t)return cpVide();var o=[],W=cpW(c),caches=[];cpDecoupe(e,0,0,100,100,o);var max=e[0][1];
-  var h='<div class="cp-tm" role="img" aria-label="'+esc('Répartition '+cpDe(c.mesure)+' par '+cpMot(c.dimension))+'">'+o.map(function(b){var i=Math.min(3,Math.floor(4*b.v/max)),p=100*b.v/t,lisible=b.w/100*W>=72&&b.h/100*280>=52;if(!lisible)caches.push(label(b.k)+' ('+cpPct(p)+')');
-    return '<div title="'+esc(label(b.k)+' : '+cpVal(b.v)+', '+cpPct(p))+'" style="left:'+b.x.toFixed(2)+'%;top:'+b.y.toFixed(2)+'%;width:'+b.w.toFixed(2)+'%;height:'+b.h.toFixed(2)+'%;background:'+CP_TEINTES[i]+';color:#102A43">'+(lisible?'<b>'+esc(label(b.k))+'</b>'+cpPct(p):'')+'</div>'}).join('')+'</div>';
+function cpTreemap(rows,c){var e=cpGroupes(rows,c,40).filter(function(x){return x[1]>0}),t=e.reduce(function(s,x){return s+x[1]},0);if(e.length<2||!t)return cpVide();var o=[],W=cpW(c),caches=[];cpDecoupe(e,0,0,100,100,o);
+  var h='<div class="cp-tm" role="img" aria-label="'+esc('Répartition '+cpDe(c.mesure)+' par '+cpMot(c.dimension))+'">'+o.map(function(b){var p=100*b.v/t,lisible=b.w/100*W>=72&&b.h/100*280>=52;if(!lisible)caches.push(label(b.k)+' ('+cpPct(p)+')');
+    return '<div title="'+esc(label(b.k)+' : '+cpVal(b.v)+', '+cpPct(p))+'" style="left:'+b.x.toFixed(2)+'%;top:'+b.y.toFixed(2)+'%;width:'+b.w.toFixed(2)+'%;height:'+b.h.toFixed(2)+'%;background:#9EC5F4;color:#102A43">'+(lisible?'<b>'+esc(label(b.k))+'</b>'+cpPct(p):'')+'</div>'}).join('')+'</div>';
   return h+(caches.length?'<p class="cp-note">Non nommés : '+esc(caches.slice(0,3).join(', '))+(caches.length>3?' et '+(caches.length-3)+' autres':'')+'.</p>':'')}
 function cpMatrice(rows,c){var g=groupBy(rows,function(r){return pkey(r.__p)}),P=Object.keys(g).sort(),D=Object.keys(groupBy(rows,c.dimension)).sort();if(P.length<2||D.length<2)return null;
   var mx=null,mi=null,M={};D.forEach(function(d){var gd=groupBy(rows.filter(function(r){return String(r[c.dimension])===d}),function(r){return pkey(r.__p)});P.forEach(function(p){var v=gd[p]?agg(gd[p],c.mesure,c.agregation):null;M[d+'|'+p]=v;if(v!=null){mx=mx==null?v:Math.max(mx,v);mi=mi==null?v:Math.min(mi,v)}})});
@@ -96,7 +97,7 @@ function cpMatrice(rows,c){var g=groupBy(rows,function(r){return pkey(r.__p)}),P
 function cpChaleur(rows,c){var X=cpMatrice(rows,c);if(!X)return cpVide('Choisissez plusieurs périodes et plusieurs groupes pour lire cette carte.');var P=X.P,D=X.D,M=X.M,mi=X.mi,mx=X.mx;
   if(mx==null)return cpVide();var W=cpW(c),NOM=W<500?96:130,place=(W-NOM-2*P.length)/P.length,chiffres=place>=32||cpPlein(),mc=chiffres?32:14,cols=NOM+'px repeat('+P.length+',minmax('+mc+'px,1fr))',lg='min-width:'+(NOM+P.length*(mc+2))+'px;grid-template-columns:'+cols,et=mx-mi||1,k=Math.ceil(58/Math.max(place,mc)),o='<div class="cp-t"><div class="cp-tr" style="'+lg+'"><span></span>';
   for(var i=0;i<P.length;i+=k)o+='<span class="cp-th" style="grid-column:span '+Math.min(k,P.length-i)+'" title="'+esc(plabel(P[i]))+'">'+esc(plabel(P[i]))+'</span>';o+='</div>';
-  D.forEach(function(d){o+='<div class="cp-tr" style="'+lg+'"><span class="cp-tl" title="'+esc(label(d))+'">'+esc(label(d))+'</span>'+P.map(function(p){var v=M[d+'|'+p],t=esc(label(d)+', '+plabel(p)+' : '+cpVal(v));if(v==null)return '<span class="cp-cl" title="'+t+'" aria-label="'+t+'" style="background:#F3F6F9;color:#52667A">'+(chiffres?'—':'')+'</span>';var n=Math.min(5,Math.floor(6*(v-mi)/et));return '<span class="cp-cl" title="'+t+'" aria-label="'+t+'" style="background:'+CP_TEINTES[n]+';color:'+(n>=4?'#fff':'#102A43')+'">'+(chiffres?esc(fmt(v)):'')+'</span>'}).join('')+'</div>'});
+  D.forEach(function(d){o+='<div class="cp-tr" style="'+lg+'"><span class="cp-tl" title="'+esc(label(d))+'">'+esc(label(d))+'</span>'+P.map(function(p){var v=M[d+'|'+p],t=esc(label(d)+', '+plabel(p)+' : '+cpVal(v));if(v==null)return '<span class="cp-cl" title="'+t+'" aria-label="'+t+'" style="background:#F3F6F9;color:#52667A">'+(chiffres?'—':'')+'</span>';var n=Math.min(4,Math.floor(5*(v-mi)/et));return '<span class="cp-cl" title="'+t+'" aria-label="'+t+'" style="background:'+CP_TEINTES[n]+';color:'+(n>=2?'#fff':'#102A43')+'">'+(chiffres?esc(fmt(v)):'')+'</span>'}).join('')+'</div>'});
   return o+'</div><div class="cp-leg">'+esc(fmt(mi))+CP_TEINTES.map(function(t){return '<span style="background:'+t+'"></span>'}).join('')+esc(fmt(mx))+'</div>'+(chiffres?'':'<p class="cp-note">Survolez une case pour lire sa valeur.</p>')}
 function cpPeriodes(rows,c){var m=c.mois_communs||[],a={};rows.forEach(function(r){if(r.__p&&m.indexOf(r.__p.slice(5,7))>=0)a[r.__p.slice(0,4)]=1});var y=Object.keys(a).sort();if(y.length<2)return null;
   var n=y.length,de=function(an){return rows.filter(function(r){return r.__p&&r.__p.slice(0,4)===an&&m.indexOf(r.__p.slice(5,7))>=0})};return {a:y[n-2],b:y[n-1],A:de(y[n-2]),B:de(y[n-1]),mois:m.length}}
@@ -178,7 +179,7 @@ var CP_MSG={
   comparee:function(c,r){var Z=cpComparees(r,c);if(!Z)return null;var i=Z.P.length-1,e=Z.S.filter(function(x){return x.vals[i]!=null}).sort(function(a,b){return b.vals[i]-a.vals[i]});if(e.length<2||e[0].vals[i]===e[1].vals[i])return null;return {v:{premier:label(e[0].d),valeur:cpVal(e[0].vals[i]),periode:plabel(Z.k)}}},
   histogramme:function(c,r){var t=cpTranches(r,c);return t?{v:{de:fmt(t.mi+t.top*t.l),a:fmt(t.mi+(t.top+1)*t.l),part:cpPct(100*t.m/t.v.length)}}:null}};
 var CP_DESSINS={
-  courbe:function(c,r){return cpCarte(c,'Évolution '+cpDe(c.mesure),cpSousTitre(c)+' par '+GRAN[gran].toLowerCase(),cpCourbe(r,c),seg())},
+  courbe:function(c,r){return cpCarte(c,'Évolution '+cpDe(c.mesure),cpSousTitre(c)+' par '+GRAN[gran].toLowerCase(),cpCourbe(r,c))},
   classement:function(c,r){return cpCarte(c,cpTete(c.mesure)+' par '+cpMot(c.dimension),cpSousTitre(c),cpClassement(r,c))},
   anneau:function(c,r){return cpCarte(c,'Part de chaque '+cpMot(c.dimension),cpTete(c.mesure),cpAnneau(r,c))},
   treemap:function(c,r){return cpCarte(c,cpTete(c.mesure)+' par '+cpMot(c.dimension),'La surface suit la valeur',cpTreemap(r,c))},
@@ -189,7 +190,8 @@ var CP_DESSINS={
   bulles:function(c,r){return cpCarte(c,cpTete(c.mesure)+' et '+cpMot(c.mesure_y),(Object.keys(groupBy(r,c.dimension)).length<=CP_JUMELLES?'Par ':'Chaque point : ')+cpMot(c.dimension),cpBulles(r,c))},
   comparee:function(c,r){return cpCarte(c,'Évolution '+cpDe(c.mesure)+' par '+cpMot(c.dimension),cpSousTitre(c),cpComparee(r,c))},
   histogramme:function(c,r){return cpCarte(c,'Répartition '+cpDe(c.mesure),'Nombre de lignes par tranche',cpHisto(r,c))}};
-function renderCompo(rows){var el=document.getElementById('compo'),html='';CP_R=rows;CP_CC=[];document.getElementById('row2').style.display='none';document.getElementById('row3').style.display='none';CP_L=+el.clientWidth||1200;
+function cpTemporel(){return META.composition.lignes.some(function(l){return l.some(function(c){return /^(courbe|chaleur|comparee)$/.test(c.type)})})}
+function renderCompo(rows){var el=document.getElementById('compo'),html='';CP_R=rows;CP_CC=[];if(cpTemporel()&&GOK&&GOK.length>1)html='<div class="cp-outils"><span>Regrouper par</span>'+seg()+'</div>';document.getElementById('row2').style.display='none';document.getElementById('row3').style.display='none';CP_L=+el.clientWidth||1200;
   META.composition.lignes.forEach(function(l){l.forEach(function(c){try{html+=CP_DESSINS[c.type](c,rows)}catch(e){html+=cpCarte(c,cpTete(c.mesure),'',cpVide('Ce graphique n\'a pas pu être dessiné.'))}})});el.innerHTML=html;
   [].forEach.call(el.querySelectorAll('.seg button'),function(b){b.onclick=function(){gran=b.dataset.g;render()}});
   [].forEach.call(el.querySelectorAll('.cp-cc'),function(b){b.onpointermove=b.onpointerdown=function(e){cpSurvol(b,e)};b.onpointerleave=function(){b.querySelector('.cp-bulle').hidden=true;b.querySelector('.cp-ligne').style.display='none'}});return []}
