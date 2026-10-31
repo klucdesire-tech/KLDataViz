@@ -272,6 +272,74 @@ def test_indicateurs_gros_fichier_annoncent_qu_ils_ne_suivent_pas_le_filtre(gen,
     assert "ne suit pas les filtres" in s["gaps_filtre"] and "ne suit pas les filtres" not in s["gaps"]
 
 
+def _parts(valeurs, **autres):
+    return pd.DataFrame([dict({"mois": f"2025-{m:02d}", "zone": z, "ventes": v}, **autres) for m in range(1, 7) for z, v in valeurs])
+
+
+def _couleur_legende(page, nom):
+    return re.search(r'<li><i style="background:(#[0-9A-F]{6})"></i><span>' + nom + "<", page).group(1)
+
+
+@sans_node
+def test_anneau_garde_ses_couleurs_apres_filtre(gen, tmp_path):
+    """Couches bébé est dernier en valeur mais premier par son nom : sa couleur ne suit pas le rang."""
+    s = executer(tmp_path, gen(J.JEUX["ventes"](), composition=True)["html"], {"zone": "Sud"})
+    assert _couleur_legende(s["page"], "Couches bébé") == _couleur_legende(s["filtre"], "Couches bébé") == "#2A78D6"
+
+
+def _carte(page, titre):
+    debut = page.rindex("<article", 0, page.index(titre))
+    return page[debut:page.index("</article>", debut)]
+
+
+@sans_node
+def test_anneau_remplace_par_des_barres_si_les_parts_sont_proches(gen, tmp_path):
+    """Le titre annonce une part du total : les barres doivent la montrer aussi."""
+    df = J.JEUX["ventes"]()
+    ecarte = executer(tmp_path, gen(df, composition=True)["html"])["page"]
+    assert 'class="cp-do"' in _carte(ecarte, "Part de chaque produit")
+    rang = {p: i for i, p in enumerate(sorted(df["produit"].unique()))}
+    df["marge"] = df["chiffre_affaires"] = df["produit"].map(lambda p: 1000 + rang[p] * 5)
+    carte = _carte(executer(tmp_path, gen(df, composition=True)["html"])["page"], "Part de chaque produit")
+    assert 'class="cp-do"' not in carte and 'class="cp-bt"' in carte and carte.count(" %</b>") == 5 and "du total" in carte
+
+
+@sans_node
+def test_treemap_une_seule_couleur(gen, tmp_path):
+    page = executer(tmp_path, gen(J.JEUX["sante"](), composition=True)["html"])["page"]
+    carte = page[page.index('class="cp-tm"'):]
+    assert len(set(re.findall(r"background:(#[0-9A-Fa-f]{6});color", carte[:carte.index("</article>")]))) == 1
+
+
+def _luminance(h):
+    canaux = [int(h[i:i + 2], 16) / 255 for i in (1, 3, 5)]
+    a, b, c = [x / 12.92 if x <= 0.03928 else ((x + 0.055) / 1.055) ** 2.4 for x in canaux]
+    return 0.2126 * a + 0.7152 * b + 0.0722 * c
+
+
+@sans_node
+def test_carte_de_chaleur_texte_lisible_partout(gen, tmp_path):
+    page = executer(tmp_path, gen(J.JEUX["sante"](), composition=True)["html"])["page"]
+    cases = set(re.findall(r'class="cp-cl"[^>]*style="background:(#[0-9A-F]{6});color:(#[0-9A-Fa-f]{3,6})"', page))
+    assert len(cases) >= 3
+    for fond, encre in cases:
+        encre = "#FFFFFF" if encre == "#fff" else encre
+        a, b = sorted((_luminance(fond), _luminance(encre)), reverse=True)
+        assert (a + 0.05) / (b + 0.05) >= 4.5, (fond, encre)
+
+
+@sans_node
+def test_regroupement_au_dessus_des_cartes(gen, tmp_path):
+    page = executer(tmp_path, gen(J.JEUX["sante"](), composition=True)["html"])["page"]
+    assert page.startswith('<div class="cp-outils">') and "Regrouper par" in page
+    assert '<div class="seg"' not in page[page.index("<article"):]
+
+
+@sans_node
+def test_pas_de_regroupement_sans_temps(gen, tmp_path):
+    assert "cp-outils" not in executer(tmp_path, gen(J.JEUX["sans_dates"](), composition=True)["html"])["page"]
+
+
 @sans_node
 def test_textes_echappes(gen, tmp_path):
     df = pd.DataFrame({"zone": ["<b>A</b>", "B", "C", "D"], "ventes": [1, 2, 3, 4]})
