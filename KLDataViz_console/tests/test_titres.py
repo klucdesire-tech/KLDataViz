@@ -254,6 +254,33 @@ def test_comparee_sans_note_d_axe_fausse_sur_de_tres_petites_valeurs(mod, tmp_pa
     assert not any(t.startswith("Taux ecart : 0 en") for t in titres_de(page))
 
 
+def _graduations(page):
+    return re.findall(r'text-anchor="end" font-size="12" fill="#52667A">([^<]+)</text>', page)
+
+
+@sans_node
+def test_comparee_graduations_distinctes_sur_de_gros_montants(mod, tmp_path):
+    """Autour de 1,2 million, l'écriture courte donnerait cinq fois « 1,2 M » et une note absurde."""
+    df = pd.DataFrame([{"mois": f"2025-{m:02d}", "zone": z, "centre": c, "taux_ecart": 1200000.0 + i * 1500 + m * 40} for m in range(1, 9) for i, z in enumerate("ABCDEF") for c in "xy"])
+    page = re.sub(r"\s", " ", executer(tmp_path, mod.gen(df)["html"])["page"])
+    carte = page[page.index('class="cp-cc"'):]
+    assert "Axe de 1,2 M à 1,2 M" not in carte and re.search(r"Axe de 1 20\d \d{3} à 1 2\d\d \d{3}, resserré", carte)
+    ticks = [t for t in _graduations(carte[:carte.index("</svg>")]) if not re.search("[a-z]", t)]
+    assert len(ticks) >= 3 and len(set(ticks)) == len(ticks)
+
+
+@sans_node
+@pytest.mark.parametrize("echelle", [1e-4, 1e-7, 1e-10])
+def test_comparee_tres_petites_echelles_lisibles_et_dans_le_cadre(mod, tmp_path, echelle):
+    df = pd.DataFrame([{"mois": f"2025-{m:02d}", "zone": z, "centre": c, "taux_ecart": echelle * (1.2 + i * .1 + m * .001)} for m in range(1, 9) for i, z in enumerate("ABC") for c in "xy"])
+    page = re.sub(r"\s", " ", executer(tmp_path, mod.gen(df)["html"])["page"])
+    carte = page[page.index('class="cp-cc"'):page.index("</svg>", page.index('class="cp-cc"'))]
+    ticks = re.findall(r'<text x="(\d+)" y="[\d.]+" text-anchor="end" font-size="12" fill="#52667A">(\d[^<]*|-\d[^<]*)</text>', carte)
+    ticks = [(int(x), t) for x, t in ticks if "," in t]
+    assert len(ticks) >= 3 and len({t for _, t in ticks}) == len(ticks)
+    assert all(x - len(t) * 7 >= 0 for x, t in ticks) and "Axe de 0 à 0" not in page
+
+
 @sans_node
 def test_comparee_etiquettes_dans_le_cadre(mod, tmp_path):
     noms = ["Yamoussoukro-Centre-Hopital-General", "Bouaké-Nord-Ouest-Quartier-Commerce", "San-Pédro-Bardot-Extension"]
