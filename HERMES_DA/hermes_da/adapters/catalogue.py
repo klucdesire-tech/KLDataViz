@@ -78,6 +78,12 @@ def _prop(genre, mesure=None, nature=None, **extra):
     return p
 
 
+def _groupes_renseignes(df, mesure, groupe):
+    """Groupes qui ont vraiment une valeur : une recette n'existe que sur les lignes de type recette."""
+    v = pd.to_numeric(df[mesure], errors="coerce")
+    return int((v.groupby(df[groupe]).sum(min_count=1).fillna(0) != 0).sum())
+
+
 def proposer(fiche, df):
     """Tous les graphiques permis par le fichier, sans doublon, du plus simple au plus spécialisé."""
     f, sortie = fiche, []
@@ -89,6 +95,8 @@ def proposer(fiche, df):
         if per and per["valeurs"] >= MIN_POINTS_COURBE:
             sortie.append(_prop("courbe", c, nature, periode=per["colonne"]))
         for g, n in groupes:
+            if _groupes_renseignes(df, c, g) < 2:  # une carte que la page ne pourrait pas remplir
+                continue
             if per and per["valeurs"] >= MIN_COLONNES_CHALEUR and 2 <= n <= MAX_LIGNES_CHALEUR and nature != "stock":
                 sortie.append(_prop("chaleur", c, nature, periode=per["colonne"], dimension=g))
             if per and per["valeurs"] >= MIN_POINTS_COURBE and 2 <= n <= MAX_COMPAREES:
