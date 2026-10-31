@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Titres-messages : les chiffres viennent du moteur et suivent les filtres ; Adifa’ ne fournit que la phrase."""
+"""Titres-messages : le moteur écrit et calcule, à chaque filtre ; Adifa’ ne donne que le nom métier des colonnes."""
 import json
 import os
 import re
@@ -28,118 +28,76 @@ def titres_de(page):
     return [re.sub(r"\s", " ", t).replace("&#39;", "'") for t in re.findall(r"<h2>(.*?)</h2>", page)]
 
 
-def ia(gabarits=None, kpis=None, capture=None):
-    """Une Adifa’ factice : répond au choix des KPI, puis aux titres."""
+def ia(libelles=None, kpis=None, capture=None):
+    """Une Adifa’ factice : répond au choix des KPI, puis aux noms de colonnes."""
     def appel(messages, n):
         if capture is not None:
             capture.append(messages)
-        if "reformules" in messages[0]["content"]:
-            return json.dumps({"titres": gabarits or {}}, ensure_ascii=False)
+        if '"libelles"' in messages[0]["content"]:
+            return json.dumps({"libelles": libelles or {}}, ensure_ascii=False)
         return json.dumps({"kpis": kpis or [{"nom": "x", "agregation": "somme", "colonne": "marge"}], "graphiques": []})
     return appel
 
 
-@pytest.mark.parametrize("texte", [
-    "{premier} réalise le plus de ventes avec {valeur}, devant {second} ({valeur2})",
-    "Chez {premier}, {valeur} de chiffre d'affaires, devant {second} ({valeur2})",
+@pytest.mark.parametrize("texte,colonne", [
+    ("tests de dépistage HTS", "HTS_TST"),
+    ("nouvelles initiations de traitement", "TX_NEW"),
+    ("chiffre d'affaires", "chiffre_affaires"),
+    ("consultations prénatales CPN1", "cpn1"),
+    ("retards de livraison", "retards"),
+    ("femmes en grossesse", "suivi"),
+    ("quartier", "zone"),
 ])
-def test_gabarit_accepte(mod, texte):
-    assert mod.T.valider(texte, {"type": "classement", "mesure": "ventes"}) == texte
+def test_nom_accepte(mod, texte, colonne):
+    assert mod.T.valider(texte, colonne) == texte
 
 
 @pytest.mark.parametrize("texte,raison", [
-    ("{premier} vend {valeur}, soit 40 % du total, devant {second} ({valeur2})", "un chiffre écrit en dur"),
-    ("{premier} progresse avec {valeur}, devant {second} ({valeur2})", "un sens écrit en dur"),
-    ("{premier} domine nettement avec {valeur}, devant {second} ({valeur2})", "un jugement"),
-    ("{premier} n'est pas en tête : {valeur}, devant {second} ({valeur2})", "une négation"),
-    ("{premier} arrive en tête avec {valeur}", "une variable de la formule perdue"),
-    ("{premier} et {inconnue} : {valeur}, devant {second} ({valeur2})", "une variable inconnue"),
-    ("<b>{premier}</b> : {valeur}, devant {second} ({valeur2})", "du code"),
-    ("{premier} : {valeur} { devant {second} ({valeur2})", "une accolade seule"),
-    ("{premier} fait deux fois mieux que {second} : {valeur} contre {valeur2}", "une quantité en lettres"),
-    ("{premier} pèse plus que tous : {valeur}, devant {second} ({valeur2})", "une comparaison en dur"),
-    ("Près de {premier} : {valeur}, devant {second} ({valeur2})", "une approximation"),
-    ("{premier} fait ⅓ : {valeur}, devant {second} ({valeur2})", "une fraction"),
-    ("{premier} fait ٣ : {valeur}, devant {second} ({valeur2})", "un chiffre non latin"),
+    ("ventes en hausse", "un sens"),
+    ("meilleures ventes", "un jugement"),
+    ("ventes de 2025", "un chiffre"),
+    ("ventes : à surveiller", "une phrase"),
+    ("{premier}", "une variable"),
+    ("<b>ventes</b>", "du code"),
+    ("ventes totales de toutes les zones du pays", "trop long"),
+    ("v", "trop court"),
     (None, "pas un texte"),
 ])
-def test_gabarit_refuse(mod, texte, raison):
-    assert mod.T.valider(texte, {"type": "classement", "mesure": "ventes"}) is None, raison
+def test_nom_refuse(mod, texte, raison):
+    assert mod.T.valider(texte, "ventes") is None, raison
 
 
-@pytest.mark.parametrize("texte,carte", [
-    ("{premier} pèse plus de la moitié du total, soit {part}", {"type": "anneau", "mesure": "ventes"}),
-    ("{taux} de l'objectif, c'est encore trop peu", {"type": "cible", "mesure": "ventes"}),
-])
-def test_affirmation_en_lettres_refusee(mod, texte, carte):
-    assert mod.T.valider(texte, carte) is None
-
-
-@pytest.mark.parametrize("texte,carte", [  # phrases réellement renvoyées par Adifa’ sur les jeux fictifs
-    ("Tests de dépistage HTS : {premier} en tête ({valeur}), devant {second} ({valeur2})", {"type": "classement", "mesure": "HTS_TST"}),
-    ("Tests positifs HTS : {groupe} en {periode}, valeur la plus haute ({valeur})", {"type": "chaleur", "mesure": "HTS_TST_POS"}),
-    ("Nouvelles initiations de traitement : {premier} représente {part} du total", {"type": "anneau", "mesure": "TX_NEW"}),
-    ("{bilan} ; écart principal : {premier} ({ecart})", {"type": "pente", "mesure": "cpn4"}),
-    ("cpn1 {evolution} entre {annee_a} et {annee_b} ; écart principal : {premier} ({ecart})", {"type": "passage", "mesure": "cpn1"}),
-    ("Le chiffre d'affaires et la marge {lien}", {"type": "bulles", "mesure": "chiffre_affaires", "mesure_y": "marge"}),
-    ("{bilan} ; pour l'ensemble : {taux}", {"type": "cible", "mesure": "chiffre_affaires", "dimension": "zone"}),
-])
-def test_phrases_reelles_acceptees(mod, texte, carte):
-    assert mod.T.valider(texte, carte) == texte
-
-
-@pytest.mark.parametrize("texte,carte", [
-    ("Quartier de {premier} : {part} du total", {"type": "anneau", "mesure": "ventes"}),
-    ("Femmes en grossesse : {premier}, soit {part}", {"type": "anneau", "mesure": "suivi"}),
-    ("Les retards chez {premier} : {part}", {"type": "anneau", "mesure": "retards"}),
-])
-def test_mots_du_metier_pas_confondus_avec_un_jugement(mod, texte, carte):
-    assert mod.T.valider(texte, carte) == texte
-
-
-def test_titre_qui_parle_d_une_autre_mesure_refuse(mod):
-    carte = {"type": "anneau", "mesure": "marge"}
-    assert mod.T.valider("Le chiffre d'affaires de {premier} : {part}", carte, ["marge", "chiffre_d'affaires"]) is None
-    assert mod.T.valider("La marge de {premier} : {part}", carte, ["marge", "chiffre_d'affaires"])
-
-
-def test_chiffre_d_un_nom_de_colonne_admis(mod):
-    assert mod.T.valider("{premier} réalise {valeur} de CPN1, devant {second} ({valeur2})", {"type": "classement", "mesure": "cpn1"})
+def test_toutes_les_cartes_ont_une_formule(mod):
+    df = J.JEUX["ventes"]()
+    plan = mod.T.appliquer(mod.C.composer(mod.F.lire_fiche(df), df), {})
+    assert all(c["formule"] for ligne in plan["lignes"] for c in ligne)
+    assert mod.T.formule({"type": "cible"}) != mod.T.formule({"type": "cible", "dimension": "zone"})
 
 
 def test_seuls_les_noms_de_colonnes_partent_vers_l_ia(mod):
     capture, df = [], J.JEUX["ventes"]()
     mod.gen(df, llm=ia(capture=capture))
-    envoi = next(m[1]["content"] for m in capture if "reformules" in m[0]["content"])
-    assert "Couches bébé" not in envoi and "Nord" not in envoi
-    assert not any(str(v) in envoi for v in df["chiffre_affaires"].head(30))
-
-
-def test_adifa_recoit_la_formule_du_moteur(mod):
-    capture = []
-    mod.gen(J.JEUX["ventes"](), llm=ia(capture=capture))
-    envoi = json.loads(next(m[1]["content"] for m in capture if "reformules" in m[0]["content"]))
-    assert all("{" in c["formule"] and c["variables"] for c in envoi)
-    assert any("marge" in c["formule"] and "{mesure}" not in c["formule"] for c in envoi if c["graphique"] == "courbe")
-
-
-def test_objectif_sans_groupe_a_sa_propre_formule(mod):
-    assert mod.T.variables({"type": "cible"}) == {"taux"}
-    assert mod.T.variables({"type": "cible", "dimension": "zone"}) == {"bilan", "taux"}
+    envoi = next(m[1]["content"] for m in capture if '"libelles"' in m[0]["content"])
+    assert set(json.loads(envoi)) <= set(df.columns)
 
 
 def test_ia_en_panne_le_moteur_formule_seul(mod):
     def appel(messages, n):
-        if "reformules" in messages[0]["content"]:
+        if '"libelles"' in messages[0]["content"]:
             raise RuntimeError("panne")
         return json.dumps({"kpis": [{"nom": "x", "agregation": "somme", "colonne": "marge"}], "graphiques": []})
     res = mod.gen(J.JEUX["ventes"](), llm=appel)
-    assert 'id="compo"' in res["html"] and res["spec"]["titres"] == {}
+    assert 'id="compo"' in res["html"] and res["spec"]["libelles"] == {}
 
 
-def test_sans_ia_aucun_appel_ni_titre_ia(mod):
-    res = mod.gen(J.JEUX["ventes"]())
-    assert res["spec"]["titres"] == {} and '"titre_ia"' not in res["html"]
+def test_reponse_illisible_sans_effet(mod):
+    res = mod.gen(J.JEUX["ventes"](), llm=lambda m, n: "pas du JSON" if '"libelles"' in m[0]["content"]
+                  else json.dumps({"kpis": [{"nom": "x", "agregation": "somme", "colonne": "marge"}], "graphiques": []}))
+    assert res["spec"]["libelles"] == {}
+
+
+def test_sans_ia_aucun_nom(mod):
+    assert mod.gen(J.JEUX["ventes"]())["spec"]["libelles"] == {}
 
 
 def test_vedette_choisie_par_adifa(mod):
@@ -147,8 +105,7 @@ def test_vedette_choisie_par_adifa(mod):
     fiche = mod.F.lire_fiche(df)
     assert mod.C.composer(fiche, df)["mesure"] == "consultations"
     assert mod.C.composer(fiche, df, vedettes=["inconnue", "cpn4"])["mesure"] == "cpn4"
-    plan = mod.C.composer(fiche, df, vedettes=["cpn4"])
-    assert plan["lignes"][0][0]["mesure"] == "cpn4"
+    assert mod.C.composer(fiche, df, vedettes=["cpn4"])["lignes"][0][0]["mesure"] == "cpn4"
 
 
 def test_objectif_prime_sur_le_choix_d_adifa(mod):
@@ -162,51 +119,55 @@ def test_kpi_d_adifa_devient_la_vedette(mod):
     assert m["composition"]["mesure"] == "cpn4"
 
 
-def test_titres_gardes_a_l_actualisation_sans_ia(mod):
+def test_noms_gardes_a_l_actualisation_sans_ia(mod):
     df = J.JEUX["ventes"]()
-    gab = {str(i): "{premier} pèse {part} de cette marge" for i in range(8)}
-    spec = mod.gen(df, llm=ia(gabarits=gab))["spec"]
-    assert list(spec["titres"].values()) == ["{premier} pèse {part} de cette marge"]
+    spec = mod.gen(df, llm=ia(libelles={"marge": "marge brute"}))["spec"]
+    assert spec["libelles"] == {"marge": "marge brute"}
 
     def interdit(*a):
         raise AssertionError("l'actualisation ne doit pas appeler l'IA")
-    assert "de cette marge" in mod.gen(df, spec=spec, llm=interdit, composition=False)["html"]
+    assert "marge brute" in mod.gen(df, spec=spec, llm=interdit, composition=False)["html"]
 
 
-def test_gabarit_altere_dans_l_enregistrement_ignore(mod):
+def test_nom_altere_dans_l_enregistrement_ignore(mod):
     df = J.JEUX["ventes"]()
-    spec = mod.gen(df, llm=ia(gabarits={str(i): "{premier} pèse {part} de cette marge" for i in range(8)}))["spec"]
-    spec["titres"] = {k: "{premier} pèse 99 % de <script>" for k in spec["titres"]}
-    assert "99 %" not in mod.gen(df, spec=spec)["html"]
+    spec = mod.gen(df, llm=ia(libelles={"marge": "marge brute"}))["spec"]
+    spec["libelles"] = {"marge": "<script>en hausse"}
+    assert "<script>en hausse" not in mod.gen(df, spec=spec)["html"]
+
+
+def test_actualisation_sans_kpi_calculable_garde_sa_page(mod):
+    df = J.JEUX["ventes"]()
+    spec = {"kpis": [{"nom": "x", "agregation": "somme", "colonne": "renommee"}], "graphiques": [], "_ia": True, "composition": True}
+    assert 'id="compo"' in mod.gen(df, spec=spec, composition=False)["html"]
 
 
 @sans_node
 @pytest.mark.parametrize("jeu", sorted(J.JEUX))
 def test_titres_sans_trou(mod, tmp_path, jeu):
-    page = executer(tmp_path, mod.gen(J.JEUX[jeu]())["html"])["page"]
-    for t in titres_de(page):
+    for t in titres_de(executer(tmp_path, mod.gen(J.JEUX[jeu]())["html"])["page"]):
         assert "{" not in t and "undefined" not in t and "NaN" not in t and "null" not in t
 
 
 @sans_node
 def test_classement_exact_et_recalcule_apres_filtre(mod, tmp_path):
     df = J.JEUX["sante"]()
-    res = mod.gen(df)
-    s = executer(tmp_path, res["html"], {"region": "Abidjan"})
+    s = executer(tmp_path, mod.gen(df)["html"], {"region": "Abidjan"})
     tous = df.groupby("district")["consultations"].sum().sort_values(ascending=False)
-    t = next(x for x in titres_de(s["page"]) if "valeur la plus haute (" in x)
-    assert t.startswith(tous.index[0]) and f"{tous.iloc[0]:,}".replace(",", " ") in t
+    t = next(x for x in titres_de(s["page"]) if "valeur la plus haute pour" in x and "devant" in x)
+    assert f"pour {tous.index[0]} ({tous.iloc[0]:,})".replace(",", " ") in t and f"devant {tous.index[1]}" in t
     filtre = df[df["region"] == "Abidjan"].groupby("district")["consultations"].sum().sort_values(ascending=False)
-    t2 = next(x for x in titres_de(s["filtre"]) if "valeur la plus haute (" in x)
-    assert t2.startswith(filtre.index[0]) and tous.index[-1] not in t2
+    t2 = next(x for x in titres_de(s["filtre"]) if "valeur la plus haute pour" in x and "devant" in x)
+    assert f"pour {filtre.index[0]} ({filtre.iloc[0]:,})".replace(",", " ") in t2 and tous.index[-1] not in t2
 
 
 @sans_node
-def test_gabarit_d_adifa_rempli_par_le_moteur(mod, tmp_path):
+def test_nom_d_adifa_dans_le_titre_et_le_sous_titre(mod, tmp_path):
     df = pd.DataFrame([{"zone": z, "ventes": v} for z, v in (("A", 100), ("B", 300), ("C", 50), ("D", 80))])
-    res = mod.gen(df, llm=lambda m, n: json.dumps({"titres": {"0": "{premier} réalise {valeur} de ventes, devant {second} ({valeur2})"}}) if "reformules" in m[0]["content"]
+    res = mod.gen(df, llm=lambda m, n: json.dumps({"libelles": {"ventes": "recettes", "zone": "agence"}}) if '"libelles"' in m[0]["content"]
                   else json.dumps({"kpis": [{"nom": "x", "agregation": "somme", "colonne": "ventes"}], "graphiques": []}))
-    assert "B réalise 300 de ventes, devant A (100)" in titres_de(executer(tmp_path, res["html"])["page"])
+    page = executer(tmp_path, res["html"])["page"]
+    assert "Recettes : valeur la plus haute pour B (300), devant A (100)" in titres_de(page) and "Recettes par agence" in page
 
 
 @sans_node
@@ -231,28 +192,16 @@ def test_multiples_affichent_la_meme_periode_que_le_titre(mod, tmp_path):
     jours = pd.date_range("2025-01-01", "2025-07-03").strftime("%Y-%m-%d")
     df = pd.DataFrame([{"date": j, "zone": z, "ventes": v} for j in jours for z, v in (("A", 10), ("B", 20), ("C", 30))])
     page = re.sub(r"\s", " ", executer(tmp_path, mod.gen(df)["html"])["page"])
-    t = next(x for x in titres_de(page) if "en juin 25" in x and x.startswith("C"))
+    t = next(x for x in titres_de(page) if "pour C en juin 25" in x)
     assert "(900)" in t and ">C</span>900<" in page and ">C</span>90<" not in page
     assert "De janv. 25 à juin 25" in page and "juil. 25 est incomplet : non affiché" in page
 
 
 @sans_node
-def test_taux_en_fraction_compare_dans_l_unite_affichee(mod, tmp_path):
-    df = pd.DataFrame([{"mois": f"2025-{m:02d}", "zone": z, "taux_guerison": 0.30 + m * 0.01} for m in range(1, 13) for z in "ABC"])
-    t = titres_de(executer(tmp_path, mod.gen(df)["html"])["page"])[0]
-    assert "point" not in t and "en hausse de 2,4 %" in t
-
-
-@sans_node
-def test_nom_de_groupe_a_accolades(mod, tmp_path):
-    df = pd.DataFrame([{"zone": z, "ventes": v} for z, v in (("{premier}", 300), ("{part}", 200), ("C", 50), ("D", 80))])
-    assert not any("{" in t for t in titres_de(executer(tmp_path, mod.gen(df)["html"])["page"]))
-
-
-def test_actualisation_sans_kpi_calculable_garde_sa_page(mod):
-    df = J.JEUX["ventes"]()
-    spec = {"kpis": [{"nom": "x", "agregation": "somme", "colonne": "renommee"}], "graphiques": [], "_ia": True, "composition": True}
-    assert 'id="compo"' in mod.gen(df, spec=spec, composition=False)["html"]
+def test_multiples_groupe_arrete_plus_tot_sans_valeur_affichee(mod, tmp_path):
+    df = pd.DataFrame([{"mois": f"2025-{m:02d}", "zone": z, "ventes": 10 * i} for m in range(1, 13) for i, z in enumerate("ABCD", 1) if not (z == "D" and m > 4)])
+    page = re.sub(r"\s", " ", executer(tmp_path, mod.gen(df)["html"])["page"])
+    assert ">D</span>—<" in page
 
 
 @sans_node
@@ -272,8 +221,28 @@ def test_moyenne_dans_le_titre(mod, tmp_path):
 
 
 @sans_node
+def test_taux_en_fraction_compare_dans_l_unite_affichee(mod, tmp_path):
+    df = pd.DataFrame([{"mois": f"2025-{m:02d}", "zone": z, "taux_guerison": 0.30 + m * 0.01} for m in range(1, 13) for z in "ABC"])
+    t = titres_de(executer(tmp_path, mod.gen(df)["html"])["page"])[0]
+    assert "point" not in t and "en hausse de 2,4 %" in t
+
+
+@sans_node
+def test_taux_qui_franchit_un_reste_une_hausse(mod, tmp_path):
+    df = pd.DataFrame([{"mois": f"2025-{m:02d}", "zone": z, "taux_guerison": 0.98 if m < 12 else 1.02} for m in range(1, 13) for z in "ABC"])
+    t = titres_de(executer(tmp_path, mod.gen(df)["html"])["page"])[0]
+    assert "en hausse de 4,1 %" in t
+
+
+@sans_node
 def test_passage_annonce_le_vrai_total(mod, tmp_path):
     df = pd.DataFrame([{"mois": f"{a}-{m:02d}", "produit": p, "ventes": 100, "objectif_ventes": 110} for a in (2024, 2025) for m in range(1, 13)
                        for p in ("A", "B", "C") + (("Nouveau",) if a == 2025 else ())])
     t = next(x for x in titres_de(executer(tmp_path, mod.gen(df)["html"])["page"]) if "principal écart" in x)
-    assert "en hausse de 33,3 %" in t and "Nouveau (+1 200)" in t
+    assert "en hausse de 33,3 %" in t and "pour Nouveau (+1 200)" in t
+
+
+@sans_node
+def test_nom_de_groupe_a_accolades(mod, tmp_path):
+    df = pd.DataFrame([{"zone": z, "ventes": v} for z, v in (("{premier}", 300), ("{part}", 200), ("C", 50), ("D", 80))])
+    assert not any("{" in t for t in titres_de(executer(tmp_path, mod.gen(df)["html"])["page"]))
