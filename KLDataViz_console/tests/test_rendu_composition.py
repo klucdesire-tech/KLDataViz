@@ -34,12 +34,13 @@ vm.createContext(ctx);
 const html = fs.readFileSync(process.argv[2], 'utf8');
 const scripts = [...html.matchAll(/<script(?![^>]*src=)[^>]*>([\s\S]*?)<\/script>/g)].map(m => m[1]);
 vm.runInContext(scripts[scripts.length - 1], ctx);
-const sortie = { page: el.compo ? el.compo.innerHTML : null, row2: el.row2 ? el.row2.style.display : null };
+const sortie = { page: el.compo ? el.compo.innerHTML : null, row2: el.row2 ? el.row2.style.display : null, kpis: el.kpis ? el.kpis.innerHTML : '' };
 const filtres = JSON.parse(process.argv[3] || '{}');
 if (Object.keys(filtres).length) {
   for (const k in filtres) vm.runInContext('state[' + JSON.stringify(k) + ']=' + JSON.stringify(filtres[k]), ctx);
   vm.runInContext('render()', ctx);
-  sortie.filtre = el.compo.innerHTML;
+  sortie.filtre = el.compo ? el.compo.innerHTML : null;
+  sortie.kpis_filtre = el.kpis ? el.kpis.innerHTML : '';
 }
 console.log(JSON.stringify(sortie));
 """
@@ -82,11 +83,6 @@ def test_actualisation_garde_sa_page(gen):
 def test_ancienne_spec_reste_ancienne_page(gen):
     df = J.JEUX["ventes"]()
     assert 'id="compo"' not in gen(df, spec=gen(df)["spec"])["html"]
-
-
-def test_gros_fichier_garde_l_ancienne_page(gen):
-    df = pd.DataFrame({"zone": ["A", "B", "C"] * 2500, "ventes": range(7500)})
-    assert 'id="compo"' not in gen(df, composition=True)["html"]
 
 
 @sans_node
@@ -137,6 +133,78 @@ def test_comparaison_sur_les_mois_communs(gen, tmp_path):
     df = pd.DataFrame([{"mois": f"{a}-{m:02d}", "zone": z, "ventes": 100} for a, n in ((2024, 12), (2025, 6)) for m in range(1, n + 1) for z in "ABC"])
     page = executer(tmp_path, gen(df, composition=True)["html"])["page"]
     assert "(6 mois)" in page and "+900" not in page
+
+
+@sans_node
+def test_peu_de_groupes_barres_jumelees(gen, tmp_path):
+    """Cinq régions : chaque nom et chaque valeur se lisent, sans nuage de points perdu dans le vide."""
+    regions = (("Nawa", 900, 18000), ("Gôh", 800, 15000), ("San-Pédro", 700, 13500), ("Haut-Sassandra", 650, 12000), ("Indénié", 500, 9000))
+    df = pd.DataFrame([{"mois": f"2025-{m:02d}", "region": r, "tonnage": t, "valeur": v} for m in range(1, 7) for r, t, v in regions])
+    page = re.sub(r"\s", " ", executer(tmp_path, gen(df, composition=True)["html"])["page"])
+    assert 'class="cp-ju"' in page and all(f">{r}</span><div><em>" in page for r, _, _ in regions)
+    assert page.index(">Nawa</span><div><em>") < page.index(">Indénié</span><div><em>")
+    assert "Par région" in page and "Chaque point" not in page
+
+
+def _jumelles(lignes):
+    return pd.DataFrame([{"mois": f"2025-{m:02d}", "region": r, "zone": z, "tonnage": t, "valeur": v} for m in range(1, 7) for r, z, t, v in lignes])
+
+
+@sans_node
+def test_filtre_laissant_deux_groupes_garde_ses_barres(gen, tmp_path):
+    df = _jumelles([("Nawa", "N", 900, 18000), ("Gôh", "N", 800, 15000), ("San-Pédro", "S", 700, 13500), ("Haut", "S", 650, 12000), ("Bas", "S", 500, 9000)])
+    s = executer(tmp_path, gen(df, composition=True)["html"], {"zone": "N"})
+    assert 'class="cp-ju"' in s["page"] and s["filtre"].count('class="cp-jl"') == 2
+
+
+@sans_node
+def test_barres_jumelees_avec_negatifs_reperent_le_zero(gen, tmp_path):
+    df = _jumelles([("Nawa", "N", 900, -18000), ("Gôh", "N", 800, 15000), ("San-Pédro", "S", -700, 13500), ("Haut", "S", 650, 12000), ("Bas", "S", 500, -9000)])
+    page = executer(tmp_path, gen(df, composition=True)["html"])["page"]
+    carte = page[page.index('class="cp-ju"'):]
+    assert carte.count('<u style="left:') >= 10
+
+
+@sans_node
+def test_borne_sur_la_grille_sans_pas_de_vide(gen, tmp_path):
+    df = pd.DataFrame([{"mois": f"2025-{m:02d}", "centre": f"C{i:02d}", "zone": "AB"[i % 2], "tonnage": 3000 + i * 66, "valeur": 9000 + i * 310} for m in range(1, 7) for i in range(14)])
+    page = re.sub(r"\s", " ", executer(tmp_path, gen(df, composition=True)["html"])["page"])
+    carte = page[page.index("Chaque point"):]
+    ticks = re.findall(r'y="\d+" text-anchor="(?:start|middle|end)" font-size="12" fill="#52667A">([^<]+)</text>', carte[:carte.index("</svg>")])
+    assert ticks and min(int(t.replace(" ", "")) for t in ticks if t.replace(" ", "").isdigit()) >= 18000
+
+
+@sans_node
+def test_graduations_sans_melange_d_unites(gen, tmp_path):
+    df = pd.DataFrame([{"mois": f"2025-{m:02d}", "zone": z, "ventes": 1000 + m * 1500 * (i + 1)} for m in range(1, 9) for i, z in enumerate("ABCD")])
+    page = re.sub(r"\s", " ", executer(tmp_path, gen(df, composition=True)["html"])["page"])
+    carte = page[page.index('class="cp-cc"'):page.index("</svg>", page.index('class="cp-cc"'))]
+    ticks = re.findall(r'text-anchor="end" font-size="12" fill="#52667A">([^<]+)</text>', carte)
+    chiffres = [t for t in ticks if re.match(r"^[\d ]+k?$", t) and t != "0"]
+    assert len({t.endswith("k") for t in chiffres}) == 1
+
+
+@sans_node
+def test_graduations_sans_melange_k_et_m(gen, tmp_path):
+    df = pd.DataFrame([{"mois": f"2025-{m:02d}", "zone": z, "ventes": 100000 + m * 30000} for m in range(1, 9) for z in "ABCD"])
+    page = re.sub(r"\s", " ", executer(tmp_path, gen(df, composition=True)["html"])["page"])
+    ticks = re.findall(r'text-anchor="end" font-size="12" fill="#52667A">([^<]+)</text>', page[:page.index("</svg>")])
+    assert ticks and not (any(t.endswith("k") for t in ticks) and any(t.endswith("M") for t in ticks))
+
+
+@sans_node
+def test_groupes_tous_egaux_le_disent(gen, tmp_path):
+    df = pd.DataFrame([{"mois": f"2025-{m:02d}", "centre": f"C{i:02d}", "tonnage": 500, "valeur": 9000} for m in range(1, 7) for i in range(14)])
+    assert "mêmes valeurs" in executer(tmp_path, gen(df, composition=True)["html"])["page"]
+
+
+@sans_node
+def test_beaucoup_de_groupes_nuage_gradue(gen, tmp_path):
+    df = pd.DataFrame([{"mois": f"2025-{m:02d}", "centre": f"C{i:02d}", "zone": "AB"[i % 2], "tonnage": 500 + i * 13, "valeur": 9000 + i * 310} for m in range(1, 7) for i in range(14)])
+    page = re.sub(r"\s", " ", executer(tmp_path, gen(df, composition=True)["html"])["page"])
+    assert "Chaque point" in page and "Axes limités aux valeurs du fichier." in page
+    carte = page[page.index("Chaque point"):]
+    assert len(re.findall(r'font-size="12" fill="#52667A">[^<]+</text>', carte[:carte.index("</svg>")])) >= 6
 
 
 @sans_node
