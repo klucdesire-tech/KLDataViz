@@ -75,6 +75,26 @@ def _eta2(groups: list[pd.Series]) -> float | None:
         return None
 
 
+def _bh(pvals: list) -> list:
+    """p-values ajustées par Benjamini-Hochberg (contrôle du taux de fausses découvertes).
+
+    Renvoie une liste de p ajustées dans le même ordre que l'entrée. None reste None et
+    ne compte pas dans le nombre de tests.
+    """
+    valides = [(i, p) for i, p in enumerate(pvals) if p is not None]
+    m = len(valides)
+    if m == 0:
+        return [None] * len(pvals)
+    ordre = sorted(valides, key=lambda x: x[1])
+    ajustees = [None] * len(pvals)
+    precedent = 1.0
+    for rang in range(m - 1, -1, -1):
+        i, p = ordre[rang]
+        precedent = min(precedent, float(p) * m / (rang + 1))
+        ajustees[i] = precedent
+    return ajustees
+
+
 def analyse(df: pd.DataFrame, alpha: float = ALPHA) -> dict:
     """Tests inférentiels sur un DataFrame. Retourne un dict JSON-compatible."""
     out = {"alpha": alpha, "correlations": [], "associations": [], "comparaisons": [],
@@ -129,13 +149,22 @@ def analyse(df: pd.DataFrame, alpha: float = ALPHA) -> dict:
                 ct = pd.crosstab(cat[a], cat[b])
                 if ct.shape[0] < 2 or ct.shape[1] < 2:
                     continue
-                chi2, p, dl, _exp = _st.chi2_contingency(ct.values)
+                chi2, p, dl, exp = _st.chi2_contingency(ct.values)
                 n = int(ct.values.sum())
                 k = min(ct.shape) - 1
                 v = math.sqrt(chi2 / (n * k)) if n and k else 0.0
+                attendus_faibles = bool((exp < 5).any())
+                test = "chi² d'indépendance"
+                if ct.shape == (2, 2):      # 2×2 : test exact de Fisher (valide même à petits effectifs)
+                    try:
+                        _, p_fisher = _st.fisher_exact(ct.values)
+                        p, test = float(p_fisher), "test exact de Fisher (2×2)"
+                    except Exception:
+                        pass
                 out["associations"].append({
                     "a": str(a), "b": str(b), "chi2": _r(chi2, 2), "p": _r(p, 6), "dl": int(dl),
-                    "v_cramer": _r(v, 3), "n": n, "significatif": bool(p < alpha),
+                    "v_cramer": _r(v, 3), "n": n, "significatif": bool(p < alpha), "test": test,
+                    "attendus_faibles": attendus_faibles,
                     "force": ("forte" if v >= 0.5 else "modérée" if v >= 0.3 else
                               "faible" if v >= 0.1 else "négligeable"),
                 })
@@ -179,13 +208,21 @@ def analyse(df: pd.DataFrame, alpha: float = ALPHA) -> dict:
                 continue
     out["comparaisons"].sort(key=lambda x: (not x["significatif"], -(abs(x["effet"]) if x["effet"] is not None else 0)))
 
-    n_sig = (sum(1 for x in out["correlations"] if x["significatif"])
-             + sum(1 for x in out["associations"] if x["significatif"])
-             + sum(1 for x in out["comparaisons"] if x["significatif"]))
-    out["resume"] = (f"{n_sig} résultat(s) significatif(s) au seuil {alpha:.2f} sur {tests} test(s) "
+    # --- correction pour tests multiples (Benjamini-Hochberg, taux de fausses découvertes)
+    tous = out["correlations"] + out["associations"] + out["comparaisons"]
+    ajustees = _bh([x.get("p") for x in tous])
+    for x, pa in zip(tous, ajustees):
+        x["p_ajuste"] = _r(pa, 6) if pa is not None else None
+        x["significatif_brut"] = bool(x["significatif"])          # p brute conservée
+        x["significatif"] = bool(pa is not None and pa < alpha)   # décision sur la p ajustée
+    n_sig = sum(1 for x in tous if x["significatif"])
+    n_brut = sum(1 for x in tous if x["significatif_brut"])
+    out["resume"] = (f"{n_sig} résultat(s) significatif(s) après correction pour tests multiples "
+                     f"(Benjamini-Hochberg) sur {tests} test(s), contre {n_brut} sans correction "
                      f"({n_rows:,} lignes).".replace(",", " "))
     out["limitations"].append(
         "Tests d'association et de comparaison : ils indiquent une liaison statistique, jamais une causalité. "
-        "Avec de nombreux tests, prévoir une correction pour tests multiples (Bonferroni) avant de conclure."
+        "Les p-values sont corrigées par Benjamini-Hochberg (taux de fausses découvertes) ; "
+        "un résultat significatif après correction reste à confirmer sur d'autres données."
     )
     return out

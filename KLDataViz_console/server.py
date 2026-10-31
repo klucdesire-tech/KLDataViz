@@ -1183,6 +1183,30 @@ def _composition_active():
     return bool(T.CLOUD and T.current().is_admin)
 
 
+def _predictif_actif():
+    """Analyse prédictive : réservée aux administrateurs en ligne tant qu'elle n'est pas ouverte à tous."""
+    if os.environ.get("KLDV_PREDICTIF"):
+        return True
+    if not T.CLOUD:                       # poste local : pas de notion de rôle
+        return True
+    return bool(T.current().is_admin)
+
+
+_PRED_HIST = {}          # clé (utilisateur ou IP) -> horodatages des appels récents
+
+
+def _rate_predictif(cle, maxi=8, fenetre=60):
+    """L'analyse prédictive est coûteuse (optimisations itératives) : au plus `maxi` appels par fenêtre."""
+    now = time.time()
+    hist = [t for t in _PRED_HIST.get(cle, []) if now - t < fenetre]
+    if len(hist) >= maxi:
+        _PRED_HIST[cle] = hist
+        return False
+    hist.append(now)
+    _PRED_HIST[cle] = hist
+    return True
+
+
 def build_dashboard(df, spec=None, correspondance=None):  # pas de garde _lourd : l'appel à l'IA y bloquerait un jeton
     """AGT-11 sur un DataFrame. `spec` fournie (source connectée qu'on actualise) : mêmes indicateurs, sans IA.
     Avec un dictionnaire, la correspondance mémorisée pour cette structure de fichier pilote le tableau de bord."""
@@ -3104,6 +3128,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             hermes = p.get("hermes") if isinstance(p.get("hermes"), list) else None
             return self._send(200, clean(str(p.get("file_path") or ""), p.get("skip") or None, hermes))
         if path == "/api/predictive":
+            if not _predictif_actif():          # pas encore ouverte à tous
+                raise T.Forbidden("Analyse prédictive : réservée aux administrateurs pour l'instant.")
             df, err = _read_df(str(p.get("file_path") or ""))
             if err:
                 return self._send(200, {"error": err})
@@ -3111,13 +3137,16 @@ class Handler(http.server.BaseHTTPRequestHandler):
             cible = str(p.get("cible") or "") or None
             if not cible:  # sans cible : la liste des colonnes, pour remplir l'interface
                 return self._send(200, predictive.colonnes(df))
+            if not _rate_predictif(ctx.key if T.CLOUD else self.client_address[0]):
+                return self._send(429, {"error": "trop de demandes d'analyse prédictive ; réessayez dans une minute."})
             preds = p.get("predicteurs") if isinstance(p.get("predicteurs"), list) else None
             try:
                 horizon = max(1, min(int(p.get("horizon") or 6), 36))
             except (TypeError, ValueError):
                 horizon = 6
             return self._send(200, predictive.analyse(df, cible, preds,
-                                                      str(p.get("periode") or "") or None, horizon))
+                                                      str(p.get("periode") or "") or None, horizon,
+                                                      str(p.get("valeur_comptee") or "") or None))
         if path == "/api/registry/describe":
             import registry_meta as RM
             df, err = _read_df(str(p.get("file_path") or ""))
