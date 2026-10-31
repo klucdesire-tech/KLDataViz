@@ -502,6 +502,11 @@ def _meta(df, kpis, spec, filter_cols, period_col, period_series):
     charts = [{"colonne": str(g["colonne"]), "type": str(g.get("type") or "bar"),
                "justification": str(g.get("justification") or "")[:160]}
               for g in spec.get("graphiques", [])[:8] if g.get("colonne") in cols]
+    # Heatmap période × dimension : une mesure numérique + une période + une dimension = matrice d'activité
+    if period_col and stack and m and m.get("colonne") and m.get("colonne") in cols:
+        charts.insert(0, {"colonne": m["colonne"], "type": "heatmap", "dimension": stack,
+                          "periode": period_col, "agregation": (m.get("agregation") or "somme"),
+                          "justification": "Activité par période et par " + str(stack)})
     rng, gran, grans = None, "M", ["M", "Q", "Y"]
     if period_series is not None:
         ks = sorted(k for k in period_series.dropna().unique() if isinstance(k, str) and len(k) in (7, 10))
@@ -863,6 +868,12 @@ select{appearance:none;border:1px solid var(--line);background:var(--card) url("
 .rank .bar i{display:block;height:100%;border-radius:6px}
 .rank b{font-weight:600;font-variant-numeric:tabular-nums}
 .empty{color:var(--muted);font-size:13px;padding:24px 0;text-align:center}
+/* Heatmap période × dimension : grille de cellules colorées, valeurs écrites (les couleurs ne sont pas le seul repère) */
+.hm{display:flex;flex-direction:column;gap:3px;overflow-x:auto;padding-bottom:2px}
+.hm-row{display:grid;gap:3px;align-items:center}
+.hm-lab{color:var(--muted);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:right;padding-right:4px}
+.hm-head span{font-size:10px;color:var(--muted);text-align:center;overflow:hidden;white-space:nowrap}
+.hm-c{border-radius:4px;min-height:22px;display:flex;align-items:center;justify-content:center;font-variant-numeric:tabular-nums;font-size:10.5px}
 @media (max-width:900px){.row2{grid-template-columns:minmax(0,1fr)}}
 @media (max-width:900px){.gaps-body{grid-template-columns:minmax(0,1fr)}}
 @media (max-width:560px){.gaps-grid{grid-template-columns:repeat(2,minmax(0,1fr))!important}}
@@ -1118,6 +1129,21 @@ function pyramidDraw(id,rows,col,C,cs){return function(){var ks=Object.keys(grou
       {label:label(cs[1]),data:ks.map(function(k){return cnt(k,cs[1])}),backgroundColor:'#10BCD0',borderRadius:6,borderSkipped:false}]},
     options:{responsive:true,maintainAspectRatio:false,indexAxis:'y',plugins:{legend:{position:'bottom',labels:{usePointStyle:true,pointStyle:'circle',boxWidth:8,padding:14}},tooltip:Object.assign({},navyTip,{displayColors:true,callbacks:{label:function(c){return c.dataset.label+' : '+fmt(Math.abs(c.parsed.x))}}})},
       scales:{x:{stacked:true,grid:{color:'#EEF1F5'},border:{display:false},ticks:{callback:function(v){return fmt(Math.abs(v))}}},y:{stacked:true,grid:{display:false},border:{display:false}}}}}))}}
+function hmColor(t){return 'rgba(11,79,143,'+(0.08+0.82*t).toFixed(3)+')'}
+function hmText(t){return t>0.55?'#fff':'#0B2545'}
+function heatmapDraw(id,rows,col,dim){return function(){
+  var ps={},ds={},vals={},max=0;
+  rows.forEach(function(r){var p=r.__g!=null?String(r.__g).slice(0,7):(r[META.period]!=null?String(r[META.period]).slice(0,7):null);
+    var d=r[dim];if(p==null||d==null||p==='')return;var k=String(d)+'|'+p;ps[p]=1;ds[String(d)]=1;
+    var v=num(r[col]);vals[k]=(vals[k]||0)+(v||0)});
+  var P=Object.keys(ps).sort(),D=Object.keys(ds).sort();
+  if(P.length<2||D.length<2){return}
+  D.forEach(function(d){P.forEach(function(p){var v=vals[d+'|'+p]||0;if(v>max)max=v}});max=max||1;
+  var gcs='90px repeat('+P.length+',minmax(24px,1fr))';
+  var html='<div class="hm"><div class="hm-row hm-head" style="grid-template-columns:'+gcs+'"><span></span>'+P.map(function(p){return '<span>'+esc(gkey(p))+'</span>'}).join('')+'</div>'+
+    D.map(function(d){return '<div class="hm-row" style="grid-template-columns:'+gcs+'"><span class="hm-lab">'+esc(label(d))+'</span>'+
+      P.map(function(p){var v=vals[d+'|'+p]||0;var t=v/max;return '<span class="hm-c" style="background:'+hmColor(t)+';color:'+hmText(t)+'" title="'+esc(label(d))+' · '+esc(gkey(p))+' : '+fmt(v)+'">'+fmt(v)+'</span>'}).join('')+'</div>'}).join('')+'</div>';
+  var el=document.getElementById(id);el.innerHTML=html}}
 function renderCards(rows){var el=document.getElementById('row3'),html='',todo=[],n=0,used={};
   // Effectifs déjà classés par un KPI « compte » (ex. « Patients dépistés par région ») : pas de second classement identique
   KCOUNT={};KPIDEFS.forEach(function(k){if(/^(compte|count|effectif)$/.test((k.agregation||'').toLowerCase())&&k.dimension)KCOUNT[k.dimension]=1});
@@ -1127,6 +1153,7 @@ function renderCards(rows){var el=document.getElementById('row3'),html='',todo=[
     // Anneau demandé sur une colonne chiffrée (ex. « Nombre de dépistés ») : total par catégorie, pas une répartition des valeurs
     if(c.type==='pie'&&rows.length&&rows.every(function(r){return isNull(r[col])||num(r[col])!=null}))c=Object.assign({},c,{type:'bar'});
     if(used[col+c.type])return;used[col+c.type]=1;
+    if(c.type==='heatmap'){if(!c.dimension||SHOWN['hm|'+col])return;SHOWN['hm|'+col]=1;add(card('<div id="c_hm'+i+'"></div>',ititle(col)+' par période et par '+short(c.dimension),c.justification));todo.push(heatmapDraw('c_hm'+i,rows,col,c.dimension));return}
     var Cc=META.stack||((META.filters||[])[0]||{}).col,numeric=rows.length&&rows.every(function(r){return isNull(r[col])||num(r[col])!=null}),nm=nice(col).toLowerCase();
     // Classes (tranche d'âge, groupe…) ou code chiffré à peu de valeurs : une catégorie, pas une quantité à additionner
     var pyr=/(^|[\s_])(tranche|age|ages)([\s_]|$)/.test(nm),classes=pyr||/(^|[\s_])(classe|groupe)([\s_]|$)/.test(nm)||(numeric&&Object.keys(groupBy(rows,col)).length<=12&&!/nombre|nb|effectif|total|montant|valeur|quantit/.test(nm));
