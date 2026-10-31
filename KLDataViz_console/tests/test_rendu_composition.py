@@ -34,12 +34,13 @@ vm.createContext(ctx);
 const html = fs.readFileSync(process.argv[2], 'utf8');
 const scripts = [...html.matchAll(/<script(?![^>]*src=)[^>]*>([\s\S]*?)<\/script>/g)].map(m => m[1]);
 vm.runInContext(scripts[scripts.length - 1], ctx);
-const sortie = { page: el.compo ? el.compo.innerHTML : null, row2: el.row2 ? el.row2.style.display : null };
+const sortie = { page: el.compo ? el.compo.innerHTML : null, row2: el.row2 ? el.row2.style.display : null, kpis: el.kpis ? el.kpis.innerHTML : '' };
 const filtres = JSON.parse(process.argv[3] || '{}');
 if (Object.keys(filtres).length) {
   for (const k in filtres) vm.runInContext('state[' + JSON.stringify(k) + ']=' + JSON.stringify(filtres[k]), ctx);
   vm.runInContext('render()', ctx);
-  sortie.filtre = el.compo.innerHTML;
+  sortie.filtre = el.compo ? el.compo.innerHTML : null;
+  sortie.kpis_filtre = el.kpis ? el.kpis.innerHTML : '';
 }
 console.log(JSON.stringify(sortie));
 """
@@ -82,11 +83,6 @@ def test_actualisation_garde_sa_page(gen):
 def test_ancienne_spec_reste_ancienne_page(gen):
     df = J.JEUX["ventes"]()
     assert 'id="compo"' not in gen(df, spec=gen(df)["spec"])["html"]
-
-
-def test_gros_fichier_garde_l_ancienne_page(gen):
-    df = pd.DataFrame({"zone": ["A", "B", "C"] * 2500, "ventes": range(7500)})
-    assert 'id="compo"' not in gen(df, composition=True)["html"]
 
 
 @sans_node

@@ -117,10 +117,11 @@ def placer(cartes):
     return lignes
 
 
-def composer(fiche, df, vedettes=()):
+def composer(fiche, df, vedettes=(), exclus=()):
     """Le plan de la page : modèle, vedettes et lignes de cartes. Sans proposition, une page vide et explicite.
-    `vedettes` : mesures proposées par Adifa’, la plus importante d'abord ; seules celles qui ont un graphique comptent."""
-    props = proposer(fiche, df)
+    `vedettes` : mesures proposées par Adifa’, la plus importante d'abord ; seules celles qui ont un graphique comptent.
+    `exclus` : graphiques que la page ne pourra pas dessiner."""
+    props = [p for p in proposer(fiche, df) if p["type"] not in exclus]
     modele = choisir_modele(fiche)
     cartes, mesure, dimension = selectionner(fiche, props, modele, df, vedettes)
     return {"version": 2, "modele": modele, "mesure": mesure, "dimension": dimension, "lignes": placer(cartes), "cartes": len(cartes)}

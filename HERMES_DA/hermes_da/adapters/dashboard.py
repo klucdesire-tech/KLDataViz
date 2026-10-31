@@ -21,7 +21,7 @@ from typing import Any
 
 from .. import artifacts, config
 from ..contracts import new_job_id
-from . import rendu_composition
+from . import cube, rendu_composition
 from .quality import _load_dataset
 
 SYSTEM = """Tu es le DATA VISUALIZATION & DASHBOARD AGENT d'Adifa’ (santé publique, BI).
@@ -1044,14 +1044,19 @@ function evalF(rows,f){if(!f)return null;var R=f.filtre?rows.filter(function(r){
   if(!v.length)return null;var s=v.reduce(function(a,b){return a+b},0);
   if(m==='somme')return s;if(m==='moyenne')return s/v.length;v.sort(function(a,b){return a-b});var h=v.length>>1;return v.length%2?v[h]:(v[h-1]+v[h])/2}
 function rankedF(rows,f,dim,top){var g=groupBy(rows,dim);return Object.keys(g).map(function(k){return [k,evalF(g[k],f)]}).filter(function(e){return e[1]!=null}).sort(function(a,b){return b[1]-a[1]}).slice(0,top||8)}
-function renderKpis(all){document.getElementById('kpis').innerHTML=KPIDEFS.slice(0,5).map(function(k,i){
+function kpiGros(k){var E=META.gros,a=(k.agregation||'').toLowerCase(),ech=!!E&&E.mode==='echantillon',filtre=FCOLS.some(function(c){return state[c]!=null&&state[c]!=='all'});
+  return {v:E&&!filtre&&k.exact!=null&&(ech||/^m[ée]dian/.test(a))?(isRate(a)&&k.exact<=1?k.exact*100:k.exact):null,f:ech&&(!k.colonne||/^(somme|sum|compte|count|dernier)$/.test(a))?E.lignes/DATA.length:1,a:ech&&filtre}}
+function grosNote(){var E=META.gros,k=document.getElementById('kpis');if(!E||document.getElementById('gros-note'))return;var p=document.createElement('p');p.id='gros-note';p.style.cssText='font-size:13px;color:var(--muted);margin:0 0 10px';
+  p.textContent=E.mode==='echantillon'?'Fichier de '+fmt(E.lignes)+' lignes : les tuiles sont exactes sans filtre, estimées avec un filtre (≈). Les graphiques reposent sur un échantillon de '+fmt(DATA.length)+' lignes : lisez-y les proportions, pas les totaux.':'Calculé sur les '+fmt(E.lignes)+' lignes du fichier.'+(E.retires&&E.retires.length?' Filtre retiré car trop détaillé pour cette page : '+E.retires.map(nice).join(', ')+'.':'');
+  k.parentNode.insertBefore(p,k)}
+function renderKpis(all){grosNote();document.getElementById('kpis').innerHTML=KPIDEFS.slice(0,5).map(function(k,i){
   var rows=k.hors?all.filter(function(r){return k.hors.valeurs.indexOf(String(r[k.hors.colonne]).trim().toLowerCase())<0}):all,
-    v=k.formule?evalF(rows,k.formule):agg(rows,k.colonne,k.agregation),sub='';
+    G=kpiGros(k),v=G.v!=null?G.v:(k.formule?evalF(rows,k.formule):agg(rows,k.colonne,k.agregation)),sub='';if(G.v==null&&v!=null)v*=G.f;
   var u=(k.formule?k.pct:isRate(k.agregation))&&v!=null?' %':'';
-  if(k.dimension){var t=(k.formule?rankedF(rows,k.formule,k.dimension,1):ranked(rows,k.colonne,k.agregation,k.dimension,1))[0];if(t)sub='En tête : '+esc(label(t[0]))+'<br>'+fmt(t[1])+u}
+  if(k.dimension){var t=(k.formule?rankedF(rows,k.formule,k.dimension,1):ranked(rows,k.colonne,k.agregation,k.dimension,1))[0];if(t)sub='En tête : '+esc(label(t[0]))+'<br>'+fmt(t[1]*G.f)+u}
   var how=howCalc(k,rows);
   var badge=k.statut==='propose'?' <span class="hd" title="Formule proposée par Adifa’ : à valider dans KLDataViz">à valider</span>':'';
-  return '<div class="kpi k'+i+'"><div class="n">'+esc(k.nom)+badge+' <span class="info" tabindex="0" role="note" aria-label="Comment ce chiffre est calculé : '+esc(how)+'">i<span class="tip">'+esc(how)+'</span></span></div><div class="row"><div class="v">'+fmt(v)+u+'</div><div class="s">'+sub+'</div></div></div>'}).join('')}
+  return '<div class="kpi k'+i+'"><div class="n">'+esc(k.nom)+badge+' <span class="info" tabindex="0" role="note" aria-label="Comment ce chiffre est calculé : '+esc(how)+'">i<span class="tip">'+esc(how)+'</span></span></div><div class="row"><div class="v">'+(G.a?'≈ ':'')+fmt(v)+u+'</div><div class="s">'+sub+'</div></div></div>'}).join('')}
 
 function card(id,title,sub,extra){return '<div class="card"><div class="card-h"><div><h2>'+esc(nice(title))+'</h2>'+(sub?'<small>'+esc(sub)+'</small>':'')+'</div>'+(extra||'')+'</div>'+id+'</div>'}
 // Granularités qui donnent au moins 2 points avec les filtres actuels : une granularité trop large (1 seul point)
@@ -1476,6 +1481,9 @@ def generate_dashboard(df, objective: str = "", job_id: str | None = None, llm=N
 
     kpi_defs = [{"nom": k["nom"], "agregation": k["agregation"], "colonne": k["colonne"],
                  "dimension": k.get("dimension"), "hors": k.get("hors")} for k in kpis]
+    if len(df) > cube.SEUIL:  # la page ne tient pas tout le fichier : elle garde la valeur juste de chaque tuile
+        for d, k in zip(kpi_defs, kpis):
+            d["exact"] = _json_safe(k.get("valeur"))
     filter_cols = [str(c) for c in df.columns if 1 < int(df[c].nunique(dropna=True)) <= 30]
     period_col, period_series = _period(df)
     meta = _meta(df, kpi_defs, spec, filter_cols, period_col, period_series)
@@ -1629,23 +1637,40 @@ def generate_dashboard(df, objective: str = "", job_id: str | None = None, llm=N
     meta["agrege"] = bool(pivoted or any(k.get("col") for k in (kis or [])))
     sample = data if len(data) <= 6000 else data.sample(6000, random_state=0)
     data_json = json.dumps(sample.to_dict(orient="records"), ensure_ascii=False, default=str)
-    # Un échantillon fausserait les totaux recalculés dans la page, et le dictionnaire pilote ses propres calculs.
-    if (composition or spec.get("composition")) and len(sample) == len(data) and not meta.get("indicateurs"):
+    gros = len(data) > cube.SEUIL
+    resume = None
+    # Le dictionnaire pilote ses propres calculs : il garde la page classique.
+    if (composition or spec.get("composition")) and not meta.get("indicateurs"):
         libelles = spec.get("libelles") or {}
         try:
             from . import composition as compo, fiche as lecture, titres
             # Adifa’ a classé ses KPI : le premier qui a un graphique devient la mesure vedette.
             vedettes = [k.get("colonne") for k in spec.get("kpis") or [] if k.get("agregation") != "compte"] if ia else []
-            plan = compo.composer(lecture.lire_fiche(df_source), df, vedettes=vedettes)
+            # Un résumé ne garde pas les valeurs une à une : pas d'histogramme.
+            plan = compo.composer(lecture.lire_fiche(df_source), df, vedettes=vedettes, exclus={"histogramme"} if gros else ())
+            if gros and plan["cartes"]:
+                resume = cube.resumer(data, plan, kpi_defs, [f["col"] for f in meta.get("filters") or []])
+                plan = plan if resume else {"cartes": 0}
             if plan["cartes"] and ia and "libelles" not in spec:  # à l'actualisation, les noms enregistrés suffisent
                 libelles = titres.demander(plan, _resolve_llm(llm))
-            titres.appliquer(plan, libelles)
+            if plan["cartes"]:
+                titres.appliquer(plan, libelles)
         except Exception:  # noqa: BLE001 - la page classique reste le repli, jamais une erreur pour l'utilisateur
-            plan = {"cartes": 0}
+            plan, resume = {"cartes": 0}, None
         if plan["cartes"]:
             meta["composition"] = plan
             meta["partiel"] = _partial_month(period_series) if period_series is not None else None
             spec = dict(spec, composition=True, libelles=libelles)
+    if resume:
+        meta["cube"] = True
+        meta["filters"] = [f for f in meta.get("filters") or [] if f["col"] not in resume["retires"]]
+        if resume["mensuel"]:
+            meta["grans"] = [g for g in meta.get("grans") or [] if g not in ("D", "W")] or ["M"]
+            meta["gran"] = meta["gran"] if meta["gran"] in meta["grans"] else "M"
+        meta["gros"] = {"mode": "resume", "lignes": len(data), "retires": resume["retires"]}
+        data_json = json.dumps(resume["cases"].to_dict(orient="records"), ensure_ascii=False, default=str)
+    elif gros:
+        meta["gros"] = {"mode": "echantillon", "lignes": len(data)}
 
     html = _render_html(objective, data_json, kpi_defs, filter_cols, meta)
     path = None

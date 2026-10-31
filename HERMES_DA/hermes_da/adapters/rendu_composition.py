@@ -51,6 +51,7 @@ function cpBas(mi){return mi<0?-cpPlafond(-mi):0}
 function cpHaut(ma,bas){return ma>0?cpPlafond(ma):bas<0?0:1}
 function cpPlein(){return window.innerWidth<=900}
 function cpW(c){return Math.max(240,Math.round(cpPlein()?CP_L-34:(CP_L-176)/12*c.span+(c.span-1)*16-34))}
+function cpNb(rows){return META.cube?rows.reduce(function(s,r){return s+r.__n},0):rows.length}
 function cpCarte(c,titre,sous,corps,extra){var m=cpMessage(c,CP_R),s=m?[titre,sous].filter(Boolean).join(' · '):sous;return '<article class="cp-c" style="grid-column:span '+c.span+'"><div class="cp-h"><div><h2>'+esc(m||titre)+'</h2>'+(s?'<small>'+esc(s)+'</small>':'')+'</div>'+(extra||'')+'</div><div class="cp-corps">'+corps+'</div></article>'}
 function cpSousTitre(c){return CP_AGR[c.agregation]||''}
 function cpSerie(rows,c){var g=groupBy(rows,function(r){return pkey(r.__p)});return Object.keys(g).sort().map(function(k){return [k,agg(g[k],c.mesure,c.agregation)]}).filter(function(e){return e[1]!=null})}
@@ -107,7 +108,7 @@ function cpPassage(rows,c){var p=cpPeriodes(rows,c);if(!p)return cpVide('Il faut
   var o='<div class="cp-wf">'+et.map(function(s){var d=s.k==='t'?0:ech(s.d),h=s.k==='t'?ech(s.h):Math.max(.8,ech(s.d+s.h)-ech(s.d)),co=s.k==='t'?'#0B4F8F':s.k==='p'?CP_HAUSSE:CP_BAISSE,tx=s.k==='t'?cpVal(s.v):(s.v>0?'+':s.v<0?'−':'')+cpVal(Math.abs(s.v));return '<div class="cp-wc" title="'+esc(s.n+' : '+tx)+'"><i style="bottom:'+d.toFixed(1)+'%;height:'+h.toFixed(1)+'%;background:'+co+'"></i><b style="bottom:'+(d+h+1.5).toFixed(1)+'%">'+esc(tx)+'</b></div>'}).join('')+'</div><div class="cp-wn">'+et.map(function(s){return '<span title="'+esc(s.n)+'">'+esc(s.n)+'</span>'}).join('')+'</div>';
   return o+'<p class="cp-note">'+esc(cpMoisTxt(p))+(coupe?'. Axe coupé à '+fmt(base)+' pour lire les écarts.':'.')+'</p>'}
 function cpCibleLignes(rows,c){var R=rows.filter(function(r){return num(r[c.mesure])!=null&&num(r[c.objectif])!=null}),d=c.dimension,g=d?groupBy(R,d):{'Ensemble':R},e=Object.keys(g).map(function(k){return [k,agg(g[k],c.mesure,c.agregation),agg(g[k],c.objectif,c.agregation)]}).filter(function(x){return x[1]!=null&&x[2]!=null&&x[2]>0}).sort(function(a,b){return b[1]/b[2]-a[1]/a[2]});return {R:R,e:e}}
-function cpCible(rows,c){var L=cpCibleLignes(rows,c),e=L.e,d=c.dimension,P=rows.filter(function(r){return num(r[c.mesure])!=null}).length-L.R.length;if(!e.length)return cpVide();
+function cpCible(rows,c){var L=cpCibleLignes(rows,c),e=L.e,d=c.dimension,P=cpNb(rows.filter(function(r){return num(r[c.mesure])!=null}))-cpNb(L.R);if(!e.length)return cpVide();
   var sans=d?Object.keys(groupBy(rows,d)).filter(function(k){return !e.some(function(x){return x[0]===k})}):[],reserve=(P?' Calcul limité aux lignes qui ont un objectif : '+P+' sans objectif écartée'+(P>1?'s':'')+'.':'')+(sans.length?' Sans objectif : '+sans.slice(0,3).map(label).join(', ')+(sans.length>3?' et '+(sans.length-3)+' autres':'')+'.':'');
   var max=Math.max.apply(null,e.map(function(x){return Math.max(x[1],x[2])}));return cpListe(e.map(function(x){return '<div title="'+esc(label(x[0])+' : '+cpVal(x[1])+', objectif '+cpVal(x[2]))+'"><div class="cp-bl"><span>'+esc(label(x[0]))+'</span><b>'+cpPct(100*x[1]/x[2])+'</b></div><div class="cp-bt"><i style="width:'+(100*Math.max(0,x[1])/max).toFixed(1)+'%"></i><u style="left:calc('+(100*x[2]/max).toFixed(1)+'% - 2px)"></u></div></div>'}).join(''),e.length)+'<p class="cp-note">Barre : réalisé. Trait : objectif. Pourcentage : réalisé par rapport à l\'objectif.'+esc(reserve)+'</p>'}
 function cpBulles(rows,c){var g=groupBy(rows,c.dimension),e=Object.keys(g).map(function(k){return [k,agg(g[k],c.mesure,c.agregation),agg(g[k],c.mesure_y,c.agregation_y)]}).filter(function(x){return x[1]!=null&&x[2]!=null});if(e.length<3)return cpVide();
@@ -182,5 +183,13 @@ function renderCompo(rows){var el=document.getElementById('compo'),html='';CP_R=
   META.composition.lignes.forEach(function(l){l.forEach(function(c){try{html+=CP_DESSINS[c.type](c,rows)}catch(e){html+=cpCarte(c,cpTete(c.mesure),'',cpVide('Ce graphique n\'a pas pu être dessiné.'))}})});el.innerHTML=html;
   [].forEach.call(el.querySelectorAll('.seg button'),function(b){b.onclick=function(){gran=b.dataset.g;render()}});
   [].forEach.call(el.querySelectorAll('.cp-cc'),function(b){b.onpointermove=b.onpointerdown=function(e){cpSurvol(b,e)};b.onpointerleave=function(){b.querySelector('.cp-bulle').hidden=true;b.querySelector('.cp-ligne').style.display='none'}});return []}
+// Gros fichiers : les lignes de DATA sont des cases déjà résumées, et `agg` les additionne au lieu de compter des lignes
+if(META.cube){agg=function(rows,col,a){a=(a||'').toLowerCase();
+  if(a==='dernier'){var lp=null;rows.forEach(function(r){if(r.__p&&(lp==null||r.__p>lp))lp=r.__p});rows=rows.filter(function(r){return r.__p===lp});a='somme'}
+  var som=function(k){var s=null;rows.forEach(function(r){var v=num(r[k]);if(v!=null)s=(s||0)+v});return s},bout=function(k,f){var b=null;rows.forEach(function(r){var v=num(r[k]);if(v!=null)b=b==null?v:f(b,v)});return b};
+  if(a==='compte'||a==='count'||!col)return col?som(col+'__n')||0:som('__n')||0;
+  if(isRate(a)){var o=som(col+'__oui');if(o!=null){var t=som(col+'__n');return t?100*o/t:null}var e=som(col),q=som(col+'__n');if(e==null||!q)return null;return bout(col+'__ma',Math.max)<=1?100*e/q:e/q}
+  var s=som(col);if(s==null)return null;if(a==='moyenne')return s/som(col+'__n');if(a==='max')return bout(col+'__ma',Math.max);if(a==='min')return bout(col+'__mi',Math.min);if(/^m[ée]diane?$|^median$/.test(a))return null;return s};
+  howCalc=function(k,rows){return 'Calculé sur toutes les lignes retenues par les filtres, sans échantillon.'}}
 var cpAttente;window.addEventListener('resize',function(){clearTimeout(cpAttente);cpAttente=setTimeout(function(){var el=document.getElementById('compo');if(el&&Math.abs(el.clientWidth-CP_L)>24)render()},200)});
 """
