@@ -85,6 +85,11 @@ def test_trop_de_categories_pas_d_anneau(cat):
     assert "anneau" not in t and "treemap" in t and "classement" in t
 
 
+def test_deux_parts_ne_font_pas_un_anneau(cat):
+    df = pd.DataFrame({"zone": ["A", "B"], "ventes": [10, 20]})
+    assert "anneau" not in _types(cat(df))
+
+
 def test_valeur_negative_interdit_les_parts(cat):
     df = pd.DataFrame({"zone": ["A", "B", "C"], "resultat": [100, -40, 60]})
     assert not {"anneau", "treemap", "passage"} & _types(cat(df))
