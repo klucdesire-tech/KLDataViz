@@ -3108,12 +3108,15 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if err:
                 return self._send(200, {"error": err})
             import predictive
+            cible = str(p.get("cible") or "") or None
+            if not cible:  # sans cible : la liste des colonnes, pour remplir l'interface
+                return self._send(200, predictive.colonnes(df))
             preds = p.get("predicteurs") if isinstance(p.get("predicteurs"), list) else None
             try:
                 horizon = max(1, min(int(p.get("horizon") or 6), 36))
             except (TypeError, ValueError):
                 horizon = 6
-            return self._send(200, predictive.analyse(df, str(p.get("cible") or "") or None, preds,
+            return self._send(200, predictive.analyse(df, cible, preds,
                                                       str(p.get("periode") or "") or None, horizon))
         if path == "/api/registry/describe":
             import registry_meta as RM

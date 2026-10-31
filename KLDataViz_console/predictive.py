@@ -221,6 +221,30 @@ def prevision(serie: pd.Series, horizon: int = 6, saison: int = 12) -> dict:
     }
 
 
+def colonnes(df: pd.DataFrame) -> dict:
+    """Colonnes proposables à l'interface de prédiction : numériques, binaires, périodes."""
+    out = {"numeriques": [], "binaires": [], "periodes": []}
+    if df is None or df.empty:
+        return out
+    for c in df.columns:
+        s = df[c]
+        try:
+            if pd.api.types.is_numeric_dtype(s) and not pd.api.types.is_bool_dtype(s):
+                out["numeriques"].append(str(c))
+                continue
+            if s.nunique(dropna=True) == 2:
+                out["binaires"].append(str(c))
+            if pd.api.types.is_datetime64_any_dtype(s):
+                out["periodes"].append(str(c))
+                continue
+            txt = s.dropna().astype(str).head(50)
+            if len(txt) and txt.str.match(r"^\d{4}-\d{2}(-\d{2})?").mean() >= 0.8:
+                out["periodes"].append(str(c))
+        except Exception:
+            continue
+    return out
+
+
 def analyse(df: pd.DataFrame, cible: str | None = None, predicteurs: list | None = None,
             periode: str | None = None, horizon: int = 6) -> dict:
     """Choisit le modèle adapté et renvoie un résultat JSON-compatible.

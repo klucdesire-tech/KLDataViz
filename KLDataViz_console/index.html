@@ -500,6 +500,17 @@ tr.versions td{background:var(--surface-2);font-size:13px}
         <div><div class="toolbar" style="margin-bottom:10px"><div class="label">Graphiques</div><span class="aibadge" id="hermesBadge" style="margin-left:10px"></span><span class="spacer"></span><button class="btn ghost sm" id="moreCharts" hidden></button></div>
           <p class="sub" id="hermesSynth" hidden style="margin:-2px 0 10px"></p>
           <div class="charts" id="charts"></div></div>
+        <div class="card" id="predCard" style="margin:4px 0 16px">
+          <div class="toolbar" style="margin-bottom:6px"><div class="label">Analyse prédictive</div><span class="spacer"></span><span class="aibadge">Inférence · Prédiction</span></div>
+          <p class="sub" style="margin:0 0 10px">Expliquer une valeur, prévoir un Oui/Non, ou projeter une tendance mensuelle. Chaque modèle est validé sur un échantillon tenu à part.</p>
+          <div class="form" style="margin:0">
+            <label class="field" for="predCible">Colonne à expliquer / prévoir<select id="predCible"><option value="">Choisir…</option></select></label>
+            <label class="field" for="predPeriode">Période (prévision)<select id="predPeriode"><option value="">— aucune —</option></select></label>
+            <label class="field" for="predHorizon">Horizon<select id="predHorizon"><option value="3">3 mois</option><option value="6" selected>6 mois</option><option value="12">12 mois</option></select></label>
+            <button class="btn primary" type="button" id="predRun">Lancer</button>
+          </div>
+          <div id="predOut" style="margin-top:14px"></div>
+        </div>
         <div id="details" style="display:grid;gap:12px"></div>
         <div class="actions"><button class="btn primary" id="toShare">Exporter et partager<svg class="i" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button></div>
       </section>
@@ -979,7 +990,7 @@ async function startRun(path,name,size,opts={}){
   const a=await api('/api/analyze',{file_path:path});
   if(a.error){set(0,'err',a.error);$('#runErr').hidden=false;return}
   set(0,'done',`${nf(a.rows)} lignes, ${a.columns} colonnes, ${a.size_kb?dec(a.size_kb)+' Ko':'source en ligne'}`,secs(t0));prog(45);
-  state.original=a;state.analysis=a;
+  state.original=a;state.analysis=a;predLoad();
   if(!opts.fromRegistry)autoRegister(path,name);  // en tâche de fond, sans retarder l'analyse
   t0=performance.now();set(1,'doing');
   const c=await api('/api/clean',{file_path:path});
@@ -1316,6 +1327,48 @@ function corrDetail(x){
 }
 $('#issues').addEventListener('click',e=>{const b=e.target.closest('[data-acc]');if(!b)return;const x=issuesOf().find(i=>i.id===b.dataset.acc);if(!x)return;const on=isOn(x);idsOf(x).forEach(id=>on?state.accept.delete(id):state.accept.add(id));renderVerify()});
 $('#toggleAll').onclick=()=>{const items=issuesOf();state.accept=items.every(isOn)?new Set():new Set(items.flatMap(idsOf));renderVerify()};
+// --- Analyse prédictive : sélecteurs remplis après l'analyse, modèle lancé à la demande
+async function predLoad(){
+  const sel=$('#predCible'),per=$('#predPeriode');
+  if(!sel||!state.path)return;
+  sel.innerHTML='<option value="">Choisir…</option>';per.innerHTML='<option value="">— aucune —</option>';
+  try{
+    const c=await api('/api/predictive',{file_path:state.path});
+    if(!c||c.error)return;
+    (c.numeriques||[]).forEach(x=>sel.insertAdjacentHTML('beforeend','<option value="'+esc(x)+'">'+esc(x)+' (nombre)</option>'));
+    (c.binaires||[]).forEach(x=>sel.insertAdjacentHTML('beforeend','<option value="'+esc(x)+'">'+esc(x)+' (Oui/Non)</option>'));
+    (c.periodes||[]).forEach(x=>per.insertAdjacentHTML('beforeend','<option value="'+esc(x)+'">'+esc(x)+'</option>'));
+  }catch(e){}
+}
+function _predRow(label,val){return '<tr><td>'+esc(label)+'</td><td><b>'+esc(val==null?'—':String(val))+'</b></td></tr>'}
+async function predRun(){
+  const out=$('#predOut'),cible=$('#predCible').value,per=$('#predPeriode').value,h=+$('#predHorizon').value;
+  if(!cible){out.innerHTML='<p class="sub">Choisissez la colonne à expliquer ou à prévoir.</p>';return}
+  out.innerHTML='<p class="sub">Calcul en cours…</p>';
+  const r=await api('/api/predictive',{file_path:state.path,cible:cible,periode:per||null,horizon:h});
+  const res=(r&&r.resultat)||null;
+  if(!res){out.innerHTML='<p class="sub">'+esc((r&&(r.error||(r.erreurs||[])[0]))||'Calcul impossible.')+'</p>';return}
+  if(res.type==='prevision'||res.previsions){
+    out.innerHTML='<div class="toolbar" style="margin:0 0 8px"><div class="label">Prévision · '+esc(res.modele||'')+'</div></div>'
+      +'<div class="tablewrap"><table><thead><tr><th>Période</th><th>Prévision</th><th>Intervalle 80 %</th></tr></thead><tbody>'
+      + (res.previsions||[]).map(p=>'<tr><td>'+esc(p.periode)+'</td><td><b>'+esc(nf(p.valeur))+'</b></td><td>'+esc(nf(p.bas))+' – '+esc(nf(p.haut))+'</td></tr>').join('')
+      +'</tbody></table></div><p class="sub">'+(res.saisonnalite?'Tendance + saisonnalité mensuelle':'Tendance linéaire')+' · pente '+esc(res.tendance_pente)+'</p>';
+    return;
+  }
+  const rows=[];
+  if(res.r2_test!=null)rows.push(_predRow('R² (test)',res.r2_test),_predRow('RMSE (test)',res.rmse_test));
+  if(res.auc_test!=null)rows.push(_predRow('AUC (test)',res.auc_test),_predRow('Exactitude (test)',res.exactitude_test));
+  rows.push(_predRow('Modèle',res.modele),_predRow('Fiabilité',res.fiable?'fiable':'non fiable'));
+  const mc=res.matrice_confusion;
+  const conf=mc?'<p class="sub">Matrice : '+esc(mc.vrais_positifs)+' vrais positifs · '+esc(mc.faux_positifs)+' faux positifs · '+esc(mc.faux_negatifs)+' faux négatifs · '+esc(mc.vrais_negatifs)+' vrais négatifs</p>':'';
+  const lg=res.type==='logistique';
+  out.innerHTML='<div class="tablewrap"><table><tbody>'+rows.join('')+'</tbody></table></div>'+conf
+    +'<div class="toolbar" style="margin:12px 0 6px"><div class="label">Coefficients</div></div>'
+    +'<div class="tablewrap"><table><thead><tr><th>Variable</th><th>Coefficient</th><th>'+(lg?'Odds ratio':'p-value')+'</th></tr></thead><tbody>'
+    + (res.coefficients||[]).map(c=>'<tr><td>'+esc(c.variable)+'</td><td>'+esc(c.coef)+'</td><td>'+esc(lg?c.odds_ratio:c.p)+'</td></tr>').join('')
+    +'</tbody></table></div><p class="sub">'+esc((res.limitations||[]).join(' '))+'</p>';
+}
+$('#predRun').onclick=predRun;
 $('#skipClean').onclick=async()=>{
   if(state.applied){const a=await api('/api/analyze',{file_path:state.path});if(!a.error)state.original=a}
   state.analysis=state.original;state.applied=false;state.ai=null;state.structView=null;go(2)};
