@@ -16,6 +16,15 @@ def _cartes(plan):
     return [c for ligne in plan["lignes"] for c in ligne]
 
 
+def echelle_taux(serie):
+    """Le facteur qui met un taux calculé côté serveur à l'échelle de la page : celle-ci affiche de 0 à 100."""
+    texte = _texte(serie.dropna())
+    if len(texte) and texte.isin(OUI | NON).all():
+        return 100
+    v = pd.to_numeric(serie, errors="coerce").dropna()
+    return 100 if len(v) and v.max() <= 1 else 1
+
+
 def _uniques(valeurs, colonnes):
     return [c for c in dict.fromkeys(valeurs) if c in colonnes]
 
@@ -83,10 +92,10 @@ def resumer(data, plan, kpi_defs, filtres):
     g = cadre.groupby(groupe, dropna=False, sort=False) if groupe else cadre.groupby(lambda _: 0)
     morceaux = [g.size().rename("__n")]
     if mesures:
-        morceaux += [g[mesures].sum(min_count=1), g[mesures].count().add_suffix("__n"), g[mesures].min().add_suffix("__mi"), g[mesures].max().add_suffix("__ma")]
+        morceaux += [g[mesures].sum(min_count=1), g[mesures].count().add_suffix("__v"), g[mesures].min().add_suffix("__mi"), g[mesures].max().add_suffix("__ma")]
     if len(comptes.columns):
         morceaux.append(g[list(comptes.columns)].sum())
     cases = pd.concat(morceaux, axis=1).reset_index()
     if not groupe:
         cases = cases.drop(columns=[c for c in cases.columns if c == "index"])
-    return {"cases": cases, "retires": [str(c) for c in retires], "mensuel": mensuel, "periode_mensuelle": cases["__p"] if mensuel else None}
+    return {"cases": cases, "retires": [str(c) for c in retires], "mensuel": mensuel}

@@ -194,8 +194,8 @@ if(META.cube){agg=function(rows,col,a){a=(a||'').toLowerCase();
   if(a==='dernier'){var lp=null;rows.forEach(function(r){if(r.__p&&(lp==null||r.__p>lp))lp=r.__p});rows=rows.filter(function(r){return r.__p===lp});a='somme'}
   var som=function(k){var s=null;rows.forEach(function(r){var v=num(r[k]);if(v!=null)s=(s||0)+v});return s},bout=function(k,f){var b=null;rows.forEach(function(r){var v=num(r[k]);if(v!=null)b=b==null?v:f(b,v)});return b};
   if(a==='compte'||a==='count'||!col)return col?som(col+'__n')||0:som('__n')||0;
-  if(isRate(a)){var o=som(col+'__oui');if(o!=null){var t=som(col+'__n');return t?100*o/t:null}var e=som(col),q=som(col+'__n');if(e==null||!q)return null;return bout(col+'__ma',Math.max)<=1?100*e/q:e/q}
-  var s=som(col);if(s==null)return null;if(a==='moyenne')return s/som(col+'__n');if(a==='max')return bout(col+'__ma',Math.max);if(a==='min')return bout(col+'__mi',Math.min);if(/^m[ée]diane?$|^median$/.test(a))return null;return s};
-  howCalc=function(k,rows){return 'Calculé sur toutes les lignes retenues par les filtres, sans échantillon.'}}
+  if(isRate(a)){var o=som(col+'__oui');if(o!=null){var t=som(col+'__n');return t?100*o/t:null}var e=som(col),q=som(col+'__v');if(e==null||!q)return null;return bout(col+'__ma',Math.max)<=1?100*e/q:e/q}
+  var s=som(col);if(s==null)return null;if(a==='moyenne')return s/som(col+'__v');if(a==='max')return bout(col+'__ma',Math.max);if(a==='min')return bout(col+'__mi',Math.min);if(/^m[ée]diane?$|^median$/.test(a))return null;return s};
+  howCalc=function(k,rows){return /^m[ée]dian/.test((k.agregation||'').toLowerCase())?'Médiane de toutes les lignes du fichier. Sur un fichier de cette taille, elle ne se recalcule pas avec un filtre.':'Calculé sur toutes les lignes retenues par les filtres, sans échantillon.'}}
 var cpAttente;window.addEventListener('resize',function(){clearTimeout(cpAttente);cpAttente=setTimeout(function(){var el=document.getElementById('compo');if(el&&Math.abs(el.clientWidth-CP_L)>24)render()},200)});
 """

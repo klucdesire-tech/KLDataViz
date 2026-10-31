@@ -1045,15 +1045,15 @@ function evalF(rows,f){if(!f)return null;var R=f.filtre?rows.filter(function(r){
   if(m==='somme')return s;if(m==='moyenne')return s/v.length;v.sort(function(a,b){return a-b});var h=v.length>>1;return v.length%2?v[h]:(v[h-1]+v[h])/2}
 function rankedF(rows,f,dim,top){var g=groupBy(rows,dim);return Object.keys(g).map(function(k){return [k,evalF(g[k],f)]}).filter(function(e){return e[1]!=null}).sort(function(a,b){return b[1]-a[1]}).slice(0,top||8)}
 function kpiGros(k){var E=META.gros,a=(k.agregation||'').toLowerCase(),ech=!!E&&E.mode==='echantillon',filtre=FCOLS.some(function(c){return state[c]!=null&&state[c]!=='all'});
-  return {v:E&&!filtre&&k.exact!=null&&(ech||/^m[ée]dian/.test(a))?(isRate(a)&&k.exact<=1?k.exact*100:k.exact):null,f:ech&&(!k.colonne||/^(somme|sum|compte|count|dernier)$/.test(a))?E.lignes/DATA.length:1,a:ech&&filtre}}
+  return {v:E&&!filtre&&k.exact!=null&&(ech||/^m[ée]dian/.test(a))?k.exact:null,t:ech&&!filtre?k.tete:null,f:ech&&(!k.colonne||/^(somme|sum|compte|count|dernier|comptage)$/.test(a))?E.lignes/DATA.length:1,a:ech&&(filtre||k.exact==null)}}
 function grosNote(){var E=META.gros,k=document.getElementById('kpis');if(!E||document.getElementById('gros-note'))return;var p=document.createElement('p');p.id='gros-note';p.style.cssText='font-size:13px;color:var(--muted);margin:0 0 10px';
-  p.textContent=E.mode==='echantillon'?'Fichier de '+fmt(E.lignes)+' lignes : les tuiles sont exactes sans filtre, estimées avec un filtre (≈). Les graphiques reposent sur un échantillon de '+fmt(DATA.length)+' lignes : lisez-y les proportions, pas les totaux.':'Calculé sur les '+fmt(E.lignes)+' lignes du fichier.'+(E.retires&&E.retires.length?' Filtre retiré car trop détaillé pour cette page : '+E.retires.map(nice).join(', ')+'.':'');
+  p.textContent=E.mode==='echantillon'?'Fichier de '+fmt(E.lignes)+' lignes : les tuiles sont exactes sans filtre, estimées avec un filtre (≈). Les graphiques reposent sur un échantillon de '+fmt(DATA.length)+' lignes : lisez-y les proportions, pas les totaux.'+(E.trop_detaille?' Ce fichier est trop détaillé pour la page composée.':''):'Calculé sur les '+fmt(E.lignes)+' lignes du fichier.'+(E.mensuel?' Détail limité au mois pour ce volume.':'')+(E.retires&&E.retires.length?' Filtre retiré car trop détaillé pour cette page : '+E.retires.map(nice).join(', ')+'.':'');
   k.parentNode.insertBefore(p,k)}
 function renderKpis(all){grosNote();document.getElementById('kpis').innerHTML=KPIDEFS.slice(0,5).map(function(k,i){
   var rows=k.hors?all.filter(function(r){return k.hors.valeurs.indexOf(String(r[k.hors.colonne]).trim().toLowerCase())<0}):all,
     G=kpiGros(k),v=G.v!=null?G.v:(k.formule?evalF(rows,k.formule):agg(rows,k.colonne,k.agregation)),sub='';if(G.v==null&&v!=null)v*=G.f;
   var u=(k.formule?k.pct:isRate(k.agregation))&&v!=null?' %':'';
-  if(k.dimension){var t=(k.formule?rankedF(rows,k.formule,k.dimension,1):ranked(rows,k.colonne,k.agregation,k.dimension,1))[0];if(t)sub='En tête : '+esc(label(t[0]))+'<br>'+fmt(t[1]*G.f)+u}
+  if(k.dimension){var t=G.t||(k.formule?rankedF(rows,k.formule,k.dimension,1):ranked(rows,k.colonne,k.agregation,k.dimension,1))[0];if(t)sub='En tête : '+esc(label(t[0]))+'<br>'+(G.a?'≈ ':'')+fmt(G.t?t[1]:t[1]*G.f)+u}
   var how=howCalc(k,rows);
   var badge=k.statut==='propose'?' <span class="hd" title="Formule proposée par Adifa’ : à valider dans KLDataViz">à valider</span>':'';
   return '<div class="kpi k'+i+'"><div class="n">'+esc(k.nom)+badge+' <span class="info" tabindex="0" role="note" aria-label="Comment ce chiffre est calculé : '+esc(how)+'">i<span class="tip">'+esc(how)+'</span></span></div><div class="row"><div class="v">'+(G.a?'≈ ':'')+fmt(v)+u+'</div><div class="s">'+sub+'</div></div></div>'}).join('')}
@@ -1483,7 +1483,11 @@ def generate_dashboard(df, objective: str = "", job_id: str | None = None, llm=N
                  "dimension": k.get("dimension"), "hors": k.get("hors")} for k in kpis]
     if len(df) > cube.SEUIL:  # la page ne tient pas tout le fichier : elle garde la valeur juste de chaque tuile
         for d, k in zip(kpi_defs, kpis):
-            d["exact"] = _json_safe(k.get("valeur"))
+            taux = str(k["agregation"]).lower() in ("taux", "rate", "pct", "proportion") and k["colonne"] in df.columns
+            e = cube.echelle_taux(df[k["colonne"]]) if taux else 1
+            d["exact"] = _json_safe(k["valeur"] * e)
+            if k.get("top"):
+                d["tete"] = [str(k["top"][0]), _json_safe(k["top"][1] * e)]
     filter_cols = [str(c) for c in df.columns if 1 < int(df[c].nunique(dropna=True)) <= 30]
     period_col, period_series = _period(df)
     meta = _meta(df, kpi_defs, spec, filter_cols, period_col, period_series)
@@ -1586,6 +1590,12 @@ def generate_dashboard(df, objective: str = "", job_id: str | None = None, llm=N
                          "description": _C.decrire(i["formule"], lib)})
         kpi_defs = defs[:5]
         kpis = [{"nom": d["nom"], "valeur": v, "agregation": "formule", "colonne": None} for d, v in zip(defs[:5], valeurs[:5])]
+        if len(src) > cube.SEUIL:  # mêmes tuiles justes que sans dictionnaire
+            for d, v in zip(kpi_defs, valeurs):
+                d["exact"] = _json_safe(v)
+                tete = _C.evaluer_par(src, d["formule"], d["dimension"], cle, 1) if d["dimension"] else []
+                if tete:
+                    d["tete"] = [str(tete[0][0]), _json_safe(tete[0][1])]
         meta = _meta(src, [], {"graphiques": []}, [], pc, p_ser)
         rang = {d: i for i, d in enumerate(dims)}
         meta["filters"] = sorted(meta.get("filters") or [], key=lambda f: rang.get(f["col"], 99))
@@ -1667,10 +1677,11 @@ def generate_dashboard(df, objective: str = "", job_id: str | None = None, llm=N
         if resume["mensuel"]:
             meta["grans"] = [g for g in meta.get("grans") or [] if g not in ("D", "W")] or ["M"]
             meta["gran"] = meta["gran"] if meta["gran"] in meta["grans"] else "M"
-        meta["gros"] = {"mode": "resume", "lignes": len(data), "retires": resume["retires"]}
+        meta["gros"] = {"mode": "resume", "lignes": len(data), "retires": resume["retires"], "mensuel": resume["mensuel"]}
         data_json = json.dumps(resume["cases"].to_dict(orient="records"), ensure_ascii=False, default=str)
     elif gros:
-        meta["gros"] = {"mode": "echantillon", "lignes": len(data)}
+        meta["gros"] = {"mode": "echantillon", "lignes": len(data),
+                        "trop_detaille": bool((composition or spec.get("composition")) and not meta.get("indicateurs"))}
 
     html = _render_html(objective, data_json, kpi_defs, filter_cols, meta)
     path = None

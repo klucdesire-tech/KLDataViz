@@ -141,6 +141,63 @@ def test_page_classique_taux_exact_en_pourcentage(mod, tmp_path):
     assert any(t.startswith("75") and t.endswith("%") for t in tuiles(executer(tmp_path, mod.gen(df)["html"])["kpis"]))
 
 
+@sans_node
+def test_en_tete_exact_sans_filtre(mod, tmp_path):
+    """3 501 contre 3 499 : l'échantillon peut inverser la tête, le serveur non."""
+    df = pd.DataFrame([{"zone": "A" if i < 3501 else "B", "centre": f"C{i % 40}", "ventes": 1} for i in range(7000)])
+    html = mod.gen(df, spec={"kpis": [{"nom": "Ventes", "agregation": "somme", "colonne": "ventes", "dimension": "zone"}], "graphiques": []})["html"]
+    assert re.search(r"En tête : A<br>3\s501", executer(tmp_path, html)["kpis"])
+
+
+@sans_node
+def test_tuile_sans_valeur_exacte_marquee_estimee(mod, tmp_path):
+    html = re.sub(r',\s*"exact": [^,}]+', "", mod.gen(gros())["html"])
+    assert all(t.startswith("≈") for t in tuiles(executer(tmp_path, html)["kpis"]))
+
+
+@sans_node
+def test_dictionnaire_garde_ses_tuiles_exactes(mod, tmp_path):
+    lignes = [{"mois": f"2025-{1 + i % 12:02d}", "zone": "AB"[i % 2], "ventes": 10} for i in range(7000)] + [{"mois": "2025-01", "zone": "A", "ventes": 1000000}]
+    corr = {"periode": "mois", "dimensions": ["zone"], "indicateurs": [{"code": "V", "libelle": "ventes", "type": "nombre", "statut": "valide", "formule": {"mode": "somme", "colonne": "ventes"}}]}
+    html = mod.gen(pd.DataFrame(lignes), dictionnaire=[{"code": "V", "libelle": "ventes"}], correspondance=corr)["html"]
+    t = executer(tmp_path, html)["kpis"]
+    assert "1 M" in re.sub(r"\s", " ", t) and "≈" not in t and "1,2 M" not in t
+
+
+def test_moyenne_et_comptage_sur_la_meme_colonne(mod):
+    """« - » compte comme renseigné mais pas comme nombre : deux effectifs distincts dans le résumé."""
+    df = pd.DataFrame({"zone": ["A", "B"] * 4, "montant": [100, 200, "-", "-", 300, 400, "-", "-"]})
+    cases = mod.cube.resumer(df, {"lignes": []}, [{"colonne": "montant", "agregation": "moyenne"}, {"colonne": "montant", "agregation": "compte"}], ["zone"])["cases"]
+    assert cases["montant__v"].sum() == 4 and cases["montant__n"].sum() == 8 and not cases.columns.duplicated().any()
+
+
+@sans_node
+def test_taux_chiffre_garde_son_echelle_dans_la_page_classique(mod, tmp_path):
+    df = pd.DataFrame([{"zone": z, "centre": f"C{i % 30}", "taux_rupture": 100 if i % 200 == 0 else 0} for i in range(3600) for z in "AB"])
+    html = mod.gen(df, spec={"kpis": [{"nom": "Taux", "agregation": "taux", "colonne": "taux_rupture"}], "graphiques": []})["html"]
+    assert re.search(r'class="v">0,5 %', executer(tmp_path, html)["kpis"])
+
+
+def test_echelle_taux(mod):
+    assert mod.cube.echelle_taux(pd.Series(["Oui", "Non"])) == 100
+    assert mod.cube.echelle_taux(pd.Series([0.2, 0.9])) == 100
+    assert mod.cube.echelle_taux(pd.Series([0, 100])) == 1
+
+
+@sans_node
+def test_mediane_sous_filtre_le_dit(mod, tmp_path):
+    df = pd.DataFrame([{"mois": f"2025-{1 + i % 12:02d}", "zone": "AB"[i % 2], "centre": f"C{i % 30}", "delai_jours": 1 + i % 9} for i in range(9600)])
+    res = mod.gen(df, composition=True, spec={"kpis": [{"nom": "Délai médian", "agregation": "mediane", "colonne": "delai_jours"}], "graphiques": [], "composition": True})
+    s = executer(tmp_path, res["html"], {"zone": "A"})
+    assert tuiles(s["kpis"])[0] == "5" and tuiles(s["kpis_filtre"])[0] == "—" and "ne se recalcule pas avec un filtre" in s["kpis_filtre"]
+
+
+def test_replis_annonces(mod, monkeypatch):
+    monkeypatch.setattr(mod.cube, "MAX_CASES", 1)
+    assert meta(mod.gen(gros(), composition=True)["html"])["gros"]["trop_detaille"] is True
+    assert meta(mod.gen(gros())["html"])["gros"]["trop_detaille"] is False
+
+
 def test_petit_fichier_sans_aucun_changement(mod):
     html = mod.gen(J.JEUX["ventes"]())["html"]
     assert '"exact"' not in html and '"gros"' not in html.split("window.DATA=")[0] and '"gros":' not in html
