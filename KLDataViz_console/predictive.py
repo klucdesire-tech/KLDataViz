@@ -3,16 +3,21 @@
 
 Sans sklearn ni statsmodels (absents du .venv) : moindres carrés et maximum de vraisemblance
 avec numpy/scipy. Chaque modèle est validé sur un découpage entraînement/test ; la prévision
-est validée par rétro-test sur les dernières périodes.
+est rétro-testée sur les dernières périodes et comparée à deux références naïves.
 
-Corrections issues de la relecture (PR 136) :
+Corrections issues des relectures (PR 136) :
 - dates ISO jamais lues « jour en premier » (2025-03-05 reste le 5 mars) ;
 - cible Oui/Non reconnue (OUI/NON, true/false, 1/0) au lieu d'être vidée par to_numeric ;
-- prévision : erreur explicite si la cible n'est pas numérique, valeur comptée paramétrable,
-  agrégation selon la nature de la mesure (somme / moyenne / dernière), toutes les lignes
-  agrégées AVANT tout échantillonnage, axe calendaire (mois manquants explicites),
-  dernier mois incomplet écarté, horizon borné, rétro-test ;
-- fiabilité resserrée (positifs détectés, cas suffisants en test, trois états) ;
+- nature de la mesure lue par `lire_fiche` (HERMES_DA), pas devinée par mots-clés ;
+  nature incertaine = prévision refusée, jamais une somme par défaut ;
+- stock = somme des groupes à la dernière date du mois (pas une seule ligne) ;
+- prévision : valeur comptée paramétrable, toutes les lignes agrégées avant tout
+  échantillonnage, axe calendaire, mois incomplet détecté par les dates au jour
+  (jamais par une chute de valeur), horizon borné, rétro-test du même modèle que la
+  prévision et comparaison à la moyenne / au dernier mois ;
+- saisonnalité conservée seulement si elle améliore le rétro-test ;
+- fiabilité resserrée : trois états, positifs en test, aucun vrai positif → jamais
+  au-dessus d'« indicatif » ;
 - fuite de cible : identifiants écartés, alerte si un prédicteur reproduit la cible ;
 - régression logistique standardisée (coefficients affichés à l'échelle d'origine,
   séparation parfaite signalée, convergence vérifiée) ;
@@ -21,7 +26,9 @@ Corrections issues de la relecture (PR 136) :
 from __future__ import annotations
 
 import math
+import os
 import re
+import sys
 
 import numpy as np
 import pandas as pd
@@ -38,8 +45,6 @@ R2_SUSPECT = 0.995             # au-dessus : fuite probable de la cible
 YES = {"oui", "yes", "true", "vrai", "o", "y", "positif", "positive", "1", "1.0"}
 NO = {"non", "no", "false", "faux", "n", "négatif", "negatif", "0", "0.0"}
 IDLIKE = re.compile(r"(^|[\s_])(n°|no|num(ero|éro)?|id|code|matricule|ref|référence|reference|labno|datim)($|[\s_.])", re.I)
-TAUX = re.compile(r"taux|ratio|pourcentage|proportion|prevalence|prévalence|incidence|couverture|\bpct\b|%", re.I)
-STOCK = re.compile(r"stock|effectif|file.?active|population|tx_curr|tx_new|total|cumul", re.I)
 
 
 def _r(x, n=4):
@@ -50,17 +55,40 @@ def _r(x, n=4):
         return None
 
 
-def _nature(nom: str, serie: pd.Series) -> str:
-    """Nature de la mesure : « taux » (moyenne), « stock » (dernière valeur), sinon « volume » (somme)."""
-    if TAUX.search(nom) or (len(serie) and serie.between(0, 1).all() and serie.nunique() > 2):
-        return "taux"
-    if STOCK.search(nom):
-        return "stock"
-    return "volume"
+def _hermes():
+    """Fiche et catalogue de HERMES_DA — les mêmes que la page, pas une seconde heuristique."""
+    d = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "HERMES_DA")
+    if d not in sys.path:
+        sys.path.insert(0, d)
+    from hermes_da.adapters import catalogue, fiche
+    return fiche, catalogue
 
 
-def _agrege(nature: str) -> str:
-    return {"volume": "somme", "taux": "moyenne", "stock": "dernière"}[nature]
+def _nature_fiche(df, cible):
+    """Nature de la mesure lue par `lire_fiche`. Retourne (nature, avertissement).
+
+    nature ∈ volume / moyenne / taux / stock, ou None si la fiche ne la classe pas.
+    Dans le doute, on ne choisit pas : la prévision est refusée plus haut.
+    """
+    try:
+        fiche, _ = _hermes()
+        f = fiche.lire_fiche(df)
+    except Exception as e:                                   # fiche indisponible : on le dit
+        return None, f"nature de la mesure indéterminée (fiche indisponible : {type(e).__name__})."
+    for nature, cle in (("stock", "stocks"), ("taux", "taux"),
+                        ("volume", "volumes"), ("moyenne", "moyennes")):
+        if cible in f.get(cle, []):
+            return nature, None
+    return None, f"nature de « {cible} » incertaine : la fiche ne la classe ni volume, ni moyenne, ni taux, ni stock."
+
+
+def _agregation(nature):
+    """Comment regrouper la mesure — règle unique du catalogue HERMES_DA."""
+    try:
+        _, catalogue = _hermes()
+        return catalogue.agregation(nature)
+    except Exception:
+        return {"volume": "somme", "moyenne": "moyenne", "taux": "moyenne", "stock": "dernier"}[nature]
 
 
 def _to_binary(serie: pd.Series) -> pd.Series | None:
@@ -101,6 +129,21 @@ def _periodes(serie: pd.Series) -> pd.Series | None:
     return dt.dt.to_period("M").astype(str)
 
 
+def _dates(serie: pd.Series) -> pd.Series | None:
+    """Dates au jour (datetime) ; None si la colonne ne contient que des mois « AAAA-MM »."""
+    if pd.api.types.is_datetime64_any_dtype(serie):
+        return serie
+    txt = serie.dropna().astype(str).head(80)
+    if txt.empty or txt.str.match(r"^\d{4}-\d{2}$").mean() >= 0.9:
+        return None
+    iso = txt.str.match(r"^\d{4}-\d{2}-\d{2}").mean() >= 0.9
+    try:
+        dt = pd.to_datetime(serie, errors="coerce", format="mixed", dayfirst=not iso)
+    except Exception:
+        return None
+    return dt if dt.notna().mean() >= 0.9 else None
+
+
 def _split(n: int, test_size: float = 0.3) -> tuple:
     idx = np.arange(n)
     rng = np.random.default_rng(0)
@@ -135,11 +178,14 @@ def _predicteurs_sains(df: pd.DataFrame, cible: str, candidats: list) -> tuple:
     return gardes, avertis
 
 
-def _etat(r2: float | None, auc: float | None, positifs_test: int | None = None) -> str:
+def _etat(r2: float | None, auc: float | None, positifs_test: int | None = None,
+          vrais_positifs: int | None = None) -> str:
     """Trois états : insuffisant / indicatif / utilisable (jamais un simple booléen optimiste)."""
     if auc is not None:
         if positifs_test is not None and positifs_test < MIN_POSITIFS_TEST:
             return "insuffisant"
+        if vrais_positifs is not None and vrais_positifs == 0:
+            return "indicatif"          # aucun vrai positif : jamais « utilisable »
         if auc < AUC_UTILISABLE:
             return "insuffisant"
         return "utilisable" if auc >= 0.75 else "indicatif"
@@ -272,10 +318,11 @@ def regression_logistique(X: pd.DataFrame, y: pd.Series, noms: list | None = Non
     fp = int(((pred_te == 1) & (y_te == 0)).sum())
     fn = int(((pred_te == 0) & (y_te == 1)).sum())
     tn = int(((pred_te == 0) & (y_te == 0)).sum())
-    etat = _etat(None, auc, positifs)
+    etat = _etat(None, auc, positifs, tp)
     return {
         "modele": "régression logistique (maximum de vraisemblance, standardisée)",
         "n": int(n), "n_test": int(len(idx_te)), "positifs_test": positifs,
+        "vrais_positifs_test": tp,
         "cible": str(y.name) if y.name else "cible",
         "coefficients": [{"variable": "(constante)" if i == 0 else noms[i - 1],
                           "coef": _r(b, 10),
@@ -289,15 +336,47 @@ def regression_logistique(X: pd.DataFrame, y: pd.Series, noms: list | None = Non
         "limitations": ["AUC 0,5 = hasard ; sous 0,65 le modèle n'apporte rien. "
                         "Seuil de classement à 0,5 : à ajuster selon le coût des faux positifs/négatifs. "
                         + (f"Seulement {positifs} cas positifs en test : estimation fragile."
-                           if positifs < MIN_POSITIFS_TEST else "")],
+                           if positifs < MIN_POSITIFS_TEST else "")
+                        + ("" if tp > 0 else f" Aucun vrai positif sur {positifs} : le modèle ne reconnaît aucun cas.")],
     }
 
 
-def prevision(serie: pd.Series, horizon: int = 6, nature: str = "volume") -> dict:
-    """Prévision par tendance linéaire (+ saisonnalité mensuelle si ≥ 2 cycles).
+# ---------------------------------------------------------------- prévision
+
+def _tendance(y, t):
+    ok = ~np.isnan(y)
+    A = np.column_stack([np.ones(int(ok.sum())), t[ok]])
+    coef, *_ = np.linalg.lstsq(A, y[ok], rcond=None)
+    return coef
+
+
+def _saison_residus(y, t, coef):
+    """Résidus moyens par mois calendaire (0..11) — la saisonnalité se lit sur les résidus."""
+    ok = ~np.isnan(y)
+    res = y[ok] - (coef[0] + coef[1] * t[ok])
+    s, cnt = np.zeros(12), np.zeros(12)
+    for k, r in zip((t[ok] % 12).astype(int), res):
+        s[k] += r
+        cnt[k] += 1
+    return np.where(cnt > 0, s / np.maximum(cnt, 1), 0.0)
+
+
+def _predire(coef, saison, t):
+    base = coef[0] + coef[1] * np.asarray(t, dtype=float)
+    if saison is not None:
+        base = base + np.array([saison[int(k) % 12] for k in t])
+    return base
+
+
+def prevision(serie: pd.Series, horizon: int = 6, nature: str = "volume",
+              mois_ecarte: str | None = None, unite: str | None = None,
+              facteur: float = 1.0) -> dict:
+    """Prévision par tendance linéaire (+ saisonnalité si elle améliore le rétro-test).
 
     `serie` : index = période « AAAA-MM », valeurs = mesure agrégée. Axe calendaire réel
-    (mois manquants = NaN, pas de compression), dernier mois incomplet écarté.
+    (mois manquants = NaN, pas de compression). Le rétro-test utilise le même modèle que
+    la prévision et le compare à deux références naïves (moyenne, dernier mois) : sans
+    gain net, la prévision n'est pas dite « utilisable ».
     """
     s = serie.dropna().sort_index()
     if len(s) < 6:
@@ -305,65 +384,69 @@ def prevision(serie: pd.Series, horizon: int = 6, nature: str = "volume") -> dic
     try:
         idx = pd.PeriodIndex(s.index, freq="M")
         full = pd.period_range(idx.min(), idx.max(), freq="M")
-        y = s.reindex(full.astype(str)).astype(float)
+        y = s.reindex(full.astype(str)).astype(float).to_numpy()
     except Exception:
         return {"erreur": "les périodes ne sont pas des mois « AAAA-MM »."}
     n = len(y)
-    if n < 6:
+    ok = ~np.isnan(y)
+    if n < 6 or ok.sum() < 6:
         return {"erreur": "historique mensuel trop court après alignement calendaire."}
-    ecarte = None
-    if len(y) >= 8 and pd.notna(y.iloc[-1]) and pd.notna(y.iloc[-2]):
-        if y.iloc[-2] and y.iloc[-1] < 0.6 * y.iloc[-2]:
-            ecarte = str(full[-1])
-            y, full, n = y.iloc[:-1], full[:-1], n - 1
     t = np.arange(n, dtype=float)
-    ok = y.notna().to_numpy()
-    if ok.sum() < 6:
-        return {"erreur": "trop de mois manquants pour estimer une tendance."}
-    A = np.column_stack([np.ones(int(ok.sum())), t[ok]])
-    coef, *_ = np.linalg.lstsq(A, y.to_numpy()[ok], rcond=None)
-    tendance = np.full(n, np.nan)
-    tendance[ok] = A @ coef
-    resid = y.to_numpy()[ok] - tendance[ok]
-    resid_std = float(resid.std(ddof=1)) if len(resid) > 2 else float(resid.std())
-    has_saison = ok.sum() >= 24
-    saison = np.zeros(12)
-    if has_saison:
-        pos_cycle = (np.arange(n)[ok] % 12)
-        for pos, res in zip(pos_cycle, resid):
-            saison[pos] += res
-        saison /= np.maximum(1, np.bincount(pos_cycle, minlength=12))
-    horizon = max(1, min(int(horizon), n))                 # horizon borné par l'historique
-    futur = np.arange(n, n + horizon, dtype=float)
-    base = coef[0] + coef[1] * futur
-    if has_saison:
-        base = base + np.array([saison[int(k) % 12] for k in futur])
-    marge = 1.28 * resid_std * np.sqrt(1 + np.arange(1, horizon + 1) / max(n, 1))
-    labels = [str(full[-1] + k) for k in range(1, horizon + 1)]
-    validation = None
-    h_bt = min(3, n // 4)
+    coef = _tendance(y, t)
+    saison = _saison_residus(y, t, coef) if ok.sum() >= 24 else None
+
+    # ---- rétro-test : MÊME modèle que la prévision, comparé à deux références naïves
+    validation, etat = None, "indicatif"
+    h_bt = min(6, n // 4)
     if h_bt >= 2 and ok.sum() >= 8:
-        t_ok, y_ok = t[ok], y.to_numpy()[ok]
-        A_bt = np.column_stack([np.ones(len(t_ok) - h_bt), t_ok[:-h_bt]])
-        cb, *_ = np.linalg.lstsq(A_bt, y_ok[:-h_bt], rcond=None)
-        pred_bt = cb[0] + cb[1] * t_ok[-h_bt:]
+        masque = ok.copy()
+        masque[np.flatnonzero(ok)[-h_bt:]] = False       # les h derniers observés servent de test
+        y_tr, t_tr = y[masque], t[masque]
+        y_te, t_te = y[ok][-h_bt:], t[ok][-h_bt:]
+        c_tr = _tendance(y_tr, t_tr)
+        s_tr = _saison_residus(y_tr, t_tr, c_tr) if int(masque.sum()) >= 24 else None
+        err_sans = float(np.mean(np.abs(_predire(c_tr, None, t_te) - y_te)))
+        if s_tr is not None:
+            err_avec = float(np.mean(np.abs(_predire(c_tr, s_tr, t_te) - y_te)))
+            if err_avec < 0.95 * err_sans:                # la saisonnalité ne reste que si elle aide
+                err_modele = err_avec
+            else:
+                saison, err_modele = None, err_sans
+        else:
+            saison, err_modele = None, err_sans
+        ref_moy = float(np.mean(np.abs(np.full(h_bt, float(np.mean(y_tr))) - y_te)))
+        ref_der = float(np.mean(np.abs(np.full(h_bt, float(y_tr[-1])) - y_te)))
+        ref = min(ref_moy, ref_der)
         validation = {"periodes_testees": int(h_bt),
-                      "erreur_moyenne": _r(float(np.mean(np.abs(pred_bt - y_ok[-h_bt:]))), 2)}
-    etat = ("insuffisant" if (validation and validation.get("erreur_moyenne") is not None
-                               and resid_std and validation["erreur_moyenne"] > 2 * resid_std + 1e-9)
-            else "indicatif" if ok.sum() < 24 else "utilisable")
+                      "erreur_modele": _r(err_modele * facteur, 2),
+                      "erreur_reference": _r(ref * facteur, 2),
+                      "reference": "moyenne" if ref_moy <= ref_der else "dernier mois"}
+        if ref > 0:
+            etat = ("utilisable" if err_modele < 0.4 * ref          # battre nettement la référence
+                    else "indicatif" if err_modele < ref else "insuffisant")
+
+    resid = y[ok] - _predire(coef, saison, t[ok])
+    resid_std = float(np.std(resid, ddof=1)) if len(resid) > 2 else float(np.std(resid))
+    horizon = max(1, min(int(horizon), n))              # jamais plus loin que l'historique
+    futur = np.arange(n, n + horizon, dtype=float)
+    base = _predire(coef, saison, futur) * facteur
+    marge = 1.28 * resid_std * np.sqrt(1 + np.arange(1, horizon + 1) / max(n, 1)) * facteur
+    labels = [str(full[-1] + k) for k in range(1, horizon + 1)]
     return {
-        "modele": "tendance linéaire" + (" + saisonnalité mensuelle" if has_saison else ""),
-        "n": int(n), "horizon": int(horizon), "agregation": _agrege(nature),
-        "tendance_pente": _r(coef[1], 3), "residu_ecart_type": _r(resid_std, 2),
-        "saisonnalite": bool(has_saison), "mois_ecarte": ecarte, "validation": validation,
+        "modele": "tendance linéaire" + (" + saisonnalité mensuelle" if saison is not None else ""),
+        "n": int(n), "horizon": int(horizon), "agregation": _agregation(nature), "unite": unite,
+        "tendance_pente": _r(coef[1] * facteur, 3), "residu_ecart_type": _r(resid_std * facteur, 2),
+        "saisonnalite": saison is not None, "mois_ecarte": mois_ecarte, "validation": validation,
         "etat": etat, "fiable": etat == "utilisable",
-        "historique": {"periodes": [str(i) for i in full], "valeurs": [_r(v, 2) for v in y.to_numpy()]},
+        "historique": {"periodes": [str(i) for i in full],
+                       "valeurs": [_r(v * facteur, 2) for v in y]},
         "previsions": [{"periode": lab, "valeur": _r(v, 2), "bas": _r(v - m, 2), "haut": _r(v + m, 2)}
                        for lab, v, m in zip(labels, base, marge)],
         "limitations": ["Prévision statistique : elle prolonge la tendance observée, elle n'anticipe "
                         "aucun changement (campagne, épidémie, nouvelle politique). Intervalle à 80 %. "
-                        + (f"Dernier mois écarté (incomplet) : {ecarte}. " if ecarte else "")
+                        + ("La saisonnalité est conservée parce qu'elle améliore le rétro-test. "
+                           if saison is not None else "")
+                        + (f"Dernier mois écarté (incomplet) : {mois_ecarte}. " if mois_ecarte else "")
                         + (f"Horizon borné à {horizon} mois (longueur de l'historique)." if horizon < 36 else "")],
     }
 
@@ -408,7 +491,10 @@ def analyse(df: pd.DataFrame, cible: str | None = None, predicteurs: list | None
             c = df[cible]
             binaire = _to_binary(c)
             num = pd.to_numeric(c, errors="coerce")
-            nature = _nature(cible, num.dropna())
+            nature, avert = _nature_fiche(df, cible)
+            if avert:
+                out["avertissements"].append(avert)
+            unite, facteur = None, 1.0
             if binaire is not None:
                 if valeur_comptee:
                     vc = str(valeur_comptee).strip().lower()
@@ -419,10 +505,10 @@ def analyse(df: pd.DataFrame, cible: str | None = None, predicteurs: list | None
                     else:
                         out["erreurs"].append(f"« {valeur_comptee} » n'est ni Oui ni Non.")
                         return out
-                    nature = "volume"
+                    nature, unite = "volume", f"nombre de {valeur_comptee}"
                 else:
-                    mesure = binaire            # sans valeur comptée : proportion de Oui par mois
-                    nature = "taux"
+                    mesure, nature = binaire, "taux"      # proportion mensuelle de Oui
+                    unite, facteur = "part de Oui (%)", 100.0
             else:
                 if num.notna().sum() == 0:
                     out["erreurs"].append(
@@ -430,14 +516,31 @@ def analyse(df: pd.DataFrame, cible: str | None = None, predicteurs: list | None
                         "ou choisissez une mesure numérique.")
                     return out
                 mesure = num
-            frame = pd.DataFrame({"p": per, "v": mesure}).dropna()
-            if frame.empty:
-                out["erreurs"].append("aucune ligne exploitable après lecture de la période.")
-                return out
-            g = frame.groupby("p")["v"]
-            agg = {"volume": g.sum(), "taux": g.mean(), "stock": g.last()}[nature]
-            out["resultat"] = dict(prevision(agg, horizon, nature), type="prevision",
-                                   valeur_comptee=valeur_comptee)
+                if nature is None:                       # la fiche ne tranche pas : on le dit, on ne devine pas
+                    out["erreurs"].append(
+                        f"nature de « {cible} » incertaine : la fiche ne la classe ni volume, ni moyenne, "
+                        "ni taux, ni stock ; prévision refusée plutôt que de choisir une agrégation au hasard.")
+                    return out
+            dates = _dates(df[periode])
+            if nature == "stock" and dates is not None:
+                # un stock se lit à la dernière date du mois, tous les groupes additionnés
+                frame = pd.DataFrame({"p": per, "d": dates, "v": mesure}).dropna()
+                maxd = frame.groupby("p")["d"].transform("max")
+                agg = frame[frame["d"] == maxd].groupby("p")["v"].sum()
+            else:
+                frame = pd.DataFrame({"p": per, "v": mesure}).dropna()
+                g = frame.groupby("p")["v"]
+                agg = {"volume": g.sum(), "moyenne": g.mean(), "taux": g.mean(), "stock": g.sum()}[nature]
+            # mois incomplet : uniquement avec des dates au jour ; jamais sur une chute de valeur
+            mois_ecarte = None
+            if dates is not None and len(agg):
+                dernier = agg.index[-1]
+                fin = pd.Period(dernier, freq="M").end_time.normalize()
+                if pd.Timestamp(dates.max()).normalize() < fin:
+                    mois_ecarte = str(dernier)
+                    agg = agg.iloc[:-1]
+            out["resultat"] = dict(prevision(agg, horizon, nature, mois_ecarte, unite, facteur),
+                                   type="prevision", valeur_comptee=valeur_comptee)
         except Exception as e:
             out["erreurs"].append(f"prévision impossible : {e}")
         return out
