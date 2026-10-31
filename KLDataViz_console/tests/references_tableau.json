@@ -1,0 +1,324 @@
+{
+ "dhis2_long": {
+  "agrege": true,
+  "filtres": [
+   "unite_organisation"
+  ],
+  "graphiques": [
+   [
+    "unite_organisation",
+    "pie"
+   ],
+   [
+    "TX_CURR",
+    "hist"
+   ]
+  ],
+  "kpis": [
+   {
+    "agregation": "somme",
+    "colonne": "HTS_TST",
+    "dimension": "unite_organisation",
+    "nom": "Total : hts tst",
+    "valeur": 14406.0
+   },
+   {
+    "agregation": "somme",
+    "colonne": "HTS_TST_POS",
+    "dimension": "unite_organisation",
+    "nom": "Total : hts tst pos",
+    "valeur": 1107.0
+   },
+   {
+    "agregation": "dernier",
+    "colonne": "TX_CURR",
+    "dimension": "unite_organisation",
+    "nom": "Tx curr (déc. 2024)",
+    "valeur": 4462.0
+   },
+   {
+    "agregation": "somme",
+    "colonne": "TX_NEW",
+    "dimension": "unite_organisation",
+    "nom": "Total : tx new",
+    "valeur": 1017.0
+   }
+  ],
+  "mesure": "HTS_TST",
+  "periode": "periode",
+  "pile": "unite_organisation"
+ },
+ "formulaire": {
+  "agrege": false,
+  "filtres": [
+   "indicateur",
+   "sexe",
+   "tranche_age"
+  ],
+  "graphiques": [
+   [
+    "indicateur",
+    "pie"
+   ],
+   [
+    "sexe",
+    "pie"
+   ],
+   [
+    "tranche_age",
+    "pie"
+   ],
+   [
+    "Site A",
+    "hist"
+   ],
+   [
+    "Site B",
+    "hist"
+   ]
+  ],
+  "kpis": [
+   {
+    "agregation": "compte",
+    "colonne": null,
+    "dimension": "sexe",
+    "nom": "Effectif total",
+    "valeur": 12
+   },
+   {
+    "agregation": "moyenne",
+    "colonne": "Site A",
+    "dimension": "sexe",
+    "nom": "Moyenne : site A",
+    "valeur": 55.5
+   },
+   {
+    "agregation": "moyenne",
+    "colonne": "Site B",
+    "dimension": "sexe",
+    "nom": "Moyenne : site B",
+    "valeur": 33.17
+   },
+   {
+    "agregation": "moyenne",
+    "colonne": "Site C",
+    "dimension": "sexe",
+    "nom": "Moyenne : site C",
+    "valeur": 44.08
+   }
+  ],
+  "mesure": "Site A",
+  "periode": null,
+  "pile": "sexe"
+ },
+ "sans_dates": {
+  "agrege": false,
+  "filtres": [
+   "sexe",
+   "region"
+  ],
+  "graphiques": [
+   [
+    "region",
+    "pie"
+   ],
+   [
+    "sexe",
+    "pie"
+   ],
+   [
+    "satisfaction",
+    "hist"
+   ],
+   [
+    "age",
+    "hist"
+   ]
+  ],
+  "kpis": [
+   {
+    "agregation": "compte",
+    "colonne": null,
+    "dimension": "region",
+    "nom": "Effectif total",
+    "valeur": 240
+   },
+   {
+    "agregation": "taux",
+    "colonne": "recommande",
+    "dimension": "region",
+    "nom": "Taux « recommande »",
+    "valeur": 0.7167
+   },
+   {
+    "agregation": "moyenne",
+    "colonne": "satisfaction",
+    "dimension": "region",
+    "nom": "Moyenne : satisfaction",
+    "valeur": 3.13
+   },
+   {
+    "agregation": "moyenne",
+    "colonne": "age",
+    "dimension": "region",
+    "nom": "Moyenne : âge",
+    "valeur": 44.17
+   }
+  ],
+  "mesure": "recommande",
+  "periode": null,
+  "pile": "sexe"
+ },
+ "sante": {
+  "agrege": true,
+  "filtres": [
+   "region",
+   "district",
+   "centre"
+  ],
+  "graphiques": [
+   [
+    "centre",
+    "bar"
+   ],
+   [
+    "district",
+    "pie"
+   ],
+   [
+    "region",
+    "pie"
+   ],
+   [
+    "population_desservie",
+    "hist"
+   ]
+  ],
+  "kpis": [
+   {
+    "agregation": "taux",
+    "colonne": "rupture_stock_cta",
+    "dimension": "district",
+    "nom": "Taux « rupture stock CTA »",
+    "valeur": 0.125
+   },
+   {
+    "agregation": "dernier",
+    "colonne": "population_desservie",
+    "dimension": "district",
+    "nom": "Population desservie (juin 2025)",
+    "valeur": 354175.0
+   },
+   {
+    "agregation": "somme",
+    "colonne": "consultations",
+    "dimension": "district",
+    "nom": "Total : consultations",
+    "valeur": 180682.0
+   },
+   {
+    "agregation": "somme",
+    "colonne": "cpn1",
+    "dimension": "district",
+    "nom": "Total : CPN1",
+    "valeur": 19323.0
+   },
+   {
+    "agregation": "somme",
+    "colonne": "cpn4",
+    "dimension": "district",
+    "nom": "Total : CPN4",
+    "valeur": 11080.0
+   }
+  ],
+  "mesure": "rupture_stock_cta",
+  "periode": "mois",
+  "pile": "region"
+ },
+ "simple": {
+  "agrege": false,
+  "filtres": [
+   "categorie"
+  ],
+  "graphiques": [
+   [
+    "categorie",
+    "bar"
+   ]
+  ],
+  "kpis": [
+   {
+    "agregation": "compte",
+    "colonne": null,
+    "dimension": "categorie",
+    "nom": "Effectif total",
+    "valeur": 6
+   },
+   {
+    "agregation": "somme",
+    "colonne": "montant",
+    "dimension": "categorie",
+    "nom": "Total : montant",
+    "valeur": 2245000.0
+   }
+  ],
+  "mesure": "montant",
+  "periode": null,
+  "pile": null
+ },
+ "ventes": {
+  "agrege": false,
+  "filtres": [
+   "zone",
+   "categorie",
+   "produit"
+  ],
+  "graphiques": [
+   [
+    "zone",
+    "pie"
+   ],
+   [
+    "produit",
+    "pie"
+   ],
+   [
+    "categorie",
+    "pie"
+   ]
+  ],
+  "kpis": [
+   {
+    "agregation": "compte",
+    "colonne": null,
+    "dimension": "zone",
+    "nom": "Effectif total",
+    "valeur": 240
+   },
+   {
+    "agregation": "somme",
+    "colonne": "chiffre_affaires",
+    "dimension": "zone",
+    "nom": "Total : chiffre d'affaires",
+    "valeur": 280048.0
+   },
+   {
+    "agregation": "somme",
+    "colonne": "marge",
+    "dimension": "zone",
+    "nom": "Total : marge",
+    "valeur": 55894.0
+   },
+   {
+    "agregation": "somme",
+    "colonne": "objectif",
+    "dimension": "zone",
+    "nom": "Total : objectif",
+    "valeur": 282240.0
+   }
+  ],
+  "mesure": "chiffre_affaires",
+  "periode": "mois",
+  "pile": "zone"
+ }
+}
