@@ -150,3 +150,17 @@ def test_fichier_inchange(cat):
     avant = df.copy()
     cat(df)
     assert df.equals(avant)
+
+
+def test_groupe_sans_valeur_pour_la_mesure_ne_donne_pas_de_carte(cat):
+    """Une recette n'existe que sur les lignes de recette : la comparer par type d'opération ne montrerait rien."""
+    df = pd.DataFrame([{"mois": f"2025-{m:02d}", "type_operation": t, "agence": a, "recette": 100 if t == "Recette" else None, "depense": 50 if t == "Dépense" else None}
+                       for m in range(1, 13) for t in ("Recette", "Dépense") for a in "ABCD"])
+    cartes = cat(df)
+    assert not any(p.get("dimension") == "type_operation" and p.get("mesure") == "recette" for p in cartes)
+    assert any(p.get("dimension") == "agence" and p.get("mesure") == "recette" for p in cartes)
+
+
+def test_groupe_a_zero_pour_la_mesure_ne_donne_pas_de_carte(cat):
+    df = pd.DataFrame([{"annee": a, "tranche_age": t, "region": r, "naissances": 100 if t == "15-49" else 0, "deces": 10} for a in range(2015, 2025) for t in ("0-14", "15-49", "50+") for r in "ABCD"])
+    assert not any(p.get("dimension") == "tranche_age" and p.get("mesure") == "naissances" for p in cat(df))

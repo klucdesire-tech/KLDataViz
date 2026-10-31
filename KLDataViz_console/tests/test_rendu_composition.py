@@ -340,6 +340,31 @@ def test_pas_de_regroupement_sans_temps(gen, tmp_path):
     assert "cp-outils" not in executer(tmp_path, gen(J.JEUX["sans_dates"](), composition=True)["html"])["page"]
 
 
+def _annuel(ecart=0.0001):
+    regions = ("Abidjan", "Bélier", "Gbêkê", "Haut-Sassandra", "Poro", "San-Pédro", "Tonkpi")
+    return pd.DataFrame([{"region": r, "annee": a, "naissances": 100 + a - 2015 + i * 5, "deces": 10 + i, "part_population_region_pct": 4.17 + (a - 2015) * ecart * (1 if i % 2 else -1)} for a in range(2015, 2025) for i, r in enumerate(regions)])
+
+
+@sans_node
+def test_donnees_annuelles_sans_note_sur_un_mois(gen, tmp_path):
+    page = re.sub(r"\s", " ", executer(tmp_path, gen(_annuel(), composition=True)["html"])["page"])
+    assert "(1 mois)" not in page and "Même période" not in page
+
+
+@sans_node
+def test_tres_petit_ecart_jamais_ecrit_zero(gen, tmp_path):
+    page = re.sub(r"\s", " ", executer(tmp_path, gen(_annuel(), composition=True)["html"])["page"])
+    assert "(−0)" not in page and "(+0)" not in page
+
+
+@sans_node
+def test_pente_distingue_les_valeurs_proches(gen, tmp_path):
+    page = re.sub(r"\s", " ", executer(tmp_path, gen(_annuel(), composition=True)["html"])["page"])
+    carte = page[page.index("en hausse, plus fort écart"):]
+    droites = re.findall(r'font-weight="600">([^<]+)</tspan>', carte[:carte.index("</svg>")])
+    assert len(droites) == 7 and len(set(droites)) > 1
+
+
 @sans_node
 def test_textes_echappes(gen, tmp_path):
     df = pd.DataFrame({"zone": ["<b>A</b>", "B", "C", "D"], "ventes": [1, 2, 3, 4]})
