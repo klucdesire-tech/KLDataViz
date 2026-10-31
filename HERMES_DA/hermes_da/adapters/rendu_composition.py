@@ -194,19 +194,20 @@ function renderCompo(rows){var el=document.getElementById('compo'),html='';CP_R=
   [].forEach.call(el.querySelectorAll('.seg button'),function(b){b.onclick=function(){gran=b.dataset.g;render()}});
   [].forEach.call(el.querySelectorAll('.cp-cc'),function(b){b.onpointermove=b.onpointerdown=function(e){cpSurvol(b,e)};b.onpointerleave=function(){b.querySelector('.cp-bulle').hidden=true;b.querySelector('.cp-ligne').style.display='none'}});return []}
 // ---- Indicateurs clés : tableau compact, replié tant qu'on ne le demande pas
-var CP_I_OUVERT=false,CP_I_POSITIFS=/conformit|couverture|gu[ée]ri|vaccin|r[ée]ussite|satisfaction/i;
-function cpITon(g){if(g.pct==null||g.sens==='stable'||Math.abs(g.pct)<1)return '';var mauvais=g.bon===-1;if(!mauvais&&!CP_I_POSITIFS.test((g.indicateur||'')+' '+(g.libelle||'')))return '';return g.pct*(mauvais?-1:1)>0?' cp-i-bon':' cp-i-mal'}
+var CP_I_OUVERT=false;
+function cpITon(g){return g.bon!==-1||g.pct==null||g.sens==='stable'||Math.abs(g.pct)<1?'':g.pct>0?' cp-i-mal':' cp-i-bon'}
+function cpIRendre(cible){renderGaps(filtered());var e=document.querySelector(cible);if(e)e.focus()}
 function cpIndicateurs(el,o){var G=o.G,h=0,b=0,st=0,filtre=FCOLS.some(function(c){return state[c]!=null&&state[c]!=='all'});
-  G.forEach(function(g){if(g.pct==null)return;if(Math.abs(g.pct)<1)st++;else if(g.pct>0)h++;else b++});
+  G.forEach(function(g){if(g.pct==null)return;if(g.sens==='stable'||!(Math.round(Math.abs(g.pct)*10)/10))st++;else if(g.pct>0)h++;else b++});
   var bilan=[h?h+' en hausse':'',b?b+' en baisse':'',st?st+' stable'+(st>1?'s':''):''].filter(Boolean).join(', '),resume=G.length+' indicateur'+(G.length>1?'s':'')+(o.cur!=null?' · '+gkey(o.cur):'')+(bilan?' · '+bilan:'');
   var titre='Indicateurs clés de suivi'+(o.D?' · '+o.D.nom:''),gel=!o.K.live&&filtre?'<p class="cp-note">Ce panneau porte sur tout le fichier : il ne suit pas les filtres sur un fichier de cette taille.</p>':'';
-  var tete='<div class="cp-i-l cp-i-h"><span>Indicateur</span><span class="cp-i-n">'+esc(o.cur!=null?gkey(o.cur):'Valeur')+'</span><span class="cp-i-n cp-i-r">'+esc(o.ref!=null?gkey(o.ref):'—')+'</span><span class="cp-i-n">Écart</span></div>';
-  var lignes=G.map(function(g){var etat=(g.k&&g.k.etat)||g.etat;return '<div class="cp-i-l"><span title="'+esc((g.indicateur||'')+(g.libelle?'\n'+g.libelle:''))+'">'+esc(g.indicateur)+(etat?' <small>statut actuel</small>':'')+'</span><span class="cp-i-n"><b>'+o.val(g.derniere,g.pts)+'</b></span><span class="cp-i-n cp-i-r">'+o.val(g.precedente,g.pts)+'</span><span class="cp-i-n'+cpITon(g)+'">'+(g.pct==null?'—':g.sens==='stable'?'sans changement':o.delta(g))+'</span></div>'}).join('');
+  var tete='<div class="cp-i-l cp-i-h" role="row"><span role="columnheader">Indicateur</span><span class="cp-i-n" role="columnheader">'+esc(o.cur!=null?gkey(o.cur):'Valeur')+'</span><span class="cp-i-n cp-i-r" role="columnheader">'+esc(o.ref!=null?gkey(o.ref):'—')+'</span><span class="cp-i-n" role="columnheader">Écart</span></div>';
+  var lignes=G.map(function(g){var etat=(g.k&&g.k.etat)||g.etat;return '<div class="cp-i-l" role="row"><span role="cell" title="'+esc((g.indicateur||'')+(g.libelle?'\n'+g.libelle:''))+'">'+esc(g.indicateur)+(etat?' <small>statut actuel</small>':'')+'</span><span class="cp-i-n" role="cell"><b>'+o.val(g.derniere,g.pts)+'</b></span><span class="cp-i-n cp-i-r" role="cell">'+o.val(g.precedente,g.pts)+'</span><span class="cp-i-n'+cpITon(g)+'" role="cell">'+(g.pct==null?'—':g.sens==='stable'?'sans changement':o.delta(g))+'</span></div>'}).join('');
   el.innerHTML='<button type="button" class="cp-i-bt" id="cp-i-bt" aria-expanded="'+CP_I_OUVERT+'" aria-controls="cp-i-corps"><span><b>'+esc(titre)+'</b><small>'+esc(resume)+'</small></span><em>'+(CP_I_OUVERT?'Masquer':'Afficher')+'</em></button>'
-    +'<div id="cp-i-corps"'+(CP_I_OUVERT?'':' hidden')+'><div class="cp-i-c"><small>'+o.sub+'</small>'+o.ctl+'</div>'+(o.warn?'<p class="gaps-note">'+o.warn+'</p>':'')+gel+'<div class="cp-i-t">'+tete+lignes+'</div></div>';
-  document.getElementById('cp-i-bt').onclick=function(){CP_I_OUVERT=!CP_I_OUVERT;renderGaps(filtered())};
-  var sel=document.getElementById('gapP');if(sel)sel.onchange=function(){GAP.p=sel.value;renderGaps(filtered())};
-  [].forEach.call(el.querySelectorAll('.gaps-ctl .seg button'),function(b){b.onclick=function(){GAP.mode=b.dataset.m;renderGaps(filtered())}})}
+    +'<div id="cp-i-corps"'+(CP_I_OUVERT?'':' hidden')+'><div class="cp-i-c"><small>'+o.sub+'</small>'+o.ctl+'</div>'+(o.warn?'<p class="gaps-note">'+o.warn+'</p>':'')+gel+'<div class="cp-i-t" role="table" aria-label="'+esc(titre)+'">'+tete+lignes+'</div></div>';
+  document.getElementById('cp-i-bt').onclick=function(){CP_I_OUVERT=!CP_I_OUVERT;cpIRendre('#cp-i-bt')};
+  var sel=document.getElementById('gapP');if(sel)sel.onchange=function(){GAP.p=sel.value;cpIRendre('#gapP')};
+  [].forEach.call(el.querySelectorAll('.gaps-ctl .seg button'),function(b){b.onclick=function(){GAP.mode=b.dataset.m;cpIRendre('.gaps-ctl .seg button[data-m="'+b.dataset.m+'"]')}})}
 // Gros fichiers : les lignes de DATA sont des cases déjà résumées, et `agg` les additionne au lieu de compter des lignes
 if(META.cube){agg=function(rows,col,a){a=(a||'').toLowerCase();
   if(a==='dernier'){var lp=null;rows.forEach(function(r){if(r.__p&&(lp==null||r.__p>lp))lp=r.__p});rows=rows.filter(function(r){return r.__p===lp});a='somme'}

@@ -221,26 +221,46 @@ def test_page_classique_garde_son_panneau(gen, tmp_path):
     assert "sv-grid" in g and "cp-i-bt" not in g
 
 
-def _mensuel(colonne):
-    return pd.DataFrame([{"mois": f"2025-{m:02d}", "zone": z, "patients": 10, colonne: 100 + m * 20} for m in range(1, 9) for z in "ABC"])
+def _mensuel(colonne, montee=True):
+    return pd.DataFrame([{"mois": f"2025-{m:02d}", "zone": z, "patients": 10, colonne: 100 + (m if montee else 9 - m) * 20} for m in range(1, 9) for z in "ABC"])
+
+
+def _ligne(g, nom):
+    return next(c for c in g.split('class="cp-i-l" role="row"') if nom in c)
 
 
 @sans_node
-def test_indicateurs_baisse_sans_sens_connu_reste_neutre(gen, tmp_path):
-    df = _mensuel("tonnage")
-    df["tonnage"] = df["tonnage"].iloc[::-1].values
-    g = executer(tmp_path, gen(df, composition=True)["html"])["gaps"]
-    assert "cp-i-mal" not in g and "cp-i-bon" not in g
+@pytest.mark.parametrize("colonne", ["tonnage", "taux_insatisfaction", "taux_non_conformite", "taux_conformite"])
+def test_indicateurs_sans_sens_connu_restent_neutres(gen, tmp_path, colonne):
+    """Le moteur ne sait pas si cette hausse est bonne : aucun vert ni rouge, surtout pas sur une dégradation."""
+    g = executer(tmp_path, gen(_mensuel(colonne), composition=True)["html"])["gaps"]
+    assert 'class="cp-i-l" role="row"' in g and "cp-i-mal" not in g and "cp-i-bon" not in g
 
 
 @sans_node
-def test_indicateurs_hausse_defavorable_en_rouge(gen, tmp_path):
-    from hermes_da.adapters import dashboard  # noqa: PLC0415
-    res = gen(J.JEUX["sante"](), composition=True)
-    html = res["html"].replace('"bon": 1', '"bon": -1')
-    assert dashboard._bon("délai de rendu") == -1
-    g = executer(tmp_path, html)["gaps"]
-    assert "cp-i-bon" in g or "cp-i-mal" in g
+def test_indicateurs_hausse_defavorable_rouge(gen, tmp_path):
+    g = executer(tmp_path, gen(_mensuel("deces"), composition=True)["html"])["gaps"]
+    assert "cp-i-mal" in _ligne(g, "eces") and "cp-i-bon" not in g
+
+
+@sans_node
+def test_indicateurs_baisse_favorable_verte(gen, tmp_path):
+    g = executer(tmp_path, gen(_mensuel("deces", montee=False), composition=True)["html"])["gaps"]
+    assert "cp-i-bon" in _ligne(g, "eces") and "cp-i-mal" not in g
+
+
+@sans_node
+def test_resume_replie_compte_comme_le_tableau(gen, tmp_path):
+    """Un écart affiché « −0,8 % » n'est pas compté comme stable."""
+    g = re.sub(r"\s", " ", executer(tmp_path, gen(J.JEUX["sante"](), composition=True)["html"])["gaps"])
+    affiches = re.findall(r'role="cell">(▲|▼) ', g)
+    assert affiches and f"{affiches.count('▲')} en hausse" in g and f"{affiches.count('▼')} en baisse" in g
+
+
+@sans_node
+def test_indicateurs_tableau_accessible(gen, tmp_path):
+    g = executer(tmp_path, gen(J.JEUX["sante"](), composition=True)["html"])["gaps"]
+    assert 'role="table"' in g and g.count('role="columnheader"') == 4 and g.count('role="cell"') >= 12
 
 
 @sans_node
