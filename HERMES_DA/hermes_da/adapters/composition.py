@@ -11,16 +11,16 @@ LARGEUR = 12
 
 # Ordre de lecture de chaque modèle : la question la plus utile d'abord. « a|b » : le premier disponible.
 MODELES = {
-    "pilotage": ["cible", "passage", "treemap|anneau", "courbe", "bulles", "multiples", "classement", "chaleur"],
-    "territoire": ["courbe", "classement", "chaleur", "pente", "passage", "treemap|anneau", "multiples", "bulles"],
-    "evolution": ["courbe", "chaleur", "multiples", "treemap|anneau", "classement", "histogramme"],
+    "pilotage": ["cible", "passage", "treemap|anneau", "courbe", "bulles", "comparee", "classement", "chaleur"],
+    "territoire": ["courbe", "classement", "chaleur", "pente", "passage", "treemap|anneau", "comparee", "bulles"],
+    "evolution": ["courbe", "chaleur", "comparee", "treemap|anneau", "classement", "histogramme"],
     "repartition": ["classement", "treemap|anneau", "bulles", "histogramme", "classement"],
 }
 # Largeur souhaitée : le temps se lit à l'horizontale, un classement tient en colonne.
-LARGEURS = {"courbe": 8, "chaleur": 8, "multiples": 6, "passage": 6, "treemap": 7, "bulles": 5, "classement": 4, "anneau": 4,
+LARGEURS = {"courbe": 8, "chaleur": 8, "comparee": 6, "passage": 6, "treemap": 7, "bulles": 5, "classement": 4, "anneau": 4,
             "pente": 4, "cible": 4, "histogramme": 4}
 # En dessous, la carte n'est plus lisible : elle passe à la ligne.
-MINIMA = {"courbe": 6, "chaleur": 7, "multiples": 5, "passage": 5, "treemap": 5}
+MINIMA = {"courbe": 6, "chaleur": 7, "comparee": 5, "passage": 5, "treemap": 5}
 MINIMUM = 4
 # Ces graphiques répondent à la même question sur une même mesure et une même dimension : un seul à la fois.
 MEME_REPONSE = {"classement", "anneau", "treemap"}

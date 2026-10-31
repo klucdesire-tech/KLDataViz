@@ -185,7 +185,7 @@ def test_note_sans_double_point(gen, tmp_path):
     df = pd.DataFrame([{"date": f"2025-{m:02d}-{j:02d}", "zone": z, "ventes": 10 + j} for m in range(1, 5) for j in (1, 8, 15, 22) for z in "AB"])
     res = gen(df, composition=True)["html"].replace("window.META=", "window.META_=").replace("var state={},gran=(META.gran||'M')", "var META=window.META_;META.gran='W';var state={},gran='W'")
     page = executer(tmp_path, res)["page"]
-    assert "Même échelle" in page and "sem." in page and ".." not in re.sub(r"<[^>]+>", " ", page)
+    assert "sem." in page and ".." not in re.sub(r"<[^>]+>", " ", page)
 
 
 @sans_node

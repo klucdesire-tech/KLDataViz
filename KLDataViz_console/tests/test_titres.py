@@ -47,6 +47,11 @@ def ia(libelles=None, kpis=None, capture=None):
     ("retards de livraison", "retards"),
     ("femmes en grossesse", "suivi"),
     ("quartier", "zone"),
+    ("première consultation prénatale", "cpn1"),
+    ("tests de dépistage VIH positifs", "HTS_TST_POS"),
+    ("unité organisationnelle", "unite_organisation"),
+    ("part de marché", "part_marche"),
+    ("dépenses par habitant", "depenses_par_habitant"),
 ])
 def test_nom_accepte(mod, texte, colonne):
     assert mod.T.valider(texte, colonne) == texte
@@ -61,6 +66,11 @@ def test_nom_accepte(mod, texte, colonne):
     ("<b>ventes</b>", "du code"),
     ("ventes totales de toutes les zones du pays", "trop long"),
     ("v", "trop court"),
+    ("ventes en forte croissance", "un sens"),
+    ("ventes en milliers", "une unité"),
+    ("ventes nettes", "une autre grandeur"),
+    ("part des ventes", "une autre grandeur"),
+    ("ventes par mois", "une autre grandeur"),
     (None, "pas un texte"),
 ])
 def test_nom_refuse(mod, texte, raison):
@@ -94,6 +104,19 @@ def test_reponse_illisible_sans_effet(mod):
     res = mod.gen(J.JEUX["ventes"](), llm=lambda m, n: "pas du JSON" if '"libelles"' in m[0]["content"]
                   else json.dumps({"kpis": [{"nom": "x", "agregation": "somme", "colonne": "marge"}], "graphiques": []}))
     assert res["spec"]["libelles"] == {}
+
+
+@pytest.mark.parametrize("reponse", ['{"libelles": ["recettes", "agence"]}', '{"libelles": "recettes"}', '["recettes"]', '{"libelles": null}'])
+def test_reponse_mal_formee_garde_la_page(mod, reponse):
+    res = mod.gen(J.JEUX["ventes"](), llm=lambda m, n: reponse if '"libelles"' in m[0]["content"]
+                  else json.dumps({"kpis": [{"nom": "x", "agregation": "somme", "colonne": "marge"}], "graphiques": []}))
+    assert 'id="compo"' in res["html"] and res["spec"]["libelles"] == {}
+
+
+def test_enregistrement_mal_forme_garde_la_page(mod):
+    df = J.JEUX["ventes"]()
+    spec = dict(mod.gen(df)["spec"], libelles=["recettes"])
+    assert 'id="compo"' in mod.gen(df, spec=spec)["html"]
 
 
 def test_sans_ia_aucun_nom(mod):
@@ -188,20 +211,50 @@ def test_courbe_montre_le_mois_incomplet_sans_le_cacher(mod, tmp_path):
 
 
 @sans_node
-def test_multiples_affichent_la_meme_periode_que_le_titre(mod, tmp_path):
+def test_comparee_affiche_la_meme_periode_que_le_titre(mod, tmp_path):
     jours = pd.date_range("2025-01-01", "2025-07-03").strftime("%Y-%m-%d")
     df = pd.DataFrame([{"date": j, "zone": z, "ventes": v} for j in jours for z, v in (("A", 10), ("B", 20), ("C", 30))])
     page = re.sub(r"\s", " ", executer(tmp_path, mod.gen(df)["html"])["page"])
     t = next(x for x in titres_de(page) if "pour C en juin 25" in x)
-    assert "(900)" in t and ">C</span>900<" in page and ">C</span>90<" not in page
+    assert "(900)" in t and re.search(r">900</tspan> C<", page) and not re.search(r">90</tspan> C<", page)
     assert "De janv. 25 à juin 25" in page and "juil. 25 est incomplet : non affiché" in page
 
 
 @sans_node
-def test_multiples_groupe_arrete_plus_tot_sans_valeur_affichee(mod, tmp_path):
+def test_comparee_groupe_arrete_plus_tot_sans_valeur_affichee(mod, tmp_path):
     df = pd.DataFrame([{"mois": f"2025-{m:02d}", "zone": z, "ventes": 10 * i} for m in range(1, 13) for i, z in enumerate("ABCD", 1) if not (z == "D" and m > 4)])
     page = re.sub(r"\s", " ", executer(tmp_path, mod.gen(df)["html"])["page"])
-    assert ">D</span>—<" in page
+    assert ">—</tspan> D<" in page
+
+
+@sans_node
+def test_comparee_axe_resserre_et_annonce(mod, tmp_path):
+    """Des valeurs de 7,2 à 7,7 ne doivent plus se lire comme cinq traits plats sur une échelle partant de 0."""
+    df = pd.DataFrame([{"mois": f"2025-{m:02d}", "region": z, "centre": c, "taux_humidite": v + m * .01} for m in range(1, 9) for z, v in (("A", 7.2), ("B", 7.4), ("C", 7.6)) for c in "xy"])
+    page = re.sub(r"\s", " ", executer(tmp_path, mod.gen(df)["html"])["page"])
+    assert "resserré pour lire les écarts" in page and "cp-mg" not in page and 'class="cp-cc"' in page
+
+
+@sans_node
+def test_comparee_periode_manquante_coupe_la_ligne(mod, tmp_path):
+    df = pd.DataFrame([{"mois": f"2025-{m:02d}", "zone": z, "ventes": 50 + m} for m in range(1, 9) for z in "ABC" if not (z == "B" and m == 4)])
+    chemins = re.findall(r'<path d="(M[^"]+)" fill="none" stroke="#[0-9A-F]{6}" stroke-width="2" stroke-linejoin', executer(tmp_path, mod.gen(df)["html"])["page"])
+    assert sorted(c.count("M") for c in chemins) == [1, 1, 2]
+
+
+@sans_node
+def test_comparee_couleur_gardee_apres_filtre(mod, tmp_path):
+    """La couleur suit le groupe, pas son rang : un filtre ne repeint pas ceux qui restent."""
+    df = pd.DataFrame([{"mois": f"2025-{m:02d}", "zone": z, "region": r, "ventes": 50 + m + i} for m in range(1, 9) for i, (z, r) in enumerate((("A", "N"), ("B", "S"), ("C", "S"), ("D", "S")))])
+    s = executer(tmp_path, mod.gen(df)["html"], {"region": "S"})
+    couleur = lambda p, g: re.search(r'fill="(#[0-9A-F]{6})"/><text[^>]*><tspan[^>]*>[^<]*</tspan> ' + g + "<", p).group(1)  # noqa: E731
+    assert couleur(s["page"], "C") == couleur(s["filtre"], "C") and couleur(s["page"], "D") == couleur(s["filtre"], "D")
+
+
+@sans_node
+def test_comparee_annonce_le_groupe_ecarte(mod, tmp_path):
+    df = pd.DataFrame([{"mois": f"2025-{m:02d}", "zone": z, "ventes": 50 + m} for m in range(1, 9) for z in "ABCD" if z != "D" or m == 8])
+    assert "Trop peu de périodes pour : D." in re.sub(r"\s", " ", executer(tmp_path, mod.gen(df)["html"])["page"])
 
 
 @sans_node
@@ -240,6 +293,21 @@ def test_passage_annonce_le_vrai_total(mod, tmp_path):
                        for p in ("A", "B", "C") + (("Nouveau",) if a == 2025 else ())])
     t = next(x for x in titres_de(executer(tmp_path, mod.gen(df)["html"])["page"]) if "principal écart" in x)
     assert "en hausse de 33,3 %" in t and "pour Nouveau (+1 200)" in t
+
+
+@sans_node
+def test_objectif_plafond_jamais_dit_atteint(mod, tmp_path):
+    """12 jours pour un plafond de 10 : le moteur ne connaît pas le sens de l'objectif, il constate sans juger."""
+    df = pd.DataFrame([{"mois": f"2025-{m:02d}", "zone": z, "delai": 12, "objectif_delai": 10} for m in range(1, 8) for z in "ABCD"])
+    t = re.sub(r"\s", " ", executer(tmp_path, mod.gen(df)["html"])["page"])
+    assert "atteign" not in t and "objectif atteint" not in t and "4 sur 4 à l'objectif ou au-dessus" in t.replace("&#39;", "'")
+
+
+@sans_node
+def test_titre_ne_nomme_pas_un_groupe_absent_du_graphique(mod, tmp_path):
+    df = pd.DataFrame([{"mois": f"2025-{m:02d}", "zone": z, "ventes": 10 * (i + 1)} for m in range(1, 13) for i, z in enumerate("ABC")] + [{"mois": "2025-12", "zone": "Nouveau", "ventes": 999}])
+    page = re.sub(r"\s", " ", executer(tmp_path, mod.gen(df)["html"])["page"])
+    assert "Ventes : valeur la plus haute pour C en déc. 25 (30)" in titres_de(page) and "Trop peu de périodes pour : Nouveau." in page
 
 
 @sans_node

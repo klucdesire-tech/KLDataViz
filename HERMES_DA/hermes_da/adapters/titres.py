@@ -22,13 +22,17 @@ FORMULES = {
     "passage": "{mesure} : {evolution} entre {annee_a} et {annee_b}, principal écart pour {premier} ({ecart})",
     "cible": "{mesure} : {bilan}, ensemble à {taux}",
     "bulles": "{mesure} et {mesure_y} {lien}",
-    "multiples": "{mesure} : valeur la plus haute pour {premier} en {periode} ({valeur})",
+    "comparee": "{mesure} : valeur la plus haute pour {premier} en {periode} ({valeur})",
     "histogramme": "{mesure} : valeurs les plus fréquentes de {de} à {a} ({part})",
 }
-CIBLE_SEULE = "{mesure} : {taux} de l'objectif réalisé"
+CIBLE_SEULE = "{mesure} : {taux} de l'objectif"
 
-# Un nom ne porte ni sens ni jugement. Les mots de la colonne elle-même restent permis (une colonne « retards »).
-INTERDITS = re.compile(r"\b(?:hauss|baiss|progress|recul|augment|diminu|chut|record|meilleur|pire|excellent|inquiet|alarm|critiq|tres\b|trop\b)")
+# Le nom devient le sujet du titre : ni sens, ni jugement, ni unité. Les mots de la colonne restent permis (« retards », « part_marche »).
+INTERDITS = re.compile(
+    r"\b(?:hauss|baiss|progress|recul|augment|diminu|chut|croiss|decroiss|bond|grimp|flamb|record|meilleur|pire|mauvais|bon\b|bonne"
+    r"|forts?\b|fortes?\b|faibles?\b|nets?\b|nettes?\b|largement|excellent|inquiet|alarm|critiq|tres\b|trop\b|peu\b|plus\b|moins\b"
+    r"|double|triple|fois\b|environ|presque|moitie|tiers\b|quarts?\b|demi|dizaine|douzaine|centaine|millier|mille\b|million|milliard"
+    r"|pourcent|parts?\b|par\b)")
 
 SYSTEM = """Tu es Adifa’, analyste de données. Tu reçois des noms de colonnes d'un fichier. Pour chacune, donne le nom qu'un analyste écrirait dans le titre d'un graphique.
 Réponds en JSON strict, sans aucun texte autour : {"libelles":{"nom_de_colonne":"nom clair"}}.
@@ -76,24 +80,29 @@ def _lire(brut):
     return json.loads(brut[debut:fin + 1], strict=False) if 0 <= debut < fin else {}
 
 
+def _valides(libelles, colonnes):
+    if not isinstance(libelles, dict):
+        return {}
+    noms = {str(c): valider(libelles.get(str(c)), c) for c in colonnes}
+    return {k: v for k, v in noms.items() if v}
+
+
 def demander(plan, llm):
     """Les noms métier valides, par colonne. Sans IA ou en cas d'échec : rien, et les titres gardent les noms du fichier."""
     colonnes = _colonnes(plan)
     if not llm or not colonnes:
         return {}
     try:
-        recu = (_lire(llm([{"role": "system", "content": SYSTEM},
-                           {"role": "user", "content": json.dumps([str(c) for c in colonnes], ensure_ascii=False)}], MAX_JETONS)) or {}).get("libelles") or {}
+        recu = _lire(llm([{"role": "system", "content": SYSTEM},
+                          {"role": "user", "content": json.dumps([str(c) for c in colonnes], ensure_ascii=False)}], MAX_JETONS))
     except Exception:  # noqa: BLE001 - un nom ne doit jamais empêcher la page de se construire
         return {}
-    valides = {str(c): valider(recu.get(str(c)), c) for c in colonnes}
-    return {k: v for k, v in valides.items() if v}
+    return _valides(recu.get("libelles") if isinstance(recu, dict) else None, colonnes)
 
 
 def appliquer(plan, libelles):
     """Pose les formules sur les cartes et les noms sur le plan, revalidés : ils reviennent aussi d'un tableau enregistré."""
     for c in _cartes(plan):
         c["formule"] = formule(c)
-    valides = {str(c): valider((libelles or {}).get(str(c)), c) for c in _colonnes(plan)}
-    plan["libelles"] = {k: v for k, v in valides.items() if v}
+    plan["libelles"] = _valides(libelles, _colonnes(plan))
     return plan
