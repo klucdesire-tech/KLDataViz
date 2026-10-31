@@ -31,6 +31,12 @@ def run(env, db, jobs) -> dict:
                 "errors": [f"module modeling introuvable : {e}"]}
 
     stats = bivariate_stats(df)
+    try:
+        import inferential as _inf
+        inference = _inf.analyse(df)
+    except Exception as e:  # noqa: BLE001
+        inference = {"correlations": [], "associations": [], "comparaisons": [],
+                     "resume": "", "limitations": [f"analyse inférentielle indisponible : {e}"]}
 
     analysis_job_id = new_job_id("ANA")
     numeric = df.select_dtypes(include=["number"]).columns.tolist()
@@ -42,11 +48,12 @@ def run(env, db, jobs) -> dict:
 
     db.insert_json("analysis_results", {
         "analysis_result_id": new_job_id("RES"), "analysis_job_id": analysis_job_id,
-        "statistics": stats,
+        "statistics": dict(stats, inference=inference),
         "interpretation": (f"{len(stats.get('correlations', []))} corrélation(s), "
                            f"{len(stats.get('cramer', []))} association(s) de Cramér, "
-                           f"{len(stats.get('groupes', []))} comparaison(s) de moyennes."),
-        "limitations": ["Analyse bivariée descriptive uniquement — pas d'inférence causale."],
+                           f"{len(stats.get('groupes', []))} comparaison(s) de moyennes. "
+                           f"Inférentiel : {inference.get('resume', '')}"),
+        "limitations": ["Analyse descriptive + inférentielle : une liaison significative n'est pas une causalité."],
     }, jsonb_fields=("statistics", "limitations"))
 
     artifacts.write_contract(env.job_id, "agent05_stats",
@@ -59,6 +66,7 @@ def run(env, db, jobs) -> dict:
             "correlations": len(stats.get("correlations", [])),
             "cramer": len(stats.get("cramer", [])),
             "groupes": len(stats.get("groupes", [])),
+            "inference": {k: len(inference.get(k) or []) for k in ("correlations", "associations", "comparaisons")},
         },
         "warnings": [],
         "errors": [],

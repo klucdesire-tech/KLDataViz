@@ -500,6 +500,18 @@ tr.versions td{background:var(--surface-2);font-size:13px}
         <div><div class="toolbar" style="margin-bottom:10px"><div class="label">Graphiques</div><span class="aibadge" id="hermesBadge" style="margin-left:10px"></span><span class="spacer"></span><button class="btn ghost sm" id="moreCharts" hidden></button></div>
           <p class="sub" id="hermesSynth" hidden style="margin:-2px 0 10px"></p>
           <div class="charts" id="charts"></div></div>
+        <div class="card" id="predCard" hidden style="margin:4px 0 16px">
+          <div class="toolbar" style="margin-bottom:6px"><div class="label">Analyse prédictive</div><span class="spacer"></span><span class="aibadge">Inférence · Prédiction</span></div>
+          <p class="sub" style="margin:0 0 10px">Expliquer une valeur, prévoir un Oui/Non, ou projeter une tendance mensuelle. Les régressions sont validées sur un échantillon tenu à part ; les prévisions sont rétro-testées sur les dernières périodes.</p>
+          <div class="form" style="margin:0">
+            <label class="field" for="predCible">Colonne à expliquer / prévoir<select id="predCible"><option value="">Choisir…</option></select></label>
+            <label class="field" for="predPeriode">Période (prévision)<select id="predPeriode"><option value="">— aucune —</option></select></label>
+            <label class="field" for="predHorizon">Horizon<select id="predHorizon"><option value="3">3 mois</option><option value="6" selected>6 mois</option><option value="12">12 mois</option></select></label>
+            <label class="field" for="predValeur" id="predValeurWrap" hidden>Valeur à compter<select id="predValeur"><option value="OUI">Oui</option><option value="NON">Non</option></select></label>
+            <button class="btn primary" type="button" id="predRun">Lancer</button>
+          </div>
+          <div id="predOut" style="margin-top:14px"></div>
+        </div>
         <div id="details" style="display:grid;gap:12px"></div>
         <div class="actions"><button class="btn primary" id="toShare">Exporter et partager<svg class="i" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button></div>
       </section>
@@ -764,6 +776,7 @@ async function jparse(r){
   catch(e){return {error:'Connexion interrompue : '+e}}
 }
 const CLOUD=!!(window.KLDV&&window.KLDV.cloud);let sb=null;
+if(!CLOUD&&document.getElementById('predCard'))document.getElementById('predCard').hidden=false;   // local : pas de rôle admin
 async function authHeaders(){if(!CLOUD||!sb)return {};const {data}=await sb.auth.getSession();const t=data.session?.access_token;return t?{Authorization:'Bearer '+t}:{}}
 // Réponse de la passerelle d'hébergement (page HTML 502/503/504) : l'application redémarre et
 // n'a pas traité la requête, on peut donc la renvoyer sans risque de la faire deux fois.
@@ -979,7 +992,7 @@ async function startRun(path,name,size,opts={}){
   const a=await api('/api/analyze',{file_path:path});
   if(a.error){set(0,'err',a.error);$('#runErr').hidden=false;return}
   set(0,'done',`${nf(a.rows)} lignes, ${a.columns} colonnes, ${a.size_kb?dec(a.size_kb)+' Ko':'source en ligne'}`,secs(t0));prog(45);
-  state.original=a;state.analysis=a;
+  state.original=a;state.analysis=a;predLoad();
   if(!opts.fromRegistry)autoRegister(path,name);  // en tâche de fond, sans retarder l'analyse
   t0=performance.now();set(1,'doing');
   const c=await api('/api/clean',{file_path:path});
@@ -1316,6 +1329,58 @@ function corrDetail(x){
 }
 $('#issues').addEventListener('click',e=>{const b=e.target.closest('[data-acc]');if(!b)return;const x=issuesOf().find(i=>i.id===b.dataset.acc);if(!x)return;const on=isOn(x);idsOf(x).forEach(id=>on?state.accept.delete(id):state.accept.add(id));renderVerify()});
 $('#toggleAll').onclick=()=>{const items=issuesOf();state.accept=items.every(isOn)?new Set():new Set(items.flatMap(idsOf));renderVerify()};
+// --- Analyse prédictive : sélecteurs remplis après l'analyse, modèle lancé à la demande
+async function predLoad(){
+  if($('#predCard').hidden)return;   // carte réservée aux administrateurs : pas d'appel inutile
+  const sel=$('#predCible'),per=$('#predPeriode');
+  if(!sel||!state.path)return;
+  sel.innerHTML='<option value="">Choisir…</option>';per.innerHTML='<option value="">— aucune —</option>';
+  try{
+    const c=await api('/api/predictive',{file_path:state.path});
+    if(!c||c.error)return;
+    state.predCols=c;
+    (c.numeriques||[]).forEach(x=>sel.insertAdjacentHTML('beforeend','<option value="'+esc(x)+'">'+esc(x)+' (nombre)</option>'));
+    (c.binaires||[]).forEach(x=>sel.insertAdjacentHTML('beforeend','<option value="'+esc(x)+'">'+esc(x)+' (Oui/Non)</option>'));
+    (c.periodes||[]).forEach(x=>per.insertAdjacentHTML('beforeend','<option value="'+esc(x)+'">'+esc(x)+'</option>'));
+  }catch(e){}
+}
+function _predRow(label,val){return '<tr><td>'+esc(label)+'</td><td><b>'+esc(val==null?'—':String(val))+'</b></td></tr>'}
+async function predRun(){
+  const out=$('#predOut'),cible=$('#predCible').value,per=$('#predPeriode').value,h=+$('#predHorizon').value;
+  if(!cible){out.innerHTML='<p class="sub">Choisissez la colonne à expliquer ou à prévoir.</p>';return}
+  out.innerHTML='<p class="sub">Calcul en cours…</p>';
+  const v=$('#predValeurWrap').hidden?null:$('#predValeur').value;
+  const r=await api('/api/predictive',{file_path:state.path,cible:cible,periode:per||null,horizon:h,valeur_comptee:v});
+  const res=(r&&r.resultat)||null;
+  if(!res){out.innerHTML='<p class="sub">'+esc((r&&(r.error||(r.erreurs||[])[0]))||'Calcul impossible.')+'</p>';return}
+  if(res.type==='prevision'||res.previsions){
+    out.innerHTML='<div class="toolbar" style="margin:0 0 8px"><div class="label">Prévision · '+esc(res.modele||'')+'</div></div>'
+      +'<div class="tablewrap"><table><thead><tr><th>Période</th><th>Prévision</th><th>Intervalle 80 %</th></tr></thead><tbody>'
+      + (res.previsions||[]).map(p=>'<tr><td>'+esc(p.periode)+'</td><td><b>'+esc(nf(p.valeur))+'</b></td><td>'+esc(nf(p.bas))+' – '+esc(nf(p.haut))+'</td></tr>').join('')
+      +'</tbody></table></div><p class="sub">'+(res.saisonnalite?'Tendance + saisonnalité mensuelle':'Tendance linéaire')+' · pente '+esc(res.tendance_pente)
+      +' · '+esc(res.unite||res.agregation)
+      +' · fiabilité : '+esc(res.etat||'non évaluée')
+      +(res.validation&&res.validation.erreur_moyenne!=null?' · rétro-test sur '+esc(res.validation.periodes_testees)+' périodes (erreur moyenne '+esc(nf(res.validation.erreur_moyenne))+')':'')
+      +(res.mois_ecarte?' · dernier mois écarté (incomplet) : '+esc(res.mois_ecarte):'')+'</p>';
+    return;
+  }
+  const rows=[];
+  if(res.r2_test!=null)rows.push(_predRow('R² (test)',res.r2_test),_predRow('RMSE (test)',res.rmse_test));
+  if(res.auc_test!=null)rows.push(_predRow('AUC (test)',res.auc_test),_predRow('Exactitude (test)',res.exactitude_test));
+  const ETAT={insuffisant:'insuffisant — ne pas utiliser',indicatif:'indicatif — à confirmer',utilisable:'utilisable'};
+  rows.push(_predRow('Modèle',res.modele),_predRow('Fiabilité',ETAT[res.etat]||(res.fiable?'fiable':'non fiable')));
+  const mc=res.matrice_confusion;
+  const conf=mc?'<p class="sub">Matrice : '+esc(mc.vrais_positifs)+' vrais positifs · '+esc(mc.faux_positifs)+' faux positifs · '+esc(mc.faux_negatifs)+' faux négatifs · '+esc(mc.vrais_negatifs)+' vrais négatifs</p>':'';
+  const zt=(res.type==='logistique'&&res.vrais_positifs_test===0)?'<p class="sub" style="color:var(--bad)">Aucun vrai positif sur '+esc(res.positifs_test)+' : le modèle ne reconnaît aucun cas, ne pas l’utiliser.</p>':'';
+  const lg=res.type==='logistique';
+  out.innerHTML='<div class="tablewrap"><table><tbody>'+rows.join('')+'</tbody></table></div>'+conf+zt
+    +'<div class="toolbar" style="margin:12px 0 6px"><div class="label">Coefficients</div></div>'
+    +'<div class="tablewrap"><table><thead><tr><th>Variable</th><th>Coefficient</th><th>'+(lg?'Odds ratio':'p-value')+'</th></tr></thead><tbody>'
+    + (res.coefficients||[]).map(c=>'<tr><td>'+esc(c.variable)+'</td><td>'+esc(c.coef)+'</td><td>'+esc(lg?c.odds_ratio:c.p)+'</td></tr>').join('')
+    +'</tbody></table></div><p class="sub">'+esc((res.limitations||[]).join(' '))+'</p>';
+}
+$('#predRun').onclick=predRun;
+$('#predCible').onchange=()=>{const b=!!(state.predCols&&(state.predCols.binaires||[]).includes($('#predCible').value));$('#predValeurWrap').hidden=!b;};
 $('#skipClean').onclick=async()=>{
   if(state.applied){const a=await api('/api/analyze',{file_path:state.path});if(!a.error)state.original=a}
   state.analysis=state.original;state.applied=false;state.ai=null;state.structView=null;go(2)};
@@ -2145,7 +2210,7 @@ function renderMe(me){
   const p=me.plan,u=me.usage,trial=p.key==='essai'&&p.trial_end?`<span>Essai jusqu'au ${new Date(p.trial_end).toLocaleDateString('fr-FR',{day:'numeric',month:'long'})}</span>`
     :p.paid_until?(new Date(p.paid_until)>new Date()?`<span>Actif jusqu'au ${new Date(p.paid_until).toLocaleDateString('fr-FR',{day:'numeric',month:'long'})}</span>`:'<span>Abonnement terminé</span>'):'';
   $('#railfoot').innerHTML=`<div class="row"><span class="pill">${esc(p.label)}</span><span>${esc(ROLE[me.role]||'')}</span></div>${meter('Analyses',u.analyses,p.analyses)}${meter('Questions IA',u.ai,p.ai)}${trial}`;
-  $('#teamCard').hidden=me.role!=='owner';$('#adminCard').hidden=!me.is_admin;$('#adminLink').hidden=!me.is_admin;
+  $('#teamCard').hidden=me.role!=='owner';$('#adminCard').hidden=!me.is_admin;$('#adminLink').hidden=!me.is_admin;$('#predCard').hidden=!me.is_admin;
 }
 async function refreshMe(){if(!CLOUD||!state.me)return;const me=await fetch('/api/me',{headers:await authHeaders()}).then(r=>r.json()).catch(()=>null);if(me&&me.plan)renderMe(me)}
 function showDown(msg){
