@@ -424,3 +424,40 @@ def test_reserve_aux_administrateurs(monkeypatch):
     assert server._composition_active() is False
     monkeypatch.setattr(server.T, "current", lambda: type("C", (), {"is_admin": True})())
     assert server._composition_active() is True
+
+
+def _partiel(jours):
+    reset_app_modules()
+    sys.path.insert(0, os.path.join(APP, "..", "HERMES_DA"))
+    from hermes_da.adapters.dashboard import _partial_month  # noqa: PLC0415
+    return _partial_month(pd.Series(jours))
+
+
+@pytest.mark.parametrize("jour", ["01", "15"])
+def test_fichier_mensuel_n_a_pas_de_mois_incomplet(jour):
+    """Une date par mois : le dernier mois est complet, même daté du 1er."""
+    assert _partiel([f"2025-{m:02d}-{jour}" for m in range(1, 13)]) is None
+
+
+def test_arret_en_cours_de_mois_detecte():
+    jours = pd.date_range("2025-01-01", "2025-06-20").strftime("%Y-%m-%d").tolist()
+    assert _partiel(jours) == "2025-06"
+
+
+def test_arret_dans_les_derniers_jours_conserve_le_mois():
+    assert _partiel(pd.date_range("2025-01-01", "2025-06-28").strftime("%Y-%m-%d").tolist()) is None
+
+
+def test_saisie_hebdomadaire_arretee_tot_detectee():
+    assert _partiel(pd.date_range("2025-01-03", "2025-06-12", freq="7D").strftime("%Y-%m-%d").tolist()) == "2025-06"
+
+
+def test_un_seul_mois_sans_comparaison_reste_incomplet():
+    assert _partiel([f"2025-06-{j:02d}" for j in range(1, 11)]) == "2025-06"
+
+
+@sans_node
+def test_fichier_date_du_premier_garde_son_dernier_mois_dans_la_page(gen, tmp_path):
+    df = pd.DataFrame([{"date": f"2025-{m:02d}-01", "zone": z, "ventes": 100 + m * 10} for m in range(1, 13) for z in "ABC"])
+    page = re.sub(r"\s", " ", executer(tmp_path, gen(df, composition=True)["html"])["page"])
+    assert "est incomplet" not in page and "déc. 25" in page
