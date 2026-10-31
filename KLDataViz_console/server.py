@@ -1018,6 +1018,7 @@ def analyze(file_path):
         "correlations": [{"a": a, "b": b, "r": round(r, 3)} for a, b, r in corr_pairs],
         "anomalies": anomalies,
         "bivariate": bivariate_stats(df),
+        **_inference(df),
         "lignes_cumul": _cumul_rows(df),
         "charts": [] if _is_report(df) else _with_rule_readings([_infer_kind(c) for c in _auto_charts(df)]),
         "smart_charts": _with_rule_readings(_report_charts(df) if _is_report(df) else _smart_charts(df)),
@@ -1025,6 +1026,17 @@ def analyze(file_path):
         **({"feuille": {"lue": lu["feuille"], "autres": [n for n in lu["feuilles"] if n != lu["feuille"]]}}
            if lu.get("feuilles") else {}),
     }
+
+
+def _inference(df):
+    """Tests statistiques de la page d'analyse : même accès que l'analyse prédictive, jamais un obstacle à l'analyse."""
+    if _is_report(df) or not _predictif_actif():
+        return {}
+    try:
+        import inferential
+        return {"inference": inferential.analyse(df)}
+    except Exception:
+        return {}
 
 
 def _cell_safe(v):

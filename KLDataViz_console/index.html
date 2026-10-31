@@ -166,7 +166,7 @@ td.r,th.r{text-align:right}
 @media (max-width:900px){.charts{grid-template-columns:minmax(0,1fr)}}
 .cbox{position:relative;height:260px;margin-top:12px}
 .charts .card.wide{grid-column:1/-1}
-details.more{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:0 18px}
+details.more{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:0 18px;min-width:0}
 details.more summary{cursor:pointer;padding:14px 0;font-weight:600;font-size:14.5px}
 details.more[open] summary{border-bottom:1px solid var(--line);margin-bottom:8px}
 details.more>div{padding-bottom:14px}
@@ -1472,6 +1472,7 @@ function renderAnalyze(){
     const p=state.arch?.proposition||{};
     h+=`<details class="more"><summary>Structure utilisée</summary><div><p class="sub">Table <b>${esc(state.structView.table)}</b> jointe à ses tables de référence : ${nf(state.structView.lignes)} lignes, ${state.structView.colonnes} colonnes.</p>${(p.structure||[]).map(t=>`<div class="issue"><span class="sev info"></span><div><b>${esc(t.table)} <span class="tag type">${esc(t.role||'')}</span></b><span>${esc(t.description||'')}</span></div></div>`).join('')}</div></details>`;
   }
+  if(a.inference?.n_tests||a.inference?.n_structure)h+=inferenceBlock(a.inference);
   if(ns.length)h+=detailsBlock('Statistiques numériques',`<table><thead><tr><th>Variable</th><th class="r">Moyenne</th><th class="r">Écart-type</th><th class="r">Min</th><th class="r">Médiane</th><th class="r">Max</th><th class="r">Aberrantes</th></tr></thead><tbody>${ns.map(([k,v])=>`<tr><td>${esc(k)}</td><td class="r num">${f(v.mean)}</td><td class="r num">${f(v.std)}</td><td class="r num">${f(v.min)}</td><td class="r num">${f(v.median)}</td><td class="r num">${f(v.max)}</td><td class="r num">${v.outliers}</td></tr>`).join('')}</tbody></table>`);
   if((bv.correlations||[]).length)h+=detailsBlock('Corrélations',`<table><thead><tr><th>Variable A</th><th>Variable B</th><th class="r">r</th><th>Force</th></tr></thead><tbody>${bv.correlations.map(c=>`<tr><td>${esc(c.a)}</td><td>${esc(c.b)}</td><td class="r num">${c.r}</td><td>${esc(c.force||'')}</td></tr>`).join('')}</tbody></table>`);
   if((bv.cramer||[]).length)h+=detailsBlock('Associations entre catégories (V de Cramér)',`<table><thead><tr><th>Variable A</th><th>Variable B</th><th class="r">V</th></tr></thead><tbody>${bv.cramer.slice(0,15).map(c=>`<tr><td>${esc(c.a)}</td><td>${esc(c.b)}</td><td class="r num">${c.v}</td></tr>`).join('')}</tbody></table>`);
@@ -1480,6 +1481,28 @@ function renderAnalyze(){
   $('#details').innerHTML=h;
 }
 const detailsBlock=(t,html)=>`<details class="more"><summary>${t}</summary><div class="tablewrap">${html}</div></details>`;
+// Tests statistiques : chaque résultat dit en clair, la p corrigée à côté pour qui veut vérifier
+function inferenceBlock(inf){
+  const f=v=>v==null?'—':nf(+Number(v).toFixed(2)),
+    fp=p=>p==null?'—':p<0.001?'&lt; 0,001':nf(+Number(p).toFixed(3)),
+    ic=x=>x?`${f(x[0])} à ${f(x[1])}`:'—',
+    concl=x=>!x.significatif?'Peut venir du hasard':inf.lignes_dependantes||x.attendus_faibles?'À vérifier':x.force==='négligeable'?'Lien très faible':'Lien probable',
+    cell=x=>`<td${x.significatif?' style="font-weight:600"':' style="color:var(--muted)"'}>${concl(x)}</td>`,
+    titre=t=>`<p style="font-weight:600;margin:14px 0 6px">${t}</p>`,
+    garde=l=>(l||[]).filter(x=>!x.structurel),
+    cor=garde(inf.correlations),ass=garde(inf.associations),cmp=garde(inf.comparaisons),
+    struct=[...(inf.correlations||[]),...(inf.associations||[])].filter(x=>x.structurel).map(x=>`${x.a} et ${x.b}`).concat((inf.comparaisons||[]).filter(x=>x.structurel).map(x=>`${x.num} et ${x.cat}`));
+  let h=`<p class="sub">Ces tests disent si un écart vu dans vos données est assez net pour ne pas venir du hasard. La valeur p corrigée tient compte du nombre de tests faits : en dessous de ${nf(inf.alpha)}, le résultat est retenu.</p>`;
+  if(inf.lignes_dependantes)h+=`<p class="sub" style="color:var(--amber)">Ce fichier semble compter une ligne par groupe ou par période. Les lignes ne sont pas indépendantes : les résultats ci-dessous sont à vérifier sur les données détaillées.</p>`;
+  if(cor.length)h+=titre('Entre deux mesures')+`<table><thead><tr><th>Mesure A</th><th>Mesure B</th><th class="r">r</th><th class="r">Marge à 95 %</th><th class="r">p corrigée</th><th>Conclusion</th></tr></thead><tbody>${cor.map(c=>`<tr><td>${esc(c.a)}</td><td>${esc(c.b)}</td><td class="r num">${f(c.r)}</td><td class="r num" style="white-space:nowrap">${ic(c.ic95)}</td><td class="r num">${fp(c.p_ajuste)}</td>${cell(c)}</tr>`).join('')}</tbody></table>`;
+  if(ass.length)h+=titre('Entre deux catégories')+`<table><thead><tr><th>Catégorie A</th><th>Catégorie B</th><th class="r">V de Cramér</th><th>Test</th><th class="r">p corrigée</th><th>Conclusion</th></tr></thead><tbody>${ass.map(c=>`<tr><td>${esc(c.a)}</td><td>${esc(c.b)}</td><td class="r num">${f(c.v_cramer)}</td><td>${esc(c.test)}</td><td class="r num">${fp(c.p_ajuste)}</td>${cell(c)}</tr>`).join('')}</tbody></table>`;
+  if(cmp.length)h+=titre('Une mesure selon une catégorie')+`<table><thead><tr><th>Mesure</th><th>Selon</th><th>Plus haut, plus bas</th><th>Test</th><th class="r">Effet</th><th class="r">p corrigée</th><th>Conclusion</th></tr></thead><tbody>${cmp.map(c=>{
+    const g=[...c.groupes].sort((x,y)=>y.moyenne-x.moyenne),hi=g[0],lo=g[g.length-1];
+    return `<tr><td>${esc(c.num)}</td><td>${esc(c.cat)}</td><td>${esc(hi.label)} (${f(hi.moyenne)}), ${esc(lo.label)} (${f(lo.moyenne)})</td><td>${esc(c.test)}</td><td class="r num">${c.effet==null?'—':esc(c.effet_nom)+' '+f(Math.abs(c.effet))}</td><td class="r num">${fp(c.p_ajuste)}</td>${cell(c)}</tr>`}).join('')}</tbody></table>`;
+  if(struct.length)h+=titre('Liens qui viennent de la construction du fichier')+`<p class="sub">${struct.map(esc).join(' ; ')}. Une colonne découle de l'autre : ce n'est pas une découverte, ces liens ne comptent pas dans le résultat.</p>`;
+  h+=`<p class="sub" style="margin-top:12px">Un lien n'est pas une cause. ${(inf.limitations||[]).filter(l=>/^Échantillon|^Trop de colonnes/.test(l)).map(esc).join(' ')}</p>`;
+  return detailsBlock(`Tests statistiques : ${inf.n_significatifs} résultat${inf.n_significatifs>1?'s':''} significatif${inf.n_significatifs>1?'s':''} sur ${inf.n_tests} test${inf.n_tests>1?'s':''}`,h);
+}
 // Lecture chiffrée d'une comparaison de moyennes (sans IA) : groupe le plus haut / le plus bas, écart, effectifs fragiles
 function groupReading(g){
   const P=g.labels.map((l,i)=>({l,m:g.moyennes[i],n:(g.effectifs||[])[i]})).filter(x=>x.m!=null&&isFinite(x.m));
