@@ -29,7 +29,11 @@ CSS = """
 .cp-wf{flex:1;display:flex;gap:6px;align-items:stretch;min-height:220px}.cp-wc{position:relative;flex:1;min-width:0;border-bottom:2px solid #8497A8}.cp-wc i{position:absolute;left:8%;right:8%;border-radius:3px 3px 0 0}.cp-wc b{position:absolute;left:0;right:0;text-align:center;font-size:12px;font-weight:600;font-variant-numeric:tabular-nums}
 .cp-wn{display:flex;gap:6px;margin-top:5px}.cp-wn span{flex:1;min-width:0;text-align:center;font-size:11.5px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .cp-hi{display:flex;align-items:flex-end;gap:2px;height:170px;border-bottom:2px solid #8497A8}.cp-hi i{flex:1;background:#1565C0;border-radius:2px 2px 0 0;min-height:1px}.cp-hx{display:flex;justify-content:space-between;font-size:11.5px;color:var(--muted);margin-top:4px}
+.cp-i-bt{display:flex;width:100%;justify-content:space-between;align-items:center;gap:12px;border:0;background:none;padding:0;text-align:left;cursor:pointer;color:inherit;font:inherit}.cp-i-bt b{display:block;font-size:15px;font-weight:700}.cp-i-bt small{display:block;color:var(--muted);font-size:12.5px;margin-top:2px}.cp-i-bt em{flex:none;font-style:normal;font-size:13px;font-weight:600;color:var(--navy)}
+.cp-i-c{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:8px;margin:12px 0 6px}.cp-i-c small{color:var(--muted);font-size:12.5px}
+.cp-i-l{display:grid;grid-template-columns:minmax(0,1.8fr) minmax(0,.8fr) minmax(0,.8fr) minmax(0,1fr);gap:10px;align-items:center;padding:8px 0;border-top:1px solid var(--line);font-size:13.5px}.cp-i-h{border-top:0;padding:4px 0;font-size:12px;color:var(--muted)}.cp-i-l small{color:var(--muted);font-size:11.5px}.cp-i-n{text-align:right;font-variant-numeric:tabular-nums}.cp-i-n b{font-weight:600}.cp-i-bon{color:#0F6E56}.cp-i-mal{color:#A32D2D}
 @media (max-width:900px){#compo .cp-c{grid-column:1/-1!important}}
+@media (max-width:560px){.cp-i-l{grid-template-columns:minmax(0,1.5fr) minmax(0,.8fr) minmax(0,1fr)}.cp-i-r{display:none}}
 @media (max-width:560px){.cp-jl{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}.cp-jl>span{grid-column:1/-1}.cp-jh>span{display:none}}
 """
 
@@ -189,6 +193,21 @@ function renderCompo(rows){var el=document.getElementById('compo'),html='';CP_R=
   META.composition.lignes.forEach(function(l){l.forEach(function(c){try{html+=CP_DESSINS[c.type](c,rows)}catch(e){html+=cpCarte(c,cpTete(c.mesure),'',cpVide('Ce graphique n\'a pas pu être dessiné.'))}})});el.innerHTML=html;
   [].forEach.call(el.querySelectorAll('.seg button'),function(b){b.onclick=function(){gran=b.dataset.g;render()}});
   [].forEach.call(el.querySelectorAll('.cp-cc'),function(b){b.onpointermove=b.onpointerdown=function(e){cpSurvol(b,e)};b.onpointerleave=function(){b.querySelector('.cp-bulle').hidden=true;b.querySelector('.cp-ligne').style.display='none'}});return []}
+// ---- Indicateurs clés : tableau compact, replié tant qu'on ne le demande pas
+var CP_I_OUVERT=false;
+function cpITon(g){return g.bon!==-1||g.pct==null||g.sens==='stable'||Math.abs(g.pct)<1?'':g.pct>0?' cp-i-mal':' cp-i-bon'}
+function cpIRendre(cible){renderGaps(filtered());var e=document.querySelector(cible);if(e)e.focus()}
+function cpIndicateurs(el,o){var G=o.G,h=0,b=0,st=0,filtre=FCOLS.some(function(c){return state[c]!=null&&state[c]!=='all'});
+  G.forEach(function(g){if(g.pct==null)return;if(g.sens==='stable'||!(Math.round(Math.abs(g.pct)*10)/10))st++;else if(g.pct>0)h++;else b++});
+  var bilan=[h?h+' en hausse':'',b?b+' en baisse':'',st?st+' stable'+(st>1?'s':''):''].filter(Boolean).join(', '),resume=G.length+' indicateur'+(G.length>1?'s':'')+(o.cur!=null?' · '+gkey(o.cur):'')+(bilan?' · '+bilan:'');
+  var titre='Indicateurs clés de suivi'+(o.D?' · '+o.D.nom:''),gel=!o.K.live&&filtre?'<p class="cp-note">Ce panneau porte sur tout le fichier : il ne suit pas les filtres sur un fichier de cette taille.</p>':'';
+  var tete='<div class="cp-i-l cp-i-h" role="row"><span role="columnheader">Indicateur</span><span class="cp-i-n" role="columnheader">'+esc(o.cur!=null?gkey(o.cur):'Valeur')+'</span><span class="cp-i-n cp-i-r" role="columnheader">'+esc(o.ref!=null?gkey(o.ref):'—')+'</span><span class="cp-i-n" role="columnheader">Écart</span></div>';
+  var lignes=G.map(function(g){var etat=(g.k&&g.k.etat)||g.etat;return '<div class="cp-i-l" role="row"><span role="cell" title="'+esc((g.indicateur||'')+(g.libelle?'\n'+g.libelle:''))+'">'+esc(g.indicateur)+(etat?' <small>statut actuel</small>':'')+'</span><span class="cp-i-n" role="cell"><b>'+o.val(g.derniere,g.pts)+'</b></span><span class="cp-i-n cp-i-r" role="cell">'+o.val(g.precedente,g.pts)+'</span><span class="cp-i-n'+cpITon(g)+'" role="cell">'+(g.pct==null?'—':g.sens==='stable'?'sans changement':o.delta(g))+'</span></div>'}).join('');
+  el.innerHTML='<button type="button" class="cp-i-bt" id="cp-i-bt" aria-expanded="'+CP_I_OUVERT+'" aria-controls="cp-i-corps"><span><b>'+esc(titre)+'</b><small>'+esc(resume)+'</small></span><em>'+(CP_I_OUVERT?'Masquer':'Afficher')+'</em></button>'
+    +'<div id="cp-i-corps"'+(CP_I_OUVERT?'':' hidden')+'><div class="cp-i-c"><small>'+o.sub+'</small>'+o.ctl+'</div>'+(o.warn?'<p class="gaps-note">'+o.warn+'</p>':'')+gel+'<div class="cp-i-t" role="table" aria-label="'+esc(titre)+'">'+tete+lignes+'</div></div>';
+  document.getElementById('cp-i-bt').onclick=function(){CP_I_OUVERT=!CP_I_OUVERT;cpIRendre('#cp-i-bt')};
+  var sel=document.getElementById('gapP');if(sel)sel.onchange=function(){GAP.p=sel.value;cpIRendre('#gapP')};
+  [].forEach.call(el.querySelectorAll('.gaps-ctl .seg button'),function(b){b.onclick=function(){GAP.mode=b.dataset.m;cpIRendre('.gaps-ctl .seg button[data-m="'+b.dataset.m+'"]')}})}
 // Gros fichiers : les lignes de DATA sont des cases déjà résumées, et `agg` les additionne au lieu de compter des lignes
 if(META.cube){agg=function(rows,col,a){a=(a||'').toLowerCase();
   if(a==='dernier'){var lp=null;rows.forEach(function(r){if(r.__p&&(lp==null||r.__p>lp))lp=r.__p});rows=rows.filter(function(r){return r.__p===lp});a='somme'}
