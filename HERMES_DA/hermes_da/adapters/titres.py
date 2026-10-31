@@ -32,7 +32,9 @@ INTERDITS = re.compile(
     r"\b(?:hauss|baiss|progress|recul|augment|diminu|chut|croiss|decroiss|bond|grimp|flamb|record|meilleur|pire|mauvais|bon\b|bonne"
     r"|forts?\b|fortes?\b|faibles?\b|nets?\b|nettes?\b|largement|excellent|inquiet|alarm|critiq|tres\b|trop\b|peu\b|plus\b|moins\b"
     r"|double|triple|fois\b|environ|presque|moitie|tiers\b|quarts?\b|demi|dizaine|douzaine|centaine|millier|mille\b|million|milliard"
-    r"|pourcent|parts?\b|par\b)")
+    r"|pourcent|parts?\b|par\b"
+    r"|kg\b|kilos?\b|grammes?\b|tonnes?\b|litres?\b|m[eè]tres?\b|km\b|hectares?\b|euros?\b|dollars?\b|francs?\b|fcfa\b|cfa\b|xof\b"
+    r"|heures?\b|minutes?\b|secondes?\b|jours?\b|semaines?\b|mois\b|annees?\b|degres?\b|celsius\b|kwh\b|watts?\b|points?\b)")
 
 SYSTEM = """Tu es Adifa’, analyste de données. Tu reçois des noms de colonnes d'un fichier. Pour chacune, donne le nom qu'un analyste écrirait dans le titre d'un graphique.
 Réponds en JSON strict, sans aucun texte autour : {"libelles":{"nom_de_colonne":"nom clair"}}.
@@ -40,7 +42,7 @@ Règles :
 - Un groupe nominal court, six mots au plus, sans article, sans verbe, sans ponctuation.
 - En minuscules, sauf les sigles et les noms propres.
 - Développe un sigle seulement si son sens est certain dans ce domaine ; sinon, garde-le tel quel.
-- Aucun chiffre, aucun jugement, aucune idée d'évolution.
+- Aucun chiffre, aucune unité, aucun jugement, aucune idée d'évolution : le fichier ne les garantit pas.
 - Si le nom est déjà clair, renvoie-le tel quel."""
 
 
@@ -67,7 +69,7 @@ def valider(libelle, colonne):
     t = " ".join(libelle.split())
     mots = re.findall(r"\w+", _plat(t))
     connus = set(re.findall(r"[^\W_]+", _plat(str(colonne))))
-    if not 2 <= len(t) <= MAX_LIBELLE or len(t.split()) > MAX_MOTS or re.search(r"[{}<>\"«»:;!?.,/()=+%]", t):
+    if not 2 <= len(t) <= MAX_LIBELLE or len(t.split()) > MAX_MOTS or re.search(r"[{}<>\"«»:;!?.,/()=+%°]", t):
         return None
     reste = " ".join(m for m in mots if m not in connus)
     if INTERDITS.search(reste) or any(unicodedata.category(x).startswith("N") for x in reste):

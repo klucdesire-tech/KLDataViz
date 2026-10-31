@@ -52,6 +52,7 @@ def ia(libelles=None, kpis=None, capture=None):
     ("unité organisationnelle", "unite_organisation"),
     ("part de marché", "part_marche"),
     ("dépenses par habitant", "depenses_par_habitant"),
+    ("poids en kg", "poids_kg"),
 ])
 def test_nom_accepte(mod, texte, colonne):
     assert mod.T.valider(texte, colonne) == texte
@@ -67,7 +68,11 @@ def test_nom_accepte(mod, texte, colonne):
     ("ventes totales de toutes les zones du pays", "trop long"),
     ("v", "trop court"),
     ("ventes en forte croissance", "un sens"),
-    ("ventes en milliers", "une unité"),
+    ("ventes en milliers", "une quantité"),
+    ("ventes en tonnes", "une unité"),
+    ("ventes en fcfa", "une unité"),
+    ("ventes en heures", "une unité"),
+    ("ventes en °C", "une unité"),
     ("ventes nettes", "une autre grandeur"),
     ("part des ventes", "une autre grandeur"),
     ("ventes par mois", "une autre grandeur"),
@@ -233,6 +238,18 @@ def test_comparee_axe_resserre_et_annonce(mod, tmp_path):
     df = pd.DataFrame([{"mois": f"2025-{m:02d}", "region": z, "centre": c, "taux_humidite": v + m * .01} for m in range(1, 9) for z, v in (("A", 7.2), ("B", 7.4), ("C", 7.6)) for c in "xy"])
     page = re.sub(r"\s", " ", executer(tmp_path, mod.gen(df)["html"])["page"])
     assert "resserré pour lire les écarts" in page and "cp-mg" not in page and 'class="cp-cc"' in page
+
+
+@sans_node
+def test_comparee_axe_negatif_resserre_annonce(mod, tmp_path):
+    df = pd.DataFrame([{"mois": f"2025-{m:02d}", "zone": z, "centre": c, "taux_ecart": v + m * .1} for m in range(1, 9) for z, v in (("A", -5.0), ("B", -4.0), ("C", -3.0)) for c in "xy"])
+    assert "resserré pour lire les écarts" in re.sub(r"\s", " ", executer(tmp_path, mod.gen(df)["html"])["page"])
+
+
+@sans_node
+def test_comparee_sans_note_d_axe_fausse_sur_de_tres_petites_valeurs(mod, tmp_path):
+    df = pd.DataFrame([{"mois": f"2025-{m:02d}", "zone": z, "centre": c, "taux_ecart": .0012 + m * .00001 + i * .0001} for m in range(1, 9) for i, z in enumerate("ABC") for c in "xy"])
+    assert "Axe de 0 à 0" not in re.sub(r"\s", " ", executer(tmp_path, mod.gen(df)["html"])["page"])
 
 
 @sans_node
