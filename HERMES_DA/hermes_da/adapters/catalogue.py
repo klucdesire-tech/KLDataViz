@@ -16,12 +16,12 @@ MIN_VALEURS_HISTO = 20
 MIN_DISTINCT_HISTO = 8
 MIN_POINTS_BULLES = 5
 MAX_POINTS_BULLES = 60
-MAX_MULTIPLES = 6
+MAX_COMPAREES = 6  # au-delà, les courbes superposées ne se suivent plus
 RATIO_OBJECTIF = (0.5, 2.0)
 
 GRAPHIQUES = {
     "courbe": "Comment ça évolue dans le temps ?",
-    "multiples": "L'évolution est-elle la même partout ?",
+    "comparee": "L'évolution est-elle la même partout ?",
     "chaleur": "Quand et où se concentrent les valeurs ?",
     "classement": "Qui arrive en tête, qui ferme la marche ?",
     "anneau": "Comment le total se partage-t-il entre peu de groupes ?",
@@ -91,8 +91,8 @@ def proposer(fiche, df):
         for g, n in groupes:
             if per and per["valeurs"] >= MIN_COLONNES_CHALEUR and 2 <= n <= MAX_LIGNES_CHALEUR and nature != "stock":
                 sortie.append(_prop("chaleur", c, nature, periode=per["colonne"], dimension=g))
-            if per and per["valeurs"] >= MIN_POINTS_COURBE and 2 <= n <= MAX_MULTIPLES:
-                sortie.append(_prop("multiples", c, nature, periode=per["colonne"], dimension=g))
+            if per and per["valeurs"] >= MIN_POINTS_COURBE and 2 <= n <= MAX_COMPAREES:
+                sortie.append(_prop("comparee", c, nature, periode=per["colonne"], dimension=g))
             if 3 <= n <= MAX_CLASSEMENT:
                 sortie.append(_prop("classement", c, nature, dimension=g))
             if per and per["comparable_n1"] and 2 <= n <= MAX_PENTES and nature != "stock":

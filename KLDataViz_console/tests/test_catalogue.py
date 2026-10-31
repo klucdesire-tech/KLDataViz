@@ -11,13 +11,13 @@ from _harness import APP, reset_app_modules
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import jeux_reference as J  # noqa: E402
 
-PRESENTS = {"sante": {"courbe", "chaleur", "multiples", "classement", "anneau", "treemap", "pente", "passage", "bulles"},
+PRESENTS = {"sante": {"courbe", "chaleur", "comparee", "classement", "anneau", "treemap", "pente", "passage", "bulles"},
             "ventes": {"courbe", "chaleur", "classement", "anneau", "pente", "passage", "cible", "bulles"},
-            "dhis2_long": {"courbe", "chaleur", "multiples"},
+            "dhis2_long": {"courbe", "chaleur", "comparee"},
             "simple": {"treemap"}, "sans_dates": {"classement", "histogramme"}}
 ABSENTS = {"sante": {"cible"}, "dhis2_long": {"cible", "pente", "passage"},
-           "simple": {"courbe", "chaleur", "cible", "pente", "passage", "multiples", "bulles", "histogramme"},
-           "sans_dates": {"courbe", "chaleur", "cible", "pente", "passage", "multiples", "anneau", "treemap"}}
+           "simple": {"courbe", "chaleur", "cible", "pente", "passage", "comparee", "bulles", "histogramme"},
+           "sans_dates": {"courbe", "chaleur", "cible", "pente", "passage", "comparee", "anneau", "treemap"}}
 
 
 @pytest.fixture

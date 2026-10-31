@@ -1463,7 +1463,7 @@ def generate_dashboard(df, objective: str = "", job_id: str | None = None, llm=N
         kpis.append(kpi)
 
     if not kpis and ia:  # aucune proposition de l'IA n'est calculable : repli par règles
-        return generate_dashboard(df, objective, job_id, llm=False)
+        return generate_dashboard(df, objective, job_id, llm=False, composition=composition or bool(spec.get("composition")))
 
     charts_count = 0
     for g in spec.get("graphiques", [])[:8]:
@@ -1631,14 +1631,21 @@ def generate_dashboard(df, objective: str = "", job_id: str | None = None, llm=N
     data_json = json.dumps(sample.to_dict(orient="records"), ensure_ascii=False, default=str)
     # Un échantillon fausserait les totaux recalculés dans la page, et le dictionnaire pilote ses propres calculs.
     if (composition or spec.get("composition")) and len(sample) == len(data) and not meta.get("indicateurs"):
+        libelles = spec.get("libelles") or {}
         try:
-            from . import composition as compo, fiche as lecture
-            plan = compo.composer(lecture.lire_fiche(df_source), df)
+            from . import composition as compo, fiche as lecture, titres
+            # Adifa’ a classé ses KPI : le premier qui a un graphique devient la mesure vedette.
+            vedettes = [k.get("colonne") for k in spec.get("kpis") or [] if k.get("agregation") != "compte"] if ia else []
+            plan = compo.composer(lecture.lire_fiche(df_source), df, vedettes=vedettes)
+            if plan["cartes"] and ia and "libelles" not in spec:  # à l'actualisation, les noms enregistrés suffisent
+                libelles = titres.demander(plan, _resolve_llm(llm))
+            titres.appliquer(plan, libelles)
         except Exception:  # noqa: BLE001 - la page classique reste le repli, jamais une erreur pour l'utilisateur
             plan = {"cartes": 0}
         if plan["cartes"]:
             meta["composition"] = plan
-            spec = dict(spec, composition=True)
+            meta["partiel"] = _partial_month(period_series) if period_series is not None else None
+            spec = dict(spec, composition=True, libelles=libelles)
 
     html = _render_html(objective, data_json, kpi_defs, filter_cols, meta)
     path = None
