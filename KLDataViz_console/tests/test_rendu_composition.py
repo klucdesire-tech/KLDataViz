@@ -146,6 +146,50 @@ def test_peu_de_groupes_barres_jumelees(gen, tmp_path):
     assert "Par région" in page and "Chaque point" not in page
 
 
+def _jumelles(lignes):
+    return pd.DataFrame([{"mois": f"2025-{m:02d}", "region": r, "zone": z, "tonnage": t, "valeur": v} for m in range(1, 7) for r, z, t, v in lignes])
+
+
+@sans_node
+def test_filtre_laissant_deux_groupes_garde_ses_barres(gen, tmp_path):
+    df = _jumelles([("Nawa", "N", 900, 18000), ("Gôh", "N", 800, 15000), ("San-Pédro", "S", 700, 13500), ("Haut", "S", 650, 12000), ("Bas", "S", 500, 9000)])
+    s = executer(tmp_path, gen(df, composition=True)["html"], {"zone": "N"})
+    assert 'class="cp-ju"' in s["page"] and s["filtre"].count('class="cp-jl"') == 2
+
+
+@sans_node
+def test_barres_jumelees_avec_negatifs_reperent_le_zero(gen, tmp_path):
+    df = _jumelles([("Nawa", "N", 900, -18000), ("Gôh", "N", 800, 15000), ("San-Pédro", "S", -700, 13500), ("Haut", "S", 650, 12000), ("Bas", "S", 500, -9000)])
+    page = executer(tmp_path, gen(df, composition=True)["html"])["page"]
+    carte = page[page.index('class="cp-ju"'):]
+    assert carte.count('<u style="left:') >= 10
+
+
+@sans_node
+def test_borne_sur_la_grille_sans_pas_de_vide(gen, tmp_path):
+    df = pd.DataFrame([{"mois": f"2025-{m:02d}", "centre": f"C{i:02d}", "zone": "AB"[i % 2], "tonnage": 3000 + i * 66, "valeur": 9000 + i * 310} for m in range(1, 7) for i in range(14)])
+    page = re.sub(r"\s", " ", executer(tmp_path, gen(df, composition=True)["html"])["page"])
+    carte = page[page.index("Chaque point"):]
+    ticks = re.findall(r'y="\d+" text-anchor="(?:start|middle|end)" font-size="12" fill="#52667A">([^<]+)</text>', carte[:carte.index("</svg>")])
+    assert ticks and min(int(t.replace(" ", "")) for t in ticks if t.replace(" ", "").isdigit()) >= 18000
+
+
+@sans_node
+def test_graduations_sans_melange_d_unites(gen, tmp_path):
+    df = pd.DataFrame([{"mois": f"2025-{m:02d}", "zone": z, "ventes": 1000 + m * 1500 * (i + 1)} for m in range(1, 9) for i, z in enumerate("ABCD")])
+    page = re.sub(r"\s", " ", executer(tmp_path, gen(df, composition=True)["html"])["page"])
+    carte = page[page.index('class="cp-cc"'):page.index("</svg>", page.index('class="cp-cc"'))]
+    ticks = re.findall(r'text-anchor="end" font-size="12" fill="#52667A">([^<]+)</text>', carte)
+    chiffres = [t for t in ticks if re.match(r"^[\d ]+k?$", t) and t != "0"]
+    assert len({t.endswith("k") for t in chiffres}) == 1
+
+
+@sans_node
+def test_groupes_tous_egaux_le_disent(gen, tmp_path):
+    df = pd.DataFrame([{"mois": f"2025-{m:02d}", "centre": f"C{i:02d}", "tonnage": 500, "valeur": 9000} for m in range(1, 7) for i in range(14)])
+    assert "mêmes valeurs" in executer(tmp_path, gen(df, composition=True)["html"])["page"]
+
+
 @sans_node
 def test_beaucoup_de_groupes_nuage_gradue(gen, tmp_path):
     df = pd.DataFrame([{"mois": f"2025-{m:02d}", "centre": f"C{i:02d}", "zone": "AB"[i % 2], "tonnage": 500 + i * 13, "valeur": 9000 + i * 310} for m in range(1, 7) for i in range(14)])
