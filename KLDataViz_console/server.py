@@ -1176,6 +1176,13 @@ def _correspondance_pour(df, dico, ia=False):
         return None
 
 
+def _composition_active():
+    """Page composée selon les données : réservée aux administrateurs tant qu'elle n'est pas ouverte à tous."""
+    if os.environ.get("KLDV_COMPOSITION"):
+        return True
+    return bool(T.CLOUD and T.current().is_admin)
+
+
 def build_dashboard(df, spec=None, correspondance=None):  # pas de garde _lourd : l'appel à l'IA y bloquerait un jeton
     """AGT-11 sur un DataFrame. `spec` fournie (source connectée qu'on actualise) : mêmes indicateurs, sans IA.
     Avec un dictionnaire, la correspondance mémorisée pour cette structure de fichier pilote le tableau de bord."""
@@ -1197,7 +1204,8 @@ def build_dashboard(df, spec=None, correspondance=None):  # pas de garde _lourd 
     model = os.environ.get("KLDV_DASHBOARD_MODEL") or (cfg or {}).get("dashboard_model") or "deepseek-flash"
     llm = (lambda m, n: _llm_call(m, n, model=model, effort="high", timeout=120, attempts=1)
            or _llm_call(m, n, model=model, effort="low", timeout=90, attempts=1)) if cfg else None
-    return generate_dashboard(df, "Tableau de bord KLDataViz", llm=llm, dictionnaire=dico, correspondance=correspondance)
+    return generate_dashboard(df, "Tableau de bord KLDataViz", llm=llm, dictionnaire=dico, correspondance=correspondance,
+                              composition=_composition_active())
 
 
 def do_dashboard(file_path, name=None):

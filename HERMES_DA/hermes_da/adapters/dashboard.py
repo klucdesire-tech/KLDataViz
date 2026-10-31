@@ -21,6 +21,7 @@ from typing import Any
 
 from .. import artifacts, config
 from ..contracts import new_job_id
+from . import rendu_composition
 from .quality import _load_dataset
 
 SYSTEM = """Tu es le DATA VISUALIZATION & DASHBOARD AGENT d'Adifa’ (santé publique, BI).
@@ -931,7 +932,7 @@ body.embedded{min-height:0;overflow:hidden}html:has(body.embedded){overflow:hidd
 .dict-abs summary{cursor:pointer;font-weight:600;padding:6px 0;list-style-position:inside}
 .dict-abs ul{margin:6px 0 0;padding-left:18px;columns:2 320px;column-gap:24px}
 .dict-abs li{margin:2px 0;break-inside:avoid;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-</style></head><body>
+__COMPO_CSS__</style></head><body>
 <header class="top"><div class="title"><h1>Tableau de bord</h1><p id="objective"></p></div>
   <span class="chip" id="range" hidden><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg><span></span></span></header>
 <div class="filters" id="filters"></div>
@@ -939,7 +940,7 @@ body.embedded{min-height:0;overflow:hidden}html:has(body.embedded){overflow:hidd
 <section class="gaps card" id="gaps" hidden></section>
 <section class="row2" id="row2"></section>
 <section class="row3" id="row3"></section>
-<section class="rkp card" id="rank" hidden></section>
+__COMPO_HTML__<section class="rkp card" id="rank" hidden></section>
 <section class="dict card" id="dict" hidden></section>
 <script>
 window.DATA=__DATA__;
@@ -1315,9 +1316,10 @@ function renderRank(){var el=document.getElementById('rank'),I=(META.indicateurs
     var act=function(){if(!filtrable)return;state[d]=sel===e[i][0]?'all':e[i][0];buildFilters();render()};
     li.onclick=act;li.onkeydown=function(ev){if(ev.key==='Enter'||ev.key===' '){ev.preventDefault();act()}}});
   [].forEach.call(el.querySelectorAll('.rk-c'),function(b){b.onclick=function(){if(b.dataset.k!=null)RK.k=+b.dataset.k;else RK.d=+b.dataset.d;renderRank()}})}
+__COMPO_JS__
 function render(){charts.forEach(function(c){c.destroy()});charts=[];var rows=filtered();
   GOK=gransOK(rows);if(GOK.indexOf(gran)<0)gran=GOK.indexOf('M')>=0?'M':GOK[0];renderKpis(rows);renderGaps(rows);renderDict(rows);renderRank();
-  var todo=META.indicateurs?renderIndic(rows):renderMain(rows).concat(renderCards(rows));if(window.Chart)todo.forEach(function(f){f()})}
+  var todo=META.composition?renderCompo(rows):META.indicateurs?renderIndic(rows):renderMain(rows).concat(renderCards(rows));if(window.Chart)todo.forEach(function(f){f()})}
 document.getElementById('objective').textContent=window.OBJECTIVE;
 try{if(window.self!==window.top)document.body.classList.add('embedded')}catch(e){document.body.classList.add('embedded')}
 // Intégré : la page parente ajuste la hauteur du cadre au contenu (pas d'ascenseur interne)
@@ -1347,7 +1349,11 @@ def _render_html(objective: str, data_json: str, kpi_defs: list, filter_cols: li
             except Exception:
                 chartjs = ""
     meta_json = json.dumps(_json_safe(meta or {}), ensure_ascii=False).replace("</", "<\\/")
+    compose = bool((meta or {}).get("composition"))  # hors composition, la page reste exactement celle d'avant
     return (TEMPLATE
+            .replace("__COMPO_CSS__", rendu_composition.CSS if compose else "")
+            .replace("__COMPO_HTML__", rendu_composition.HTML if compose else "")
+            .replace("__COMPO_JS__", rendu_composition.JS if compose else "")
             .replace("__CHARTJS__", chartjs)
             .replace("__DATA__", data_safe)
             .replace("__KPIDEFS__", json.dumps(kpi_defs, ensure_ascii=False).replace("</", "<\\/"))
@@ -1377,7 +1383,8 @@ def _long_to_wide(df):
 
 
 def generate_dashboard(df, objective: str = "", job_id: str | None = None, llm=None, spec: dict | None = None,
-                       dictionnaire: list | None = None, correspondance: dict | None = None) -> dict:
+                       dictionnaire: list | None = None, correspondance: dict | None = None,
+                       composition: bool = False) -> dict:
     """Génère un tableau de bord (KPI + HTML interactif) depuis un DataFrame.
 
     Réutilisable par l'orchestrateur HERMES_DA ET par la console KLDataViz (bouton Dashboard).
@@ -1389,6 +1396,7 @@ def generate_dashboard(df, objective: str = "", job_id: str | None = None, llm=N
     calculés par ces formules (hermes_da.correspondance en Python, evalF dans la page), sur les données d'origine.
     `dictionnaire` (facultatif) : indicateurs importés par l'espace (Mode B). La console passe celui de
     l'espace ([] = aucun) ; None = registre PostgreSQL local de HERMES_DA (orchestrateur).
+    `composition` : page composée selon les données. Le choix reste dans `spec` : une actualisation garde sa page.
     """
     # Valeurs déjà agrégées : drapeau posé par la source (connecteur DHIS2), ou colonnes exactes du connecteur
     # (si le drapeau s'est perdu en route, ex. copie CSV)
@@ -1621,6 +1629,16 @@ def generate_dashboard(df, objective: str = "", job_id: str | None = None, llm=N
     meta["agrege"] = bool(pivoted or any(k.get("col") for k in (kis or [])))
     sample = data if len(data) <= 6000 else data.sample(6000, random_state=0)
     data_json = json.dumps(sample.to_dict(orient="records"), ensure_ascii=False, default=str)
+    # Un échantillon fausserait les totaux recalculés dans la page, et le dictionnaire pilote ses propres calculs.
+    if (composition or spec.get("composition")) and len(sample) == len(data) and not meta.get("indicateurs"):
+        try:
+            from . import composition as compo, fiche as lecture
+            plan = compo.composer(lecture.lire_fiche(df_source), df)
+        except Exception:  # noqa: BLE001 - la page classique reste le repli, jamais une erreur pour l'utilisateur
+            plan = {"cartes": 0}
+        if plan["cartes"]:
+            meta["composition"] = plan
+            spec = dict(spec, composition=True)
 
     html = _render_html(objective, data_json, kpi_defs, filter_cols, meta)
     path = None
