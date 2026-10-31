@@ -56,10 +56,51 @@ def test_gabarit_accepte(mod, texte):
     ("{premier} et {inconnue} : {valeur}, devant {second} ({valeur2})", "une variable inconnue"),
     ("<b>{premier}</b> : {valeur}, devant {second} ({valeur2})", "du code"),
     ("{premier} : {valeur} { devant {second} ({valeur2})", "une accolade seule"),
+    ("{premier} fait deux fois mieux que {second} : {valeur} contre {valeur2}", "une quantité en lettres"),
+    ("{premier} pèse plus que tous : {valeur}, devant {second} ({valeur2})", "une comparaison en dur"),
+    ("Près de {premier} : {valeur}, devant {second} ({valeur2})", "une approximation"),
+    ("{premier} fait ⅓ : {valeur}, devant {second} ({valeur2})", "une fraction"),
+    ("{premier} fait ٣ : {valeur}, devant {second} ({valeur2})", "un chiffre non latin"),
     (None, "pas un texte"),
 ])
 def test_gabarit_refuse(mod, texte, raison):
     assert mod.T.valider(texte, {"type": "classement", "mesure": "ventes"}) is None, raison
+
+
+@pytest.mark.parametrize("texte,carte", [
+    ("{premier} pèse plus de la moitié du total, soit {part}", {"type": "anneau", "mesure": "ventes"}),
+    ("{taux} de l'objectif, c'est encore trop peu", {"type": "cible", "mesure": "ventes"}),
+])
+def test_affirmation_en_lettres_refusee(mod, texte, carte):
+    assert mod.T.valider(texte, carte) is None
+
+
+@pytest.mark.parametrize("texte,carte", [  # phrases réellement renvoyées par Adifa’ sur les jeux fictifs
+    ("Tests de dépistage HTS : {premier} en tête ({valeur}), devant {second} ({valeur2})", {"type": "classement", "mesure": "HTS_TST"}),
+    ("Tests positifs HTS : {groupe} en {periode}, valeur la plus haute ({valeur})", {"type": "chaleur", "mesure": "HTS_TST_POS"}),
+    ("Nouvelles initiations de traitement : {premier} représente {part} du total", {"type": "anneau", "mesure": "TX_NEW"}),
+    ("{bilan} ; écart principal : {premier} ({ecart})", {"type": "pente", "mesure": "cpn4"}),
+    ("cpn1 {evolution} entre {annee_a} et {annee_b} ; écart principal : {premier} ({ecart})", {"type": "passage", "mesure": "cpn1"}),
+    ("Le chiffre d'affaires et la marge {lien}", {"type": "bulles", "mesure": "chiffre_affaires", "mesure_y": "marge"}),
+    ("{bilan} ; pour l'ensemble : {taux}", {"type": "cible", "mesure": "chiffre_affaires", "dimension": "zone"}),
+])
+def test_phrases_reelles_acceptees(mod, texte, carte):
+    assert mod.T.valider(texte, carte) == texte
+
+
+@pytest.mark.parametrize("texte,carte", [
+    ("Quartier de {premier} : {part} du total", {"type": "anneau", "mesure": "ventes"}),
+    ("Femmes en grossesse : {premier}, soit {part}", {"type": "anneau", "mesure": "suivi"}),
+    ("Les retards chez {premier} : {part}", {"type": "anneau", "mesure": "retards"}),
+])
+def test_mots_du_metier_pas_confondus_avec_un_jugement(mod, texte, carte):
+    assert mod.T.valider(texte, carte) == texte
+
+
+def test_titre_qui_parle_d_une_autre_mesure_refuse(mod):
+    carte = {"type": "anneau", "mesure": "marge"}
+    assert mod.T.valider("Le chiffre d'affaires de {premier} : {part}", carte, ["marge", "chiffre_d'affaires"]) is None
+    assert mod.T.valider("La marge de {premier} : {part}", carte, ["marge", "chiffre_d'affaires"])
 
 
 def test_chiffre_d_un_nom_de_colonne_admis(mod):
@@ -175,6 +216,43 @@ def test_courbe_ignore_le_mois_incomplet(mod, tmp_path):
     df = pd.DataFrame([{"date": j, "zone": z, "ventes": 10} for j in jours for z in "ABC"])
     t = titres_de(executer(tmp_path, mod.gen(df)["html"])["page"])[0]
     assert "juil." not in t and "en baisse de 9" not in t and "juin 25" in t
+
+
+@sans_node
+def test_courbe_montre_le_mois_incomplet_sans_le_cacher(mod, tmp_path):
+    jours = pd.date_range("2025-01-01", "2025-07-03").strftime("%Y-%m-%d")
+    df = pd.DataFrame([{"date": j, "zone": z, "ventes": 10} for j in jours for z in "ABC"])
+    page = executer(tmp_path, mod.gen(df)["html"])["page"]
+    assert 'stroke-dasharray="4 4"' in page and "juil. 25 est incomplet" in page
+
+
+@sans_node
+def test_multiples_affichent_la_meme_periode_que_le_titre(mod, tmp_path):
+    jours = pd.date_range("2025-01-01", "2025-07-03").strftime("%Y-%m-%d")
+    df = pd.DataFrame([{"date": j, "zone": z, "ventes": v} for j in jours for z, v in (("A", 10), ("B", 20), ("C", 30))])
+    page = re.sub(r"\s", " ", executer(tmp_path, mod.gen(df)["html"])["page"])
+    t = next(x for x in titres_de(page) if "en juin 25" in x and x.startswith("C"))
+    assert "(900)" in t and ">C</span>900<" in page and ">C</span>90<" not in page
+    assert "De janv. 25 à juin 25" in page and "juil. 25 est incomplet : non affiché" in page
+
+
+@sans_node
+def test_taux_en_fraction_compare_dans_l_unite_affichee(mod, tmp_path):
+    df = pd.DataFrame([{"mois": f"2025-{m:02d}", "zone": z, "taux_guerison": 0.30 + m * 0.01} for m in range(1, 13) for z in "ABC"])
+    t = titres_de(executer(tmp_path, mod.gen(df)["html"])["page"])[0]
+    assert "point" not in t and "en hausse de 2,4 %" in t
+
+
+@sans_node
+def test_nom_de_groupe_a_accolades(mod, tmp_path):
+    df = pd.DataFrame([{"zone": z, "ventes": v} for z, v in (("{premier}", 300), ("{part}", 200), ("C", 50), ("D", 80))])
+    assert not any("{" in t for t in titres_de(executer(tmp_path, mod.gen(df)["html"])["page"]))
+
+
+def test_actualisation_sans_kpi_calculable_garde_sa_page(mod):
+    df = J.JEUX["ventes"]()
+    spec = {"kpis": [{"nom": "x", "agregation": "somme", "colonne": "renommee"}], "graphiques": [], "_ia": True, "composition": True}
+    assert 'id="compo"' in mod.gen(df, spec=spec, composition=False)["html"]
 
 
 @sans_node

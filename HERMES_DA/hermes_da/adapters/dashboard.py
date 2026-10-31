@@ -1463,7 +1463,7 @@ def generate_dashboard(df, objective: str = "", job_id: str | None = None, llm=N
         kpis.append(kpi)
 
     if not kpis and ia:  # aucune proposition de l'IA n'est calculable : repli par règles
-        return generate_dashboard(df, objective, job_id, llm=False)
+        return generate_dashboard(df, objective, job_id, llm=False, composition=composition or bool(spec.get("composition")))
 
     charts_count = 0
     for g in spec.get("graphiques", [])[:8]:

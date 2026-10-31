@@ -33,11 +33,14 @@ SENS = {
     "annee_b": "l'année d'arrivée", "taux": "le pourcentage de l'objectif", "lien": "le lien entre les deux mesures, verbe compris",
     "de": "le bas de la tranche", "a": "le haut de la tranche",
 }
-# Mots qui affirmeraient un sens ou un jugement : vrais pour un filtre, faux pour un autre. Le sens vient des variables.
+# Mots qui affirmeraient un sens, un jugement ou une quantité : vrais pour un filtre, faux pour un autre.
 INTERDITS = re.compile(
-    r"\b(?:hauss|baiss|progress|recul|augment|diminu|chut|bond|grimp|flamb|record|meilleur|pire|mauvais|bon\b|bonne|fort|faible"
-    r"|larg|nett|excellent|inquiet|alarm|critiq|domin|leader|champion|seul|toujours|jamais|tous\b|tout|aucun|majorit|minorit"
-    r"|moins|dernier|derniere|queue|atteint|depass|manqu|retard|insuffis|stable|stagn|excede|ne\b|pas\b)|\bn'")
+    r"\b(?:hauss|baiss|progress|recul|augment|diminu|chut|bond|grimp|flamb|record|meilleur|pire|mauvais|bon\b|bonne|forts?\b|fortes?\b|faible"
+    r"|largement|net\b|nette|nettement|excellent|inquiet|alarm|critiq|domin|leader|champion|seul|toujours|jamais|tous\b|tout|aucun|majorit|minorit"
+    r"|moins|dernier|derniere|queue|atteint|depass|manqu|retard|insuffis|stable|stagn|excede|ne\b|pas\b"
+    r"|moitie|tiers|quarts?\b|demi|double|triple|quadruple|fois|pres\b|presque|environ|trop\b|peu\b|autant|encore|mieux|beaucoup|grande?s?\b|petite?s?\b|gros\b"
+    r"|enorme|modeste|seulement|uniquement|deja|souvent|rarement|deux|trois|quatre|cinq|six|sept|huit|neuf|dix|onze|douze|vingt|trente"
+    r"|quarante|cinquante|soixante|cent\b|cents\b|mille|million|milliard|pourcent)|\bn'|(?<!\ble )(?<!\bla )\bplus\b")
 
 SYSTEM = """Tu es Adifa’, analyste de données. Tu reçois la formule que le moteur utilise pour le titre de chaque graphique d'un tableau de bord, et tu la reformules en français naturel, comme un analyste qui dit ce qu'il faut retenir.
 Tu ne connais pas les chiffres : le moteur les calcule et ils changent à chaque filtre. Les variables entre accolades, par exemple {premier}, restent donc telles quelles.
@@ -72,19 +75,30 @@ def _plat(texte):
     return "".join(x for x in unicodedata.normalize("NFD", texte.lower()) if unicodedata.category(x) != "Mn")
 
 
-def valider(gabarit, carte):
-    """Le gabarit accepté, ou None : variables exactes, aucun chiffre étranger aux colonnes, aucune affirmation en dur."""
+def valider(gabarit, carte, autres=()):
+    """Le gabarit accepté, ou None : variables exactes, aucun chiffre étranger aux colonnes, aucune affirmation en dur.
+    `autres` : les colonnes des autres cartes, qu'un titre ne doit pas nommer."""
     if not isinstance(gabarit, str) or carte.get("type") not in FORMULES:
         return None
     t = " ".join(gabarit.split())
     noms = set(re.findall(r"\{(\w+)\}", t))
     reste = _plat(re.sub(r"\{\w+\}", " ", t))
-    if not 8 <= len(t) <= MAX_TITRE or re.search(r"[{}<>]", reste) or INTERDITS.search(reste):
+    siennes = [str(carte.get(k) or "") for k in ("mesure", "dimension", "mesure_y", "objectif")]
+    connus = set(re.findall(r"\w+", _plat(" ".join(siennes))))
+    sans_noms = re.sub(r"\w+", lambda m: "" if m.group(0) in connus else m.group(0), reste)  # une colonne « retards » reste nommable
+    if not 8 <= len(t) <= MAX_TITRE or re.search(r"[{}<>]", reste) or INTERDITS.search(sans_noms):
         return None
     if noms != variables(carte):
         return None
-    connus = set(re.findall(r"\w+", _plat(" ".join(str(carte.get(k) or "") for k in ("mesure", "dimension", "mesure_y", "objectif")))))
-    return None if any(m not in connus for m in re.findall(r"\w*\d\w*", reste)) else t
+    # \w couvre aussi les chiffres non ASCII et les fractions comme « ⅓ »
+    if any(m not in connus and any(unicodedata.category(x).startswith("N") for x in m) for m in re.findall(r"\w+", reste)):
+        return None
+    etrangers = {_plat(a).replace("_", " ") for a in autres} - {_plat(a).replace("_", " ") for a in siennes}
+    return None if any(re.search(r"\b" + re.escape(a) + r"\b", reste.replace("_", " ")) for a in etrangers if a) else t
+
+
+def _mesures(plan):
+    return [c[k] for c in _cartes(plan) for k in ("mesure", "mesure_y") if c.get(k)]
 
 
 def _lire(brut):
@@ -109,7 +123,7 @@ def demander(plan, llm):
                            {"role": "user", "content": json.dumps(demande, ensure_ascii=False, default=str)}], MAX_JETONS)) or {}).get("titres") or {}
     except Exception:  # noqa: BLE001 - un titre ne doit jamais empêcher la page de se construire
         return {}
-    valides = {cle(c): valider(recu.get(str(i)), c) for i, c in enumerate(cartes)}
+    valides = {cle(c): valider(recu.get(str(i)), c, _mesures(plan)) for i, c in enumerate(cartes)}
     return {k: v for k, v in valides.items() if v}
 
 
@@ -117,7 +131,7 @@ def appliquer(plan, gabarits):
     """Pose la formule et le gabarit sur chaque carte. Gabarits revalidés : ils reviennent aussi d'un tableau enregistré."""
     for c in _cartes(plan):
         c["formule"] = formule(c)
-        t = valider((gabarits or {}).get(cle(c)), c)
+        t = valider((gabarits or {}).get(cle(c)), c, _mesures(plan))
         if t:
             c["titre_ia"] = t
     return plan
