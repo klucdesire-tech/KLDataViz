@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """Composition d'un tableau de bord : choisit un modèle, jusqu'à 8 graphiques, et leur place sur 12 colonnes.
 
-Part des propositions du catalogue et n'en invente aucune. Sans IA et déterministe : à fichier égal, page égale.
+Part des propositions du catalogue et n'en invente aucune. Déterministe : à fichier et vedettes égaux, page égale.
 Chaque ligne de la grille fait exactement 12 colonnes, sur toutes les pages, quel que soit le nombre de cartes."""
 from .catalogue import proposer
 
@@ -37,11 +37,12 @@ def choisir_modele(fiche):
     return "repartition"
 
 
-def _vedettes(fiche, props, df):
-    """Mesure et dimension principales. La mesure liée à un objectif prime ; sinon la première colonne additive."""
+def _vedettes(fiche, props, df, vedettes=()):
+    """Mesure et dimension principales. La mesure liée à un objectif prime, puis le choix d'Adifa’, puis la première colonne additive."""
     cible = next((p["mesure"] for p in props if p["type"] == "cible"), None)
     mesures = [p["mesure"] for p in props if p.get("mesure")]
-    mesure = cible or (fiche["volumes"] or [None])[0] or (mesures[0] if mesures else None)
+    choisie = next((v for v in vedettes if v in mesures), None)
+    mesure = cible or choisie or (fiche["volumes"] or [None])[0] or (mesures[0] if mesures else None)
     dims = list(dict.fromkeys(p["dimension"] for p in props if p.get("dimension")))
     # Dans une hiérarchie, le niveau intermédiaire : ni deux régions, ni trente centres.
     dimension = next((d for d in dims if d in fiche["lieux"][1:]), None) if len(fiche["lieux"]) > 2 else None
@@ -70,8 +71,8 @@ def _doublon(p, choisis):
     return False
 
 
-def selectionner(fiche, props, modele, df):
-    mesure, dimension = _vedettes(fiche, props, df)
+def selectionner(fiche, props, modele, df, vedettes=()):
+    mesure, dimension = _vedettes(fiche, props, df, vedettes)
     cles = _mesures_cles(fiche, mesure)
     deja = {"usages": {}, "paires": set()}
     choisis = []
@@ -116,9 +117,10 @@ def placer(cartes):
     return lignes
 
 
-def composer(fiche, df):
-    """Le plan de la page : modèle, vedettes et lignes de cartes. Sans proposition, une page vide et explicite."""
+def composer(fiche, df, vedettes=()):
+    """Le plan de la page : modèle, vedettes et lignes de cartes. Sans proposition, une page vide et explicite.
+    `vedettes` : mesures proposées par Adifa’, la plus importante d'abord ; seules celles qui ont un graphique comptent."""
     props = proposer(fiche, df)
     modele = choisir_modele(fiche)
-    cartes, mesure, dimension = selectionner(fiche, props, modele, df)
+    cartes, mesure, dimension = selectionner(fiche, props, modele, df, vedettes)
     return {"version": 2, "modele": modele, "mesure": mesure, "dimension": dimension, "lignes": placer(cartes), "cartes": len(cartes)}
