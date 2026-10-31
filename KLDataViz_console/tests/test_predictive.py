@@ -159,6 +159,37 @@ def test_mois_sans_jour_ne_decarte_rien():
     assert r["mois_ecarte"] is None
 
 
+def test_fichier_date_du_1er_garde_le_dernier_mois():
+    dates = pd.date_range("2024-01-01", periods=8, freq="MS")   # une date par mois, le 1er
+    res = P.analyse(pd.DataFrame({"date": dates, "ventes": np.arange(8) * 10 + 100}),
+                    cible="ventes", periode="date")["resultat"]
+    assert res["mois_ecarte"] is None and res["n"] == 8
+
+
+def test_fichier_date_du_15_garde_le_dernier_mois():
+    dates = pd.date_range("2024-01-15", periods=8, freq="MS")   # une date par mois, le 15
+    res = P.analyse(pd.DataFrame({"date": dates, "ventes": np.arange(8) * 10 + 100}),
+                    cible="ventes", periode="date")["resultat"]
+    assert res["mois_ecarte"] is None and res["n"] == 8
+
+
+def test_fichier_arrete_le_28_garde_juin():
+    d = pd.date_range("2024-01-01", "2024-06-28", freq="D")     # 28 > 25 : mois jugé complet
+    res = P.analyse(pd.DataFrame({"date": d, "ventes": np.full(len(d), 100.0)}),
+                    cible="ventes", periode="date")["resultat"]
+    assert res["mois_ecarte"] is None and res["n"] == 6
+
+
+def test_stock_derniere_date_par_district():
+    mois = pd.date_range("2024-01-01", periods=8, freq="MS")
+    lignes = []
+    for m in mois:
+        lignes += [{"date": m.replace(day=15), "district": "B", "population": 1000},
+                   {"date": m.replace(day=28), "district": "A", "population": 1000}]
+    res = P.analyse(pd.DataFrame(lignes), cible="population", periode="date")["resultat"]
+    assert res["historique"]["valeurs"][0] == 2000.0     # A au 28 + B au 15, pas seulement A
+
+
 # ---------- point 11 : axe calendaire ----------
 def test_mois_manquant_reste_dans_laxe():
     serie = pd.Series([10, 12, 13, 12, 14, 13],

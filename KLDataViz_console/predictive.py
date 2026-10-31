@@ -65,21 +65,32 @@ def _hermes():
 
 
 def _nature_fiche(df, cible):
-    """Nature de la mesure lue par `lire_fiche`. Retourne (nature, avertissement).
+    """Nature de la mesure lue par `lire_fiche`. Retourne (nature, avertissement, groupes).
 
     nature ∈ volume / moyenne / taux / stock, ou None si la fiche ne la classe pas.
     Dans le doute, on ne choisit pas : la prévision est refusée plus haut.
+    `groupes` = lieux et catégories de la fiche (colonnes réellement présentes).
     """
     try:
         fiche, _ = _hermes()
         f = fiche.lire_fiche(df)
     except Exception as e:                                   # fiche indisponible : on le dit
-        return None, f"nature de la mesure indéterminée (fiche indisponible : {type(e).__name__})."
+        return None, f"nature de la mesure indéterminée (fiche indisponible : {type(e).__name__}).", []
+    groupes = [g for g in (f.get("lieux", []) + f.get("categories", [])) if g in df.columns]
     for nature, cle in (("stock", "stocks"), ("taux", "taux"),
                         ("volume", "volumes"), ("moyenne", "moyennes")):
         if cible in f.get(cle, []):
-            return nature, None
-    return None, f"nature de « {cible} » incertaine : la fiche ne la classe ni volume, ni moyenne, ni taux, ni stock."
+            return nature, None, groupes
+    return None, f"nature de « {cible} » incertaine : la fiche ne la classe ni volume, ni moyenne, ni taux, ni stock.", groupes
+
+
+def _mois_incomplet(dates):
+    """Dernier mois incomplet — règle unique de l'application (`_partial_month` du tableau de bord)."""
+    try:
+        from hermes_da.adapters.dashboard import _partial_month
+        return _partial_month(dates.dt.strftime("%Y-%m-%d"))
+    except Exception:
+        return None
 
 
 def _agregation(nature):
@@ -491,7 +502,7 @@ def analyse(df: pd.DataFrame, cible: str | None = None, predicteurs: list | None
             c = df[cible]
             binaire = _to_binary(c)
             num = pd.to_numeric(c, errors="coerce")
-            nature, avert = _nature_fiche(df, cible)
+            nature, avert, groupes = _nature_fiche(df, cible)
             if avert:
                 out["avertissements"].append(avert)
             unite, facteur = None, 1.0
@@ -523,22 +534,29 @@ def analyse(df: pd.DataFrame, cible: str | None = None, predicteurs: list | None
                     return out
             dates = _dates(df[periode])
             if nature == "stock" and dates is not None:
-                # un stock se lit à la dernière date du mois, tous les groupes additionnés
-                frame = pd.DataFrame({"p": per, "d": dates, "v": mesure}).dropna()
-                maxd = frame.groupby("p")["d"].transform("max")
-                agg = frame[frame["d"] == maxd].groupby("p")["v"].sum()
+                # un stock se lit à la dernière date de CHAQUE groupe, puis on additionne les groupes
+                frame = pd.DataFrame({"p": per, "d": dates, "v": mesure})
+                for g in groupes:
+                    frame[g] = df[g]
+                frame = frame.dropna(subset=["p", "d", "v"])
+                if groupes:
+                    idx = frame.groupby(["p"] + groupes, dropna=False)["d"].idxmax()
+                    agg = frame.loc[idx].groupby("p")["v"].sum()
+                else:
+                    maxd = frame.groupby("p")["d"].transform("max")
+                    dernieres = frame[frame["d"] == maxd]
+                    if len(dernieres) and dernieres.groupby("p").size().max() > 1:
+                        out["avertissements"].append(
+                            "stock sans groupe : plusieurs lignes à la dernière date du mois, elles sont additionnées.")
+                    agg = dernieres.groupby("p")["v"].sum()
             else:
                 frame = pd.DataFrame({"p": per, "v": mesure}).dropna()
                 g = frame.groupby("p")["v"]
                 agg = {"volume": g.sum(), "moyenne": g.mean(), "taux": g.mean(), "stock": g.sum()}[nature]
-            # mois incomplet : uniquement avec des dates au jour ; jamais sur une chute de valeur
-            mois_ecarte = None
-            if dates is not None and len(agg):
-                dernier = agg.index[-1]
-                fin = pd.Period(dernier, freq="M").end_time.normalize()
-                if pd.Timestamp(dates.max()).normalize() < fin:
-                    mois_ecarte = str(dernier)
-                    agg = agg.iloc[:-1]
+            # mois incomplet : règle unique du tableau de bord (`_partial_month`), sur les dates au jour
+            mois_ecarte = _mois_incomplet(dates) if dates is not None else None
+            if mois_ecarte and len(agg):
+                agg = agg.drop(index=mois_ecarte, errors="ignore")
             out["resultat"] = dict(prevision(agg, horizon, nature, mois_ecarte, unite, facteur),
                                    type="prevision", valeur_comptee=valeur_comptee)
         except Exception as e:
