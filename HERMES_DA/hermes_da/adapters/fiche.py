@@ -60,7 +60,7 @@ def _fiche_periode(col, serie):
     repetes = {m[5:] for m in mois if m[:4] == annees[-1]} & {m[5:] for m in mois if m[:4] == annees[-2]} if len(annees) > 1 else set()
     return {"colonne": col, "debut": cles[0], "fin": cles[-1], "valeurs": len(cles), "mois": len(mois), "annees": len(annees),
             "unite": "jour" if len(cles[0]) == 10 and len(cles) > len(mois) else "annee" if len(mois) == len(annees) else "mois",
-            "comparable_n1": bool(repetes)}
+            "comparable_n1": bool(repetes), "mois_communs": sorted(repetes)}  # comparer une année partielle à une année entière serait faux
 
 
 def _hierarchie(df, lieux):
