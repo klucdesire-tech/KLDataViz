@@ -742,13 +742,22 @@ def _bon(nom) -> int:
 
 
 def _partial_month(period_series):
-    """Dernier mois incomplet (dates au jour qui s'arrêtent avant les 5 derniers jours du mois) → sa clé « AAAA-MM »."""
+    """Dernier mois incomplet → sa clé « AAAA-MM ». Il s'arrête avant les 5 derniers jours du mois et compte moins de
+    jours saisis qu'un mois habituel : un fichier daté du 1er ou du 15 de chaque mois n'a pas de mois incomplet."""
     import calendar
+    from statistics import median
     days = sorted(v for v in period_series.dropna().unique() if isinstance(v, str) and len(v) == 10)
     if not days:
         return None
     y, m, d = (int(x) for x in days[-1].split("-"))
-    return days[-1][:7] if d <= calendar.monthrange(y, m)[1] - 5 else None
+    if d > calendar.monthrange(y, m)[1] - 5:
+        return None
+    dernier = days[-1][:7]
+    par_mois = {}
+    for j in days:
+        par_mois[j[:7]] = par_mois.get(j[:7], 0) + 1
+    avant = [n for k, n in par_mois.items() if k != dernier]
+    return dernier if len(avant) < 2 or par_mois[dernier] < median(avant) else None  # sans historique : pas de comparaison
 
 
 def _patient_items(df, kpi_defs, domaine, period_col, aggregated=False):
