@@ -3103,6 +3103,18 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if path == "/api/clean":
             hermes = p.get("hermes") if isinstance(p.get("hermes"), list) else None
             return self._send(200, clean(str(p.get("file_path") or ""), p.get("skip") or None, hermes))
+        if path == "/api/predictive":
+            df, err = _read_df(str(p.get("file_path") or ""))
+            if err:
+                return self._send(200, {"error": err})
+            import predictive
+            preds = p.get("predicteurs") if isinstance(p.get("predicteurs"), list) else None
+            try:
+                horizon = max(1, min(int(p.get("horizon") or 6), 36))
+            except (TypeError, ValueError):
+                horizon = 6
+            return self._send(200, predictive.analyse(df, str(p.get("cible") or "") or None, preds,
+                                                      str(p.get("periode") or "") or None, horizon))
         if path == "/api/registry/describe":
             import registry_meta as RM
             df, err = _read_df(str(p.get("file_path") or ""))
