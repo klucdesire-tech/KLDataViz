@@ -136,6 +136,26 @@ def test_comparaison_sur_les_mois_communs(gen, tmp_path):
 
 
 @sans_node
+def test_peu_de_groupes_barres_jumelees(gen, tmp_path):
+    """Cinq régions : chaque nom et chaque valeur se lisent, sans nuage de points perdu dans le vide."""
+    regions = (("Nawa", 900, 18000), ("Gôh", 800, 15000), ("San-Pédro", 700, 13500), ("Haut-Sassandra", 650, 12000), ("Indénié", 500, 9000))
+    df = pd.DataFrame([{"mois": f"2025-{m:02d}", "region": r, "tonnage": t, "valeur": v} for m in range(1, 7) for r, t, v in regions])
+    page = re.sub(r"\s", " ", executer(tmp_path, gen(df, composition=True)["html"])["page"])
+    assert 'class="cp-ju"' in page and all(f">{r}</span><div><em>" in page for r, _, _ in regions)
+    assert page.index(">Nawa</span><div><em>") < page.index(">Indénié</span><div><em>")
+    assert "Par région" in page and "Chaque point" not in page
+
+
+@sans_node
+def test_beaucoup_de_groupes_nuage_gradue(gen, tmp_path):
+    df = pd.DataFrame([{"mois": f"2025-{m:02d}", "centre": f"C{i:02d}", "zone": "AB"[i % 2], "tonnage": 500 + i * 13, "valeur": 9000 + i * 310} for m in range(1, 7) for i in range(14)])
+    page = re.sub(r"\s", " ", executer(tmp_path, gen(df, composition=True)["html"])["page"])
+    assert "Chaque point" in page and "Axes limités aux valeurs du fichier." in page
+    carte = page[page.index("Chaque point"):]
+    assert len(re.findall(r'font-size="12" fill="#52667A">[^<]+</text>', carte[:carte.index("</svg>")])) >= 6
+
+
+@sans_node
 def test_textes_echappes(gen, tmp_path):
     df = pd.DataFrame({"zone": ["<b>A</b>", "B", "C", "D"], "ventes": [1, 2, 3, 4]})
     page = executer(tmp_path, gen(df, composition=True)["html"])["page"]
