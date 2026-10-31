@@ -287,10 +287,21 @@ def test_anneau_garde_ses_couleurs_apres_filtre(gen, tmp_path):
     assert _couleur_legende(s["page"], "Couches bébé") == _couleur_legende(s["filtre"], "Couches bébé") == "#2A78D6"
 
 
+def _carte(page, titre):
+    debut = page.rindex("<article", 0, page.index(titre))
+    return page[debut:page.index("</article>", debut)]
+
+
 @sans_node
 def test_anneau_remplace_par_des_barres_si_les_parts_sont_proches(gen, tmp_path):
-    page = executer(tmp_path, gen(_parts((("A", 338), ("B", 334), ("C", 327))), composition=True)["html"])["page"]
-    assert 'class="cp-do"' not in page and "A : représente" not in page
+    """Le titre annonce une part du total : les barres doivent la montrer aussi."""
+    df = J.JEUX["ventes"]()
+    ecarte = executer(tmp_path, gen(df, composition=True)["html"])["page"]
+    assert 'class="cp-do"' in _carte(ecarte, "Part de chaque produit")
+    rang = {p: i for i, p in enumerate(sorted(df["produit"].unique()))}
+    df["marge"] = df["chiffre_affaires"] = df["produit"].map(lambda p: 1000 + rang[p] * 5)
+    carte = _carte(executer(tmp_path, gen(df, composition=True)["html"])["page"], "Part de chaque produit")
+    assert 'class="cp-do"' not in carte and 'class="cp-bt"' in carte and carte.count(" %</b>") == 5 and "du total" in carte
 
 
 @sans_node
