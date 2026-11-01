@@ -117,6 +117,12 @@ def parse_dictionary(path) -> list:
     return out
 
 
+# Mots présents dans des fichiers de tous les métiers : ils ne disent rien du domaine (« par catégorie », « sites », « statut »)
+_MOTS_COURANTS = {"categorie", "categories", "site", "sites", "age", "ages", "sexe", "type", "types", "total", "region", "regions",
+                  "annee", "mois", "statut", "resultat", "resultats", "test", "tests", "moins", "avant", "sans", "contact",
+                  "hommes", "femmes", "enfants", "adultes", "population", "populations", "derniers", "cours", "agents"}
+
+
 def _keywords(code: str, libelle: str):
     """Mots-clés d'un indicateur : code exact (tous) + mots significatifs ET bigrammes du libellé (un)."""
     tous = [code.lower()] if code else []
@@ -154,6 +160,8 @@ def to_domains(indicators: list) -> dict:
     for cle, d in doms.items():
         scored = []
         for w, f in d["_freq"].items():
+            if w in _MOTS_COURANTS:
+                continue
             idf = 1.0 / (1.0 + ndomains[w])          # rares entre domaines → plus distinctifs
             scored.append((f * idf, len(w), w))      # départage : bigramme (plus long) d'abord
         d["mots"] = [w for _, _, w in sorted(scored, reverse=True)][:12]
