@@ -1051,10 +1051,15 @@ def _lecture_predictive(resultat, df):
         return {"phrases": []}
 
 
-def _lecture_experte(genre, file_path=None):
+def _cle_lecture(faits):
+    return hashlib.sha256(json.dumps(faits, ensure_ascii=False, sort_keys=True).encode()).hexdigest()
+
+
+def _lecture_experte(genre, file_path=None, court=False):
     """Lecture d'Adifa’ sur des résultats calculés par le serveur, jamais sur des chiffres envoyés par le navigateur.
     L'analyse est recalculée si elle n'est plus en mémoire : la page peut survivre à un redémarrage du serveur.
-    Rien sans IA : la page garde la lecture du moteur. Une même lecture n'est demandée qu'une fois."""
+    Rien sans IA : la page garde la lecture du moteur. Une même lecture n'est demandée qu'une fois.
+    `court` : pour un rapport, un seul essai, qui ne fait pas attendre l'export."""
     import lecture_experte as LE
     st = T.state()
     if genre == "tests":
@@ -1065,7 +1070,7 @@ def _lecture_experte(genre, file_path=None):
         faits = LE.faits_predictif(d.get("resultat") or {}, d.get("colonnes") or (), d.get("dependantes"))
     if not faits or not _llm_config():
         return None
-    cle = hashlib.sha256(json.dumps(faits, ensure_ascii=False, sort_keys=True).encode()).hexdigest()
+    cle = _cle_lecture(faits)
     deja = st.setdefault("lectures_expertes", {})
     if cle in deja:
         return deja[cle]
@@ -1073,14 +1078,50 @@ def _lecture_experte(genre, file_path=None):
         cloud.consume(T.current(), "ai")
     cfg = _llm_config()
     model = os.environ.get("KLDV_REPORT_MODEL") or cfg.get("report_model") or "deepseek-flash"
-    llm = lambda m, n: (_llm_call(m, n, model=model, effort="high", timeout=100, attempts=1)
-                        or _llm_call(m, n, model=model, effort="low", timeout=70, attempts=1))
+    llm = ((lambda m, n: _llm_call(m, n, model=model, effort="high", timeout=45, attempts=1)) if court else
+           (lambda m, n: _llm_call(m, n, model=model, effort="high", timeout=100, attempts=1)
+            or _llm_call(m, n, model=model, effort="low", timeout=70, attempts=1)))
     lecture = LE.lire(faits, llm, _parse_llm_json)
     if lecture:
         if len(deja) >= 8:
             deja.clear()
         deja[cle] = lecture
     return lecture
+
+
+def _garder_predictif(st, entree):
+    """Dernières analyses prédictives de la session, une par colonne et par type : le rapport les reprend."""
+    cle = lambda e: (e["fichier"], (e["resultat"] or {}).get("cible"), ((e["resultat"] or {}).get("resultat") or {}).get("type"))  # noqa: E731
+    st["dernier_predictif"] = entree
+    if (entree["resultat"] or {}).get("resultat"):
+        st["predictifs"] = [e for e in st.get("predictifs") or [] if cle(e) != cle(entree)][-4:] + [entree]
+
+
+def _analyses_pour_rapport(result, st):
+    """Tests et prévisions du fichier du rapport. Rien ici n'empêche un rapport de sortir."""
+    if not _predictif_actif():
+        return result
+    try:
+        import lecture_experte as LE
+        import rapport_analyses as RA
+        fichier = st.get("result_path")
+        try:
+            experte = _lecture_experte("tests", fichier, court=True)
+        except T.QuotaExceeded:
+            experte = None
+        deja = st.get("lectures_expertes") or {}
+        predictions = []
+        for e in st.get("predictifs") or []:
+            if e["fichier"] == fichier:
+                faits = LE.faits_predictif(e["resultat"], e["colonnes"], e["dependantes"])
+                bloc = RA.prediction(e, deja.get(_cle_lecture(faits)) if faits else None, e["dependantes"])
+                if bloc:
+                    predictions.append(bloc)
+        contenu = {"tests": RA.tests(result.get("inference"), experte), "predictions": predictions}
+        return dict(result, _analyses=contenu) if contenu["tests"] or predictions else result
+    except Exception as exc:
+        print(f"[rapport] analyses non ajoutées : {exc}", flush=True)
+        return result
 
 
 def _cell_safe(v):
@@ -1333,9 +1374,41 @@ def export_excel(result):
           [[c["a"], c["b"], c["r"]] for c in result.get("correlations", [])])
     sheet(wb.create_sheet(), "Anomalies", ["Colonne", "Type", "Nombre", "Détail"],
           [[a["column"], a["type"], a["count"], a["detail"]] for a in result.get("anomalies", [])])
+    import rapport_analyses as RA
+    contenu = RA.contenu(result)
+    blocs = ([contenu["tests"]] if contenu.get("tests") else []) + list(contenu.get("predictions") or [])
+    if blocs:
+        sheet(wb.create_sheet(), "Lecture statistique", ["Analyse", "Partie", "Texte"],
+              [[b["titre"], partie, t] for b in blocs for partie, ts in (("Conclusion", [b.get("conclusion")]), ("Lecture", b.get("lecture")),
+                                                                        ("Prudence", b.get("prudence")), ("À vérifier", b.get("a_verifier")))
+               for t in ts or [] if t] + [[b["titre"], "Source", b["source"]] for b in blocs])
+    if contenu.get("tests"):
+        sheet(wb.create_sheet(), "Tests statistiques", contenu["tests"]["colonnes"], contenu["tests"]["lignes"])
+    for i, b in enumerate(contenu.get("predictions") or [], 1):
+        sheet(wb.create_sheet(), f"Prédiction {i}", b["colonnes"], [[x for x in ligne] for ligne in b["lignes"]] + [[]] + b["metriques"])
     fn = f"analyse_{time.strftime('%Y%m%d_%H%M%S')}.xlsx"
     wb.save(os.path.join(T.exports_dir(), fn))
     return fn
+
+def _analyses_html(result, esc):
+    import rapport_analyses as RA
+    contenu = RA.contenu(result)
+
+    def bloc(b, titre):
+        liste = lambda t, x: f"<p><b>{t}</b></p><ul>{''.join(f'<li>{esc(p)}</li>' for p in x)}</ul>" if x else ""  # noqa: E731
+        metriques = "".join(f"<tr><td>{esc(k)}</td><td>{esc(v)}</td></tr>" for k, v in b.get("metriques") or [])
+        entetes = "".join(f"<th>{esc(c)}</th>" for c in b["colonnes"])
+        lignes = "".join("<tr>" + "".join(f"<td>{esc(x)}</td>" for x in ligne) + "</tr>" for ligne in b["lignes"])
+        return (f"<{titre}>{esc(b['titre'])}</{titre}><p><b>{esc(b.get('conclusion') or '')}</b></p>" + "".join(f"<p>{esc(p)}</p>" for p in b.get("lecture") or [])
+                + liste("Prudence", b.get("prudence")) + liste("À vérifier", b.get("a_verifier")) + f'<p style="color:#888;font-size:12px">{esc(b["source"])}</p>'
+                + (f"<table>{metriques}</table>" if metriques else "") + (f"<table><tr>{entetes}</tr>{lignes}</table>" if lignes else ""))
+
+    t = contenu.get("tests")
+    html = ""
+    if t:
+        html += bloc(t, "h2") + (f"<p>Liens mis à part, car une colonne découle de l'autre : {esc(' ; '.join(t['structure']))}.</p>" if t.get("structure") else "")
+    return html + "".join(bloc(b, "h2") for b in contenu.get("predictions") or [])
+
 
 def export_html(result):
     def esc(s): return str(s).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
@@ -1345,6 +1418,7 @@ def export_html(result):
                          for k, v in result.get("numeric_stats", {}).items())
     corr_html = "".join(f"<tr><td>{esc(c['a'])}</td><td>{esc(c['b'])}</td><td>{c['r']}</td></tr>" for c in result.get("correlations", []))
     anom_html = "".join(f"<li><b>{esc(a['column'])}</b> — {esc(a['type'])} ({a['count']}) : {esc(a['detail'])}</li>" for a in result.get("anomalies", []))
+    analyses_html = _analyses_html(result, esc)
     html = f"""<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8"><title>Analyse — {esc(result.get('file'))}</title>
 <style>body{{font-family:Segoe UI,Arial,sans-serif;max-width:900px;margin:32px auto;padding:0 20px;color:#1a1a1a;}}
 h1{{color:#1286b4;}} table{{border-collapse:collapse;width:100%;font-size:13px;margin:10px 0;}}
@@ -1358,6 +1432,7 @@ th,td{{border:1px solid #cbd5e0;padding:6px 9px;text-align:left;}} th{{backgroun
 <h2>Statistiques numériques</h2><table><tr><th>Variable</th><th>Moyenne</th><th>Écart-type</th><th>Min</th><th>Médiane</th><th>Max</th><th>Hors-normes</th></tr>{stats_html}</table>
 <h2>Corrélations</h2><table><tr><th>A</th><th>B</th><th>r</th></tr>{corr_html}</table>
 <h2>Anomalies</h2><ul>{anom_html or '<li>Aucune anomalie détectée.</li>'}</ul>
+{analyses_html}
 <p style="color:#888;font-size:11px;">Généré par KLDataViz — agent Data Analytics &amp; BI</p></body></html>"""
     fn = f"analyse_{time.strftime('%Y%m%d_%H%M%S')}.html"
     with open(os.path.join(T.exports_dir(), fn), "w", encoding="utf-8") as f:
@@ -3204,7 +3279,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                                           str(p.get("valeur_comptee") or "") or None)
             import inferential
             dependantes = inferential.cadre(df)[1]
-            st["dernier_predictif"] = {"resultat": resultat, "colonnes": [str(c) for c in df.columns], "dependantes": dependantes}
+            _garder_predictif(st, {"fichier": str(p.get("file_path") or ""), "resultat": resultat, "colonnes": [str(c) for c in df.columns],
+                                   "dependantes": dependantes})
             return self._send(200, dict(resultat, lecture=_lecture_predictive(resultat, df)))
         if path == "/api/lecture-experte":
             if not _predictif_actif():
@@ -3260,9 +3336,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
             _supprimer_jeu(str(p.get("id") or ""))
             return self._send(200, {"ok": True})
         if path in ("/api/export/pdf", "/api/export/excel", "/api/export/html"):
+            if p.get("file_path"):  # la page peut survivre à un redémarrage du serveur
+                _analysis_for_chat(str(p["file_path"]))
             if st["last_result"] is None:
                 return self._send(400, {"error": "Lancez d'abord une analyse."})
-            result = st["last_result"]
+            result = _analyses_pour_rapport(st["last_result"], st)
             if path.endswith("/pdf") and isinstance(p.get("charts"), list):
                 # Graphiques dessinés par l'interface (identiques à l'écran Analyser), 12 au plus
                 result = dict(result, _chart_images=[c for c in p["charts"][:12]

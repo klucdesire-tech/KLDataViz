@@ -699,6 +699,56 @@ def kpi_row(items, st):
     return t
 
 
+def _bloc_analyse(story, b, st):
+    """Une analyse : le texte d'abord, les chiffres ensuite."""
+    if b.get("conclusion"):
+        story.append(Paragraph(f"<b>{esc(b['conclusion'])}</b>", st["interp"]))
+    for p in b.get("lecture") or []:
+        story.append(Paragraph(esc(p), st["body"]))
+    for titre, cle in (("Prudence", "prudence"), ("À vérifier", "a_verifier")):
+        if b.get(cle):
+            story.append(Paragraph(f"<b>{titre}</b>", st["body"]))
+            for p in b[cle]:
+                story.append(Paragraph(esc(p), st["bullet"], bulletText="•"))
+    story.append(Paragraph(esc(b["source"]), st["small"]))
+    story.append(Spacer(1, 4))
+    if b.get("metriques"):
+        story.append(table(["Repère", "Valeur"], b["metriques"], [70 * mm, CONTENT_W - 70 * mm], st))
+        story.append(Spacer(1, 4))
+
+
+def analyses(story, contenu, numero, st):
+    """Section des tests statistiques et des prévisions, si le fichier en a."""
+    import rapport_analyses as RA
+    t, predictions = contenu.get("tests"), contenu.get("predictions") or []
+    if not t and not predictions:
+        return numero
+    story.append(CondPageBreak(120))
+    story.append(Paragraph(f"{numero}. Tests statistiques et prévisions", st["h1"]))
+    if t:
+        story.append(Paragraph(f"Tests statistiques : {t['n_significatifs']} résultat(s) significatif(s) sur {t['n_tests']}", st["h2"]))
+        _bloc_analyse(story, t, st)
+        if t.get("lignes_dependantes"):
+            story.append(callout("Ce fichier semble compter une ligne par groupe ou par période : ces résultats sont à vérifier sur les données détaillées.", st, "warn"))
+        retenues = [x for x in t["lignes"] if x[-1] != "Peut venir du hasard"][:RA.MAX_LIGNES_PDF]
+        if retenues:
+            story.append(table(t["colonnes"], retenues, [52 * mm, 56 * mm, 18 * mm, 18 * mm, CONTENT_W - 144 * mm], st))
+            story.append(Spacer(1, 4))
+        reste = len(t["lignes"]) - len(retenues)
+        if reste:
+            story.append(Paragraph(f"{reste} autre(s) test(s) sans résultat net ou non repris ici : le détail figure dans l'export Excel.", st["small"]))
+        if t.get("structure"):
+            story.append(Paragraph(f"Liens mis à part, car une colonne découle de l'autre : {esc(' ; '.join(t['structure']))}.", st["small"]))
+    for b in predictions:
+        story.append(CondPageBreak(110))
+        story.append(Paragraph(esc(b["titre"]), st["h2"]))
+        _bloc_analyse(story, b, st)
+        if b.get("lignes"):
+            story.append(table(b["colonnes"], b["lignes"], [CONTENT_W / len(b["colonnes"])] * len(b["colonnes"]), st))
+            story.append(Spacer(1, 4))
+    return numero + 1
+
+
 def callout(text, st, level="info"):
     bg, bd = {"warn": (AMBER_L, AMBER), "bad": (RED_L, RED)}.get(level, (GREEN_L, GREEN))
     t = Table([[Paragraph(text, st["body"])]], colWidths=[CONTENT_W])
@@ -787,6 +837,8 @@ def build(result, path):
     n_anom = sum(a.get("count", 0) for a in anomalies)
     corrs = bv.get("correlations") or [dict(c, force=None) for c in r.get("correlations") or []]
     insights = r.get("_insights") or []
+    import rapport_analyses
+    contenu_analyses = rapport_analyses.contenu(r)
 
     story = []
     # ---- Page de garde
@@ -996,7 +1048,8 @@ def build(result, path):
 
     # ---- 7. Anomalies
     story.append(CondPageBreak(90))
-    story.append(Paragraph("7. Valeurs hors norme et contrôles", st["h1"]))
+    numero = analyses(story, contenu_analyses, 7, st)
+    story.append(Paragraph(f"{numero}. Valeurs hors norme et contrôles", st["h1"]))
     if anomalies:
         story.append(Paragraph("Une valeur est signalée lorsqu'elle sort de l'intervalle [Q1 − 1,5 × IQR ; Q3 + 1,5 × IQR], "
                                "où Q1 et Q3 sont les premier et troisième quartiles et IQR leur écart. "
@@ -1025,8 +1078,10 @@ def build(result, path):
 
     # ---- 8. Méthodologie
     story.append(CondPageBreak(80))
-    story.append(Paragraph("8. Méthodologie et définitions", st["h1"]))
-    for term, d in [("Complétude", "part des cellules renseignées sur l'ensemble des cellules du fichier."),
+    story.append(Paragraph(f"{numero + 1}. Méthodologie et définitions", st["h1"]))
+    termes = [("Valeur p corrigée", "un tel écart serait rare si rien ne se passait réellement ; elle tient compte du nombre de tests faits. Ce n'est pas la probabilité que le résultat soit dû au hasard."),
+              ("Fiabilité d'une prévision", "mesurée sur le passé : le calcul doit faire mieux qu'une estimation simple sur les derniers mois connus.")] if contenu_analyses else []
+    for term, d in termes + [("Complétude", "part des cellules renseignées sur l'ensemble des cellules du fichier."),
                     ("Médiane", "valeur qui partage les lignes en deux moitiés ; moins sensible aux valeurs extrêmes que la moyenne."),
                     ("Coefficient de variation (CV)", "écart-type divisé par la moyenne : mesure la dispersion relative."),
                     ("r de Pearson", "corrélation linéaire entre deux mesures, de −1 à +1 ; 0 = pas de relation linéaire."),
