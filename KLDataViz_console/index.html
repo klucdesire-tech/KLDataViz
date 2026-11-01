@@ -851,7 +851,7 @@ function nav(key){
 $('#stepper').addEventListener('click',e=>{const b=e.target.closest('[data-go]');if(b&&!b.disabled)go(+b.dataset.go)});
 $$('nav.menu button').forEach(b=>b.onclick=()=>nav(b.dataset.nav));
 document.addEventListener('click',e=>{const b=e.target.closest('[data-goto]');if(b){if(b.dataset.goto==='home')resetAnalysis();nav(b.dataset.goto)}});
-function resetAnalysis(){Object.assign(state,{step:0,path:'',name:'',original:null,analysis:null,clean:null,applied:false,ai:null});state.accept=new Set();$('#pathInput').value='';resetChat(GREETING)}
+function resetAnalysis(){Object.assign(state,{predFor:null,step:0,path:'',name:'',original:null,analysis:null,clean:null,applied:false,ai:null});state.accept=new Set();$('#pathInput').value='';resetChat(GREETING)}
 $('#newBtn').onclick=()=>{resetAnalysis();go(0)};
 
 /* ================= import ================= */
@@ -977,7 +977,7 @@ async function openSource(path,name,size){
 
 /* ================= pipeline ================= */
 async function startRun(path,name,size,opts={}){
-  Object.assign(state,{path,name,original:null,analysis:null,clean:null,cleanTried:false,reg:null,applied:false,showAll:false,ai:null,arch:null,archFile:null,archExtra:opts.archExtra||[],structView:null,wb:opts.understand?{...opts.understand,res:null}:null});state.accept=new Set();resetChat();  // nouveau fichier : nouvelle conversation
+  Object.assign(state,{predFor:null,path,name,original:null,analysis:null,clean:null,cleanTried:false,reg:null,applied:false,showAll:false,ai:null,arch:null,archFile:null,archExtra:opts.archExtra||[],structView:null,wb:opts.understand?{...opts.understand,res:null}:null});state.accept=new Set();resetChat();  // nouveau fichier : nouvelle conversation
   setNav('home');state.step=0;renderStepper();show('run');
   $('#runFile').textContent=name+(size?` · ${dec((size/1048576).toFixed(1))} Mo`:'');
   $('#runErr').hidden=true;
@@ -992,7 +992,7 @@ async function startRun(path,name,size,opts={}){
   const a=await api('/api/analyze',{file_path:path});
   if(a.error){set(0,'err',a.error);$('#runErr').hidden=false;return}
   set(0,'done',`${nf(a.rows)} lignes, ${a.columns} colonnes, ${a.size_kb?dec(a.size_kb)+' Ko':'source en ligne'}`,secs(t0));prog(45);
-  state.original=a;state.analysis=a;predLoad();
+  state.original=a;state.analysis=a;
   if(!opts.fromRegistry)autoRegister(path,name);  // en tâche de fond, sans retarder l'analyse
   t0=performance.now();set(1,'doing');
   const c=await api('/api/clean',{file_path:path});
@@ -1330,13 +1330,18 @@ function corrDetail(x){
 $('#issues').addEventListener('click',e=>{const b=e.target.closest('[data-acc]');if(!b)return;const x=issuesOf().find(i=>i.id===b.dataset.acc);if(!x)return;const on=isOn(x);idsOf(x).forEach(id=>on?state.accept.delete(id):state.accept.add(id));renderVerify()});
 $('#toggleAll').onclick=()=>{const items=issuesOf();state.accept=items.every(isOn)?new Set():new Set(items.flatMap(idsOf));renderVerify()};
 // --- Analyse prédictive : sélecteurs remplis après l'analyse, modèle lancé à la demande
+let predTour=0;
+function predReset(){
+  predTour++;experteTours.predictif=(experteTours.predictif||0)+1;  // un calcul ou une lecture en cours ne s'affichera pas sur ces données
+  $('#predOut').innerHTML='';$('#predValeurWrap').hidden=true;$('#predHorizon').value='6';
+}
 async function predLoad(){
   if($('#predCard').hidden)return;   // carte réservée aux administrateurs : pas d'appel inutile
   const sel=$('#predCible'),per=$('#predPeriode');
-  if(!sel||!state.path)return;
+  if(!sel||!currentDataPath())return;
   sel.innerHTML='<option value="">Choisir…</option>';per.innerHTML='<option value="">— aucune —</option>';
   try{
-    const c=await api('/api/predictive',{file_path:state.path});
+    const c=await api('/api/predictive',{file_path:currentDataPath()});
     if(!c||c.error)return;
     state.predCols=c;
     (c.numeriques||[]).forEach(x=>sel.insertAdjacentHTML('beforeend','<option value="'+esc(x)+'">'+esc(x)+' (nombre)</option>'));
@@ -1374,8 +1379,9 @@ async function predRun(){
   const out=$('#predOut'),cible=$('#predCible').value,per=$('#predPeriode').value,h=+$('#predHorizon').value;
   if(!cible){out.innerHTML='<p class="sub">Choisissez la colonne à expliquer ou à prévoir.</p>';return}
   out.innerHTML='<p class="sub">Calcul en cours…</p>';
-  const v=$('#predValeurWrap').hidden?null:$('#predValeur').value;
-  const r=await api('/api/predictive',{file_path:state.path,cible:cible,periode:per||null,horizon:h,valeur_comptee:v});
+  const tour=++predTour,v=$('#predValeurWrap').hidden?null:$('#predValeur').value;
+  const r=await api('/api/predictive',{file_path:currentDataPath(),cible:cible,periode:per||null,horizon:h,valeur_comptee:v});
+  if(tour!==predTour)return;
   const res=(r&&r.resultat)||null;
   if(!res){out.innerHTML='<p class="sub">'+esc((r&&(r.error||(r.erreurs||[])[0]))||'Calcul impossible.')+'</p>';return}
   if(res.type==='prevision'||res.previsions){
@@ -1479,6 +1485,7 @@ async function loadAiInsights(){
 }
 function renderAnalyze(){
   const a=state.analysis;if(!a)return;
+  if(state.predFor!==currentDataPath()){state.predFor=currentDataPath();predReset();predLoad()}  // nouvelles données : la carte repart de zéro
   const src=state.structView?`structure proposée (table ${state.structView.table})`:state.applied?'données corrigées':'données d\'origine';
   $('#anLead').textContent=`${state.structView?state.name:a.file} · ${src} · ${nf(a.rows)} lignes`;
   const nAn=(a.anomalies||[]).reduce((s,x)=>s+x.count,0);
@@ -1882,6 +1889,7 @@ $$('.exp[data-exp]').forEach(b=>b.onclick=async()=>{
   s.innerHTML='<span class="spin"></span> Génération…';
   let body={};
   if(kind==='pdf')try{body={charts:await chartImages(),...(hermesReady(state.analysis)&&state.hermes.synthese?{hermes_synthese:state.hermes.synthese}:{})}}catch(e){console.warn('Graphiques du PDF : '+e)}
+  body.file_path=currentDataPath();
   const d=await api('/api/export/'+kind,body);
   if(d.url){s.innerHTML=`Prêt : <a href="${esc(d.url)}" download="${esc(d.file)}">${esc(d.file)}</a>`;const a=document.createElement('a');a.href=d.url;a.download=d.file||'';document.body.append(a);a.click();a.remove();toast(`Export ${kind.toUpperCase()} téléchargé`);loadCounts()}
   else{s.textContent=old;toast(d.error||'Export impossible')}
