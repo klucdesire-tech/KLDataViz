@@ -1034,9 +1034,21 @@ def _inference(df):
         return {}
     try:
         import inferential
-        return {"inference": inferential.analyse(df)}
+        import interpretation
+        inf = inferential.analyse(df)
+        return {"inference": dict(inf, lecture=interpretation.tests(inf))}
     except Exception:
         return {}
+
+
+def _lecture_predictive(resultat, df):
+    """Interprétation en clair : si elle échoue, les chiffres restent affichés."""
+    try:
+        import inferential
+        import interpretation
+        return interpretation.predictif(resultat, inferential.cadre(df)[1])
+    except Exception:
+        return {"phrases": [], "alerte": False}
 
 
 def _cell_safe(v):
@@ -3156,9 +3168,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 horizon = max(1, min(int(p.get("horizon") or 6), 36))
             except (TypeError, ValueError):
                 horizon = 6
-            return self._send(200, predictive.analyse(df, cible, preds,
-                                                      str(p.get("periode") or "") or None, horizon,
-                                                      str(p.get("valeur_comptee") or "") or None))
+            resultat = predictive.analyse(df, cible, preds, str(p.get("periode") or "") or None, horizon,
+                                          str(p.get("valeur_comptee") or "") or None)
+            return self._send(200, dict(resultat, lecture=_lecture_predictive(resultat, df)))
         if path == "/api/registry/describe":
             import registry_meta as RM
             df, err = _read_df(str(p.get("file_path") or ""))

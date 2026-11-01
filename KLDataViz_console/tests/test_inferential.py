@@ -144,6 +144,29 @@ def test_lignes_individuelles_non_signalees():
     assert not I.analyse(df)["lignes_dependantes"]
 
 
+def test_ventes_au_jour_a_combinaison_unique_non_signalees():
+    """Date, lieu et catégorie ne se répètent pas ici, mais le fichier reste une liste de ventes."""
+    rng = np.random.default_rng(12)
+    lignes = [{"date": f"2025-{m:02d}-{1 + i % 27:02d}", "ville": ("Abidjan", "Bouaké", "Man")[i % 3], "rayon": "AB"[i % 2],
+               "montant": rng.normal(100, 10), "poids": rng.normal(5, 1)} for m in range(1, 13) for i in range(30)]
+    assert not I.analyse(pd.DataFrame(lignes))["lignes_dependantes"]
+
+
+def test_groupe_suivi_chaque_mois_signale():
+    """Vingt coopératives sur 24 mois : les colonnes emboîtées (région, campagne) n'y changent rien."""
+    rng = np.random.default_rng(14)
+    df = pd.DataFrame([{"mois": f"{2024 + m // 12}-{m % 12 + 1:02d}", "campagne": f"C{m // 12}", "region": f"R{c % 5}", "cooperative": f"Coop {c}",
+                        "tonnage": float(rng.integers(10, 90)), "superficie": float(rng.integers(100, 900))} for m in range(24) for c in range(20)])
+    assert I.analyse(df)["lignes_dependantes"]
+
+
+def test_tableau_croise_complet_signale():
+    rng = np.random.default_rng(13)
+    df = pd.DataFrame([{"region": r, "annee": a, "sexe": s, "age": t, "population": float(rng.integers(100, 900)), "deces": float(rng.integers(1, 90))}
+                       for r in ("Poro", "Tonkpi", "Gbêkê") for a in range(2015, 2025) for s in "FM" for t in ("0-14", "15-49", "50+")])
+    assert I.analyse(df)["lignes_dependantes"]
+
+
 def test_fichier_agrege_signale():
     rng = np.random.default_rng(8)
     df = pd.DataFrame({"zone": rng.choice(["A", "B"], 80), "cas": rng.normal(10, 2, 80), "morts": rng.normal(2, 1, 80)})
@@ -216,6 +239,7 @@ def _bloc(inf):
     code = html[html.index("const esc=s=>"):].split("\n", 1)[0]
     code += "\n" + next(x for x in html.splitlines() if x.startswith("const nf=n=>"))
     code += "\n" + next(x for x in html.splitlines() if x.startswith("const detailsBlock="))
+    code += "\n" + html[html.index("function lectureBlock(l){"):html.index("const pTxt=")]
     code += "\n" + html[html.index("function inferenceBlock(inf){"):html.index("// Lecture chiffrée d'une comparaison")]
     code += "\nprocess.stdout.write(inferenceBlock(" + json.dumps(inf) + "))"
     return subprocess.run(["node", "-e", code], capture_output=True, encoding="utf-8", check=True).stdout
