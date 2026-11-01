@@ -32,6 +32,7 @@ MAX_MODALITES = 15
 MAX_COLONNES = 12
 MAX_TESTS = 60
 ALPHA = 0.05
+CROISEMENT_COMPLET = 0.5    # part des combinaisons présentes au-delà de laquelle le fichier est un tableau croisé
 LIEN_STRUCTURE = 0.999      # |r|, V ou êta² au-delà : une colonne découle de l'autre
 
 
@@ -111,11 +112,12 @@ def _force_effet(effet, nom) -> str | None:
     return "forte" if v >= fort else "modérée" if v >= moyen else "faible" if v >= faible else "négligeable"
 
 
-def _cadre(df: pd.DataFrame) -> tuple:
+def cadre(df: pd.DataFrame) -> tuple:
     """Lecture de la fiche de la page : colonnes à ne pas tester, et lignes qui ne sont pas des observations séparées.
 
-    Une ligne par combinaison de période, lieu et catégorie : chaque ligne résume un groupe, ou le même lieu revient
-    à chaque période. Les tests supposent des lignes indépendantes, leurs p sont alors trop favorables.
+    Une ligne par groupe et par mois, ou un croisement presque complet des colonnes : chaque ligne résume un groupe, ou
+    le même groupe revient à chaque période. Les tests supposent des lignes indépendantes, leurs p sont alors trop favorables.
+    Des ventes au jour dont la combinaison date, lieu et catégorie ne se répète pas restent des lignes individuelles.
     """
     try:
         d = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "HERMES_DA")
@@ -127,8 +129,18 @@ def _cadre(df: pd.DataFrame) -> tuple:
         return set(), False
     periode = (f["periode"] or {}).get("colonne")
     exclues = set(f["identifiants"]) | set(f["ignorees"]) | ({str(periode)} if periode else set())
-    cles = [c for c in df.columns if str(c) == str(periode) or str(c) in f["lieux"] or str(c) in f["categories"]]
-    return exclues, bool(f["agrege"]) or bool(cles and not df.duplicated(subset=cles).any())
+    if f["agrege"]:
+        return exclues, True
+    groupes = [c for c in df.columns if str(c) in f["lieux"] or str(c) in f["categories"]]
+    temps = [c for c in df.columns if str(c) == str(periode)]
+    cles = temps + groupes
+    if not cles or df.duplicated(subset=cles).any():
+        return exclues, False
+    croisement = float(np.prod([max(1, df[c].nunique(dropna=True)) for c in cles]))
+    if len(df) >= CROISEMENT_COMPLET * croisement:
+        return exclues, True
+    mensuel = bool(temps) and f["periode"].get("unite") != "jour"
+    return exclues, mensuel and any(not df.duplicated(subset=temps + [g]).any() for g in groupes)
 
 
 def analyse(df: pd.DataFrame, alpha: float = ALPHA) -> dict:
@@ -143,7 +155,7 @@ def analyse(df: pd.DataFrame, alpha: float = ALPHA) -> dict:
         df = df.sample(MAX_LIGNES, random_state=0)
         out["limitations"].append(f"Échantillon aléatoire de {MAX_LIGNES:,} lignes.".replace(",", " "))
     n_rows = int(len(df))
-    exclues, out["lignes_dependantes"] = _cadre(df)
+    exclues, out["lignes_dependantes"] = cadre(df)
     numeric = df.select_dtypes(include=[np.number]).dropna(axis=1, how="all")
     numeric = numeric[[c for c in numeric.columns if str(c) not in exclues]]
     cat = df.select_dtypes(exclude=[np.number])

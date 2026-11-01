@@ -1344,6 +1344,28 @@ async function predLoad(){
     (c.periodes||[]).forEach(x=>per.insertAdjacentHTML('beforeend','<option value="'+esc(x)+'">'+esc(x)+'</option>'));
   }catch(e){}
 }
+// Lecture du moteur, immédiate. Celle d'Adifa’ la remplace quand elle arrive et passe le contrôle des chiffres.
+function lectureBlock(l){
+  if(!l||!(l.phrases||[]).length)return '';
+  return `<div class="lectureZone"><div style="background:var(--brand-soft);border-radius:var(--r);padding:12px 14px;margin:0 0 14px;line-height:1.5"><div class="label" style="margin-bottom:4px">En clair</div><div style="font-weight:600">${esc(l.phrases[0])}</div>${l.phrases.slice(1).map(p=>`<div style="margin-top:4px">${esc(p)}</div>`).join('')}</div></div>`;
+}
+function experteHtml(l){
+  const bloc=(t,x)=>(x||[]).length?`<div style="font-weight:600;margin-top:10px">${t}</div>${x.map(p=>`<div style="margin-top:3px">${esc(p)}</div>`).join('')}`:'';
+  return `<div style="background:var(--brand-soft);border-radius:var(--r);padding:12px 14px;margin:0 0 14px;line-height:1.5"><div class="label" style="margin-bottom:4px">Lecture d'Adifa’</div><div style="font-weight:600">${esc(l.conclusion)}</div>${(l.lecture||[]).map(p=>`<div style="margin-top:6px">${esc(p)}</div>`).join('')}${bloc('Prudence',l.prudence)}${bloc('À vérifier',l.a_verifier)}<div class="sub" style="margin-top:10px">Écrite par Adifa’ à partir des résultats ci-dessous. Ses chiffres sont contrôlés.</div></div>`;
+}
+let experteTour=0;
+async function lectureExperte(genre,racine){
+  const zone=racine&&racine.querySelector('.lectureZone');
+  if(!zone)return;
+  const tour=++experteTour,note=document.createElement('div');
+  note.className='sub';note.style.margin='-6px 0 14px';note.textContent='Adifa’ relit ces résultats…';zone.append(note);
+  let r=null;
+  try{r=await api('/api/lecture-experte',{genre})}catch(e){}
+  if(tour!==experteTour&&genre==='predictif')return;
+  note.remove();
+  if(r&&r.lecture)zone.innerHTML=experteHtml(r.lecture);
+}
+const pTxt=p=>p==null?'—':p<0.001?'&lt; 0,001':nf(+Number(p).toFixed(3));
 function _predRow(label,val){return '<tr><td>'+esc(label)+'</td><td><b>'+esc(val==null?'—':String(val))+'</b></td></tr>'}
 async function predRun(){
   const out=$('#predOut'),cible=$('#predCible').value,per=$('#predPeriode').value,h=+$('#predHorizon').value;
@@ -1354,14 +1376,15 @@ async function predRun(){
   const res=(r&&r.resultat)||null;
   if(!res){out.innerHTML='<p class="sub">'+esc((r&&(r.error||(r.erreurs||[])[0]))||'Calcul impossible.')+'</p>';return}
   if(res.type==='prevision'||res.previsions){
-    out.innerHTML='<div class="toolbar" style="margin:0 0 8px"><div class="label">Prévision · '+esc(res.modele||'')+'</div></div>'
+    out.innerHTML=lectureBlock(r.lecture)+'<div class="toolbar" style="margin:0 0 8px"><div class="label">Prévision · '+esc(res.modele||'')+'</div></div>'
       +'<div class="tablewrap"><table><thead><tr><th>Période</th><th>Prévision</th><th>Intervalle 80 %</th></tr></thead><tbody>'
       + (res.previsions||[]).map(p=>'<tr><td>'+esc(p.periode)+'</td><td><b>'+esc(nf(p.valeur))+'</b></td><td>'+esc(nf(p.bas))+' – '+esc(nf(p.haut))+'</td></tr>').join('')
       +'</tbody></table></div><p class="sub">'+(res.saisonnalite?'Tendance + saisonnalité mensuelle':'Tendance linéaire')+' · pente '+esc(res.tendance_pente)
       +' · '+esc(res.unite||res.agregation)
       +' · fiabilité : '+esc(res.etat||'non évaluée')
-      +(res.validation&&res.validation.erreur_moyenne!=null?' · rétro-test sur '+esc(res.validation.periodes_testees)+' périodes (erreur moyenne '+esc(nf(res.validation.erreur_moyenne))+')':'')
+      +(res.validation&&res.validation.erreur_modele!=null?' · rétro-test sur '+esc(res.validation.periodes_testees)+' périodes (erreur moyenne '+esc(nf(res.validation.erreur_modele))+', estimation simple '+esc(nf(res.validation.erreur_reference))+')':'')
       +(res.mois_ecarte?' · dernier mois écarté (incomplet) : '+esc(res.mois_ecarte):'')+'</p>';
+    lectureExperte('predictif',out);
     return;
   }
   const rows=[];
@@ -1373,11 +1396,12 @@ async function predRun(){
   const conf=mc?'<p class="sub">Matrice : '+esc(mc.vrais_positifs)+' vrais positifs · '+esc(mc.faux_positifs)+' faux positifs · '+esc(mc.faux_negatifs)+' faux négatifs · '+esc(mc.vrais_negatifs)+' vrais négatifs</p>':'';
   const zt=(res.type==='logistique'&&res.vrais_positifs_test===0)?'<p class="sub" style="color:var(--bad)">Aucun vrai positif sur '+esc(res.positifs_test)+' : le modèle ne reconnaît aucun cas, ne pas l’utiliser.</p>':'';
   const lg=res.type==='logistique';
-  out.innerHTML='<div class="tablewrap"><table><tbody>'+rows.join('')+'</tbody></table></div>'+conf+zt
+  out.innerHTML=lectureBlock(r.lecture)+'<div class="tablewrap"><table><tbody>'+rows.join('')+'</tbody></table></div>'+conf+zt
     +'<div class="toolbar" style="margin:12px 0 6px"><div class="label">Coefficients</div></div>'
     +'<div class="tablewrap"><table><thead><tr><th>Variable</th><th>Coefficient</th><th>'+(lg?'Odds ratio':'p-value')+'</th></tr></thead><tbody>'
-    + (res.coefficients||[]).map(c=>'<tr><td>'+esc(c.variable)+'</td><td>'+esc(c.coef)+'</td><td>'+esc(lg?c.odds_ratio:c.p)+'</td></tr>').join('')
+    + (res.coefficients||[]).map(c=>'<tr><td>'+esc(c.variable)+'</td><td>'+esc(Number(c.coef).toLocaleString('fr-FR',{maximumSignificantDigits:4}))+'</td><td>'+(lg?esc(c.odds_ratio):pTxt(c.p))+'</td></tr>').join('')
     +'</tbody></table></div><p class="sub">'+esc((res.limitations||[]).join(' '))+'</p>';
+  lectureExperte('predictif',out);
 }
 $('#predRun').onclick=predRun;
 $('#predCible').onchange=()=>{const b=!!(state.predCols&&(state.predCols.binaires||[]).includes($('#predCible').value));$('#predValeurWrap').hidden=!b;};
@@ -1479,6 +1503,8 @@ function renderAnalyze(){
   if((a.anomalies||[]).length)h+=detailsBlock('Anomalies',`<table><thead><tr><th>Colonne</th><th>Type</th><th class="r">Nombre</th><th>Détail</th></tr></thead><tbody>${a.anomalies.map(x=>`<tr><td>${esc(x.column)}</td><td>${esc(x.type)}</td><td class="r num">${x.count}</td><td>${esc(x.detail)}</td></tr>`).join('')}</tbody></table>`);
   if((a.controles||[]).length)h=`<details class="more" open><summary>Contrôles de cohérence : ${a.controles.length} écart(s) entre totaux et désagrégations</summary><div class="tablewrap"><table><thead><tr><th>Indicateur</th><th>Site</th><th>Contrôle</th><th class="r">Attendu</th><th class="r">Trouvé</th></tr></thead><tbody>${a.controles.map(x=>`<tr><td>${esc(x.indicateur)}</td><td>${esc(x.site)}</td><td>${esc(x.controle)}</td><td class="r num">${nf(x.attendu)}</td><td class="r num">${nf(x.trouve)}</td></tr>`).join('')}</tbody></table></div></details>`+h;
   $('#details').innerHTML=h;
+  const tests=[...document.querySelectorAll('#details details')].find(d=>d.querySelector('.lectureZone'));
+  if(tests)tests.addEventListener('toggle',()=>lectureExperte('tests',tests),{once:true});
 }
 const detailsBlock=(t,html)=>`<details class="more"><summary>${t}</summary><div class="tablewrap">${html}</div></details>`;
 // Tests statistiques : chaque résultat dit en clair, la p corrigée à côté pour qui veut vérifier
@@ -1492,7 +1518,7 @@ function inferenceBlock(inf){
     garde=l=>(l||[]).filter(x=>!x.structurel),
     cor=garde(inf.correlations),ass=garde(inf.associations),cmp=garde(inf.comparaisons),
     struct=[...(inf.correlations||[]),...(inf.associations||[])].filter(x=>x.structurel).map(x=>`${x.a} et ${x.b}`).concat((inf.comparaisons||[]).filter(x=>x.structurel).map(x=>`${x.num} et ${x.cat}`));
-  let h=`<p class="sub">Ces tests disent si un écart vu dans vos données est assez net pour ne pas venir du hasard. La valeur p corrigée tient compte du nombre de tests faits : en dessous de ${nf(inf.alpha)}, le résultat est retenu.</p>`;
+  let h=lectureBlock(inf.lecture)+`<p class="sub">Ces tests disent si un écart vu dans vos données est assez net pour ne pas venir du hasard. La valeur p corrigée tient compte du nombre de tests faits : en dessous de ${nf(inf.alpha)}, le résultat est retenu.</p>`;
   if(inf.lignes_dependantes)h+=`<p class="sub" style="color:var(--amber)">Ce fichier semble compter une ligne par groupe ou par période. Les lignes ne sont pas indépendantes : les résultats ci-dessous sont à vérifier sur les données détaillées.</p>`;
   if(cor.length)h+=titre('Entre deux mesures')+`<table><thead><tr><th>Mesure A</th><th>Mesure B</th><th class="r">r</th><th class="r">Marge à 95 %</th><th class="r">p corrigée</th><th>Conclusion</th></tr></thead><tbody>${cor.map(c=>`<tr><td>${esc(c.a)}</td><td>${esc(c.b)}</td><td class="r num">${f(c.r)}</td><td class="r num" style="white-space:nowrap">${ic(c.ic95)}</td><td class="r num">${fp(c.p_ajuste)}</td>${cell(c)}</tr>`).join('')}</tbody></table>`;
   if(ass.length)h+=titre('Entre deux catégories')+`<table><thead><tr><th>Catégorie A</th><th>Catégorie B</th><th class="r">V de Cramér</th><th>Test</th><th class="r">p corrigée</th><th>Conclusion</th></tr></thead><tbody>${ass.map(c=>`<tr><td>${esc(c.a)}</td><td>${esc(c.b)}</td><td class="r num">${f(c.v_cramer)}</td><td>${esc(c.test)}</td><td class="r num">${fp(c.p_ajuste)}</td>${cell(c)}</tr>`).join('')}</tbody></table>`;

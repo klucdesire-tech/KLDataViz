@@ -260,9 +260,11 @@ def regression_lineaire(X: pd.DataFrame, y: pd.Series, noms: list | None = None,
     return {
         "modele": "régression linéaire (moindres carrés)",
         "n": int(n), "n_test": int(len(idx_te)), "cible": str(y.name) if y.name else "cible",
-        "coefficients": [{"variable": "(constante)" if i == 0 else noms[i - 1], "coef": _r(c, 4),
-                          "p": _r(p, 6) if p is not None else None, "ic95": ic[i]}
+        "coefficients": [{"variable": "(constante)" if i == 0 else noms[i - 1], "coef": _r(float(f"{c:.4g}"), 12),
+                          "p": _r(p, 6) if p is not None else None, "ic95": ic[i],
+                          "ecart_type": _r(float(A[idx_tr][:, i].std(ddof=1)), 6) if i else None}
                          for i, (c, p) in enumerate(zip(coef, pvals))],
+        "ecart_type_cible": _r(float(yv[idx_tr].std(ddof=1)), 6),
         "r2_train": _r(r2_tr, 3), "r2_test": _r(r2_te, 3),
         "rmse_train": _r(math.sqrt(rss / max(len(idx_tr), 1)), 2), "rmse_test": _r(rmse_te, 2),
         "etat": etat, "fiable": etat == "utilisable",
@@ -405,6 +407,10 @@ def prevision(serie: pd.Series, horizon: int = 6, nature: str = "volume",
     t = np.arange(n, dtype=float)
     coef = _tendance(y, t)
     saison = _saison_residus(y, t, coef) if ok.sum() >= 24 else None
+    try:
+        tendance_p = float(_st.linregress(t[ok], y[ok]).pvalue)
+    except ValueError:
+        tendance_p = None
 
     # ---- rétro-test : MÊME modèle que la prévision, comparé à deux références naïves
     validation, etat = None, "indicatif"
@@ -446,7 +452,8 @@ def prevision(serie: pd.Series, horizon: int = 6, nature: str = "volume",
     return {
         "modele": "tendance linéaire" + (" + saisonnalité mensuelle" if saison is not None else ""),
         "n": int(n), "horizon": int(horizon), "agregation": _agregation(nature), "unite": unite,
-        "tendance_pente": _r(coef[1] * facteur, 3), "residu_ecart_type": _r(resid_std * facteur, 2),
+        "tendance_pente": _r(coef[1] * facteur, 3), "tendance_p": _r(tendance_p, 6),
+        "residu_ecart_type": _r(resid_std * facteur, 2),
         "saisonnalite": saison is not None, "mois_ecarte": mois_ecarte, "validation": validation,
         "etat": etat, "fiable": etat == "utilisable",
         "historique": {"periodes": [str(i) for i in full],
