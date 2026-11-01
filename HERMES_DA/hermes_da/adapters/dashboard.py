@@ -600,6 +600,16 @@ def _col(df, names, numeric=False):
     return None
 
 
+# Mots choisis à la main : un seul suffit à reconnaître le domaine. Ceux d'un dictionnaire importé viennent de libellés.
+_MOTS_SURS = {m for d in DOMAINES.values() for m in d["mots"]}
+_MOTS_PATIENT = _MOTS_SURS | {"patient", "patients", "beneficiaire", "beneficiaires", "dossier"}
+
+
+def _preuve_suffisante(trouves) -> bool:
+    """Un mot de dictionnaire isolé ne prouve rien : deux mots, une expression ou un mot sûr, oui."""
+    return len(trouves) >= 2 or any(" " in m or m in _MOTS_SURS for m in trouves)
+
+
 def _detect_domaine(df, catalogue: dict | None = None) -> dict | None:
     """Domaine/programme le plus représenté dans les noms de colonnes et les libellés d'indicateurs (mots entiers).
 
@@ -622,7 +632,10 @@ def _detect_domaine(df, catalogue: dict | None = None) -> dict | None:
     cat = catalogue or DOMAINES
     best, score = None, 0
     for cle, dom in cat.items():
-        n = sum(words.count(" " + m + " ") for m in dom["mots"])
+        trouves = [m for m in dom["mots"] if " " + m + " " in words]
+        if catalogue and not _preuve_suffisante(trouves):
+            continue
+        n = sum(words.count(" " + m + " ") for m in trouves)
         if n > score:
             best, score = cle, n
     if not best:
@@ -763,7 +776,8 @@ def _partial_month(period_series):
 def _patient_items(df, kpi_defs, domaine, period_col, aggregated=False):
     # Données déjà agrégées (DHIS2, export converti) : une ligne = une unité × une période, pas un patient →
     # pas de compteur de lignes, mais les sommes du mois restent comparées au mois précédent
-    items = [] if aggregated else [{"nom": "Nouveaux patients" if domaine else "Nouveaux enregistrements",
+    patients = domaine and _MOTS_PATIENT & set(_norm(" ".join(str(c) for c in df.columns)).split())
+    items = [] if aggregated else [{"nom": "Nouveaux patients" if patients else "Nouveaux enregistrements",
                                     "kind": "count", "bon": 1, "libelle": f"Lignes par mois de « {period_col} »"}]
     kept = ("taux", "rate", "pct", "proportion", "moyenne", "mean", "mediane") + (("somme", "sum") if aggregated else ())
     for k in kpi_defs:
@@ -842,7 +856,7 @@ select{appearance:none;border:1px solid var(--line);background:var(--card) url("
 .kpi .info:hover .tip,.kpi .info:focus .tip{display:block}
 .kpis .kpi:last-child .info .tip{left:auto;right:-8px;transform:none}
 .kpi .row{display:flex;align-items:flex-end;justify-content:space-between;gap:8px}
-.kpi .v{font-size:24px;font-weight:700;letter-spacing:-.3px;line-height:1}
+.kpi .v{font-size:24px;font-weight:700;letter-spacing:-.3px;line-height:1;white-space:nowrap}
 .kpi .s{font-size:11px;text-align:right;line-height:1.3;max-width:55%}
 .kpi.k0{background:linear-gradient(135deg,var(--navy),var(--navy-2));color:#fff}.kpi.k0 .s{color:#BFE3F5}
 .kpi.k1{background:var(--t1)}.kpi.k2{background:var(--t2)}.kpi.k3{background:var(--t3)}.kpi.k4{background:var(--t4)}.kpi.k5{background:var(--t5)}
