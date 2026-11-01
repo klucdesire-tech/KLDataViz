@@ -1051,13 +1051,14 @@ def _lecture_predictive(resultat, df):
         return {"phrases": []}
 
 
-def _lecture_experte(genre):
-    """Lecture d'Adifa’ sur le dernier résultat de cet utilisateur, jamais sur ce que le navigateur envoie.
+def _lecture_experte(genre, file_path=None):
+    """Lecture d'Adifa’ sur des résultats calculés par le serveur, jamais sur des chiffres envoyés par le navigateur.
+    L'analyse est recalculée si elle n'est plus en mémoire : la page peut survivre à un redémarrage du serveur.
     Rien sans IA : la page garde la lecture du moteur. Une même lecture n'est demandée qu'une fois."""
     import lecture_experte as LE
     st = T.state()
     if genre == "tests":
-        res = st.get("last_result") or {}
+        res = _analysis_for_chat(file_path) or st.get("last_result") or {}
         faits = LE.faits_tests(res.get("inference"), [c.get("name") for c in res.get("columns_detail") or [] if isinstance(c, dict)])
     else:
         d = st.get("dernier_predictif") or {}
@@ -3208,9 +3209,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if path == "/api/lecture-experte":
             if not _predictif_actif():
                 raise T.Forbidden("Lecture d'Adifa’ : réservée aux administrateurs pour l'instant.")
-            if not _rate_predictif(ctx.key if T.CLOUD else self.client_address[0]):
-                return self._send(429, {"error": "trop de demandes ; réessayez dans une minute."})
-            return self._send(200, {"lecture": _lecture_experte(str(p.get("genre") or ""))})
+            if not _rate_predictif(f"{ctx.key if T.CLOUD else self.client_address[0]}:lecture"):
+                return self._send(429, {"error": "Trop de demandes : réessayez dans une minute."})
+            lecture = _lecture_experte(str(p.get("genre") or ""), str(p.get("file_path") or "") or None)
+            return self._send(200, {"lecture": lecture, "ia": bool(_llm_config())})
         if path == "/api/registry/describe":
             import registry_meta as RM
             df, err = _read_df(str(p.get("file_path") or ""))

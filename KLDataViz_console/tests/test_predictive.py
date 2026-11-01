@@ -109,6 +109,11 @@ def test_aucun_vrai_positif_bloque_utilisable():
     assert P._etat(None, 0.95, 20, 0) == "indicatif"
 
 
+def test_modele_qui_ne_distingue_rien_est_insuffisant():
+    """AUC de 0,52 et aucun cas retrouvé : « indicatif » contredirait la lecture."""
+    assert P._etat(None, 0.52, 24, 0) == "insuffisant"
+
+
 def test_modele_utile_est_declare_utilisable():
     rng = np.random.default_rng(1)
     x = rng.normal(size=600)

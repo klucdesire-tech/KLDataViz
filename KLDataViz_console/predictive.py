@@ -195,10 +195,10 @@ def _etat(r2: float | None, auc: float | None, positifs_test: int | None = None,
     if auc is not None:
         if positifs_test is not None and positifs_test < MIN_POSITIFS_TEST:
             return "insuffisant"
-        if vrais_positifs is not None and vrais_positifs == 0:
-            return "indicatif"          # aucun vrai positif : jamais « utilisable »
         if auc < AUC_UTILISABLE:
             return "insuffisant"
+        if vrais_positifs is not None and vrais_positifs == 0:
+            return "indicatif"          # aucun vrai positif : jamais « utilisable »
         return "utilisable" if auc >= 0.75 else "indicatif"
     if r2 is None or r2 < R2_UTILISABLE:
         return "insuffisant"
