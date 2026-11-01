@@ -1,18 +1,14 @@
 # -*- coding: utf-8 -*-
 """Lecture en clair des résultats prédictifs et des tests statistiques.
 
-Les phrases sont écrites ici, jamais par l'IA : chaque chiffre vient du calcul, et le ton suit la
-fiabilité du modèle. Un modèle jugé insuffisant n'annonce ni hausse ni baisse.
-
-Un mot d'alerte (« à craindre ») n'apparaît que si le sens est connu : baisse de recettes, hausse de
-décès ou de retours. Pour une autre mesure, on ne décide pas à la place du lecteur si c'est une mauvaise nouvelle.
+Les phrases sont écrites ici, sans l'IA : chaque chiffre vient du calcul, et le ton suit la fiabilité du
+modèle. Un modèle jugé insuffisant n'annonce ni hausse ni baisse. C'est aussi le socle de la lecture d'Adifa’
+(`lecture_experte.py`) et ce que la page garde si celle-ci n'arrive pas.
 """
 from __future__ import annotations
 
 import math
-import os
 import re
-import sys
 
 SEUIL_TENDANCE = 0.10       # p de la pente : au-delà, le mouvement peut venir du hasard
 VARIATION_MIN = 0.02        # moins de 2 % sur l'horizon : niveau stable
@@ -24,8 +20,6 @@ ORDRE_FORCE = {"forte": 0, "modérée": 1, "faible": 2}
 LIEN = {"forte": "fort", "modérée": "modéré", "faible": "faible"}
 MOIS = ("janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août", "septembre", "octobre", "novembre", "décembre")
 UNITES = {"fcfa": "FCFA", "xof": "FCFA", "eur": "€", "usd": "$", "pct": "%", "ha": "ha", "kg": "kg", "t": "t"}
-RECETTES = {"affaires", "ca", "vente", "ventes", "recette", "recettes", "revenu", "revenus", "marge", "marges",
-            "benefice", "benefices", "profit", "profits", "encaissement", "encaissements"}
 
 
 def nom_lisible(colonne) -> str:
@@ -34,7 +28,7 @@ def nom_lisible(colonne) -> str:
     return re.sub(r"\bchiffre affaires\b", "chiffre d'affaires", s, flags=re.I) or str(colonne)
 
 
-def _unite(colonne) -> str:
+def unite(colonne) -> str:
     m = re.search(r"_(%s)$" % "|".join(UNITES), str(colonne), flags=re.I)
     return " " + UNITES[m.group(1).lower()] if m else ""
 
@@ -68,78 +62,73 @@ def nombre(v) -> str:
     return signe + _virgule(a, 1 - int(math.floor(math.log10(a))))
 
 
-def _mois(periode: str) -> str:
+def mois_clair(periode: str) -> str:
     try:
         return f"{MOIS[int(str(periode)[5:7]) - 1]} {str(periode)[:4]}"
     except (ValueError, IndexError):
         return str(periode)
 
 
-def _sens_souhaite(cible) -> int:
-    """+1 : une baisse inquiète. -1 : une hausse inquiète. 0 : on ne sait pas."""
-    try:
-        d = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "HERMES_DA")
-        if d not in sys.path:
-            sys.path.insert(0, d)
-        from hermes_da.adapters.dashboard import _bon, _norm
-        if _bon(cible) == -1:
-            return -1
-        return 1 if RECETTES & set(_norm(cible).split()) else 0
-    except Exception:
-        return 0
+def nom_prevision(res: dict, cible) -> str:
+    nom, u = nom_lisible(cible), res.get("unite") or ""
+    if "%" in u:
+        return f"part de Oui pour {nom}"
+    return f"{u} pour {nom}" if u else nom
 
 
-def prevision(res: dict, cible) -> dict:
+def suffixe(res: dict, cible) -> str:
+    u = res.get("unite") or ""
+    return " %" if "%" in u else "" if u else unite(cible)
+
+
+def niveaux(res: dict) -> dict | None:
+    """Niveau récent, niveau prévu et sens de la tendance. Un sens n'est retenu que si la pente est nette."""
     prev = res.get("previsions") or []
     hist = [v for v in (res.get("historique") or {}).get("valeurs", []) if v is not None]
     if not prev or not hist:
-        return {"phrases": [], "alerte": False}
-    h, nom, etat, val = len(prev), nom_lisible(cible), res.get("etat"), res.get("validation")
-    unite = res.get("unite") or ""
-    if "%" in unite:
-        nom, suffixe = f"part de Oui pour {nom}", " %"
-    elif unite:
-        nom, suffixe = f"{unite} pour {nom}", ""
-    else:
-        suffixe = _unite(cible)
-    par_mois = " par mois" if res.get("agregation") == "somme" else ""
-    valeurs = [p["valeur"] for p in prev]
-    niveau, prevu = sum(hist[-h:]) / len(hist[-h:]), sum(valeurs) / h
+        return None
+    h = len(prev)
+    niveau, prevu = sum(hist[-h:]) / len(hist[-h:]), sum(p["valeur"] for p in prev) / h
     variation = (prevu - niveau) / abs(niveau) if niveau else 0.0
     p_pente, pente = res.get("tendance_p"), res.get("tendance_pente") or 0
     net = p_pente is not None and p_pente < SEUIL_TENDANCE and abs(variation) >= VARIATION_MIN and pente * variation > 0
-    sens = ("baisse" if variation < 0 else "hausse") if net else None
-    fin = prev[-1]
-    bas = max(fin["bas"], 0) if min(hist) >= 0 else fin["bas"]
-    fait_mieux = bool(val and val.get("erreur_modele") is not None)
+    return {"horizon": h, "niveau": niveau, "prevu": prevu, "variation": variation, "fin": prev[-1],
+            "bas": max(prev[-1]["bas"], 0) if min(hist) >= 0 else prev[-1]["bas"],
+            "sens": ("baisse" if variation < 0 else "hausse") if net else None}
 
+
+def prevision(res: dict, cible) -> dict:
+    n = niveaux(res)
+    if not n:
+        return {"phrases": []}
+    h, nom, etat, val = n["horizon"], nom_prevision(res, cible), res.get("etat"), res.get("validation")
+    unite_txt = suffixe(res, cible)
+    par_mois = " par mois" if res.get("agregation") == "somme" else ""
+    teste = bool(val and val.get("erreur_modele") is not None)
     if etat == "insuffisant":
-        return {"alerte": False, "phrases": [
+        return {"phrases": [
             f"Ces données ne permettent pas d'annoncer une hausse ou une baisse {_de(nom)}.",
             (f"Sur les {val['periodes_testees']} derniers mois connus, ce calcul n'a pas fait mieux qu'une estimation simple."
-             if fait_mieux else "L'historique est trop court pour vérifier ce calcul sur le passé.")]}
-    souhaite = 0 if unite else _sens_souhaite(cible)
-    alerte = (sens == "baisse" and souhaite == 1) or (sens == "hausse" and souhaite == -1)
-    if not sens:
-        phrases = [f"Aucune hausse ni baisse nette {_de(nom)} n'est attendue d'ici {h} mois : "
-                   f"le niveau reste proche de {nombre(niveau)}{suffixe}{par_mois}."]
+             if teste else "L'historique est trop court pour vérifier ce calcul sur le passé.")]}
+    if n["sens"]:
+        attente = "est attendue" if etat == "utilisable" else "est possible"
+        phrases = [f"Si la tendance se poursuit, une {n['sens']} {_de(nom)} {attente} d'ici {h} mois : environ "
+                   f"{'+' if n['variation'] > 0 else '−'}{_virgule(abs(n['variation']) * 100, 0)} %, "
+                   f"de {nombre(n['niveau'])} à {nombre(n['prevu'])}{unite_txt}{par_mois} en moyenne."]
     else:
-        attente = "est possible" if etat != "utilisable" else "est à craindre" if alerte else "est attendue"
-        amorce = "Si rien n'est fait" if alerte else "Si la tendance se poursuit"
-        phrases = [f"{amorce}, une {sens} {_de(nom)} {attente} d'ici {h} mois : environ "
-                   f"{'+' if variation > 0 else '−'}{_virgule(abs(variation) * 100, 0)} %, "
-                   f"de {nombre(niveau)} à {nombre(prevu)}{suffixe}{par_mois} en moyenne."]
-    phrases.append(f"Pour {_mois(fin['periode'])}, le calcul donne environ {nombre(fin['valeur'])}{suffixe}, "
-                   f"entre {nombre(bas)} et {nombre(fin['haut'])}{suffixe}.")
+        phrases = [f"Aucune hausse ni baisse nette {_de(nom)} n'est attendue d'ici {h} mois : "
+                   f"le niveau reste proche de {nombre(n['niveau'])}{unite_txt}{par_mois}."]
+    phrases.append(f"Pour {mois_clair(n['fin']['periode'])}, le calcul donne environ {nombre(n['fin']['valeur'])}{unite_txt}, "
+                   f"entre {nombre(n['bas'])} et {nombre(n['fin']['haut'])}{unite_txt}.")
     if etat == "utilisable":
         phrases.append(f"Sur les {val['periodes_testees']} derniers mois connus, ce calcul a fait nettement mieux qu'une estimation simple.")
-    elif fait_mieux:
+    elif teste:
         phrases.append(f"À prendre comme une indication : sur les {val['periodes_testees']} derniers mois connus, "
                        "ce calcul fait mieux qu'une estimation simple, sans grand écart.")
     else:
         phrases.append("À prendre comme une indication : l'historique est trop court pour vérifier ce calcul sur le passé.")
     phrases.append("Cette prévision prolonge le passé : elle ne tient pas compte d'un changement à venir.")
-    return {"phrases": phrases, "alerte": alerte and etat == "utilisable"}
+    return {"phrases": phrases}
 
 
 def _pas(ecart_type: float) -> float:
@@ -147,42 +136,48 @@ def _pas(ecart_type: float) -> float:
     return 10.0 ** round(math.log10(ecart_type))
 
 
+def effets(res: dict) -> list:
+    """(« net », « net mais faible » ou « non net », coefficient, variation ronde de la colonne, variation associée), du plus fort au plus faible."""
+    ecart_y, out = res.get("ecart_type_cible") or 0, []
+    for c in res.get("coefficients") or []:
+        sd = c.get("ecart_type")
+        if c["variable"] == "(constante)" or not sd or c.get("coef") is None or c.get("p") is None:
+            continue
+        genre = "non net" if c["p"] >= P_COEF else "net" if abs(c["coef"] * sd) >= EFFET_MIN * ecart_y else "net mais faible"
+        pas = _pas(sd)
+        out.append((genre, c, pas, c["coef"] * pas))
+    return sorted(out, key=lambda x: -abs(x[1]["coef"] * x[1]["ecart_type"]))
+
+
 def regression(res: dict, cible, lignes_dependantes: bool = False) -> dict:
     nom, r2, etat = nom_lisible(cible), res.get("r2_test"), res.get("etat")
     if etat == "insuffisant":
-        return {"alerte": False, "phrases": [
+        return {"phrases": [
             f"Les colonnes utilisées expliquent mal « {nom} » : ne vous appuyez pas sur ce modèle pour décider."
             + (" Il prédit moins bien qu'une simple moyenne." if r2 is not None and r2 < 0 else "")]}
     phrases = [f"Les colonnes utilisées expliquent environ {_virgule(r2 * 100, 0)} % des variations {_de(nom)}."
                + ("" if etat == "utilisable" else " C'est une indication à confirmer.")]
     if res.get("rmse_test") is not None:
-        phrases.append(f"Sur les cas mis de côté, l'écart habituel entre le calcul et la réalité est d'environ {nombre(res['rmse_test'])}{_unite(cible)}.")
-    ecart_y = res.get("ecart_type_cible") or 0
-    nets, sans_effet = [], []
-    for c in res.get("coefficients") or []:
-        sd = c.get("ecart_type")
-        if c["variable"] == "(constante)" or not sd or c.get("coef") is None or c.get("p") is None:
-            continue
-        effet = abs(c["coef"] * sd)
-        (nets if c["p"] < P_COEF and effet >= EFFET_MIN * ecart_y else sans_effet).append((effet, c))
-    for _, c in sorted(nets, key=lambda x: -x[0])[:3]:
-        pas, v = _pas(c["ecart_type"]), c["variable"]
-        effet = c["coef"] * pas
-        phrases.append(f"+{nombre(pas)}{_unite(v)} sur « {nom_lisible(v)} » va avec environ {'+' if effet > 0 else ''}{nombre(effet)}"
-                       f"{_unite(cible)} sur « {nom} », les autres colonnes restant égales.")
-    if sans_effet:
-        noms = ", ".join(f"« {nom_lisible(c['variable'])} »" for _, c in sans_effet[:3])
-        phrases.append(f"Aucun effet net de {noms} une fois les autres colonnes prises en compte.")
+        phrases.append(f"Sur les cas mis de côté, l'écart habituel entre le calcul et la réalité est d'environ {nombre(res['rmse_test'])}{unite(cible)}.")
+    liste = effets(res)
+    for _, c, pas, effet in [e for e in liste if e[0] == "net"][:3]:
+        v = c["variable"]
+        phrases.append(f"+{nombre(pas)}{unite(v)} sur « {nom_lisible(v)} » va avec environ {'+' if effet > 0 else ''}{nombre(effet)}"
+                       f"{unite(cible)} sur « {nom} », les autres colonnes restant égales.")
+    for genre, debut in (("net mais faible", "Effet net mais faible de"), ("non net", "Aucun effet net de")):
+        noms = ", ".join(f"« {nom_lisible(e[1]['variable'])} »" for e in liste if e[0] == genre)
+        if noms:
+            phrases.append(f"{debut} {noms} une fois les autres colonnes prises en compte.")
     if lignes_dependantes:
         phrases.append("Ce fichier semble compter une ligne par groupe ou par période : ces chiffres sont à vérifier sur les données détaillées.")
     phrases.append("Un lien n'est pas une cause : ces chiffres disent ce qui va ensemble, pas ce qui provoque quoi.")
-    return {"phrases": phrases, "alerte": False}
+    return {"phrases": phrases}
 
 
 def logistique(res: dict, cible) -> dict:
     nom, positifs, vrais = nom_lisible(cible), res.get("positifs_test"), res.get("vrais_positifs_test")
     if res.get("etat") == "insuffisant" or not vrais:
-        return {"alerte": False, "phrases": [
+        return {"phrases": [
             f"Ce modèle ne permet pas de prévoir « {nom} » : ne vous appuyez pas sur lui pour décider."]}
     fausses = (res.get("matrice_confusion") or {}).get("faux_positifs", 0)
     phrases = [f"Sur {res.get('n_test')} cas mis de côté, le modèle a retrouvé {vrais} cas « Oui » de « {nom} » sur {positifs}, "
@@ -193,21 +188,21 @@ def logistique(res: dict, cible) -> dict:
         phrases.append(f"Plus la valeur de « {nom_lisible(c['variable'])} » est haute, "
                        f"{'plus' if c['coef_standardise'] > 0 else 'moins'} le « Oui » est probable.")
     phrases.append("Un lien n'est pas une cause : ces chiffres disent ce qui va ensemble, pas ce qui provoque quoi.")
-    return {"phrases": phrases, "alerte": False}
+    return {"phrases": phrases}
 
 
 def predictif(resultat: dict, lignes_dependantes: bool = False) -> dict:
     """Lecture d'un résultat de `predictive.analyse`."""
     res, cible = resultat.get("resultat") or {}, resultat.get("cible")
     if res.get("erreur"):
-        return {"phrases": [], "alerte": False}
+        return {"phrases": []}
     if res.get("type") == "prevision":
         return prevision(res, cible)
     if res.get("type") == "logistique":
         return logistique(res, cible)
     if res.get("type") == "lineaire":
         return regression(res, cible, lignes_dependantes)
-    return {"phrases": [], "alerte": False}
+    return {"phrases": []}
 
 
 def _force(x) -> int:
@@ -216,9 +211,9 @@ def _force(x) -> int:
 
 def _phrase_comparaison(x) -> str:
     g = sorted(x["groupes"], key=lambda y: -(y.get("moyenne") or 0))
-    hi, lo, unite = g[0], g[-1], _unite(x["num"])
+    hi, lo, u = g[0], g[-1], unite(x["num"])
     phrase = (f"« {nom_lisible(x['num'])} » change selon « {nom_lisible(x['cat'])} » : en moyenne, {hi['label']} est le plus haut "
-              f"({nombre(hi['moyenne'])}{unite}) et {lo['label']} le plus bas ({nombre(lo['moyenne'])}{unite})")
+              f"({nombre(hi['moyenne'])}{u}) et {lo['label']} le plus bas ({nombre(lo['moyenne'])}{u})")
     if (lo.get("moyenne") or 0) > 0 and hi["moyenne"] / lo["moyenne"] >= 1.5:
         phrase += f", soit {_virgule(hi['moyenne'] / lo['moyenne'], 1)} fois plus"
     return phrase + "."
@@ -247,4 +242,4 @@ def tests(inf: dict) -> dict:
     elif len(retenus) > MAX_PHRASES_TESTS:
         reste = len(retenus) - MAX_PHRASES_TESTS
         phrases.append(f"{reste} autre{'s' if reste > 1 else ''} résultat{'s' if reste > 1 else ''} dans les tableaux ci-dessous.")
-    return {"phrases": phrases, "alerte": False}
+    return {"phrases": phrases}

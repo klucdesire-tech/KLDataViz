@@ -1048,7 +1048,38 @@ def _lecture_predictive(resultat, df):
         import interpretation
         return interpretation.predictif(resultat, inferential.cadre(df)[1])
     except Exception:
-        return {"phrases": [], "alerte": False}
+        return {"phrases": []}
+
+
+def _lecture_experte(genre):
+    """Lecture d'Adifa’ sur le dernier résultat de cet utilisateur, jamais sur ce que le navigateur envoie.
+    Rien sans IA : la page garde la lecture du moteur. Une même lecture n'est demandée qu'une fois."""
+    import lecture_experte as LE
+    st = T.state()
+    if genre == "tests":
+        res = st.get("last_result") or {}
+        faits = LE.faits_tests(res.get("inference"), [c.get("name") for c in res.get("columns_detail") or [] if isinstance(c, dict)])
+    else:
+        d = st.get("dernier_predictif") or {}
+        faits = LE.faits_predictif(d.get("resultat") or {}, d.get("colonnes") or (), d.get("dependantes"))
+    if not faits or not _llm_config():
+        return None
+    cle = hashlib.sha256(json.dumps(faits, ensure_ascii=False, sort_keys=True).encode()).hexdigest()
+    deja = st.setdefault("lectures_expertes", {})
+    if cle in deja:
+        return deja[cle]
+    if T.CLOUD:
+        cloud.consume(T.current(), "ai")
+    cfg = _llm_config()
+    model = os.environ.get("KLDV_REPORT_MODEL") or cfg.get("report_model") or "deepseek-flash"
+    llm = lambda m, n: (_llm_call(m, n, model=model, effort="high", timeout=100, attempts=1)
+                        or _llm_call(m, n, model=model, effort="low", timeout=70, attempts=1))
+    lecture = LE.lire(faits, llm, _parse_llm_json)
+    if lecture:
+        if len(deja) >= 8:
+            deja.clear()
+        deja[cle] = lecture
+    return lecture
 
 
 def _cell_safe(v):
@@ -3170,7 +3201,16 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 horizon = 6
             resultat = predictive.analyse(df, cible, preds, str(p.get("periode") or "") or None, horizon,
                                           str(p.get("valeur_comptee") or "") or None)
+            import inferential
+            dependantes = inferential.cadre(df)[1]
+            st["dernier_predictif"] = {"resultat": resultat, "colonnes": [str(c) for c in df.columns], "dependantes": dependantes}
             return self._send(200, dict(resultat, lecture=_lecture_predictive(resultat, df)))
+        if path == "/api/lecture-experte":
+            if not _predictif_actif():
+                raise T.Forbidden("Lecture d'Adifa’ : réservée aux administrateurs pour l'instant.")
+            if not _rate_predictif(ctx.key if T.CLOUD else self.client_address[0]):
+                return self._send(429, {"error": "trop de demandes ; réessayez dans une minute."})
+            return self._send(200, {"lecture": _lecture_experte(str(p.get("genre") or ""))})
         if path == "/api/registry/describe":
             import registry_meta as RM
             df, err = _read_df(str(p.get("file_path") or ""))

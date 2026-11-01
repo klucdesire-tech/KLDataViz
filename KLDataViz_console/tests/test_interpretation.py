@@ -26,12 +26,12 @@ def _lecture(df, colonne, horizon=6):
     return L.predictif(r), r["resultat"]
 
 
-def test_baisse_de_chiffre_d_affaires_est_a_craindre():
+def test_baisse_nette_annoncee_sans_dramatiser():
     lecture, res = _lecture(_mensuel("chiffre_affaires_fcfa", 5_000_000, -60_000, 8_000), "chiffre_affaires_fcfa")
     assert res["etat"] == "utilisable"
-    assert lecture["alerte"]
-    assert lecture["phrases"][0].startswith("Si rien n'est fait, une baisse de chiffre d'affaires est à craindre d'ici 6 mois")
+    assert lecture["phrases"][0].startswith("Si la tendance se poursuit, une baisse de chiffre d'affaires est attendue d'ici 6 mois")
     assert "FCFA par mois" in lecture["phrases"][0] and "−" in lecture["phrases"][0]
+    assert "craindre" not in " ".join(lecture["phrases"])
 
 
 def test_chiffres_de_la_phrase_viennent_du_calcul():
@@ -42,30 +42,12 @@ def test_chiffres_de_la_phrase_viennent_du_calcul():
     assert "−5 %" in lecture["phrases"][0]
 
 
-def test_hausse_de_retours_est_a_craindre():
-    lecture, _ = _lecture(_mensuel("retours", 100, 8, 1), "retours")
-    assert lecture["alerte"] and "une hausse de retours est à craindre" in lecture["phrases"][0]
-
-
-def test_hausse_de_recettes_n_est_pas_une_alerte():
-    lecture, _ = _lecture(_mensuel("recettes", 1000, 40, 2), "recettes")
-    assert not lecture["alerte"]
-    assert "Si la tendance se poursuit, une hausse de recettes est attendue" in lecture["phrases"][0]
-
-
-def test_sens_inconnu_reste_neutre():
-    lecture, _ = _lecture(_mensuel("temperature", 400, -8, 1), "temperature")
-    assert not lecture["alerte"]
-    assert "à craindre" not in " ".join(lecture["phrases"]) and "Si rien n'est fait" not in lecture["phrases"][0]
-
-
 def test_stable_n_annonce_ni_hausse_ni_baisse():
     res = {"type": "prevision", "etat": "utilisable", "agregation": "somme", "tendance_pente": -0.2, "tendance_p": 0.6,
            "validation": {"periodes_testees": 6, "erreur_modele": 3.0, "erreur_reference": 40.0, "reference": "moyenne"},
            "historique": {"valeurs": [1000, 1002, 998, 1001]}, "previsions": [{"periode": "2026-01", "valeur": 1000, "bas": 990, "haut": 1010}]}
     lecture = L.predictif({"cible": "recettes", "resultat": res})
     assert lecture["phrases"][0].startswith("Aucune hausse ni baisse nette de recettes")
-    assert not lecture["alerte"]
 
 
 def test_pente_non_significative_n_annonce_pas_de_baisse():
@@ -83,7 +65,7 @@ def test_modele_insuffisant_n_annonce_rien():
     lecture = L.predictif({"cible": "chiffre_affaires", "resultat": res})
     texte = " ".join(lecture["phrases"])
     assert lecture["phrases"][0] == "Ces données ne permettent pas d'annoncer une hausse ou une baisse de chiffre d'affaires."
-    assert "à craindre" not in texte and "300" not in texte and not lecture["alerte"]
+    assert "300" not in texte
 
 
 def test_indicatif_reste_prudent():
@@ -92,7 +74,6 @@ def test_indicatif_reste_prudent():
            "historique": {"valeurs": [100, 90, 80, 70]}, "previsions": [{"periode": "2026-02", "valeur": 60, "bas": -5, "haut": 80}]}
     lecture = L.predictif({"cible": "ventes", "resultat": res})
     assert "une baisse de ventes est possible" in lecture["phrases"][0]
-    assert not lecture["alerte"]
     assert "À prendre comme une indication" in " ".join(lecture["phrases"])
     assert "entre 0 et 80" in lecture["phrases"][1] and "février 2026" in lecture["phrases"][1]
 
@@ -131,6 +112,18 @@ def test_regression_petit_coefficient_garde_ses_chiffres():
     r = P.analyse(df, cible="retours", predicteurs=["ca"])
     assert r["resultat"]["coefficients"][1]["coef"] == pytest.approx(0.00002, rel=0.2)
     assert "+100 000 sur « ca » va avec environ +2" in " ".join(L.predictif(r)["phrases"])
+
+
+def test_effet_net_mais_faible_n_est_pas_absent():
+    """p très petite, effet minuscule : écrire « aucun effet net » contredirait le tableau."""
+    res = {"type": "lineaire", "etat": "utilisable", "r2_test": 0.98, "rmse_test": 1520.0, "ecart_type_cible": 10000.0, "coefficients": [
+        {"variable": "(constante)", "coef": 1.0, "p": 0.0, "ecart_type": None},
+        {"variable": "ca", "coef": 0.117, "p": 0.0, "ecart_type": 80000.0},
+        {"variable": "quantite", "coef": 127.7, "p": 0.0, "ecart_type": 3.0},
+        {"variable": "prix", "coef": 0.003, "p": 0.38, "ecart_type": 20000.0}]}
+    texte = " ".join(L.predictif({"cible": "marge", "resultat": res})["phrases"])
+    assert "Effet net mais faible de « quantite »" in texte
+    assert "Aucun effet net de « prix »" in texte and "Aucun effet net de « quantite »" not in texte
 
 
 def test_regression_insuffisante_n_explique_rien():
@@ -236,4 +229,4 @@ def test_lecture_en_panne_laisse_les_chiffres(monkeypatch):
     reset_app_modules()
     import server
     monkeypatch.setitem(sys.modules, "interpretation", None)
-    assert server._lecture_predictive({"resultat": {}}, pd.DataFrame({"a": [1]})) == {"phrases": [], "alerte": False}
+    assert server._lecture_predictive({"resultat": {}}, pd.DataFrame({"a": [1]})) == {"phrases": []}
