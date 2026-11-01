@@ -190,3 +190,33 @@ def test_meme_lecture_demandee_une_seule_fois(tmp_path, monkeypatch):
     assert server._lecture_experte("tests")["conclusion"] == "Les écarts semblent faibles."
     assert server._lecture_experte("tests")["conclusion"] == "Les écarts semblent faibles."
     assert len(appels) == 1 and "colonnes_testees" in appels[0][1]["content"]
+
+
+def test_apres_redemarrage_la_lecture_des_tests_reste_possible(tmp_path, monkeypatch):
+    """La page garde l'analyse, le serveur l'a perdue : il la recalcule depuis le fichier."""
+    server = _server(tmp_path)
+    p = str(tmp_path / "ventes.csv")
+    monkeypatch.setattr(server, "_llm_config", lambda: {"api_key": "x", "model": "m"})
+    monkeypatch.setattr(server, "_llm_call", lambda *a, **k: '{"conclusion": "Les écarts semblent faibles."}')
+    etat = server.T.state()
+    etat.update(last_result=None, result_path=None)
+    etat.pop("lectures_expertes", None)
+    assert server._lecture_experte("tests") is None
+    assert server._lecture_experte("tests", p)["conclusion"] == "Les écarts semblent faibles."
+    assert etat["result_path"] == p
+
+
+def test_lecture_des_tests_suit_le_fichier_affiche(tmp_path, monkeypatch):
+    server = _server(tmp_path)
+    autre = tmp_path / "autre.csv"
+    rng = np.random.default_rng(3)
+    pd.DataFrame({"ville": rng.choice(["Man", "Daloa"], 120), "poids": rng.normal(5, 1, 120), "taille": rng.normal(170, 9, 120)}).to_csv(autre, index=False)
+    envoye = []
+
+    def llm(messages, *a, **k):
+        envoye.append(messages[1]["content"])
+        return '{"conclusion": "Les écarts semblent faibles."}'
+    monkeypatch.setattr(server, "_llm_config", lambda: {"api_key": "x", "model": "m"})
+    monkeypatch.setattr(server, "_llm_call", llm)
+    server._lecture_experte("tests", str(autre))
+    assert "poids" in envoye[0] and "quantite" not in envoye[0]

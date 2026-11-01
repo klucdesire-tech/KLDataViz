@@ -1353,17 +1353,20 @@ function experteHtml(l){
   const bloc=(t,x)=>(x||[]).length?`<div style="font-weight:600;margin-top:10px">${t}</div>${x.map(p=>`<div style="margin-top:3px">${esc(p)}</div>`).join('')}`:'';
   return `<div style="background:var(--brand-soft);border-radius:var(--r);padding:12px 14px;margin:0 0 14px;line-height:1.5"><div class="label" style="margin-bottom:4px">Lecture d'Adifa’</div><div style="font-weight:600">${esc(l.conclusion)}</div>${(l.lecture||[]).map(p=>`<div style="margin-top:6px">${esc(p)}</div>`).join('')}${bloc('Prudence',l.prudence)}${bloc('À vérifier',l.a_verifier)}<div class="sub" style="margin-top:10px">Écrite par Adifa’ à partir des résultats ci-dessous. Ses chiffres sont contrôlés.</div></div>`;
 }
-let experteTour=0;
+const experteTours={};
 async function lectureExperte(genre,racine){
   const zone=racine&&racine.querySelector('.lectureZone');
   if(!zone)return;
-  const tour=++experteTour,note=document.createElement('div');
-  note.className='sub';note.style.margin='-6px 0 14px';note.textContent='Adifa’ relit ces résultats…';zone.append(note);
-  let r=null;
-  try{r=await api('/api/lecture-experte',{genre})}catch(e){}
-  if(tour!==experteTour&&genre==='predictif')return;
-  note.remove();
-  if(r&&r.lecture)zone.innerHTML=experteHtml(r.lecture);
+  const tour=experteTours[genre]=(experteTours[genre]||0)+1;
+  zone.querySelector('.experteNote')?.remove();
+  const note=document.createElement('div');
+  note.className='sub experteNote';note.style.margin='-6px 0 14px';note.textContent='Adifa’ relit ces résultats…';zone.append(note);
+  const r=await api('/api/lecture-experte',{genre,file_path:currentDataPath()});
+  if(tour!==experteTours[genre])return;
+  if(r&&r.lecture){zone.innerHTML=experteHtml(r.lecture);return}
+  if(r&&r.ia===false&&!r.error){note.remove();return}
+  note.innerHTML=esc(r?.error||'Adifa’ n’a pas pu relire ces résultats : cet encadré reste la lecture du moteur.')+' <button class="btn ghost sm" type="button">Réessayer</button>';
+  note.querySelector('button').onclick=()=>lectureExperte(genre,racine);
 }
 const pTxt=p=>p==null?'—':p<0.001?'&lt; 0,001':nf(+Number(p).toFixed(3));
 function _predRow(label,val){return '<tr><td>'+esc(label)+'</td><td><b>'+esc(val==null?'—':String(val))+'</b></td></tr>'}
