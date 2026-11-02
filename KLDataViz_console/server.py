@@ -1973,7 +1973,9 @@ CHAT_METHODE = (
     "Un tableau renvoyé est limité à 50 lignes : agrège ou trie avant. "
     "Écris les noms de colonnes ENTRE GUILLEMETS DOUBLES, exactement comme listés : df[\"Nom d'utilisateur\"].\n"
     "GRAPHIQUE : dans le code, assigne une variable `chart` = {\"type\":\"...\",\"title\":\"...\",\"labels\":[...],"
-    "\"values\":[[...]],\"seriesNames\":[...]} (liste de dicts pour plusieurs graphiques). Types : bar (catégories), "
+    "\"values\":[[...]],\"seriesNames\":[...]} (liste de dicts pour plusieurs graphiques). `values` est une liste de séries, "
+    "chaque série une liste de nombres de la longueur de `labels` : écris labels=s.index.astype(str).tolist() et values=[s.tolist()]. "
+    "Types : bar (catégories), "
     "line ou area (évolution dans le temps, trie par période), pie/doughnut (parts), scatter (labels = x, values = [y]), "
     "histogram (labels = intervalles, values = effectifs), box (values[i] = [min, Q1, médiane, Q3, max] par catégorie). "
     "Aucune bibliothèque de graphique (pas de matplotlib). Le graphique du dernier calcul qui en définit un est affiché.\n"
@@ -2024,12 +2026,48 @@ def _format_calc(out):
     return text[:6000]
 
 
+GRAPHIQUES_HORIZONTAUX = {"barh", "hbar", "horizontalbar", "bar_horizontal", "barres_horizontales"}
+ALIAS_GRAPHIQUES = {"column": "bar", "columns": "bar", "barres": "bar", "histogramme": "histogram", "donut": "doughnut",
+                    "camembert": "pie", "ligne": "line", "courbe": "line", "nuage": "scatter", "aire": "area"}
+
+
+def _nombre_ou_vide(v):
+    try:
+        x = float(v)
+    except (TypeError, ValueError):
+        return None
+    return x if x == x and abs(x) != float("inf") else None
+
+
+def _chart_propre(c):
+    """Graphique prêt à dessiner, quelle que soit la forme écrite par l'IA. None s'il n'a rien à montrer : un cadre
+    vide sous la réponse laisse croire à une panne, ou à un résultat nul."""
+    if not isinstance(c, dict):
+        return None
+    labels, valeurs = c.get("labels"), c.get("values")
+    if isinstance(valeurs, dict):  # {"série": [...]}
+        c, valeurs = dict(c, seriesNames=[str(k) for k in valeurs]), list(valeurs.values())
+    if not isinstance(labels, list) or not isinstance(valeurs, list) or not labels or not valeurs:
+        return None
+    type_ecrit = str(c.get("type") or "bar").strip().lower()
+    type_final = "bar" if type_ecrit in GRAPHIQUES_HORIZONTAUX else ALIAS_GRAPHIQUES.get(type_ecrit, type_ecrit)
+    if not isinstance(valeurs[0], list):
+        valeurs = [valeurs]
+    series = [[_nombre_ou_vide(v) for v in s] if isinstance(s, list) else [_nombre_ou_vide(s)] for s in valeurs]
+    if type_final != "box":
+        if len(series) == len(labels) and all(len(s) == 1 for s in series):  # une ligne par libellé : une seule série
+            series = [[s[0] for s in series]]
+        series = [(s + [None] * len(labels))[:len(labels)] for s in series]
+    if not any(v is not None for s in series for v in s):
+        return None
+    propre = dict(c, type=type_final, labels=[str(x) for x in labels], values=series)
+    if type_ecrit in GRAPHIQUES_HORIZONTAUX:
+        propre["horizontal"] = True
+    return propre
+
+
 def _charts_list(chart):
-    if isinstance(chart, list):
-        return [c for c in chart if isinstance(c, dict) and c.get("labels") and c.get("values")]
-    if isinstance(chart, dict) and chart.get("labels") and chart.get("values"):
-        return [chart]
-    return []
+    return [p for p in map(_chart_propre, chart if isinstance(chart, list) else [chart]) if p]
 
 
 def _verifier_chiffres(answer, messages, etapes):

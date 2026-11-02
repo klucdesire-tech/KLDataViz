@@ -99,6 +99,19 @@ def fmt(result):
         return {"kind": "scalar", "value": str(result)}
 
 
+def _simple(v):
+    """Types Python ordinaires : un tableau numpy écrit dans `chart` deviendrait sinon une seule chaîne de caractères."""
+    if isinstance(v, dict):
+        return {str(k): _simple(x) for k, x in v.items()}
+    if isinstance(v, (pd.Series, pd.Index, np.ndarray)):
+        return _simple(v.tolist())
+    if isinstance(v, (list, tuple, set)):
+        return [_simple(x) for x in v]
+    if isinstance(v, np.generic):
+        return _simple(v.item())
+    return None if isinstance(v, float) and not math.isfinite(v) else v
+
+
 MAX_SORTIE = 4000
 STAT_FUNCS = ("ttest_ind", "ttest_rel", "mannwhitneyu", "chi2_contingency", "fisher_exact", "pearsonr",
               "spearmanr", "linregress", "f_oneway", "kruskal", "shapiro", "wilcoxon")
@@ -190,7 +203,7 @@ def main():
         if "df" in programme.co_names and len(data):  # le fichier en cours, premier de la liste
             ns["df"] = data[next(iter(data))]
         exec(programme, ns)
-        chart = ns.get("chart")
+        chart = _simple(ns.get("chart"))
         json.dumps(chart, default=str)
         out = {"result": fmt(ns.get("result")), "chart": chart}
     except Exception as exc:  # erreur du code de l'IA : renvoyée telle quelle
