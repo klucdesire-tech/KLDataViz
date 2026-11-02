@@ -1959,7 +1959,9 @@ CHAT_METHODE = (
     '- pour conclure : {"action":"reponse","answer":"ta réponse finale","montrer_tableau":true}\n'
     f"Après chaque calcul tu reçois son résultat RÉEL. Enchaîne d'autres calculs si nécessaire (au plus {CHAT_MAX_CALCULS}), "
     "puis conclus. Si la question porte seulement sur l'analyse déjà affichée (résumé, interprétation), conclus sans calcul.\n"
-    "CODE : Python avec pandas/numpy. Les données sont dans le dict `data` (clé = nom du dataset, valeur = DataFrame). "
+    "CODE : Python avec pandas/numpy. `df` est DÉJÀ le DataFrame du premier dataset de la liste : utilise-le directement, "
+    "sans chercher les données. Autre dataset : data[\"nom exact\"]. Ne parcours pas `data` : chaque dataset parcouru est relu. "
+    "Sont refusés : import, open, type, hasattr, getattr, isinstance sur des modules, attributs commençant par _. "
     "pd, np, math et stats (= scipy.stats : ttest_ind, mannwhitneyu, chi2_contingency, pearsonr, spearmanr, linregress, "
     "f_oneway, kruskal, shapiro…) sont DÉJÀ disponibles : n'écris aucune ligne import. "
     "Mets ce que tu veux lire dans la variable `result` (DataFrame, Series ou valeur) et/ou affiche-le avec print(). "
@@ -2132,11 +2134,7 @@ def llm_chat(question, ui_context=None, history=None, progress=None, linked=None
         nonlocal paths
         if paths is None:
             paths = {}
-            for _d in datasets:
-                _p = _work_file(_d.get("work_path"))
-                if _p and T.current().owns(_p):
-                    paths[_d.get("dataset_name") or _d.get("dataset_id")] = _p
-            if current_df is not None:
+            if current_df is not None:  # en premier : c'est le `df` du calcul
                 _cur = os.path.join(T.current().dir("tmp"), f"courant_{T.current().key[:12]}.parquet")
                 try:
                     current_df.to_parquet(_cur)
@@ -2144,6 +2142,11 @@ def llm_chat(question, ui_context=None, history=None, progress=None, linked=None
                     current_df.astype(str).to_parquet(_cur)
                 paths[current_name] = _cur
             paths.update(linked_paths)
+            for _d in datasets:
+                _p = _work_file(_d.get("work_path"))
+                _nom = _d.get("dataset_name") or _d.get("dataset_id")
+                if _p and T.current().owns(_p) and _nom not in paths:
+                    paths[_nom] = _p
         return paths
 
     etapes, last_table, last_chart = [], None, None

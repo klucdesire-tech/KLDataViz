@@ -220,10 +220,22 @@ def run(code: str, datasets: dict) -> dict:
         err = (exc.stderr or b"").decode("utf-8", "replace") if isinstance(exc.stderr, bytes) else str(exc.stderr or "")
         jalons = [l for l in err.splitlines() if l.startswith("[jalon]")]
         derniere = jalons[-1][len("[jalon] "):] if jalons else "aucune (blocage pendant le chargement des bibliothèques)"
+        if derniere.startswith("lecture des données"):
+            # Lire un fichier ne prend pas ce temps : blocage et non calcul long. Un seul nouvel essai, sans la limite de fils.
+            sys.stderr.write(f"[sandbox] lecture bloquée ({derniere}), nouvel essai sans RLIMIT_NPROC\n")
+            try:
+                proc = attempt(None)
+                return _lire_sortie(proc)
+            except subprocess.TimeoutExpired:
+                pass
         sys.stderr.write(f"[sandbox] délai de {TIMEOUT_S} s dépassé ; dernière étape : "
                          f"{jalons[-1] if jalons else 'aucune (blocage pendant le chargement des bibliothèques)'} "
                          f"— KLDV_SANDBOX_TIMEOUT pour le délai, KLDV_SANDBOX_GARDE=0 pour tester sans garde-fou\n")
         return {"error": f"calcul trop long (plus de {TIMEOUT_S} s), arrêté — dernière étape atteinte : {derniere}"}
+    return _lire_sortie(proc)
+
+
+def _lire_sortie(proc):
     out = proc.stdout.decode("utf-8", "replace").strip().splitlines()
     try:
         t = json.loads(out[-1]).get("_temps") if out else None

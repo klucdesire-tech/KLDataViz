@@ -51,7 +51,8 @@ class LazyData(dict):
             raise KeyError(f"jeu de données inconnu : {key}")
         t = time.perf_counter()
         _jalon(f"lecture des données « {key} »")
-        df = pd.read_parquet(p) if p.endswith(".parquet") else pd.read_csv(p)
+        # Sans fils parallèles : la lecture s'est déjà bloquée jusqu'au délai sous les limites du bac à sable
+        df = pd.read_parquet(p, use_threads=False, pre_buffer=False) if p.endswith(".parquet") else pd.read_csv(p)
         self.temps_chargement += time.perf_counter() - t
         _jalon(f"données « {key} » lues ({len(df)} lignes)")
         self[key] = df
@@ -59,6 +60,15 @@ class LazyData(dict):
 
     def keys(self):
         return self._paths.keys()
+
+    def values(self):  # le code de l'IA parcourt `data` comme un dict : le contenu se charge au passage
+        return (self[k] for k in self._paths)
+
+    def items(self):
+        return ((k, self[k]) for k in self._paths)
+
+    def get(self, key, default=None):
+        return self[key] if key in self._paths else default
 
     def __iter__(self):
         return iter(self._paths)
@@ -176,7 +186,10 @@ def main():
     t_exec = time.perf_counter()
     _jalon("calcul lancé")
     try:
-        exec(compile(job["code"], "<ia>", "exec"), ns)
+        programme = compile(job["code"], "<ia>", "exec")
+        if "df" in programme.co_names and len(data):  # le fichier en cours, premier de la liste
+            ns["df"] = data[next(iter(data))]
+        exec(programme, ns)
         chart = ns.get("chart")
         json.dumps(chart, default=str)
         out = {"result": fmt(ns.get("result")), "chart": chart}
