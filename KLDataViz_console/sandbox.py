@@ -139,8 +139,12 @@ THREAD_ENV = {k: "1" for k in ("OPENBLAS_NUM_THREADS", "OMP_NUM_THREADS", "MKL_N
 # pyarrow ≥ 26 : son allocateur (mimalloc/jemalloc) réserve un grand espace d'adresses au démarrage ; sous la limite
 # RLIMIT_AS du bac à sable, la lecture des données restait alors bloquée jusqu'au délai (vu en production et en CI).
 THREAD_ENV["ARROW_DEFAULT_MEMORY_POOL"] = "system"
-NPROC_MARGIN = 8  # fils que le calcul peut encore créer (pyarrow, numpy…)
-THREAD_FAILURE = re.compile(r"KeyboardInterrupt|pthread_create|can't start new thread|Resource temporarily unavailable")
+# RLIMIT_NPROC compte tous les fils de l'utilisateur, serveur compris, et la marge se calcule au lancement. Chaque requête
+# reçue ensuite la consomme : avec 8, pyarrow se bloquait jusqu'au délai dès qu'il restait moins de 4 fils (reproduit sous
+# Linux, novembre 2026, sans rapport avec la mémoire). 64 absorbe l'activité du serveur et arrête toujours une rafale.
+NPROC_MARGIN = 64
+THREAD_FAILURE = re.compile(r"KeyboardInterrupt|pthread_create|can't start new thread|Resource temporarily unavailable|"
+                            r"Failed to launch worker thread")
 
 
 def _user_tasks():
@@ -211,7 +215,8 @@ def run(code: str, datasets: dict) -> dict:
     try:
         proc = attempt(nproc)
         err = proc.stderr.decode("utf-8", "replace")
-        if nproc is not None and not proc.stdout.strip() and THREAD_FAILURE.search(err):
+        # sans sortie, le processus est tombé ; avec sortie, pyarrow a pu renvoyer l'erreur comme celle d'un calcul
+        if nproc is not None and THREAD_FAILURE.search(proc.stdout.decode("utf-8", "replace") or err):
             # Le calcul n'a pas pu créer ses fils malgré la marge : on relance sans cette seule limite
             # (mémoire, CPU, fichiers, environnement vide et contrôle du code restent en place).
             sys.stderr.write("[sandbox] limite de fils atteinte, nouvel essai sans RLIMIT_NPROC\n")

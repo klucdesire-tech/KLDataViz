@@ -216,3 +216,22 @@ def test_calcul_long_pas_retente(tmp_path, monkeypatch):
     monkeypatch.setattr(sandbox, "TIMEOUT_S", 2)
     assert "calcul trop long" in sandbox.run("result = 1", {})["error"]
     assert compteur.read_text() == "x"
+
+
+@pytest.mark.skipif(os.name == "nt", reason="limite de fils Linux")
+@pytest.mark.parametrize("marge", [8, 3, 1, 0])
+def test_lecture_sans_blocage_quand_les_fils_manquent(tmp_path, monkeypatch, marge):
+    """Cause du blocage en ligne : l'activité du serveur consomme la marge de fils. Le calcul doit aboutir, et vite."""
+    import time
+    monkeypatch.setattr(sandbox, "NPROC_MARGIN", marge)
+    monkeypatch.setattr(sandbox, "TIMEOUT_S", 20)
+    p = tmp_path / "t.parquet"
+    pd.DataFrame({"poste": ["Épargne", "Commissions"] * 7000, "montant": range(14000)}).to_parquet(p)
+    debut = time.time()
+    out = sandbox.run("result = len(df)", {"x": str(p)})
+    assert "error" not in out, out
+    assert out["result"]["value"] == "14000" and time.time() - debut < 15
+
+
+def test_marge_absorbe_l_activite_du_serveur():
+    assert sandbox.NPROC_MARGIN >= 32
