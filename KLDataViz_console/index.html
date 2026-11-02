@@ -2128,7 +2128,8 @@ function addMsg(role,text,table,charts){
     m._charts=list;
   }
   $('#msgs').append(m);
-  (m._charts||[]).forEach((c,i)=>{const cv=m.querySelectorAll('canvas')[i];try{drawChart(cv,c)}catch(e){console.warn(e)}});
+  (m._charts||[]).forEach((c,i)=>{const cv=m.querySelectorAll('canvas')[i];try{if(!drawChart(cv,c)&&(c.type||'')!=='box')throw new Error('graphique non dessiné')}catch(e){console.warn(e);
+    const b=cv.closest('.mcbox');b.style.height='auto';b.innerHTML='<div class="sub">Ce graphique n’a pas pu être dessiné. Les chiffres restent dans la réponse.</div>'}});
   $('#msgs').scrollTop=$('#msgs').scrollHeight;
   return m;
 }

@@ -181,3 +181,81 @@ def test_save_table_garde_les_types_des_autres_colonnes(tmp_path):
     server._save_table(df, str(p))
     lu = pd.read_parquet(p)
     assert lu["montant"].dtype == float and lu["code"].tolist() == ["12", "A7"]
+
+
+# ---------- graphiques du chat ----------
+
+def _graphique(**k):
+    reset_app_modules()
+    import server
+    return server._chart_propre(dict({"type": "bar", "title": "T", "labels": ["a", "b"], "values": [[1, 2]]}, **k))
+
+
+def test_graphique_normal_inchange():
+    c = _graphique()
+    assert c["values"] == [[1.0, 2.0]] and c["labels"] == ["a", "b"] and c["title"] == "T"
+
+
+def test_graphique_liste_simple():
+    """Vu en ligne : titre affiché, cadre vide. Une liste simple faisait planter le dessin sans message."""
+    assert _graphique(values=[1, 2])["values"] == [[1.0, 2.0]]
+
+
+def test_graphique_nombres_en_texte():
+    assert _graphique(values=[["1766000.0", "1482000"]])["values"] == [[1766000.0, 1482000.0]]
+
+
+def test_graphique_series_nommees():
+    c = _graphique(values={"Dépenses": [1, 2], "Recettes": [3, 4]})
+    assert c["values"] == [[1.0, 2.0], [3.0, 4.0]] and c["seriesNames"] == ["Dépenses", "Recettes"]
+
+
+def test_graphique_une_ligne_par_libelle():
+    assert _graphique(values=[[1], [2]])["values"] == [[1.0, 2.0]]
+
+
+def test_graphique_longueurs_differentes():
+    assert _graphique(labels=["a", "b", "c"], values=[[1, 2]])["values"] == [[1.0, 2.0, None]]
+    assert _graphique(values=[[1, 2, 3]])["values"] == [[1.0, 2.0]]
+
+
+@pytest.mark.parametrize("ecrit,attendu", [("barh", "bar"), ("horizontalBar", "bar"), ("donut", "doughnut"), ("courbe", "line"), ("LINE", "line"), (None, "bar")])
+def test_graphique_noms_de_type(ecrit, attendu):
+    assert _graphique(type=ecrit)["type"] == attendu
+
+
+def test_graphique_barres_horizontales():
+    assert _graphique(type="barh")["horizontal"] is True
+
+
+def test_graphique_boite_garde_ses_cinq_valeurs():
+    assert _graphique(type="box", labels=["a"], values=[[1, 2, 3, 4, 5]])["values"] == [[1.0, 2.0, 3.0, 4.0, 5.0]]
+
+
+@pytest.mark.parametrize("valeurs", [[], None, "[1 2 3]", [[None, None]], [["x", "y"]], [[float("nan"), None]]])
+def test_graphique_sans_valeur_ecarte(valeurs):
+    assert _graphique(values=valeurs) is None
+
+
+def test_liste_de_graphiques_garde_les_bons():
+    reset_app_modules()
+    import server
+    bons = server._charts_list([{"labels": ["a"], "values": [5]}, {"labels": [], "values": []}, "texte"])
+    assert len(bons) == 1 and bons[0]["values"] == [[5.0]]
+    assert server._charts_list(None) == []
+
+
+def test_graphique_numpy_ecrit_par_l_ia(chat, tmp_path):
+    """Tableau numpy dans `chart` : il arrivait comme une seule chaîne de caractères."""
+    server, q, _ = chat
+    p = tmp_path / "ventes.csv"
+    _table().to_csv(p, index=False)
+    code = "s = df.set_index(\"zone\")[\"montant\"]\nresult = s\nchart = {\"type\": \"bar\", \"title\": \"T\", \"labels\": s.index, \"values\": [s.values]}"
+    r = q(str(p), code=code)
+    assert r["charts"][0]["labels"] == ["Nord", "Sud", "Est"] and r["charts"][0]["values"] == [MONTANTS]
+
+
+def test_page_signale_un_graphique_non_dessine():
+    from pathlib import Path
+    html = (Path(__file__).resolve().parents[1] / "index.html").read_text(encoding="utf-8")
+    assert "Ce graphique n’a pas pu être dessiné" in html
