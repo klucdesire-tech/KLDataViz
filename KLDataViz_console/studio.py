@@ -263,6 +263,14 @@ def delete_schedule(job_id):
         _save_schedules(items)
 
 
+def pied_envoi():
+    """Dit d'où vient un e-mail : un destinataire qui n'a pas de compte n'a aucun autre moyen de le savoir."""
+    nom = (T.current().plan or {}).get("org_name") if T.CLOUD else None
+    espace = f"l'espace KLDataViz « {nom} »" if nom else "une console KLDataViz"
+    return (f"\n\n--\nCet envoi vient de {espace}. Pour ne plus le recevoir, demandez à la personne "
+            "qui l'a créé de le retirer dans le menu Planifié de cet espace.")
+
+
 def run_schedule(job_id, analyze_fn, exporters, exports_dir, commentary_fn=None):
     job = next((j for j in list_schedules() if j["id"] == job_id), None)
     if job is None:
@@ -287,7 +295,7 @@ def run_schedule(job_id, analyze_fn, exporters, exports_dir, commentary_fn=None)
             try:
                 import hermes_report
                 send_mail(job["to"], f"Rapport KLDataViz — {job['name']} — {now:%d/%m/%Y}",
-                          hermes_report.email_text(job["name"], result, ev),
+                          hermes_report.email_text(job["name"], result, ev) + pied_envoi(),
                           os.path.join(exports_dir, fn))
                 status = f"Envoyé à {len(job['to'])} destinataire(s)"
             except Exception as exc:

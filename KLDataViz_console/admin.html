@@ -92,6 +92,7 @@ input:focus,select:focus,textarea:focus{border-color:var(--brand);outline:none}
       <button data-tab="orgs">Clients</button>
       <button data-tab="plans">Forfaits et prix</button>
       <button data-tab="pay">Paiements</button>
+      <button data-tab="envois">Envois automatiques</button>
       <button data-tab="ann">Annonces</button>
       <button data-tab="admins">Administrateurs</button>
       <button data-tab="site">Page d'accueil</button>
@@ -133,6 +134,11 @@ input:focus,select:focus,textarea:focus{border-color:var(--brand);outline:none}
     <section data-view="pay" hidden>
       <h1>Paiements</h1>
       <div class="card"><div class="tablewrap" id="payList"><div class="empty">Chargement…</div></div></div>
+    </section>
+    <section data-view="envois" hidden>
+      <div class="head"><div><h1>Envois automatiques</h1><p>Tous les e-mails programmés, dans tous les espaces. Chaque client ne voit que les siens. Arrêter n'efface rien.</p></div></div>
+      <div class="card"><h2>Planifications de rapports</h2><div class="tablewrap" id="envoisJobs"><div class="empty">Chargement…</div></div></div>
+      <div class="card" style="margin-top:16px"><h2>Tableaux de bord</h2><div class="tablewrap" id="envoisTableaux"><div class="empty">Chargement…</div></div></div>
     </section>
     <section data-view="ann" hidden>
       <div class="head"><div><h1>Annonces</h1><p>Un bandeau en haut de la page d'accueil et/ou de l'application : nouveauté, maintenance, promotion.</p></div><span class="spacer"></span><button class="btn primary" id="newAnn">Nouvelle annonce</button></div>
@@ -224,7 +230,7 @@ $('#nav').addEventListener('click',e=>{const b=e.target.closest('[data-tab]');if
 function show(tab){
   $$('#nav [data-tab]').forEach(b=>b.dataset.tab===tab?b.setAttribute('aria-current','page'):b.removeAttribute('aria-current'));
   $$('[data-view]').forEach(v=>v.hidden=v.dataset.view!==tab);
-  ({dash:loadDash,orgs:loadOrgs,plans:renderPlans,pay:loadPay,ann:loadAnn,admins:loadAdmins,site:loadSite,ia:loadIa})[tab]();
+  ({dash:loadDash,orgs:loadOrgs,plans:renderPlans,pay:loadPay,envois:loadEnvois,ann:loadAnn,admins:loadAdmins,site:loadSite,ia:loadIa})[tab]();
 }
 function openDrawer(html){$('#panel').innerHTML=html;$('#drawer').hidden=false;$('#panel').querySelector('input,select,textarea,button')?.focus()}
 function closeDrawer(){$('#drawer').hidden=true}
@@ -400,6 +406,18 @@ const ACTIONS={plan:'Forfait modifié',extend:'Essai prolongé',suspend:'Suspens
   'resend-invite':'Invitation renvoyée','test-mail':'Test d\u2019envoi d\u2019e-mail','plans/save':'Forfait enregistré','plans/delete':'Forfait supprimé',
   'admins/add':'Administrateur ajouté','admins/remove':'Administrateur retiré','announcements/save':'Annonce publiée',
   'announcements/delete':'Annonce supprimée',site:'Page d\u2019accueil modifiée',ia:'Fournisseur d\u2019IA modifié','ia/test':'Test de l\u2019IA'};
+async function loadEnvois(){
+  const d=await api('/api/admin/envois');
+  if(d.error){$('#envoisJobs').innerHTML=`<div class="empty">${esc(d.error)}</div>`;$('#envoisTableaux').innerHTML='';return}
+  const date=v=>v?new Date(v).toLocaleString('fr-FR',{dateStyle:'short',timeStyle:'short'}):'—';
+  const arreter=(genre,x)=>`<button class="btn sm" data-stopenvoi="${esc(x.id)}" data-genre="${genre}" data-org="${esc(x.org_id)}">Arrêter</button>`;
+  $('#envoisJobs').innerHTML=(d.planifications||[]).length?`<table><thead><tr><th>Espace</th><th>Rapport</th><th>Destinataires</th><th>Rythme</th><th>Dernier</th><th>Prochain</th><th></th></tr></thead><tbody>${d.planifications.map(j=>`<tr><td>${esc(j.espace)}</td><td>${esc(j.name)}</td><td>${esc((j.recipients||[]).join(', ')||'sans e-mail')}</td><td>${esc(j.freq)} à ${esc(j.hour)} h</td><td>${date(j.last_run)}</td><td>${j.enabled?date(j.next_run):'arrêtée'}</td><td>${j.enabled?arreter('planification',j):''}</td></tr>`).join('')}</tbody></table>`:'<div class="empty">Aucune planification.</div>';
+  $('#envoisTableaux').innerHTML=(d.tableaux||[]).length?`<table><thead><tr><th>Espace</th><th>Tableau</th><th>Destinataires</th><th>Rythme</th><th>Prochain</th><th></th></tr></thead><tbody>${d.tableaux.map(x=>`<tr><td>${esc(x.espace)}${x.espace_actif?'':' (espace inactif)'}</td><td>${esc(x.name)}</td><td>${esc((x.mail_to||[]).join(', '))}</td><td>${esc(x.mail_freq)}</td><td>${date(x.next_mail)}</td><td>${arreter('tableau',x)}</td></tr>`).join('')}</tbody></table>`:'<div class="empty">Aucun tableau de bord envoyé automatiquement.</div>';
+}
+document.addEventListener('click',async e=>{
+  const b=e.target.closest('[data-stopenvoi]');if(!b)return;
+  b.disabled=true;const r=await api('/api/admin/envois/arreter',{id:b.dataset.stopenvoi,genre:b.dataset.genre,org_id:b.dataset.org});
+  toast(r.error||'Envoi arrêté.');loadEnvois()});
 async function loadJournal(){const L=await api('/api/admin/journal');if(!Array.isArray(L)){$('#journalList').innerHTML='<div class="empty">Journal indisponible.</div>';return}
   $('#journalList').innerHTML=L.length?`<table><thead><tr><th>Date</th><th>Par</th><th>Action</th><th>Détail</th></tr></thead><tbody>${L.slice(0,100).map(j=>{
     const det=['org_id','plan','email','days','trial_days','suspended','key','id'].filter(k=>j[k]!=null).map(k=>`${k} : ${esc(String(j[k]))}`).join(' · ');

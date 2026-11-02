@@ -2,6 +2,7 @@
 """Sécurité de la version en ligne, avec comptes simulés (sans Supabase) :
 python -m pytest tests/test_cloud.py"""
 import base64
+import datetime as dt
 import os
 import tempfile
 import uuid
@@ -193,3 +194,139 @@ def test_lecteur_ne_peut_pas_payer(base):
 def test_paiement_exige_une_session(base):
     assert call(base, "/api/billing/checkout", {"plan": "pro", "months": 1})[0] == 401
     assert call(base, "/api/billing")[0] == 401
+
+
+# ---------- envois automatiques : rien ne doit partir sans qu'on puisse le voir et l'arrêter ----------
+
+@pytest.fixture(autouse=True)
+def _dossiers_par_espace(monkeypatch):
+    monkeypatch.delenv("KLDV_SOURCES_DIR", raising=False)  # le vrai chemin : un dossier par espace
+
+
+def _espace(org, nom="Espace B", cle="pro"):
+    return T.Ctx(key=f"job:{org}", org_id=org, role="analyst", plan={"key": cle, "org_name": nom})
+
+
+def _envoi(org, cle="pro", freq="weekly"):
+    ctx = _espace(org, cle=cle)
+    with T.use(ctx):
+        server.sources._save([{"id": "abc", "name": "Ventes", "path": "x", "mail_to": ["a@exemple.org"], "mail_freq": freq, "next_mail": "2020-01-01T07:00:00"}])
+    return ctx
+
+
+def test_envois_de_l_espace_visibles_et_arretables(base):
+    _envoi(ORG_B)
+    code, liste = call(base, "/api/envois", token="tok-b")
+    assert code == 200 and [e["name"] for e in liste] == ["Ventes"] and liste[0]["mail_to"] == ["a@exemple.org"]
+    assert call(base, "/api/envois", token="tok-a")[1] == []  # l'autre espace n'y a pas accès
+    assert call(base, "/api/envois/arreter", {"id": "abc"}, "tok-b")[0] == 200
+    assert call(base, "/api/envois", token="tok-b")[1] == []
+    with T.use(_espace(ORG_B)):
+        s = server.sources._load()[0]
+    assert s["mail_freq"] == "off" and s["next_mail"] is None and s["mail_to"] == ["a@exemple.org"]  # destinataires gardés
+
+
+def test_arreter_envoi_inconnu(base):
+    assert call(base, "/api/envois/arreter", {"id": "absent"}, "tok-b")[0] in (400, 404, 500)
+
+
+def test_lecteur_ne_peut_pas_arreter_un_envoi(base):
+    assert call(base, "/api/envois/arreter", {"id": "abc"}, "tok-v")[0] == 403
+
+
+def test_administration_des_envois_reservee(base):
+    assert call(base, "/api/admin/envois")[0] == 401
+    assert call(base, "/api/admin/envois", token="tok-b")[0] == 403
+    assert call(base, "/api/admin/envois/arreter", {"id": "x", "genre": "tableau", "org_id": ORG_B}, "tok-b")[0] == 403
+
+
+def test_administrateur_voit_et_arrete_les_envois_de_tous_les_espaces(base, monkeypatch):
+    _envoi(ORG_B)
+    monkeypatch.setattr(cloud, "org_ctx", lambda org: _espace(org))
+    monkeypatch.setattr(cloud, "admin_planifications", lambda ctx: [{"id": "p1", "org_id": ORG_B, "espace": "KLD"}])
+    arretees = []
+    monkeypatch.setattr(cloud, "admin_arreter_planification", lambda ctx, org, job: arretees.append((org, job)))
+    code, d = call(base, "/api/admin/envois", token="tok-a")
+    assert code == 200 and d["planifications"][0]["espace"] == "KLD"
+    assert [(x["name"], x["espace"], x["org_id"]) for x in d["tableaux"]] == [("Ventes", "Espace B", ORG_B)]
+    assert call(base, "/api/admin/envois/arreter", {"id": "p1", "genre": "planification", "org_id": ORG_B}, "tok-a")[0] == 200
+    assert arretees == [(ORG_B, "p1")]
+    assert call(base, "/api/admin/envois/arreter", {"id": "abc", "genre": "tableau", "org_id": ORG_B}, "tok-a")[0] == 200
+    assert call(base, "/api/admin/envois", token="tok-a")[1]["tableaux"] == []
+
+
+def test_espace_abime_ne_cache_pas_les_autres(monkeypatch):
+    _envoi(ORG_B)
+
+    def contexte(org):
+        if org == ORG_B:
+            return _espace(org)
+        raise TypeError("espace supprimé")
+    monkeypatch.setattr(server.sources, "_espaces", lambda: ["autre", ORG_B])
+    assert [x["org_id"] for x in server.sources.envois_tous(contexte)] == [ORG_B]
+
+
+APRES = dt.datetime(2030, 1, 1, tzinfo=dt.timezone.utc)
+AVANT = dt.datetime(2020, 1, 1, tzinfo=dt.timezone.utc)
+CATALOGUE = {"essai": {"days": 14}, "pro": {}}
+
+
+@pytest.mark.parametrize("cle,essai,paye,attendu", [("essai", AVANT, None, True), ("essai", APRES, None, False), ("pro", AVANT, None, False),
+                                                    ("pro", None, AVANT, True), ("pro", None, APRES, False), ("pro", None, None, False)])
+def test_espace_expire(cle, essai, paye, attendu):
+    assert cloud.expire(cle, essai, paye, CATALOGUE) is attendu
+
+
+def _base_factice(monkeypatch, org, **colonnes):
+    ligne = dict({"name": "KLD", "plan": "essai", "trial_end": APRES, "paid_until": None, "suspended": False}, **colonnes)
+    monkeypatch.setattr(cloud, "plans", lambda: CATALOGUE)
+    monkeypatch.setattr(cloud, "q", lambda sql, args=None, one=False: ligne if one else [{"org_id": org, "id": "j1"}])
+    monkeypatch.setattr(cloud, "_sched_out", lambda r: {"id": r["id"]})
+
+
+def test_essai_expire_n_envoie_plus(monkeypatch):
+    """Un espace abandonné continuait d'envoyer chaque jour : personne ne s'y connecte pour l'arrêter."""
+    _base_factice(monkeypatch, ORG_A, trial_end=AVANT)
+    assert cloud.org_ctx(ORG_A).plan["key"] == "suspendu"
+    assert cloud.due_schedules() == []
+
+
+def test_essai_en_cours_envoie(monkeypatch):
+    _base_factice(monkeypatch, ORG_A)
+    assert cloud.org_ctx(ORG_A).plan["key"] == "essai"
+    assert cloud.due_schedules() == [(ORG_A, {"id": "j1"})]
+
+
+def test_abonnement_termine_n_envoie_plus(monkeypatch):
+    _base_factice(monkeypatch, ORG_A, plan="pro", paid_until=AVANT)
+    assert cloud.due_schedules() == []
+
+
+def test_espace_suspendu_n_envoie_plus(monkeypatch):
+    _base_factice(monkeypatch, ORG_A, suspended=True)
+    assert cloud.due_schedules() == []
+
+
+def test_chaque_email_dit_d_ou_il_vient():
+    with T.use(_espace(ORG_B, nom="MSHP")):
+        pied = server.studio.pied_envoi()
+    assert "« MSHP »" in pied and "Planifié" in pied
+
+
+def test_rapport_planifie_porte_son_origine(monkeypatch):
+    envois = []
+    monkeypatch.setattr(server.studio, "send_mail", lambda dest, sujet, corps, piece=None: envois.append(corps))
+    job = {"id": "j1", "name": "Ventes", "source": "x.csv", "to": ["a@exemple.org"], "format": "pdf", "freq": "daily", "hour": 7}
+    monkeypatch.setattr(server.studio, "list_schedules", lambda: [job])
+    monkeypatch.setattr(server.studio, "update_schedule", lambda *a, **k: None)
+    with T.use(_espace(ORG_B, nom="MSHP")):
+        server.studio.run_schedule("j1", lambda s: {"rows": 3, "completeness_pct": 100}, {"pdf": lambda r: "r.pdf"}, T.exports_dir())
+    assert envois and "« MSHP »" in envois[0]
+
+
+def test_pages_montrent_les_envois():
+    dossier = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    page = open(os.path.join(dossier, "index.html"), encoding="utf-8").read()
+    admin = open(os.path.join(dossier, "admin.html"), encoding="utf-8").read()
+    assert 'id="dashMailList"' in page and "/api/envois/arreter" in page and "même si personne n'est connecté" in page
+    assert 'data-tab="envois"' in admin and "envois:loadEnvois" in admin and "/api/admin/envois/arreter" in admin

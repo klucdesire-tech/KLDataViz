@@ -314,7 +314,8 @@ def send_mail_now(source_id: str, read_df, build, to=None, base_url=None):
                          + en_ligne +
                          ("En pièce jointe, la même version à ouvrir dans votre navigateur" if lien else
                           "Ouvrez la pièce jointe dans votre navigateur")
-                         + " : le tableau est interactif (filtres, périodes), même sans connexion.\n\nKLDataViz", att)
+                         + " : le tableau est interactif (filtres, périodes), même sans connexion.\n\nKLDataViz"
+                         + studio.pied_envoi(), att)
         status = (f"Envoyé à {len(dest)} destinataire(s) le {_now()[:16].replace('T', ' à ')}"
                   + (" avec le lien de partage" if lien else ""))
     except Exception as exc:
@@ -331,6 +332,39 @@ def send_mail_now(source_id: str, read_df, build, to=None, base_url=None):
     if status.startswith("Envoi impossible"):
         raise ValueError(status)
     return get(source_id, with_html=False)
+
+
+def envois_actifs():
+    """Tableaux de bord envoyés automatiquement par e-mail, dans l'espace courant."""
+    return [{k: x.get(k) for k in ("id", "name", "mail_to", "mail_freq", "next_mail", "mail_status")}
+            for x in _load() if x.get("mail_freq", "off") != "off"]
+
+
+def arreter_envoi(source_id: str):
+    """Arrête l'envoi automatique et garde les destinataires, pour le réactiver sans les ressaisir."""
+    if not next((x for x in _load() if x["id"] == source_id), None):
+        raise KeyError("Tableau de bord introuvable.")
+    _update(source_id, {"mail_freq": "off", "next_mail": None})
+
+
+def envois_tous(org_ctx):
+    """Envois automatiques de tableaux de bord de tous les espaces, pour l'administration."""
+    out = []
+    for org_id in _espaces():
+        try:
+            ctx = org_ctx(org_id)
+            with T.use(ctx):
+                out += [dict(e, org_id=org_id, espace=ctx.plan.get("org_name"), espace_actif=ctx.plan.get("key") != "suspendu")
+                        for e in envois_actifs()]
+        except Exception:  # dossier d'un espace supprimé, fichier abîmé : il ne cache pas les autres
+            continue
+    return out
+
+
+def _espaces():
+    base = os.path.join(T.DATA_DIR, "tenants")
+    return [o for o in (os.listdir(base) if os.path.isdir(base) else [])
+            if os.path.isfile(os.path.join(base, o, "storage", "sources.json"))]
 
 
 def due_mails(now=None):
@@ -351,11 +385,14 @@ def start_auto_refresh(read_df, build, org_ctx=None):
                 except Exception:
                     pass
             return
-        base = os.path.join(T.DATA_DIR, "tenants")
-        for org_id in (os.listdir(base) if os.path.isdir(base) else []):
-            if not os.path.isfile(os.path.join(base, org_id, "storage", "sources.json")):
+        for org_id in _espaces():
+            try:
+                ctx = org_ctx(org_id)
+            except Exception:  # espace supprimé : il ne bloque pas les suivants
                 continue
-            with T.use(org_ctx(org_id)):
+            if ctx.plan.get("key") == "suspendu":  # essai ou abonnement terminé : plus d'actualisation ni d'envoi
+                continue
+            with T.use(ctx):
                 for sid in due():
                     try:
                         refresh(sid, read_df, build)
