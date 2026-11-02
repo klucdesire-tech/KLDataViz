@@ -556,7 +556,7 @@ tr.versions td{background:var(--surface-2);font-size:13px}
 
       <!-- PLANIFIÉ -->
       <section class="view" data-view="schedule" hidden>
-        <div class="head"><h1>Rapports planifiés</h1><p>Adifa’ relit la source, refait l'analyse et produit le rapport à l'heure prévue, tant que la console est ouverte.</p></div>
+        <div class="head"><h1>Rapports planifiés</h1><p id="scIntro">Adifa’ relit la source, refait l'analyse et produit le rapport à l'heure prévue, tant que la console est ouverte.</p></div>
         <div class="card">
           <h2>Nouvelle planification</h2>
           <form class="form" id="schedForm" style="margin-top:12px">
@@ -569,6 +569,7 @@ tr.versions td{background:var(--surface-2);font-size:13px}
           </form>
         </div>
         <div class="card"><h2>Planifications</h2><div class="list" id="jobList"><div class="empty">Chargement…</div></div></div>
+        <div class="card" style="margin-top:16px"><h2>Tableaux de bord envoyés automatiquement</h2><div class="list" id="dashMailList"><div class="empty">Chargement…</div></div></div>
       </section>
 
       <!-- TÂCHES -->
@@ -2000,14 +2001,25 @@ $('#rpList').addEventListener('click',async e=>{const b=e.target.closest('[data-
 /* ================= planifié ================= */
 const FREQ={daily:'Chaque jour',weekly:'Chaque lundi',monthly:'Le 1er du mois'};
 let jobConfirm=null;
+async function loadDashMails(){
+  const L=await api('/api/envois');
+  if(!Array.isArray(L)){$('#dashMailList').innerHTML=`<div class="alert">${esc(L.error||'Liste indisponible')}</div>`;return []}
+  $('#dashMailList').innerHTML=L.length?L.map(x=>`<div class="li"><div><b>${esc(x.name)}</b>
+    <span><span class="tag ok">Actif</span> ${x.mail_freq==='weekly'?'Chaque semaine':'Chaque mois'} · ${esc((x.mail_to||[]).join(', '))}</span><br>
+    <span>Prochain : ${x.next_mail?fmtDate(x.next_mail):'—'}${x.mail_status?' · '+esc(x.mail_status):''}</span></div>
+    <div class="rowbtns"><button class="btn ghost sm" data-stopmail="${esc(x.id)}">Arrêter</button></div></div>`).join('')
+    :'<div class="empty">Aucun tableau de bord envoyé automatiquement.</div>';
+  return L;
+}
 async function loadSchedules(){
-  const [jobs]=await Promise.all([api('/api/schedules'),fetchRegistry()]);
+  if(CLOUD)$('#scIntro').textContent="Adifa’ relit la source, refait l'analyse et produit le rapport à l'heure prévue, même si personne n'est connecté.";
+  const [jobs,mails]=await Promise.all([api('/api/schedules'),loadDashMails(),fetchRegistry()]);
   const opts=[];
   if(state.path)opts.push([state.path,`Analyse en cours : ${state.name}`]);
   state.registry.forEach(x=>x.work_path&&opts.push([x.work_path,`${x.dataset_name} (registre, v${String(x.version_no).padStart(3,'0')})`]));
   $('#scSrc').innerHTML=opts.length?opts.map(o=>`<option value="${esc(o[0])}">${esc(o[1])}</option>`).join(''):'<option value="">Analysez ou enregistrez d\'abord un jeu de données</option>';
   if(!Array.isArray(jobs)){$('#jobList').innerHTML=`<div class="alert">${esc(jobs.error||'Liste indisponible')}</div>`;return}
-  $('#cntSc').textContent=jobs.length||'';
+  $('#cntSc').textContent=(jobs.length+mails.length)||'';
   $('#jobList').innerHTML=jobs.length?jobs.map(j=>`<div class="li"><div><b>${esc(j.name)}</b>
     <span><span class="tag ${j.on?'ok':'type'}">${j.on?'Actif':'En pause'}</span> ${FREQ[j.freq]} à ${j.hour} h · ${j.format.toUpperCase()} · ${j.to.length?esc(j.to.join(', ')):'sans e-mail'}</span><br>
     <span>Prochain : ${j.on?fmtDate(j.next_run):'en pause'} · Dernier : ${j.last_run?fmtDate(j.last_run)+' — '+esc(j.last_status||''):'jamais'}</span></div>
@@ -2015,6 +2027,9 @@ async function loadSchedules(){
     <button class="switch" role="switch" aria-checked="${j.on}" aria-label="Activer la planification ${esc(j.name)}" data-tog="${j.id}" data-on="${j.on}"></button></div></div>`).join('')
     :'<div class="empty">Aucune planification. Créez-en une ci-dessus ou depuis l\'étape Partager.</div>';
 }
+$('#dashMailList').addEventListener('click',async e=>{
+  const b=e.target.closest('[data-stopmail]');if(!b)return;
+  b.disabled=true;const r=await api('/api/envois/arreter',{id:b.dataset.stopmail});toast(r.error||'Envoi automatique arrêté.');loadSchedules()});
 $('#jobList').addEventListener('click',async e=>{
   const t=e.target.closest('[data-tog]'),r=e.target.closest('[data-run]'),d=e.target.closest('[data-deljob]');
   if(t){const res=await api('/api/schedules/update',{id:t.dataset.tog,on:t.dataset.on!=='true'});if(res.error)toast(res.error);loadSchedules()}

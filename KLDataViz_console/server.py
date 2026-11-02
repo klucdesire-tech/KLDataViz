@@ -1055,6 +1055,17 @@ def _cle_lecture(faits):
     return hashlib.sha256(json.dumps(faits, ensure_ascii=False, sort_keys=True).encode()).hexdigest()
 
 
+def _arreter_envoi_admin(ctx, p):
+    """Arrête un envoi d'un espace, sans le supprimer. Réservé à l'administration de la plateforme."""
+    org_id, envoi = str(p.get("org_id") or ""), str(p.get("id") or "")
+    if p.get("genre") == "planification":
+        cloud.admin_arreter_planification(ctx, org_id, envoi)
+    else:
+        with T.use(cloud.org_ctx(org_id)):
+            sources.arreter_envoi(envoi)
+    return {"ok": True}
+
+
 def _lecture_experte(genre, file_path=None, court=False):
     """Lecture d'Adifa’ sur des résultats calculés par le serveur, jamais sur des chiffres envoyés par le navigateur.
     L'analyse est recalculée si elle n'est plus en mémoire : la page peut survivre à un redémarrage du serveur.
@@ -3197,6 +3208,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 return self._send(200, studio.list_schedules())
             if path == "/api/sources":
                 return self._send(200, sources.list_sources())
+            if path == "/api/envois":
+                return self._send(200, sources.envois_actifs())
             if path == "/api/espace/journal":
                 if T.CLOUD:
                     cloud.require(T.current(), "owner", "analyst")
@@ -3335,6 +3348,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if path == "/api/shares/revoke":
             shares.revoke(str(p.get("token")))
             journal.ajouter("lien de partage révoqué")
+            return self._send(200, {"ok": True})
+        if path == "/api/envois/arreter":
+            if T.CLOUD:
+                cloud.require(T.current(), "owner", "analyst")
+            sources.arreter_envoi(str(p.get("id")))
+            journal.ajouter("envoi automatique arrêté", details={"id": str(p.get("id"))})
             return self._send(200, {"ok": True})
         if path == "/api/sources/mail":
             return self._send(200, sources.set_mail(str(p.get("id")), p.get("to"), str(p.get("freq") or "off"),
@@ -3559,6 +3578,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             routes = {"/api/admin/me": lambda: {"email": ctx.email, "is_admin": True},
                       "/api/admin/stats": lambda: cloud.admin_stats(ctx),
                       "/api/admin/orgs": lambda: cloud.admin_orgs(ctx, arg("q")),
+                      "/api/admin/envois": lambda: {"planifications": cloud.admin_planifications(ctx),
+                                                    "tableaux": sources.envois_tous(cloud.org_ctx)},
                       "/api/admin/org": lambda: cloud.admin_org_detail(ctx, arg("id")),
                       "/api/admin/plans": lambda: cloud.admin_plans(ctx),
                       "/api/admin/payments": lambda: cloud.admin_payments(ctx),
@@ -3569,6 +3590,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                       "/api/admin/journal": lambda: journal.lire(200, espace=False)}
         else:
             routes = {"/api/admin/payments/verify": lambda: cloud.admin_verifier_paiement(ctx, str(p.get("merchant_tx") or "")),
+                      "/api/admin/envois/arreter": lambda: _arreter_envoi_admin(ctx, p),
                       "/api/admin/plan": lambda: cloud.admin_set_plan(ctx, str(p.get("org_id")), p.get("plan"), p.get("trial_days")),
                       "/api/admin/extend": lambda: cloud.admin_extend_trial(ctx, str(p.get("org_id")), p.get("days") or 14),
                       "/api/admin/suspend": lambda: cloud.admin_suspend(ctx, str(p.get("org_id")), p.get("suspended")),

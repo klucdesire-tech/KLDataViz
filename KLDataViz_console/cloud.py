@@ -152,6 +152,13 @@ def verify_token(token: str) -> dict:
     return user
 
 
+def expire(plan_key: str, trial_end, paid_until, catalog: dict, now=None) -> bool:
+    """Vrai si l'essai ou l'abonnement est terminé."""
+    now = now or dt.datetime.now(dt.timezone.utc)
+    return bool((catalog.get(plan_key, {}).get("days") and trial_end and trial_end < now)
+                or (paid_until is not None and paid_until < now))
+
+
 def resolve(user: dict) -> Ctx | None:
     """Contexte de l'utilisateur : son organisation et son rôle. Accepte une invitation en attente."""
     m = q("""select m.org_id::text, m.role, o.plan, o.trial_end, o.paid_until, o.name, o.suspended
@@ -169,9 +176,7 @@ def resolve(user: dict) -> Ctx | None:
         return resolve(user)
     catalog = plans()
     plan_key = m["plan"] if m["plan"] in catalog else "essai"
-    now = dt.datetime.now(dt.timezone.utc)
-    expired = (catalog.get(plan_key, {}).get("days") and m["trial_end"] and m["trial_end"] < now) \
-        or (m["paid_until"] is not None and m["paid_until"] < now)
+    expired = expire(plan_key, m["trial_end"], m["paid_until"], catalog)
     if m["suspended"] or expired:
         plan_key = "suspendu"
     plan = dict(catalog.get(plan_key, _FALLBACK_PLANS["suspendu"]), key=plan_key, trial_end=m["trial_end"],
@@ -733,19 +738,41 @@ def schedule_delete(org_id: str, job_id: str):
 
 
 def due_schedules() -> list:
-    """Planifications à exécuter, toutes organisations confondues (tâche de fond)."""
+    """Planifications à exécuter, toutes organisations confondues (tâche de fond). Un espace dont l'essai ou l'abonnement
+    est terminé n'envoie plus rien : personne ne s'y connecte plus, et ses destinataires n'ont aucun moyen d'arrêter."""
     rows = q(f"""select s.org_id::text as org_id, {', '.join('s.' + c for c in SCHEDULE_COLS.split(', '))}
                  from app.schedules s join app.organizations o on o.id = s.org_id
                  where s.enabled and s.next_run <= now() and o.plan <> 'suspendu' and not o.suspended""")
-    return [(r["org_id"], _sched_out(r)) for r in rows]
+    actifs = {}
+    for r in rows:
+        if r["org_id"] not in actifs:
+            actifs[r["org_id"]] = org_ctx(r["org_id"]).plan.get("key") != "suspendu"
+    return [(r["org_id"], _sched_out(r)) for r in rows if actifs[r["org_id"]]]
 
 
 def org_ctx(org_id: str) -> Ctx:
     """Contexte technique d'une organisation (tâches de fond : rapports planifiés)."""
-    o = q("select name, plan, trial_end from app.organizations where id = %s", (org_id,), one=True)
+    o = q("select name, plan, trial_end, paid_until, suspended from app.organizations where id = %s", (org_id,), one=True)
     catalog = plans()
-    plan = dict(catalog.get(o["plan"], _FALLBACK_PLANS["essai"]), key=o["plan"], org_name=o["name"], trial_end=o["trial_end"])
+    cle = o["plan"] if o["plan"] in catalog else "essai"
+    if o["suspended"] or expire(cle, o["trial_end"], o["paid_until"], catalog):
+        cle = "suspendu"
+    plan = dict(catalog.get(cle, _FALLBACK_PLANS["suspendu"]), key=cle, org_name=o["name"], trial_end=o["trial_end"])
     return Ctx(key=f"job:{org_id}", org_id=org_id, role="analyst", plan=plan)
+
+
+def admin_planifications(ctx: Ctx) -> list:
+    """Planifications de tous les espaces : chaque espace ne voit que les siennes."""
+    _admin(ctx)
+    return _iso(q("""select s.id, s.org_id::text as org_id, o.name as espace, s.name, s.freq, s.hour, s.recipients, s.enabled,
+                            s.last_run, s.last_status, s.next_run
+                     from app.schedules s join app.organizations o on o.id = s.org_id
+                     order by s.enabled desc, o.name, s.name"""), "last_run", "next_run")
+
+
+def admin_arreter_planification(ctx: Ctx, org_id: str, job_id: str):
+    _admin(ctx)
+    return schedule_update(org_id, job_id, on=False)
 
 
 # ---------------------------------------------------------------- e-mail (Brevo)
