@@ -131,3 +131,107 @@ def test_garde_fou_d_execution_bloque_l_ecriture_et_la_lecture(tmp_path):
     assert "error" in ecrit and not cible.exists()
     ok = sandbox.run("result = int(data['x']['a'].sum())", {"x": str(src)})
     assert ok["result"]["value"] == "3"   # les calculs normaux restent possibles
+
+
+def _deux_jeux(tmp_path):
+    a, b = tmp_path / "a.parquet", tmp_path / "b.csv"
+    pd.DataFrame({"x": [1, 2, 3]}).to_parquet(a)
+    pd.DataFrame({"y": [10, 20]}).to_csv(b, index=False)
+    return {"premier": str(a), "second": str(b)}
+
+
+def test_df_est_le_premier_jeu(tmp_path):
+    out = sandbox.run("result = int(df['x'].sum())", _deux_jeux(tmp_path))
+    assert out["result"]["value"] == "6"
+
+
+def test_df_non_lu_si_le_code_ne_s_en_sert_pas(tmp_path):
+    out = sandbox.run("result = int(data['second']['y'].sum())", dict(_deux_jeux(tmp_path), premier="fichier_absent.parquet"))
+    assert out["result"]["value"] == "30"
+
+
+def test_df_ecrit_par_l_ia_reste_le_sien(tmp_path):
+    out = sandbox.run("df = data['second']\nresult = int(df['y'].sum())", _deux_jeux(tmp_path))
+    assert out["result"]["value"] == "30"
+
+
+def test_data_se_parcourt_comme_un_dict(tmp_path):
+    """« list(data.values())[0] » levait IndexError : le dict restait vide tant qu'on ne demandait pas une clé."""
+    jeux = _deux_jeux(tmp_path)
+    assert sandbox.run("result = len(list(data.values()))", jeux)["result"]["value"] == "2"
+    assert sandbox.run("result = int(list(data.values())[0]['x'].sum())", jeux)["result"]["value"] == "6"
+    code = "total = 0\nfor nom, t in data.items():\n    total += len(t)\nresult = total"
+    assert sandbox.run(code, jeux)["result"]["value"] == "5"
+
+
+def test_data_get(tmp_path):
+    jeux = _deux_jeux(tmp_path)
+    assert sandbox.run("result = len(data.get('premier'))", jeux)["result"]["value"] == "3"
+    assert sandbox.run("result = data.get('absent') is None", jeux)["result"]["value"] == "True"
+
+
+def test_lecture_parquet_aux_limites_du_serveur(tmp_path, monkeypatch):
+    """Mêmes limites qu'en ligne : la lecture doit aboutir bien avant le délai."""
+    monkeypatch.setattr(sandbox, "MEMORY_MB", 1024)
+    monkeypatch.setattr(sandbox, "TIMEOUT_S", 45)
+    p = tmp_path / "operations.parquet"
+    pd.DataFrame({"recette_fcfa": range(4000), "poste": ["Épargne", "Commissions"] * 2000, "valide": [True, False] * 2000}).to_parquet(p)
+    code = "sub = df[df['recette_fcfa'] > 3000]\nresult = sub['poste'].value_counts()\nprint(sub.nlargest(3, 'recette_fcfa').to_string(index=False))"
+    out = sandbox.run(code, {"Google Sheets": str(p)})
+    assert "error" not in out, out
+    assert out["result"]["kind"] == "table" and "3999" in out["sortie"]
+
+
+def test_lecture_bloquee_retentee_une_fois(tmp_path, monkeypatch):
+    """Premier essai bloqué pendant la lecture : le second aboutit, l'utilisateur ne voit pas l'incident."""
+    compteur = tmp_path / "essais.txt"
+    faux = tmp_path / "faux_runner.py"
+    faux.write_text(
+        "import sys, time, os\n"
+        f"c = {str(compteur)!r}\n"
+        "n = int(open(c).read()) + 1 if os.path.exists(c) else 1\n"
+        "open(c, 'w').write(str(n))\n"
+        "if n == 1:\n"
+        "    sys.stderr.reconfigure(encoding='utf-8'); sys.stderr.write('[jalon] lecture des données « x » (1.6 s)\\n'); sys.stderr.flush(); time.sleep(30)\n"
+        "print('{\"result\": {\"kind\": \"scalar\", \"value\": \"ok\"}}')\n", encoding="utf-8")
+    monkeypatch.setattr(sandbox, "RUNNER", str(faux))
+    monkeypatch.setattr(sandbox, "TIMEOUT_S", 3)
+    assert sandbox.run("result = 1", {})["result"]["value"] == "ok"
+    assert compteur.read_text() == "2"
+
+
+def test_lecture_toujours_bloquee_dit_ou(tmp_path, monkeypatch):
+    faux = tmp_path / "faux_runner.py"
+    faux.write_text("import sys, time\nsys.stderr.reconfigure(encoding='utf-8'); sys.stderr.write('[jalon] lecture des données « x » (1.6 s)\\n'); sys.stderr.flush(); time.sleep(30)\n", encoding="utf-8")
+    monkeypatch.setattr(sandbox, "RUNNER", str(faux))
+    monkeypatch.setattr(sandbox, "TIMEOUT_S", 2)
+    assert "lecture des données" in sandbox.run("result = 1", {})["error"]
+
+
+def test_calcul_long_pas_retente(tmp_path, monkeypatch):
+    compteur = tmp_path / "essais.txt"
+    faux = tmp_path / "faux_runner.py"
+    faux.write_text(f"import sys, time\nopen({str(compteur)!r}, 'a').write('x')\nsys.stderr.reconfigure(encoding='utf-8'); sys.stderr.write('[jalon] calcul lancé (1.6 s)\\n'); sys.stderr.flush(); time.sleep(30)\n", encoding="utf-8")
+    monkeypatch.setattr(sandbox, "RUNNER", str(faux))
+    monkeypatch.setattr(sandbox, "TIMEOUT_S", 2)
+    assert "calcul trop long" in sandbox.run("result = 1", {})["error"]
+    assert compteur.read_text() == "x"
+
+
+@pytest.mark.skipif(os.name == "nt", reason="limite de fils Linux")
+@pytest.mark.parametrize("marge", [8, 3, 1, 0])
+def test_lecture_sans_blocage_quand_les_fils_manquent(tmp_path, monkeypatch, marge):
+    """Cause du blocage en ligne : l'activité du serveur consomme la marge de fils. Le calcul doit aboutir, et vite."""
+    import time
+    monkeypatch.setattr(sandbox, "NPROC_MARGIN", marge)
+    monkeypatch.setattr(sandbox, "TIMEOUT_S", 20)
+    p = tmp_path / "t.parquet"
+    pd.DataFrame({"poste": ["Épargne", "Commissions"] * 7000, "montant": range(14000)}).to_parquet(p)
+    debut = time.time()
+    out = sandbox.run("result = len(df)", {"x": str(p)})
+    assert "error" not in out, out
+    assert out["result"]["value"] == "14000" and time.time() - debut < 15
+
+
+def test_marge_absorbe_l_activite_du_serveur():
+    assert sandbox.NPROC_MARGIN >= 32

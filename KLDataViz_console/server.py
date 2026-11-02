@@ -1820,8 +1820,12 @@ def _registry_datasets():
         return []
 
 
-def _llm_context(datasets=None):
+def _llm_context(datasets=None, leger=False):
+    """Description des jeux enregistrés pour l'IA. `leger` : un fichier est ouvert, la question porte sur lui. Les autres
+    jeux ne sont alors ni relus ni décrits : leur nom suffit, et aucune de leurs valeurs ne part vers l'IA."""
     datasets = _registry_datasets() if datasets is None else datasets
+    if leger:
+        return [{"name": d.get("dataset_name"), "lignes": d.get("row_count"), "autre_jeu_enregistre": True} for d in datasets[:12]]
     out = []
     for d in datasets[:12]:
         df = _chat_load_work(d.get("work_path"))
@@ -1959,7 +1963,10 @@ CHAT_METHODE = (
     '- pour conclure : {"action":"reponse","answer":"ta réponse finale","montrer_tableau":true}\n'
     f"Après chaque calcul tu reçois son résultat RÉEL. Enchaîne d'autres calculs si nécessaire (au plus {CHAT_MAX_CALCULS}), "
     "puis conclus. Si la question porte seulement sur l'analyse déjà affichée (résumé, interprétation), conclus sans calcul.\n"
-    "CODE : Python avec pandas/numpy. Les données sont dans le dict `data` (clé = nom du dataset, valeur = DataFrame). "
+    "CODE : Python avec pandas/numpy. `df` est DÉJÀ le DataFrame du premier dataset de la liste : utilise-le directement, "
+    "sans chercher les données. Autre dataset : data[\"nom exact\"]. Ne parcours pas `data` : chaque dataset parcouru est relu. "
+    "Un jeu marqué autre_jeu_enregistre ne sert que si la question le cite, et ne se croise qu'avec une clé commune vérifiée. "
+    "Sont refusés : import, open, type, hasattr, getattr, attributs commençant par _. "
     "pd, np, math et stats (= scipy.stats : ttest_ind, mannwhitneyu, chi2_contingency, pearsonr, spearmanr, linregress, "
     "f_oneway, kruskal, shapiro…) sont DÉJÀ disponibles : n'écris aucune ligne import. "
     "Mets ce que tu veux lire dans la variable `result` (DataFrame, Series ou valeur) et/ou affiche-le avec print(). "
@@ -1975,6 +1982,15 @@ CHAT_METHODE = (
     "les limites (petits effectifs, valeurs manquantes, corrélation ≠ causalité). Court pour une question simple, "
     "structuré en puces pour une analyse. montrer_tableau = true si le dernier tableau calculé aide à répondre. "
     "Si un calcul échoue, corrige-le au tour suivant. Si les données ne permettent pas de répondre, dis-le.\n"
+    "RIGUEUR D'ANALYSTE SÉNIOR :\n"
+    "- Définis d'abord la population (filtre exact, nombre de lignes) et affiche ce nombre dans chaque calcul.\n"
+    "- Regroupe tes contrôles dans un même calcul plutôt que d'en faire plusieurs.\n"
+    "- Compare toujours à une référence : le reste des lignes, le même groupe, la période précédente.\n"
+    "- Vérifie que les sous-totaux retombent sur le total annoncé ; sinon, cherche pourquoi avant de conclure.\n"
+    "- Un seuil calculé sur tout le fichier mélange des groupes différents : refais le contrôle à l'intérieur de chaque groupe.\n"
+    "- Dans la réponse, précise à quelle population se rapporte chaque chiffre (« sur les 43 intérêts sur prêts ») "
+    "et ne présente jamais un chiffre d'un sous-groupe comme valant pour l'ensemble.\n"
+    "- Une anomalie statistique n'est pas une erreur : dis ce que les données montrent, puis ce qui reste à vérifier sur pièces.\n"
 )
 
 
@@ -2069,11 +2085,15 @@ def llm_chat(question, ui_context=None, history=None, progress=None, linked=None
     cur_path = T.state()["current_path"]
     if cur_path:  # question de structure sans condition : réponse immédiate sur le fichier en cours, sans IA
         _df0, _e0 = _read_df(cur_path)
+        if _df0 is None:  # jamais de réponse sur un autre jeu de données à la place de la source demandée
+            return {"answer": f"Je n'ai pas pu relire la source « {source_label(cur_path)} » : {_e0}", "type": "text",
+                    "table": None, "charts": [], "etapes": []}
+        _df0 = _df0.set_axis(_noms_uniques(_df0.columns), axis=1)
         rapide = _reponse_immediate(question, _df0, source_label(cur_path))
         if rapide is not None:
             return rapide
     datasets = _registry_datasets()
-    context = _llm_context(datasets)
+    context = _llm_context(datasets, leger=bool(cur_path))
     current_df, current_name = None, None
     try:
         analysis = _analysis_for_chat(cur_path)
@@ -2088,6 +2108,13 @@ def llm_chat(question, ui_context=None, history=None, progress=None, linked=None
                                "colonnes": [{"name": str(c), "dtype": str(current_df[c].dtype),
                                              "exemples": [str(v) for v in current_df[c].dropna().head(3).tolist()]}
                                             for c in current_df.columns]})
+            mixtes = _colonnes_mixtes(current_df)
+            if mixtes:
+                context[0]["colonnes_mixtes"] = {"colonnes": mixtes, "regle": "nombres et texte mêlés : convertis avec "
+                                                 "pd.to_numeric(..., errors=\"coerce\") et dis combien de valeurs tombent."}
+            if current_df.attrs.get("feuilles"):
+                context[0]["feuille_lue"] = current_df.attrs.get("feuille")
+                context[0]["autres_feuilles_non_chargees"] = [str(f) for f in current_df.attrs["feuilles"] if f != current_df.attrs.get("feuille")][:20]
         if current_df is not None and _is_report(current_df):
             context[0]["regle_rapport"] = (
                 "Rapport remis à plat : une ligne = indicateur × niveau × sexe × tranche_age × site. La colonne niveau "
@@ -2096,9 +2123,9 @@ def llm_chat(question, ui_context=None, history=None, progress=None, linked=None
     linked_paths = {}
     for item in (linked or [])[:MAX_ARCHITECT_FILES]:  # autres feuilles / fichiers croisés, aussi calculables
         lp = str((item or {}).get("path") or "")
-        if not lp or lp == cur_path or lp.startswith(("http://", "https://")):
+        if not lp or lp == cur_path:
             continue
-        ldf, _err = _read_df(lp)  # vérifie aussi que le fichier appartient à l'organisation
+        ldf, _err = _read_df(lp)  # vérifie aussi que le fichier appartient à l'organisation, ou que le lien est autorisé
         if ldf is None:
             continue
         lname = str(item.get("name") or source_label(lp))
@@ -2132,18 +2159,16 @@ def llm_chat(question, ui_context=None, history=None, progress=None, linked=None
         nonlocal paths
         if paths is None:
             paths = {}
-            for _d in datasets:
-                _p = _work_file(_d.get("work_path"))
-                if _p and T.current().owns(_p):
-                    paths[_d.get("dataset_name") or _d.get("dataset_id")] = _p
-            if current_df is not None:
+            if current_df is not None:  # en premier : c'est le `df` du calcul
                 _cur = os.path.join(T.current().dir("tmp"), f"courant_{T.current().key[:12]}.parquet")
-                try:
-                    current_df.to_parquet(_cur)
-                except Exception:
-                    current_df.astype(str).to_parquet(_cur)
+                _save_table(current_df, _cur)
                 paths[current_name] = _cur
             paths.update(linked_paths)
+            for _d in datasets:
+                _p = _work_file(_d.get("work_path"))
+                _nom = _d.get("dataset_name") or _d.get("dataset_id")
+                if _p and T.current().owns(_p) and _nom not in paths:
+                    paths[_nom] = _p
         return paths
 
     etapes, last_table, last_chart = [], None, None
@@ -2261,16 +2286,40 @@ def sheets_info(file_path):
         return {"error": f"Lecture du classeur impossible : {e}"}
 
 
+def _noms_uniques(colonnes):
+    """Noms en texte et sans doublon : deux colonnes « Total » d'un tableau Excel deviennent « Total » et « Total (2) »."""
+    vus, noms = {}, []
+    for c in colonnes:
+        c = str(c)
+        vus[c] = vus.get(c, 0) + 1
+        noms.append(c if vus[c] == 1 else f"{c} ({vus[c]})")
+    return noms
+
+
+def _colonnes_mixtes(df):
+    """Colonnes qui mêlent nombres et texte : un calcul direct y échouerait."""
+    mixtes = []
+    for c in df.columns[df.dtypes == object]:
+        genres = {isinstance(v, (int, float, np.number)) and not isinstance(v, bool) for v in df[c].dropna().head(5000)}
+        if len(genres) > 1:
+            mixtes.append(str(c))
+    return mixtes
+
+
 def _save_table(df, dest):
-    """Parquet (types conservés) ; colonnes de types mélangés converties en texte si nécessaire."""
+    """Parquet (types conservés) : seules les colonnes impossibles à écrire passent en texte, jamais tout le tableau."""
     df = df.copy()
     df.attrs = {}  # pandas les enregistre dans le parquet : la feuille d'origine ne doit pas suivre le fichier
-    df.columns = [str(c) for c in df.columns]
+    df.columns = _noms_uniques(df.columns)
     try:
         df.to_parquet(dest, index=False)
     except Exception:
+        import pyarrow as pa
         for c in df.columns[df.dtypes == object]:
-            df[c] = df[c].map(lambda v: v if v is None or (isinstance(v, float) and v != v) else str(v))
+            try:
+                pa.array(df[c], from_pandas=True)
+            except Exception:
+                df[c] = df[c].map(lambda v: v if v is None or (isinstance(v, float) and v != v) else str(v))
         df.to_parquet(dest, index=False)
 
 
