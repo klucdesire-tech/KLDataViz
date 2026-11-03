@@ -1718,7 +1718,8 @@ def generate_dashboard(df, objective: str = "", job_id: str | None = None, llm=N
             "kpis": _json_safe(kpis), "charts": charts_count, "ia": ia,
             "filter_cols": filter_cols, "kpi_defs": kpi_defs, "format_long": pivoted,
             "domaine": _json_safe(domaine), "gaps": _json_safe(gaps), "spec": _json_safe(dict(spec, _ia=ia)),
-            "dictionnaire": _json_safe(meta.get("dictionnaire"))}
+            "dictionnaire": _json_safe(meta.get("dictionnaire")),
+            "filtres": _json_safe(meta.get("filters") or [])}  # filtres de la page : la console y cale ses graphiques ajoutés
 
 
 def run(env, db, jobs) -> dict:

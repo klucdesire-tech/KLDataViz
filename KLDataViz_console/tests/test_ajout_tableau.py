@@ -95,7 +95,7 @@ def test_graphique_inconnu_ou_calcul_non_rejouable(env, monkeypatch):
         server.ajouter_au_tableau("inconnu")
     r = question()
     # calcul qui lisait un autre jeu (fichier lié, registre) : il ne se rejoue pas sur le seul fichier du tableau
-    monkeypatch.setattr(server, "_rejouer_ajout", lambda a, df: ([], "KeyError: 'un autre jeu'"))
+    monkeypatch.setattr(server, "_rejouer_ajout", lambda a, df, filtres=None: ({}, "KeyError: 'un autre jeu'", True))
     with pytest.raises(ValueError, match="ne peut pas être recalculé"):
         server.ajouter_au_tableau(r["graphique_id"])
     assert server.sources.get(server.sources.par_chemin(chemin))["ajouts"] == []  # rien d'enregistré
@@ -129,3 +129,52 @@ def test_six_au_plus(env):
                                        ("Ajoute une colonne au fichier", None)])
 def test_intention(env, q, attendu):
     assert env[0]._demande_ajout(q) == attendu
+
+
+FILTRES = [{"col": "zone", "values": ["Est", "Nord", "Sud"]}, {"col": "canal", "values": ["Boutique", "Web"]}]
+
+
+def _ventes_canal():
+    return pd.DataFrame({"zone": ["Nord", "Sud", "Est", "Nord"], "canal": ["Web", "Web", "Boutique", "Boutique"],
+                         "montant": [100.0, 250.0, 400.0, 50.0]})
+
+
+def test_cle_comme_la_page(env):
+    server = env[0]
+    assert server._cle_filtres([("zone", "Nord"), ("canal", "Web")]) == '[["canal","Web"],["zone","Nord"]]'
+    assert server._cle_filtres([]) == "[]"
+
+
+def test_combinaisons_presentes_seulement(env, monkeypatch):
+    server = env[0]
+    combos, complet = server._combinaisons(_ventes_canal(), FILTRES + [{"col": "absente", "values": ["x"]}])
+    # 3 zones + 2 canaux + 4 couples zone × canal présents dans les données (pas Sud × Boutique)
+    assert complet and len(combos) == 3 + 2 + 4
+    monkeypatch.setattr(server, "MAX_VARIANTES", 4)
+    assert server._combinaisons(_ventes_canal(), FILTRES) == (server._combinaisons(_ventes_canal(), FILTRES)[0], False)
+    assert server._combinaisons(_ventes_canal(), []) == ([], True)
+
+
+def test_variantes_par_filtre_en_un_passage(env, monkeypatch):
+    server = env[0]
+    passages = []
+    vrai = server._run_ai_code
+    monkeypatch.setattr(server, "_run_ai_code", lambda code, paths: passages.append(1) or vrai(code, paths))
+    ajout = {"code": "import numpy as np\n" + CODE, "jeu": "ventes.csv"}  # un import en tête reste accepté
+    variantes, erreur, complet = server._rejouer_ajout(ajout, _ventes_canal(), FILTRES)
+    assert erreur is None and complet and len(passages) == 1
+    assert variantes["[]"][0]["values"] == [[100.0, 250.0, 400.0, 50.0]]
+    assert variantes['[["zone","Nord"]]'][0]["labels"] == ["Nord", "Nord"]
+    assert variantes['[["canal","Web"],["zone","Sud"]]'][0]["values"] == [[250.0]]
+    assert '[["canal","Boutique"],["zone","Sud"]]' not in variantes  # aucune ligne : pas de graphique
+
+
+def test_page_suit_les_filtres(env):
+    server, chemin, question, _ = env
+    _ventes_canal().to_csv(chemin, index=False)
+    server.do_dashboard(chemin, "Ventes")
+    r = question()
+    html = server.ajouter_au_tableau(r["graphique_id"])["html"]
+    sec = _section(html)
+    assert '[[\\"zone\\",\\"Nord\\"]]' in sec or '[["zone","Nord"]]' in sec
+    assert "window.render" in sec and "suit les filtres du tableau" in sec

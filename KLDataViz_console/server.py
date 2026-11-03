@@ -1326,7 +1326,7 @@ def build_dashboard(df, spec=None, correspondance=None, ajouts=None):
         spec = {k: v for k, v in spec.items() if k != sources.CLE_AJOUTS}
     result = _build_dashboard(df, spec, correspondance)
     if ajouts:
-        result = dict(result, html=_avec_ajouts(result["html"], ajouts, df),
+        result = dict(result, html=_avec_ajouts(result["html"], ajouts, df, result.get("filtres")),
                       spec=dict(result.get("spec") or {}, **{sources.CLE_AJOUTS: ajouts}))
     return result
 
@@ -2264,52 +2264,132 @@ def _memoriser_graphique(code, jeu, path, graphiques, question):
     return gid
 
 
-def _rejouer_ajout(ajout, df):
-    """Recalcule un graphique ajouté sur les données du moment, dans le bac à sable. (graphiques, erreur)"""
+MAX_VARIANTES = 120  # combinaisons de filtres précalculées par graphique ajouté
+
+
+def _cle_filtres(paires):
+    """Clé d'une combinaison de filtres, identique à JSON.stringify côté page : [["colonne","valeur"],…] trié."""
+    return json.dumps(sorted([str(c), str(v)] for c, v in paires), ensure_ascii=False, separators=(",", ":"))
+
+
+def _combinaisons(df, filtres):
+    """Combinaisons de filtres présentes dans les données, des plus simples aux plus fines. (liste, complète ?)"""
+    import itertools
+    cols = [f["col"] for f in filtres or [] if f.get("col") in df.columns]
+    if not cols:
+        return [], True
+    texte = pd.DataFrame({c: df[c].astype(str).str.strip() for c in cols})
+    out = []
+    for k in range(1, len(cols) + 1):
+        for groupe in itertools.combinations(cols, k):
+            for valeurs in texte[list(groupe)].drop_duplicates().itertuples(index=False, name=None):
+                if len(out) >= MAX_VARIANTES:
+                    return out, False
+                out.append(list(zip(groupe, valeurs)))
+    return out, True
+
+
+def _code_variantes(code, jeu):
+    """Le calcul de l'IA, rejoué sur chaque combinaison de filtres dans UN seul passage au bac à sable.
+    Les combinaisons arrivent comme une table de données (data["filtres_kl"]), jamais écrites dans le code."""
+    corps = sandbox.strip_provided_imports(code)  # imports en tête : ils ne seraient plus acceptés dans la boucle
+    retrait = "\n".join("        " + ligne for ligne in corps.splitlines()) or "        pass"
+    return (f"base_kl = df\ncombos_kl = data['filtres_kl']\njeu_kl = {json.dumps(str(jeu))}\nvariantes_kl = {{}}\n"
+            "cles_kl = ['[]'] + [c for c in combos_kl['cle'].unique().tolist() if c != '[]']\n"
+            "for cle_kl in cles_kl:\n"
+            "    sous_kl = base_kl\n"
+            "    for col_kl, val_kl in combos_kl[combos_kl['cle'] == cle_kl][['col', 'val']].itertuples(index=False):\n"
+            "        sous_kl = sous_kl[sous_kl[col_kl].astype(str).str.strip() == val_kl]\n"
+            "    if len(sous_kl) == 0:\n"
+            "        continue\n"
+            "    df = sous_kl\n"
+            "    data = {jeu_kl: sous_kl}\n"
+            "    chart = None\n"
+            "    try:\n" + retrait + "\n"
+            "    except Exception:\n"
+            "        continue\n"
+            "    if chart is not None:\n"
+            "        variantes_kl[cle_kl] = chart\n"
+            "chart = {'variantes_kl': variantes_kl}\nresult = len(variantes_kl)\n")
+
+
+def _rejouer_ajout(ajout, df, filtres=None):
+    """Recalcule un graphique ajouté sur les données du moment, dans le bac à sable : sans filtre, puis pour chaque
+    combinaison de filtres du tableau de bord. ({clé: graphiques}, erreur, complet)"""
+    jeu = ajout.get("jeu") or "donnees"
+    combos, complet = _combinaisons(df, filtres)
     tmp = os.path.join(T.current().dir("tmp"), f"ajout_{uuid.uuid4().hex}.parquet")
+    tmp_f = os.path.join(T.current().dir("tmp"), f"filtres_{uuid.uuid4().hex}.parquet")
     try:
         _save_table(df, tmp)
-        out = _run_ai_code(str(ajout.get("code") or ""), {ajout.get("jeu") or "donnees": tmp})
+        if combos:
+            lignes = [{"cle": _cle_filtres(c), "col": str(col), "val": str(val)} for c in combos for col, val in c]
+            pd.DataFrame(lignes, columns=["cle", "col", "val"]).to_parquet(tmp_f, index=False)
+            out = _run_ai_code(_code_variantes(str(ajout.get("code") or ""), jeu), {jeu: tmp, "filtres_kl": tmp_f})
+        else:
+            out = _run_ai_code(str(ajout.get("code") or ""), {jeu: tmp})
     finally:
-        try:
-            os.remove(tmp)
-        except OSError:
-            pass
+        for f in (tmp, tmp_f):
+            try:
+                os.remove(f)
+            except OSError:
+                pass
     if out.get("error"):
-        return [], str(out["error"]).splitlines()[0][:200]
-    graphiques = _charts_list(out.get("chart"))
-    return graphiques, (None if graphiques else "le calcul ne produit plus de graphique sur ces données")
+        return {}, str(out["error"]).splitlines()[0][:200], complet
+    brut = out.get("chart")
+    if combos and isinstance(brut, dict) and isinstance(brut.get("variantes_kl"), dict):
+        variantes = {k: g for k, g in ((k, _charts_list(v)) for k, v in brut["variantes_kl"].items()) if g}
+    else:
+        variantes = {"[]": _charts_list(brut)} if _charts_list(brut) else {}
+    if not variantes.get("[]"):
+        return {}, "le calcul ne produit plus de graphique sur ces données", complet
+    return variantes, None, complet
 
 
-AJOUTS_JS = """(function(){var A=__A__,P=['#0B4F8F','#0091D0','#10BCD0','#12BF9A','#1565C0','#7FDCC4'];
-function go(){if(!window.Chart)return setTimeout(go,200);
-A.forEach(function(a,i){(a.charts||[]).forEach(function(c,j){var cv=document.getElementById('aj'+i+'_'+j);if(!cv)return;
-var t=c.type==='pie'||c.type==='doughnut'?'doughnut':c.type==='line'||c.type==='area'?'line':c.type==='scatter'?'scatter':'bar';
+AJOUTS_JS = """(function(){var A=__A__,F=__F__,P=['#0B4F8F','#0091D0','#10BCD0','#12BF9A','#1565C0','#7FDCC4'],G=[];
+function cle(){var s=window.state||{},p=[];F.forEach(function(c){if(s[c]!=null&&s[c]!=='all')p.push([c,String(s[c])])});
+  p.sort(function(a,b){return a[0]<b[0]?-1:a[0]>b[0]?1:0});return {k:JSON.stringify(p),actifs:p}}
+function dessin(cv,c){var t=c.type==='pie'||c.type==='doughnut'?'doughnut':c.type==='line'||c.type==='area'?'line':c.type==='scatter'?'scatter':'bar';
 var ds=(c.values||[]).map(function(v,k){var col=P[k%P.length];return {label:(c.seriesNames||[])[k]||'',
 data:t==='scatter'?c.labels.map(function(x,n){return {x:+x,y:v[n]}}):v,backgroundColor:t==='doughnut'?P:t==='line'?'rgba(11,79,143,.08)':col,
 borderColor:t==='doughnut'?'#fff':col,borderWidth:t==='doughnut'?3:2,fill:c.type==='area',tension:.35,borderRadius:t==='bar'?6:0,pointRadius:3}});
-new Chart(cv,{type:t,data:{labels:t==='scatter'?undefined:c.labels,datasets:ds},options:{responsive:true,maintainAspectRatio:false,
-indexAxis:c.horizontal?'y':'x',plugins:{legend:{display:ds.length>1||t==='doughnut',position:'bottom'}}}})})})}
-go()})();"""
+return new Chart(cv,{type:t,data:{labels:t==='scatter'?undefined:c.labels,datasets:ds},options:{responsive:true,maintainAspectRatio:false,
+indexAxis:c.horizontal?'y':'x',plugins:{legend:{display:ds.length>1||t==='doughnut',position:'bottom'}}}})}
+function maj(){G.forEach(function(g){g.destroy()});G=[];var f=cle();
+A.forEach(function(a,i){var v=a.variantes[f.k],note=document.getElementById('ajn'+i),txt='';
+  if(f.actifs.length&&!v){v=a.variantes['[]'];txt=a.complet?'Aucune ligne ne correspond à ces filtres : graphique sur tout le fichier.'
+    :'Combinaison de filtres trop fine pour être précalculée : graphique sur tout le fichier.'}
+  else if(f.actifs.length)txt='Filtré : '+f.actifs.map(function(p){return p[1]}).join(' · ');
+  if(note){note.textContent=txt;note.hidden=!txt}
+  (v||[]).forEach(function(c,j){var cv=document.getElementById('aj'+i+'_'+j);if(cv)G.push(dessin(cv,c))})})}
+// Ce script passe avant celui du tableau de bord : on attend sa fonction render() pour s'y accrocher
+function go(){if(!window.Chart||typeof window.render!=='function')return setTimeout(go,100);
+  if(!window.render.kl){var r=window.render;window.render=function(){var x=r.apply(this,arguments);maj();return x};window.render.kl=1}maj()}
+var attente=null;function plusTard(){clearTimeout(attente);attente=setTimeout(maj,60)}
+document.addEventListener('click',plusTard);document.addEventListener('change',plusTard);  // filtres, classement cliquable
+setTimeout(go,0)})();"""
 
 
-def _avec_ajouts(html_page, ajouts, df):
+def _avec_ajouts(html_page, ajouts, df, filtres=None):
     """Ajoute au tableau de bord une rangée « Ajoutés depuis la discussion », recalculée sur `df`."""
     import html as _h
     cartes, donnees = [], []
     for i, a in enumerate(ajouts[:sources.MAX_AJOUTS]):
-        graphiques, erreur = _rejouer_ajout(a, df)
-        donnees.append({"charts": graphiques})
+        variantes, erreur, complet = _rejouer_ajout(a, df, filtres)
+        graphiques = variantes.get("[]") or []
+        donnees.append({"variantes": variantes, "complet": complet})
         corps = ("".join(f'<div style="position:relative;height:250px;margin-top:6px"><canvas id="aj{i}_{j}" role="img" '
                          f'aria-label="{_h.escape(str(g.get("title") or a.get("titre") or ""))}"></canvas></div>'
                          for j, g in enumerate(graphiques))
                  if graphiques else f'<p style="color:#9A3412;font-size:13px">Recalcul impossible sur les données actuelles : '
                                     f'{_h.escape(erreur or "")}.</p>')
         cartes.append(f'<div class="card"><div style="font-weight:600">{_h.escape(str(a.get("titre") or "Graphique"))}</div>{corps}'
+                      f'<p id="ajn{i}" hidden style="margin:6px 0 0;font-size:12px;color:#0B4F8F"></p>'
                       '<p style="margin:8px 0 0;font-size:12px;color:#6B7A90">Ajouté depuis la discussion avec Adifa’ · '
-                      'recalculé à chaque actualisation</p></div>')
+                      'suit les filtres du tableau · recalculé à chaque actualisation</p></div>')
     # « < » échappé partout : aucun texte des données ne peut fermer ni ouvrir de balise dans le script
-    js = AJOUTS_JS.replace("__A__", json.dumps(_json_safe(donnees), ensure_ascii=False).replace("<", "\\u003c"))
+    sur = lambda o: json.dumps(_json_safe(o), ensure_ascii=False).replace("<", "\\u003c")
+    js = AJOUTS_JS.replace("__A__", sur(donnees)).replace("__F__", sur([f["col"] for f in filtres or [] if f.get("col") in df.columns]))
     section = ('<section class="row3" id="ajoutsAdifa" aria-label="Graphiques ajoutés depuis la discussion">'
                '<h2 style="grid-column:1/-1;font-size:15px;margin:6px 0 0">Ajoutés depuis la discussion avec Adifa’</h2>'
                + "".join(cartes) + f"</section><script>{js}</script>")
@@ -2333,7 +2413,7 @@ def ajouter_au_tableau(graphique_id):
     df, err = _read_df(g["path"])
     if df is None:
         raise ValueError(f"Lecture de la source impossible : {err}")
-    essai, erreur = _rejouer_ajout(g, df)
+    essai, erreur, _complet = _rejouer_ajout(g, df)
     if not essai:  # calcul qui dépend d'un autre jeu (fichier lié, registre) : il ne pourrait pas être actualisé
         raise ValueError("Ce graphique ne peut pas être recalculé à partir du seul fichier du tableau de bord "
                          f"({erreur}) : il reste dans la discussion.")
