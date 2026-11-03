@@ -225,6 +225,8 @@ tr.versions td{background:var(--surface-2);font-size:13px}
 /* version en ligne */
 .annbar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:14px 28px 0;padding:10px 14px;border-radius:10px;background:var(--brand-soft);color:var(--brand-strong);font-size:14px}
 .annbar.warning{background:var(--amber-soft);color:var(--amber)}
+.annbar.danger{background:var(--red-soft);color:var(--red)}
+.annbar .btn{margin-left:auto;flex:none}
 .annbar a{color:inherit;font-weight:600}.annbar .iconbtn{margin-left:auto;width:32px;height:32px;font-size:18px;border:0;background:transparent;color:inherit}
 @media (max-width:760px){.annbar{margin-inline:16px}}
 .userbox{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--muted);min-width:0}
@@ -232,6 +234,7 @@ tr.versions td{background:var(--surface-2);font-size:13px}
 .railfoot .row{display:flex;justify-content:space-between;align-items:center;gap:8px}
 .railfoot .pill{display:inline-flex;font-size:11.5px;font-weight:600;padding:2px 9px;border-radius:99px;background:var(--brand-soft);color:var(--brand-strong)}
 .railfoot b{color:var(--fg);font-weight:600}
+.railfoot .pill.fini{background:var(--red-soft);color:var(--red)}
 .overlay{position:fixed;inset:0;z-index:60;background:color-mix(in srgb,var(--bg) 70%,transparent);backdrop-filter:blur(4px);display:grid;place-items:center;padding:16px}
 .offers{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-top:12px}
 .offer{border:1px solid var(--line);border-radius:var(--r);padding:14px;display:grid;gap:6px;align-content:start}
@@ -377,6 +380,7 @@ tr.versions td{background:var(--surface-2);font-size:13px}
     </div>
 
     <div id="annBar" hidden></div>
+    <div id="quotaBar" role="status" hidden></div>
     <div class="stepper" id="stepper"></div>
 
     <div class="scroll" id="scroll">
@@ -451,7 +455,7 @@ tr.versions td{background:var(--surface-2);font-size:13px}
         <div class="head"><h1>Adifa’ prépare vos données</h1><p id="runFile"></p></div>
         <div class="run">
           <div class="card"><div id="feed"></div><div id="runErr" class="actions" style="margin-top:12px" hidden>
-            <button class="btn ghost" id="runBack">Changer de source</button><button class="btn primary" id="runRetry">Réessayer</button><button class="btn primary" id="runPlans" data-goto="settings" hidden>Voir les forfaits</button></div></div>
+            <button class="btn ghost" id="runBack">Changer de source</button><button class="btn primary" id="runRetry">Réessayer</button><button class="btn primary" id="runPlans" hidden>Voir les forfaits</button></div></div>
           <div class="card" style="display:grid;gap:10px">
             <div class="label">Progression</div>
             <div class="num" style="font-size:30px;font-weight:600" id="pct">0 %</div>
@@ -1040,7 +1044,7 @@ async function maybeDescribe(){
   await fetchRegistry();
   if(!$('[data-view="datasets"]').hidden)renderDatasets();
 }
-$('#runPlans').addEventListener('click',()=>setTimeout(()=>$('#billingCard').scrollIntoView({behavior:'smooth',block:'start'}),250));
+$('#runPlans').addEventListener('click',()=>voirForfaits());
 $('#runRetry').onclick=()=>startRun(state.path,state.name,0,{archExtra:state.archExtra});
 $('#runBack').onclick=()=>go(0);
 
@@ -2298,11 +2302,44 @@ function applyCloudUI(){
   $('#dbCloudHint').hidden=false;$('#dbDsn').placeholder='postgresql://lecteur:motdepasse@db.exemple.com:5432/base';$('#dbLimit').placeholder='200 000 au plus';
 }
 function meter(label,used,max){const pct=max?Math.min(100,Math.round(used/max*100)):100;return `<div class="row"><span>${label}</span><span class="num">${nf(used)} / ${nf(max)}</span></div><div class="meter"><i class="${pct>=90?'bad':pct>=70?'warn':''}" style="width:${pct}%"></i></div>`}
+// Forfait épuisé (ou bientôt) : bandeau permanent en haut de l'application, avec accès direct aux forfaits
+function voirForfaits(){nav('settings');setTimeout(()=>$('#billingCard').scrollIntoView({behavior:'smooth',block:'start'}),250)}
+let quotaVu='';
+function quotaBar(me){
+  const p=me.plan,u=me.usage,bar=$('#quotaBar'),proprio=me.role==='owner';
+  const reste=k=>Math.max(0,(p[k]||0)-(u[k]||0)),qui=proprio?'':' Demandez au propriétaire de l\u2019espace de choisir un forfait.';
+  let niv='',titre='',texte='';
+  if(p.key==='suspendu'){niv='danger';
+    titre=p.suspended?'Espace suspendu':p.paid_until?'Abonnement terminé':'Essai gratuit terminé';
+    texte=p.suspended?'Contactez-nous pour le réactiver.':'Vos données sont conservées, mais les analyses et les questions à Adifa\u2019 sont arrêtées.'+(qui||' Choisissez un forfait pour continuer.')}
+  else{
+    const fini=['analyses','ai'].filter(k=>p[k]&&reste(k)===0),bientot=['analyses','ai'].filter(k=>p[k]&&reste(k)>0&&u[k]>=p[k]*0.9);
+    const nom=(k,n=2)=>k==='analyses'?(n>1?'analyses':'analyse'):(n>1?'questions':'question')+' à Adifa\u2019';
+    if(fini.length){niv='danger';titre='Forfait épuisé';
+      texte=`Vous avez utilisé ${fini.map(k=>`vos ${nf(p[k])} ${nom(k)}`).join(' et ')} de ce mois (forfait ${p.label}). Le compteur repart le 1er du mois prochain.`+(qui||' Passez à un forfait supérieur pour continuer dès maintenant.')}
+    else if(bientot.length){niv='warning';titre='Forfait bientôt épuisé';
+      texte=`Il vous reste ${bientot.map(k=>`${nf(reste(k))} ${nom(k,reste(k))}`).join(' et ')} ce mois-ci (forfait ${p.label}).`}
+  }
+  const cle=niv+titre+texte;
+  if(!niv||(niv==='warning'&&(()=>{try{return sessionStorage.getItem('kldv-quota')===cle}catch(e){return false}})())){bar.hidden=true;return}
+  bar.hidden=false;
+  bar.innerHTML=`<div class="annbar ${niv}"><b>${esc(titre)}</b><span>${esc(texte)}</span>${p.suspended?'':'<button class="btn primary sm" type="button" id="quotaVoir">Voir les forfaits</button>'}${niv==='warning'?'<button class="iconbtn" aria-label="Masquer l\u2019alerte" id="quotaClose">×</button>':''}</div>`;
+  $('#quotaVoir')?.addEventListener('click',voirForfaits);
+  $('#quotaClose')?.addEventListener('click',()=>{bar.hidden=true;try{sessionStorage.setItem('kldv-quota',cle)}catch(e){}});
+  if(niv==='danger'&&quotaVu!==cle&&quotaVu){const t=texte.split('.')[0];toast(titre+' : '+t.charAt(0).toLowerCase()+t.slice(1)+'.')}  // épuisé pendant la session : prévenir aussi
+  quotaVu=cle;
+}
 function renderMe(me){
   state.me=me;$('#userEmail').textContent=me.email;$('#orgName').textContent=me.org||'';
   const p=me.plan,u=me.usage,trial=p.key==='essai'&&p.trial_end?`<span>Essai jusqu'au ${new Date(p.trial_end).toLocaleDateString('fr-FR',{day:'numeric',month:'long'})}</span>`
     :p.paid_until?(new Date(p.paid_until)>new Date()?`<span>Actif jusqu'au ${new Date(p.paid_until).toLocaleDateString('fr-FR',{day:'numeric',month:'long'})}</span>`:'<span>Abonnement terminé</span>'):'';
-  $('#railfoot').innerHTML=`<div class="row"><span class="pill">${esc(p.label)}</span><span>${esc(ROLE[me.role]||'')}</span></div>${meter('Analyses',u.analyses,p.analyses)}${meter('Questions IA',u.ai,p.ai)}${trial}`;
+  // Essai ou abonnement terminé : pas de compteurs « 10 / 0 », mais l'état et le chemin vers les forfaits
+  const fini=p.key==='suspendu',etat=p.suspended?'Suspendu':p.paid_until?'Abonnement terminé':'Essai terminé';
+  $('#railfoot').innerHTML=`<div class="row"><span class="pill${fini?' fini':''}">${esc(fini?etat:p.label)}</span><span>${esc(ROLE[me.role]||'')}</span></div>`
+    +(fini?`<span>Analyses et questions à Adifa’ arrêtées.</span>${p.suspended?'':'<button class="btn primary sm" type="button" id="railPlans">Voir les forfaits</button>'}`
+      :`${meter('Analyses',u.analyses,p.analyses)}${meter('Questions IA',u.ai,p.ai)}${trial}`);
+  $('#railPlans')?.addEventListener('click',voirForfaits);
+  quotaBar(me);
   $('#teamCard').hidden=me.role!=='owner';$('#adminCard').hidden=!me.is_admin;$('#adminLink').hidden=!me.is_admin;$('#predCard').hidden=!me.is_admin;
 }
 async function refreshMe(){if(!CLOUD||!state.me)return;const me=await fetch('/api/me',{headers:await authHeaders()}).then(r=>r.json()).catch(()=>null);if(me&&me.plan)renderMe(me)}
@@ -2323,6 +2360,8 @@ async function loadBilling(){
   $('#billTag').textContent=b.apercu?'Aperçu':b.test&&b.actif?'Mode test':'';
   $('#billState').textContent=actif?`Forfait ${b.offres.find(o=>o.key===b.plan_paye)?.label||b.plan_paye}, actif jusqu'au ${frDate(fin)}. Le renouvellement n'est pas automatique : vous recevez un rappel avant la fin.`
     :fin?`Votre abonnement a pris fin le ${frDate(fin)}. Vos données sont conservées : choisissez un forfait pour reprendre.`
+    :state.me?.plan?.key==='suspendu'?'Votre essai gratuit est terminé. Vos données sont conservées : choisissez un forfait pour reprendre.'
+    :state.me?.plan?.key==='essai'&&state.me.plan.trial_end?`Vous êtes en essai gratuit jusqu'au ${frDate(state.me.plan.trial_end)}.`
     :'Choisissez un forfait et réglez par mobile money ou par carte, sur la page sécurisée de CinetPay.';
   $('#billOffers').innerHTML=b.apercu?`<p class="sub">Aperçu réservé aux administrateurs : vos clients ne peuvent pas encore payer. Les boutons s'activeront avec les prix et les clés CinetPay.</p>
     <div class="offers">${b.offres.map(o=>`<div class="offer"><b>${esc(o.label)}</b><div class="prix">${o.price?`${nf(o.price)} ${esc(o.currency)} <small>/ mois</small>`:'<small>Prix à définir</small>'}</div>
@@ -2330,12 +2369,18 @@ async function loadBilling(){
       <button class="btn primary sm" type="button" disabled>Choisir</button></div>`).join('')}</div>
     <label class="field" for="billMonths" style="margin-top:12px;max-width:220px">Durée<select id="billMonths" disabled>${b.durees.map(m=>`<option value="${m}">${m} mois</option>`).join('')}</select></label>`
     :!b.offres.length?'<p class="sub">Les forfaits sont sur devis pour le moment : contactez-nous.</p>'
-    :!b.actif?'<p class="sub">Le paiement en ligne sera bientôt disponible. Contactez-nous pour choisir un forfait.</p>'
+    :!b.actif?`<div class="offers">${b.offres.map(o=>`<div class="offer"><b>${esc(o.label)}</b><div class="prix">${nf(o.price)} ${esc(o.currency)} <small>/ mois</small></div>
+      <p class="sub">${nf(o.analyses)} analyses · ${nf(o.ai)} questions IA · ${nf(o.members)} membre${o.members>1?'s':''}</p></div>`).join('')}</div>
+      <p class="sub" style="margin-top:10px">Le paiement en ligne arrive bientôt. En attendant, contactez-nous pour activer un forfait.</p>
+      <a class="btn primary sm" id="billContact" hidden target="_blank" rel="noopener" style="margin-top:8px">Nous contacter</a>`
     :!b.peut_payer?'<p class="sub">Seul le propriétaire de l\'espace peut régler l\'abonnement.</p>'
     :`<div class="offers">${b.offres.map(o=>`<div class="offer"><b>${esc(o.label)}</b><div class="prix">${nf(o.price)} ${esc(o.currency)} <small>/ mois</small></div>
       <p class="sub">${nf(o.analyses)} analyses · ${nf(o.ai)} questions IA · ${nf(o.members)} membre${o.members>1?'s':''}</p>
       <button class="btn ${b.plan_paye===o.key&&actif?'ghost':'primary'} sm" type="button" data-pay="${esc(o.key)}" data-prix="${o.price}" data-dev="${esc(o.currency)}">${b.plan_paye===o.key&&actif?'Renouveler':'Choisir'}</button></div>`).join('')}</div>
     <label class="field" for="billMonths" style="margin-top:12px;max-width:220px">Durée<select id="billMonths">${b.durees.map(m=>`<option value="${m}">${m} mois</option>`).join('')}</select></label>`;
+  if(!b.actif&&!b.apercu&&b.offres.length)fetch('/api/public/site').then(r=>r.json()).then(site=>{const a=$('#billContact');if(!a)return;
+    const h=site.contact_whatsapp?'https://wa.me/'+String(site.contact_whatsapp).replace(/\D/g,''):site.contact_email?'mailto:'+site.contact_email:'';
+    if(h){a.href=h;a.hidden=false}}).catch(()=>{});
   $('#billHist').innerHTML=b.paiements.length?`<h3 style="margin-top:14px;font-size:15px">Historique</h3>${b.paiements.map(p=>{const[c,t]=BILL_ST[p.status]||['',p.status];
     return `<div class="setrow"><div><b>${nf(p.amount)} ${esc(p.currency==='XOF'?'FCFA':p.currency)}</b><span>${esc(p.plan)} · ${p.months} mois · ${frDate(p.paid_at||p.created_at)}</span></div><span class="tag ${c}">${t}</span></div>`}).join('')}`:'';
 }

@@ -37,6 +37,7 @@ def test_contenu_sur_toute_la_largeur():
 def test_essai_termine_mene_aux_forfaits():
     """Quota épuisé ou essai terminé : « Voir les forfaits » remplace « Réessayer » ; en ligne, pas de « cet ordinateur »."""
     html = open(os.path.join(BASE, "index.html"), encoding="utf-8").read()
-    assert 'id="runPlans" data-goto="settings"' in html
+    assert 'id="runPlans" hidden' in html and "$('#runPlans').addEventListener('click',()=>voirForfaits())" in html
+    assert 'id="quotaBar"' in html and "quotaBar(me);" in html  # bandeau d'épuisement mis à jour avec le compte
     assert "$('#runRetry').hidden=!!a.quota;$('#runPlans').hidden=!a.quota" in html
     assert "$('#runWhere').textContent='Le traitement se fait sur nos serveurs" in html
