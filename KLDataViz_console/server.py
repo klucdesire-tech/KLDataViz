@@ -7,6 +7,7 @@ Sert l'interface web sur http://localhost:8642
 import http.server, socketserver, json, os, io, threading, time, tempfile, urllib.request, urllib.error, base64, sys, subprocess, traceback
 import pandas as pd
 import numpy as np
+import confidentialite
 import uuid
 import openpyxl
 from openpyxl.styles import Font, PatternFill
@@ -310,6 +311,7 @@ def _read_df(file_path, sheet=None):
     if df is not None and not file_path.startswith(("http://", "https://", "dhis2://")) \
             and os.path.exists(file_path + AGREGE_SUFFIX):
         df.attrs["agrege"] = True
+    confidentialite.enregistrer(df)  # ses identifiants ne partiront jamais en clair vers l'IA
     return df, err
 
 
@@ -1474,9 +1476,9 @@ def _chat_load_work(path):
                 cands.append(p + ext)
     for cand in cands:
         try:
-            if cand.endswith(".parquet"):
-                return pd.read_parquet(cand)
-            return pd.read_csv(cand)
+            df = pd.read_parquet(cand) if cand.endswith(".parquet") else pd.read_csv(cand)
+            confidentialite.enregistrer(df)
+            return df
         except Exception:
             continue
     return None
@@ -1722,6 +1724,12 @@ def _ia_resultat(ok):
 
 
 def _llm_call(messages, max_tokens=8000, temperature=0, timeout=120, model=None, effort=None, attempts=3):
+    """Seule porte vers l'IA : les identifiants de personnes y sortent sous forme de jetons, et la réponse revient en clair."""
+    sortants = [dict(m, content=confidentialite.masquer(m.get("content"))) for m in messages]
+    return confidentialite.demasquer(_llm_call_brut(sortants, max_tokens, temperature, timeout, model, effort, attempts))
+
+
+def _llm_call_brut(messages, max_tokens=8000, temperature=0, timeout=120, model=None, effort=None, attempts=3):
     """Appel au modèle (DeepSeek ou Claude, selon _llm_config). Renvoie le texte, ou None : l'appelant applique alors
     son repli par règles.
 
@@ -2378,6 +2386,7 @@ def _architect_df(file_path):
         return None, None, f"Lecture impossible : {e}"
     if os.path.exists(file_path + AGREGE_SUFFIX):  # fichier dérivé d'une source agrégée : comme _read_df
         df.attrs["agrege"] = True
+    confidentialite.enregistrer(df)
     return df, info, None
 
 
