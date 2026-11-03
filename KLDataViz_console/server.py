@@ -3136,6 +3136,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     return self._send(200, f.read(), ctype)
             if method == "GET" and path == "/healthz":
                 return self._send(200, {"ok": True})
+            if method == "GET" and path == "/.well-known/hackaiz-verification.txt":
+                # Preuve de propriété du domaine pour l'audit de sécurité Hackaiz : valeur publique, posée dans Render
+                preuve = (os.environ.get("HACKAIZ_VERIFICATION") or "").strip()
+                if not re.fullmatch(r"[\w.:=-]{1,200}", preuve):
+                    return self._send(404, {"error": "Page introuvable."})
+                return self._send(200, preuve + "\n", "text/plain")
             if method == "GET" and path == "/config.js":
                 cfg = {"cloud": T.CLOUD}
                 if T.CLOUD:

@@ -363,6 +363,17 @@ def test_detecteur_de_robots_a_la_connexion(base, monkeypatch):
     assert page.count("captchaToken:await jetonRobot()") == 3  # connexion, inscription, mot de passe oublié
 
 
+def test_preuve_de_domaine_hackaiz(base, monkeypatch):
+    chemin = "/.well-known/hackaiz-verification.txt"
+    monkeypatch.delenv("HACKAIZ_VERIFICATION", raising=False)
+    assert call(base, chemin, raw=True)[0] == 404
+    monkeypatch.setenv("HACKAIZ_VERIFICATION", "hackaiz-verification=c90e01a2-810c-4195")
+    code, corps = call(base, chemin, raw=True)
+    assert code == 200 and corps.decode().strip() == "hackaiz-verification=c90e01a2-810c-4195"
+    monkeypatch.setenv("HACKAIZ_VERIFICATION", "<script>alert(1)</script>")
+    assert call(base, chemin, raw=True)[0] == 404
+
+
 def test_pages_montrent_les_envois():
     dossier = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     page = open(os.path.join(dossier, "index.html"), encoding="utf-8").read()
