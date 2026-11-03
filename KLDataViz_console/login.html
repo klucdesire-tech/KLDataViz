@@ -95,6 +95,7 @@ form{display:grid;gap:12px}
 .msg{border-radius:12px;padding:11px 14px;font-size:14px}
 .msg.err{background:var(--red-soft);color:var(--red)}.msg.ok{background:var(--ok-soft);color:var(--brand-strong)}
 .legal{font-size:12px;color:var(--muted);text-align:center;margin:4px 0 0}
+.robot{display:flex;justify-content:center;margin:12px 0 4px;min-height:65px}.robot[hidden]{display:none}
 .spin{width:16px;height:16px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:sp .8s linear infinite}
 @keyframes sp{to{transform:rotate(360deg)}}
 [hidden]{display:none!important}
@@ -183,6 +184,7 @@ form{display:grid;gap:12px}
         <button class="btn" type="submit">Enregistrer</button>
       </form>
 
+      <div id="robot" class="robot" hidden></div>
       <p class="legal">En continuant, vous acceptez les conditions d'utilisation de KLDataViz.</p>
     </main>
   </div>
@@ -201,10 +203,32 @@ function $$(s){return [...document.querySelectorAll(s)]}
 function msg(t,ok){const m=$('#msg');m.hidden=!t;m.textContent=t||'';m.className='msg '+(ok?'ok':'err')}
 const FR={'Invalid login credentials':'Adresse e-mail ou mot de passe incorrect.','Email not confirmed':'Confirmez d\'abord votre adresse : cliquez sur le lien reçu par e-mail.',
   'User already registered':'Un compte existe déjà avec cette adresse. Connectez-vous.','Password should be at least':'Mot de passe trop court.',
-  'For security purposes':'Trop de tentatives. Patientez une minute puis réessayez.'};
-const fr=e=>{const t=String(e?.message||e||'Erreur inconnue');const k=Object.keys(FR).find(k=>t.startsWith(k));return k?FR[k]:t};
+  'For security purposes':'Trop de tentatives. Patientez une minute puis réessayez.',
+  'captcha protection':'Vérification anti-robot refusée ou expirée. Réessayez ; si cela persiste, rechargez la page.'};
+const fr=e=>{const t=String(e?.message||e||'Erreur inconnue');const k=Object.keys(FR).find(k=>t.startsWith(k)||t.includes(k));return k?FR[k]:t};
+// Détecteur de robots (Cloudflare Turnstile) : invisible le plus souvent, une case à cocher en cas de doute.
+// La vérification est faite par Supabase ; sans clé configurée, la page fonctionne comme avant.
+let robotId=null,robotPret=null;
+if(cfg.turnstileSiteKey){
+  robotPret=new Promise(ok=>{window.robotCharge=ok});
+  const s=document.createElement('script');
+  s.src='https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit&onload=robotCharge';s.async=true;
+  s.onerror=()=>msg('Le détecteur de robots ne se charge pas : vérifiez votre connexion, puis rechargez la page.');
+  document.head.appendChild(s);
+  robotPret.then(()=>{robotId=turnstile.render('#robot',{sitekey:cfg.turnstileSiteKey,language:'fr',appearance:'interaction-only',
+    'before-interactive-callback':()=>$('#robot').hidden=false,'after-interactive-callback':()=>$('#robot').hidden=true,
+    'error-callback':()=>{$('#robot').hidden=false}})});
+}
+async function jetonRobot(){
+  if(!cfg.turnstileSiteKey)return undefined;
+  await robotPret;
+  for(let i=0;i<60;i++){const t=robotId!==null&&turnstile.getResponse(robotId);if(t)return t;await new Promise(r=>setTimeout(r,250))}
+  $('#robot').hidden=false;
+  throw new Error('Vérification anti-robot pas encore terminée : cochez la case ci-dessous, puis réessayez.');
+}
+function robotSuivant(){if(robotId!==null)turnstile.reset(robotId)}  // un jeton ne sert qu'une fois
 async function busy(form,fn){const b=form.querySelector('.btn');const old=b.innerHTML;b.disabled=true;b.innerHTML='<span class="spin"></span>';
-  try{await fn()}catch(e){msg(fr(e))}finally{b.disabled=false;b.innerHTML=old}}
+  try{await fn()}catch(e){msg(fr(e));robotSuivant()}finally{b.disabled=false;b.innerHTML=old}}
 
 $$('[data-tab]').forEach(b=>b.onclick=()=>show(b.dataset.tab==='in'?'fIn':'fUp'));
 // Afficher / masquer le mot de passe
@@ -214,17 +238,19 @@ $('#forgot').onclick=()=>{$('#rsEmail').value=$('#inEmail').value;show('fReset')
 $$('[data-back]').forEach(b=>b.onclick=()=>show('fIn'));
 
 $('#fIn').onsubmit=e=>{e.preventDefault();busy(e.target,async()=>{
-  const {error}=await sb.auth.signInWithPassword({email:$('#inEmail').value.trim(),password:$('#inPass').value});
+  const {error}=await sb.auth.signInWithPassword({email:$('#inEmail').value.trim(),password:$('#inPass').value,
+    options:{captchaToken:await jetonRobot()}});
   if(error)throw error;location.replace(HOME)})};
 $('#fUp').onsubmit=e=>{e.preventDefault();busy(e.target,async()=>{
   const {data,error}=await sb.auth.signUp({email:$('#upEmail').value.trim(),password:$('#upPass').value,
-    options:{data:{full_name:$('#upName').value.trim()},emailRedirectTo:location.origin+HOME}});
+    options:{data:{full_name:$('#upName').value.trim()},emailRedirectTo:location.origin+HOME,captchaToken:await jetonRobot()}});
   if(error)throw error;
   if(data.session)location.replace(HOME);
   else{show('fIn');$('#inEmail').value=$('#upEmail').value;msg('Compte créé. Ouvrez l\'e-mail de confirmation que nous venons d\'envoyer, puis connectez-vous.',true)}})};
 $('#fReset').onsubmit=e=>{e.preventDefault();busy(e.target,async()=>{
-  const {error}=await sb.auth.resetPasswordForEmail($('#rsEmail').value.trim(),{redirectTo:location.origin+'/login?reset=1'});
-  if(error)throw error;msg('Si un compte existe pour cette adresse, un lien vient d\'être envoyé.',true)})};
+  const {error}=await sb.auth.resetPasswordForEmail($('#rsEmail').value.trim(),{redirectTo:location.origin+'/login?reset=1',
+    captchaToken:await jetonRobot()});
+  if(error)throw error;robotSuivant();msg('Si un compte existe pour cette adresse, un lien vient d\'être envoyé.',true)})};
 $('#fNew').onsubmit=e=>{e.preventDefault();busy(e.target,async()=>{
   const {error}=await sb.auth.updateUser({password:$('#nwPass').value});if(error)throw error;location.replace(HOME)})};
 
