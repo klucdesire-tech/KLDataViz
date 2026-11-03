@@ -405,10 +405,12 @@ def start_auto_refresh(read_df, build, org_ctx=None):
                         pass  # statut déjà enregistré par send_mail_now
 
     def loop():
+        import surveillance
         while True:
+            surveillance.battement("tableaux")
             try:
                 tick()
-            except Exception:
-                pass
+            except Exception as exc:
+                surveillance.erreur_interne("", "boucle des tableaux de bord", "", exc, genre="tache")
             time.sleep(60)
     threading.Thread(target=loop, daemon=True).start()

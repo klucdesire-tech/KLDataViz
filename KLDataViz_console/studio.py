@@ -17,6 +17,7 @@ import time
 import uuid
 from email.message import EmailMessage
 
+import surveillance
 import tenancy as T
 
 if T.CLOUD:
@@ -311,15 +312,17 @@ def start_scheduler(analyze_fn, exporters, exports_dir, commentary_fn=None):
         def cloud_loop():
             while True:
                 try:
+                    surveillance.battement("planifications")
                     for org_id, j in cloud.due_schedules():
                         with T.use(cloud.org_ctx(org_id)):
                             try:
                                 run_schedule(j["id"], analyze_fn, exporters, T.exports_dir(), commentary_fn)
                             except Exception as exc:
+                                surveillance.erreur_interne("", "rapport planifié", "", exc, genre="tache")
                                 update_schedule(j["id"], last_status=f"Erreur : {exc}"[:300],
                                                 next_run=next_run(j["freq"], j["hour"]).isoformat(timespec="seconds"))
-                except Exception:
-                    pass
+                except Exception as exc:
+                    surveillance.erreur_interne("", "boucle des rapports planifiés", "", exc, genre="tache")
                 time.sleep(30)
         threading.Thread(target=cloud_loop, daemon=True).start()
         return
