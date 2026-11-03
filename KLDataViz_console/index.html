@@ -451,12 +451,12 @@ tr.versions td{background:var(--surface-2);font-size:13px}
         <div class="head"><h1>Adifa’ prépare vos données</h1><p id="runFile"></p></div>
         <div class="run">
           <div class="card"><div id="feed"></div><div id="runErr" class="actions" style="margin-top:12px" hidden>
-            <button class="btn ghost" id="runBack">Changer de source</button><button class="btn primary" id="runRetry">Réessayer</button></div></div>
+            <button class="btn ghost" id="runBack">Changer de source</button><button class="btn primary" id="runRetry">Réessayer</button><button class="btn primary" id="runPlans" data-goto="settings" hidden>Voir les forfaits</button></div></div>
           <div class="card" style="display:grid;gap:10px">
             <div class="label">Progression</div>
             <div class="num" style="font-size:30px;font-weight:600" id="pct">0 %</div>
             <div class="bar"><i id="bar"></i></div>
-            <small style="color:var(--muted)">Le traitement se fait sur cet ordinateur.</small>
+            <small style="color:var(--muted)" id="runWhere">Le traitement se fait sur cet ordinateur.</small>
           </div>
         </div>
       </section>
@@ -558,7 +558,7 @@ tr.versions td{background:var(--surface-2);font-size:13px}
 
       <!-- RAPPORTS -->
       <section class="view" data-view="reports" hidden>
-        <div class="head"><h1>Rapports</h1><p>Tous les exports générés sur cet ordinateur, y compris ceux des envois planifiés.</p></div>
+        <div class="head"><h1>Rapports</h1><p id="rpLead">Tous les exports générés sur cet ordinateur, y compris ceux des envois planifiés.</p></div>
         <div class="toolbar"><input type="text" id="rpSearch" placeholder="Rechercher un rapport" aria-label="Rechercher un rapport" style="max-width:320px"><div class="chips" id="rpChips" style="margin:0"></div></div>
         <div class="card"><div class="list" id="rpList"><div class="empty">Chargement…</div></div></div>
       </section>
@@ -1001,7 +1001,7 @@ async function startRun(path,name,size,opts={}){
   prog(0);
   let t0=performance.now();set(0,'doing');
   const a=await api('/api/analyze',{file_path:path});
-  if(a.error){set(0,'err',a.error);$('#runErr').hidden=false;return}
+  if(a.error){set(0,'err',a.error);$('#runErr').hidden=false;$('#runRetry').hidden=!!a.quota;$('#runPlans').hidden=!a.quota;return}
   set(0,'done',`${nf(a.rows)} lignes, ${a.columns} colonnes, ${a.size_kb?dec(a.size_kb)+' Ko':'source en ligne'}`,secs(t0));prog(45);
   state.original=a;state.analysis=a;
   if(!opts.fromRegistry)autoRegister(path,name);  // en tâche de fond, sans retarder l'analyse
@@ -1040,6 +1040,7 @@ async function maybeDescribe(){
   await fetchRegistry();
   if(!$('[data-view="datasets"]').hidden)renderDatasets();
 }
+$('#runPlans').addEventListener('click',()=>setTimeout(()=>$('#billingCard').scrollIntoView({behavior:'smooth',block:'start'}),250));
 $('#runRetry').onclick=()=>startRun(state.path,state.name,0,{archExtra:state.archExtra});
 $('#runBack').onclick=()=>go(0);
 
@@ -2292,6 +2293,8 @@ function applyCloudUI(){
   $('#userbox').hidden=false;$('#pathTitle').textContent='Lien Google Sheets, OneDrive ou web';
   $('#pathHint').textContent='Collez le lien de partage d’une feuille Google Sheets (« Tous les utilisateurs disposant du lien ») ou d’un fichier OneDrive / SharePoint (« Toute personne disposant du lien »), ou l’URL https d’un fichier CSV, Excel ou JSON.';
   $('#pathInput').placeholder='https://docs.google.com/spreadsheets/…';
+  $('#runWhere').textContent='Le traitement se fait sur nos serveurs ; vos fichiers restent dans votre espace.';
+  $('#rpLead').textContent='Tous les exports de cet espace, y compris ceux des envois planifiés.';
   $('#dbCloudHint').hidden=false;$('#dbDsn').placeholder='postgresql://lecteur:motdepasse@db.exemple.com:5432/base';$('#dbLimit').placeholder='200 000 au plus';
 }
 function meter(label,used,max){const pct=max?Math.min(100,Math.round(used/max*100)):100;return `<div class="row"><span>${label}</span><span class="num">${nf(used)} / ${nf(max)}</span></div><div class="meter"><i class="${pct>=90?'bad':pct>=70?'warn':''}" style="width:${pct}%"></i></div>`}
