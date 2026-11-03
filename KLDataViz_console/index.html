@@ -270,10 +270,18 @@ tr.versions td{background:var(--surface-2);font-size:13px}
 .composer{display:flex;gap:8px;padding:12px 18px 16px;border-top:1px solid var(--line)}
 .composer input{flex:1;min-width:0}
 .composer .btn{padding:0 14px}
-.fab{display:none;position:relative}
+/* Bouton flottant « Adifa’ » : rouvre la discussion masquée ; la pastille compte les réponses non lues */
+.fab{display:none;position:fixed;right:24px;bottom:calc(24px + env(safe-area-inset-bottom,0px));z-index:35;align-items:center;gap:9px;
+  padding:13px 22px 13px 18px;border:0;border-radius:999px;background:var(--brand);color:var(--on-brand);font:inherit;font-size:15px;font-weight:600;
+  cursor:pointer;box-shadow:0 8px 24px rgba(0,0,0,.22);transition:transform .15s ease,box-shadow .15s ease}
+.fab:hover{transform:translateY(-2px);box-shadow:0 12px 28px rgba(0,0,0,.26)}
+.fab:focus-visible{outline:3px solid var(--brand-soft);outline-offset:3px}
+.fab .i{width:20px;height:20px}
+.fab .nonlus{position:absolute;top:-6px;right:-4px;min-width:22px;height:22px;padding:0 6px;border-radius:999px;background:var(--red);color:#fff;
+  font-size:12px;font-weight:700;line-height:22px;text-align:center;border:2px solid var(--bg)}
+.app.nochat .scroll,.scroll.avecfab{padding-bottom:96px}  /* le bouton ne cache pas la fin de la page */
 /* Chat masquable sur grand écran : le contenu prend toute la largeur ; le bouton « Adifa’ » le rouvre */
 .app.nochat{grid-template-columns:232px minmax(0,1fr) 0}.app.nochat .chat{display:none}.app.nochat .fab{display:inline-flex}
-.fab .dot{position:absolute;top:-3px;right:-3px;width:10px;height:10px;border-radius:50%;background:var(--brand);border:2px solid var(--surface)}
 .toast{position:fixed;left:50%;bottom:calc(24px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--fg);color:var(--bg);padding:10px 16px;border-radius:10px;font-size:13.5px;box-shadow:var(--shadow);z-index:50;max-width:calc(100% - 32px)}
 
 @media (max-width:1240px){
@@ -283,6 +291,7 @@ tr.versions td{background:var(--surface-2);font-size:13px}
   .app.nochat .chat{display:flex}
   .chat header #chatClose{display:grid}
   .fab{display:inline-flex}
+  .scroll{padding-bottom:96px}
 }
 @media (max-width:980px){.kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.grid2,.run{grid-template-columns:minmax(0,1fr)}}
 @media (max-width:760px){
@@ -295,7 +304,8 @@ tr.versions td{background:var(--surface-2);font-size:13px}
   nav.menu .count{display:none}
   .top,.stepper,.scroll{padding-left:16px;padding-right:16px}
   .top{gap:8px;padding-top:10px;padding-bottom:10px;flex-wrap:nowrap}
-  .top .crumb{display:none}  /* la barre du bas indique déjà la page : l'en-tête tient sur une ligne */
+  .top .crumb{display:none}
+  .fab{right:16px;bottom:calc(76px + env(safe-area-inset-bottom,0px));padding:11px 18px 11px 14px;font-size:14px}  /* au-dessus de la barre du bas */  /* la barre du bas indique déjà la page : l'en-tête tient sur une ligne */
   .top .btn{padding:7px 9px;font-size:12.5px}.top .userbox{gap:6px;flex:none}.top .iconbtn{flex:none}
   .step .t{display:none}.step{padding:7px 8px}.sep{width:10px}
   .step[aria-current="step"] .t{display:inline}
@@ -363,7 +373,6 @@ tr.versions td{background:var(--surface-2);font-size:13px}
       <span class="spacer"></span>
       <div class="userbox" id="userbox" hidden><a class="btn ghost sm" id="adminLink" href="/admin" hidden>Administration</a><span id="userEmail"></span><button class="btn ghost sm" id="logoutBtn">Déconnexion</button></div>
       <button class="iconbtn" id="themeBtn" aria-label="Changer de thème" title="Changer de thème"><svg class="i" viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 0 1 9.5 4 8 8 0 1 0 20 14.5z"/></svg></button>
-      <button class="btn ghost fab" id="chatOpen" aria-label="Discuter avec Adifa’" title="Discuter avec Adifa’"><svg class="i" viewBox="0 0 24 24"><path d="M4 5h16v11H8l-4 4z"/></svg><span class="hide-sm">Adifa’</span></button>
       <button class="btn primary" id="newBtn"><svg class="i" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg><span class="hide-sm">Nouvelle analyse</span></button>
     </div>
 
@@ -719,6 +728,7 @@ tr.versions td{background:var(--surface-2);font-size:13px}
     </div>
   </main>
 
+  <button class="fab" id="chatOpen" aria-label="Discuter avec Adifa’" title="Discuter avec Adifa’"><svg class="i" viewBox="0 0 24 24"><path d="M12 3c5 0 9 3.6 9 8s-4 8-9 8c-1.2 0-2.4-.2-3.4-.6L4 20l1.3-3.7C3.9 14.9 3 13 3 11c0-4.4 4-8 9-8z"/><path d="M9.8 9.2a2.3 2.3 0 0 1 4.4.8c0 1.5-2.2 1.9-2.2 3"/><path d="M12 15.6v.1"/></svg><span>Adifa’</span></button>
   <aside class="chat" id="chat" aria-label="Discussion avec Adifa’">
     <header>
       <div class="av"><svg class="i" viewBox="0 0 24 24"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"/></svg></div>
@@ -2126,9 +2136,8 @@ function say(text){return addMsg('agent',text)}
 let chatDotReady=false;addEventListener('load',()=>setTimeout(()=>{chatDotReady=true},1500));  // pas de point pour l'accueil
 function addMsg(role,text,table,charts){
   const m=document.createElement('div');m.className='m '+role;
-  // Réponse arrivée chat masqué : point sur le bouton « Adifa’ »
-  if(role!=='user'&&chatDotReady&&!$('#chat').classList.contains('open')&&($('.app').classList.contains('nochat')||innerWidth<=1240)&&!$('#chatOpen .dot'))
-    $('#chatOpen').insertAdjacentHTML('beforeend','<span class="dot" aria-label="Nouveau message"></span>');
+  // Réponse arrivée chat masqué : le bouton « Adifa’ » compte les réponses non lues
+  if(role!=='user'&&chatDotReady&&!$('#chat').classList.contains('open')&&($('.app').classList.contains('nochat')||innerWidth<=1240))nonLus(nonLus()+1);
   if(role==='user')m.textContent=text;
   else{
     const list=Array.isArray(charts)?charts.filter(c=>c&&c.labels&&c.values):(charts&&charts.labels&&charts.values?[charts]:[]);
@@ -2170,6 +2179,11 @@ const chatHistory=[];
 const GREETING='Bonjour, je suis **Adifa’**. Déposez un fichier Excel, CSV ou JSON, ou connectez une base : je vérifie sa qualité, je l\'analyse et je prépare vos rapports. Ensuite, posez-moi vos questions en français.';
 let chatSession=0;  // change à chaque nouvelle conversation : une réponse en retard de l'ancienne est ignorée
 // Nouveau fichier (ou nouvelle analyse) : messages, mémoire et suggestions repartent de zéro.
+let _nonLus=0;
+function nonLus(n){const b=$('#chatOpen');if(n===undefined)return _nonLus;_nonLus=n;
+  b.querySelector('.nonlus')?.remove();
+  if(n>0)b.insertAdjacentHTML('beforeend',`<span class="nonlus">${n>9?'9+':n}</span>`);
+  b.setAttribute('aria-label','Discuter avec Adifa’'+(n>0?` (${n} réponse${n>1?'s':''} non lue${n>1?'s':''})`:''))}
 function resetChat(greeting){
   chatSession++;chatHistory.length=0;$('#msgs').innerHTML='';
   if(greeting)say(greeting);
@@ -2228,7 +2242,7 @@ document.addEventListener('click',e=>{const b=e.target.closest('[data-ask]');if(
 $('#composer').addEventListener('submit',e=>{e.preventDefault();const q=$('#q').value.trim();if(!q)return;$('#q').value='';ask(q)});
 // Afficher / masquer le chat (mémorisé dans ce navigateur) ; masqué par défaut sur grand écran
 function setChatShown(on){$('.app').classList.toggle('nochat',!on);$('#chat').classList.toggle('open',on);
-  if(on)$('#chatOpen .dot')?.remove();try{localStorage.setItem('kldv_chat',on?'1':'0')}catch(e){}}
+  if(on)nonLus(0);try{localStorage.setItem('kldv_chat',on?'1':'0')}catch(e){}}
 function openChat(){setChatShown(true)}
 $('#chatOpen').onclick=openChat;$('#chatClose').onclick=()=>{setChatShown(false);$('#chatOpen').focus()};
 (()=>{let pref=null;try{pref=localStorage.getItem('kldv_chat')}catch(e){}$('.app').classList.toggle('nochat',pref!=='1')})();
