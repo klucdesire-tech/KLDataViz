@@ -324,9 +324,34 @@ def test_rapport_planifie_porte_son_origine(monkeypatch):
     assert envois and "« MSHP »" in envois[0]
 
 
+def test_sante_du_service_reservee_aux_administrateurs(base, monkeypatch):
+    assert call(base, "/api/admin/sante")[0] == 401
+    assert call(base, "/api/admin/sante", token="tok-b")[0] == 403
+    assert call(base, "/api/admin/sante/essai", {}, "tok-b")[0] == 403
+    code, d = call(base, "/api/admin/sante", token="tok-a")
+    noms = [c["nom"] for c in d["controles"]]
+    assert code == 200 and {"Base de données", "Disque", "E-mail", "Intelligence artificielle"} <= set(noms)
+    envoyes = []
+    monkeypatch.setenv("KLDV_ALERTES", "alerte@test.ci")
+    monkeypatch.setattr(cloud, "send_mail", lambda to, s, b, attachment=None: envoyes.append(to))
+    code, r = call(base, "/api/admin/sante/essai", {}, "tok-a")
+    assert code == 200 and r["envoye"] and envoyes == [["alerte@test.ci"]]
+
+
+def test_erreur_interne_relevee_par_la_surveillance(base, monkeypatch):
+    def plante(*a, **k):
+        raise ZeroDivisionError("valeur du fichier : Aya Kouassi")
+    monkeypatch.setattr(server.Handler, "_route", plante)
+    code, r = call(base, "/api/me", token="tok-a")
+    ref = r["error"].split("réf. ")[1].split(")")[0]
+    inc = next(i for i in server.surveillance.bilan()["incidents"] if i["ref"] == ref)
+    assert code == 500 and "ZeroDivisionError" in inc["resume"] and "Aya" not in inc["resume"] and inc["espace"] == ORG_A
+
+
 def test_pages_montrent_les_envois():
     dossier = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     page = open(os.path.join(dossier, "index.html"), encoding="utf-8").read()
     admin = open(os.path.join(dossier, "admin.html"), encoding="utf-8").read()
     assert 'id="dashMailList"' in page and "/api/envois/arreter" in page and "même si personne n'est connecté" in page
     assert 'data-tab="envois"' in admin and "envois:loadEnvois" in admin and "/api/admin/envois/arreter" in admin
+    assert 'data-tab="sante"' in admin and "sante:loadSante" in admin and "/api/admin/sante/essai" in admin

@@ -54,6 +54,7 @@ import shares
 import dhis2
 import dictionnaire
 import journal
+import surveillance
 import correspondances
 if T.CLOUD:
     import cloud
@@ -1711,16 +1712,40 @@ def ia_disponible():
     return time.time() >= _IA_PANNE["jusqua"]
 
 
-def _ia_resultat(ok):
+def _ia_resultat(ok, motif=""):
+    """`motif` : refus du compte (clé, solde), signalé tout de suite aux administrateurs."""
+    if motif:
+        surveillance.ia(False, motif)
     with _IA_LOCK:
         if ok:
             _IA_PANNE["echecs"] = 0
+            surveillance.ia(True)
             return
         _IA_PANNE["echecs"] += 1
         if _IA_PANNE["echecs"] >= IA_SEUIL:
             _IA_PANNE["jusqua"] = time.time() + IA_PAUSE
             _IA_PANNE["echecs"] = 0
             sys.stderr.write(f"[ia] {IA_SEUIL} échecs d'affilée : IA mise en pause {IA_PAUSE} s, repli sur les règles\n")
+            surveillance.ia(False, f"{IA_SEUIL} échecs d'affilée : IA mise en pause, Adifa’ répond par règles")
+
+
+def _sante_ia():
+    """Contrôle « Intelligence artificielle » du bilan : sans appel payant, d'après les derniers appels réels."""
+    cfg = _llm_config()
+    if not cfg or not cfg.get("api_key"):
+        return False, "aucune clé d'IA configurée"
+    if not ia_disponible():
+        return False, f"en pause après des pannes répétées (reprise dans {round(_IA_PANNE['jusqua'] - time.time())} s)"
+    ok, echec = surveillance._etat["ia_ok"], surveillance._etat["ia_echec"]
+    detail = f"{cfg.get('provider') or 'deepseek'}, modèle {cfg.get('model')}"
+    if ok:
+        detail += f" ; dernière réponse le {ok[0][:16].replace('T', ' à ')}"
+    if echec and (not ok or echec[0] > ok[0]):
+        detail += f" ; dernier échec le {echec[0][:16].replace('T', ' à ')}" + (f" ({echec[1]})" if echec[1] else "")
+    return True, detail
+
+
+surveillance.controle("Intelligence artificielle", _sante_ia)
 
 
 def _llm_call(messages, max_tokens=8000, temperature=0, timeout=120, model=None, effort=None, attempts=3):
@@ -1775,7 +1800,7 @@ def _llm_call_brut(messages, max_tokens=8000, temperature=0, timeout=120, model=
                 sys.stderr.write(f"[ia] refus définitif ({motif}, modèle {payload['model']}) : "
                                  + ("solde épuisé ou clé invalide" if e.code in (401, 402, 403) else "requête refusée") + "\n")
                 if e.code in (401, 402, 403):  # compte en cause : touche tout le monde → compte pour le coupe-circuit
-                    _ia_resultat(False)
+                    _ia_resultat(False, f"DeepSeek refuse le compte ({motif}) : solde épuisé ou clé invalide")
                 return None
             try:
                 attente = min(20.0, float(e.headers.get("Retry-After") or attente))
@@ -1814,7 +1839,7 @@ def _llm_call_claude(cfg, msgs, max_tokens, timeout, model, effort, attempts):
             sys.stderr.write(f"[ia] refus définitif (Claude, {motif}) : "
                              + ("crédit épuisé ou clé invalide" if code in (401, 402, 403) else "requête refusée") + "\n")
             if code in (401, 402, 403):
-                _ia_resultat(False)
+                _ia_resultat(False, f"Claude refuse le compte (HTTP {code}) : crédit épuisé ou clé invalide")
             return None
         if motif in ("refus du modèle", "réponse vide"):
             return None
@@ -2681,7 +2706,9 @@ def start_job(fn):
             try:
                 result = _json_safe(fn(progress))
             except Exception as e:
-                sys.stderr.write(f"[tâche] {type(e).__name__} : {e}\n" + "".join(traceback.format_exception(e)[-4:]))
+                ref = secrets.token_hex(3)
+                sys.stderr.write(f"[tâche {ref}] {type(e).__name__} : {e}\n" + "".join(traceback.format_exception(e)[-4:]))
+                surveillance.erreur_interne(ref, "tâche", getattr(fn, "__name__", "fond"), e, genre="tache")
                 result = {"error": f"Traitement impossible : {e}"}
         with _arch_lock:
             _arch_jobs[job_id].update(status="done", result=result)
@@ -3098,6 +3125,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
     def _dispatch(self, method):
         path = urlparse(self.path).path
+        ctx = None
         try:
             if not T.CLOUD and (path.startswith(("/api/", "/download/"))) and not self._local_origin_ok():
                 return self._send(403, {"error": "Requête refusée : la console locale n'accepte que ses propres pages."})
@@ -3161,6 +3189,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             ref = secrets.token_hex(3)
             sys.stderr.write(f"[erreur {ref}] {method} {path} : {type(e).__name__} : {e}\n"
                              + "".join(traceback.format_exception(e)[-4:]))
+            surveillance.erreur_interne(ref, method, path, e, espace=getattr(ctx, "org_id", None) or "")
             self._send(500, {"error": f"Erreur interne (réf. {ref}). Réessayez." if T.CLOUD else f"{type(e).__name__} : {e}"})
 
     def _public_base(self):
@@ -3669,7 +3698,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                       "/api/admin/announcements": lambda: cloud.admin_announcements(ctx),
                       "/api/admin/site": lambda: cloud.site_settings(),
                       "/api/admin/ia": lambda: cloud.admin_ia(ctx),
-                      "/api/admin/journal": lambda: journal.lire(200, espace=False)}
+                      "/api/admin/journal": lambda: journal.lire(200, espace=False),
+                      "/api/admin/sante": surveillance.bilan}
         else:
             routes = {"/api/admin/payments/verify": lambda: cloud.admin_verifier_paiement(ctx, str(p.get("merchant_tx") or "")),
                       "/api/admin/envois/arreter": lambda: _arreter_envoi_admin(ctx, p),
@@ -3679,6 +3709,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                       "/api/admin/invite-client": lambda: cloud.admin_invite_client(ctx, p.get("org"), p.get("email"), p.get("plan")),
                       "/api/admin/resend-invite": lambda: cloud.admin_resend_invite(ctx, str(p.get("org_id")), p.get("email")),
                       "/api/admin/test-mail": lambda: cloud.admin_test_mail(ctx),
+                      "/api/admin/sante/essai": surveillance.essai,
                       "/api/admin/plans/save": lambda: cloud.admin_plan_save(ctx, p),
                       "/api/admin/plans/delete": lambda: cloud.admin_plan_delete(ctx, str(p.get("key"))),
                       "/api/admin/admins/add": lambda: cloud.admin_admin_add(ctx, p.get("email")),
@@ -3781,6 +3812,7 @@ if __name__ == "__main__":
     sources.start_auto_refresh(_read_df, build_dashboard, cloud.org_ctx if T.CLOUD else None)
     if T.CLOUD:
         threading.Thread(target=cloud.boucle_paiements, daemon=True).start()
+        surveillance.demarrer()
     host = "0.0.0.0" if T.CLOUD else "127.0.0.1"
     port = int(os.environ.get("PORT") or PORT)
     socketserver.ThreadingTCPServer.allow_reuse_address = True

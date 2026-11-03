@@ -781,6 +781,17 @@ def mail_ready() -> bool:
 
 
 def send_mail(recipients, subject, body, attachment=None):
+    """Envoi par Brevo ; chaque réussite ou échec est noté par la surveillance (bilan, alertes)."""
+    import surveillance
+    try:
+        envoyer_brevo(recipients, subject, body, attachment)
+    except Exception as exc:
+        surveillance.envoi(False, str(exc) or type(exc).__name__)
+        raise
+    surveillance.envoi(True)
+
+
+def envoyer_brevo(recipients, subject, body, attachment=None):
     if not mail_ready():
         raise RuntimeError("Envoi d'e-mails non configuré sur la plateforme.")
     payload = {"sender": {"email": MAIL_FROM, "name": MAIL_FROM_NAME},

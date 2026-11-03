@@ -93,6 +93,7 @@ input:focus,select:focus,textarea:focus{border-color:var(--brand);outline:none}
       <button data-tab="plans">Forfaits et prix</button>
       <button data-tab="pay">Paiements</button>
       <button data-tab="envois">Envois automatiques</button>
+      <button data-tab="sante">Santé du service</button>
       <button data-tab="ann">Annonces</button>
       <button data-tab="admins">Administrateurs</button>
       <button data-tab="site">Page d'accueil</button>
@@ -139,6 +140,13 @@ input:focus,select:focus,textarea:focus{border-color:var(--brand);outline:none}
       <div class="head"><div><h1>Envois automatiques</h1><p>Tous les e-mails programmés, dans tous les espaces. Chaque client ne voit que les siens. Arrêter n'efface rien.</p></div></div>
       <div class="card"><h2>Planifications de rapports</h2><div class="tablewrap" id="envoisJobs"><div class="empty">Chargement…</div></div></div>
       <div class="card" style="margin-top:16px"><h2>Tableaux de bord</h2><div class="tablewrap" id="envoisTableaux"><div class="empty">Chargement…</div></div></div>
+    </section>
+    <section data-view="sante" hidden>
+      <div class="head"><div><h1>Santé du service</h1><p>Contrôlé toutes les 5 minutes. Au premier incident, les administrateurs reçoivent un e-mail, puis au plus un résumé toutes les 30 minutes.</p></div><span class="spacer"></span><button class="btn" id="santeEssai">Envoyer une alerte d'essai</button><button class="btn primary" id="santeMaj">Actualiser</button></div>
+      <div class="card"><h2>Contrôles</h2><div class="tablewrap" id="santeControles"><div class="empty">Chargement…</div></div><p class="sub" id="santeInfo" style="margin-top:8px"></p></div>
+      <div class="card" style="margin-top:16px"><h2>Incidents récents</h2>
+        <p class="sub">Erreurs internes, tâches en échec, e-mails non envoyés, pannes d'IA. La référence se retrouve dans les journaux Render.</p>
+        <div class="tablewrap" id="santeIncidents" style="margin-top:8px"><div class="empty">Chargement…</div></div></div>
     </section>
     <section data-view="ann" hidden>
       <div class="head"><div><h1>Annonces</h1><p>Un bandeau en haut de la page d'accueil et/ou de l'application : nouveauté, maintenance, promotion.</p></div><span class="spacer"></span><button class="btn primary" id="newAnn">Nouvelle annonce</button></div>
@@ -230,7 +238,7 @@ $('#nav').addEventListener('click',e=>{const b=e.target.closest('[data-tab]');if
 function show(tab){
   $$('#nav [data-tab]').forEach(b=>b.dataset.tab===tab?b.setAttribute('aria-current','page'):b.removeAttribute('aria-current'));
   $$('[data-view]').forEach(v=>v.hidden=v.dataset.view!==tab);
-  ({dash:loadDash,orgs:loadOrgs,plans:renderPlans,pay:loadPay,envois:loadEnvois,ann:loadAnn,admins:loadAdmins,site:loadSite,ia:loadIa})[tab]();
+  ({dash:loadDash,orgs:loadOrgs,plans:renderPlans,pay:loadPay,envois:loadEnvois,sante:loadSante,ann:loadAnn,admins:loadAdmins,site:loadSite,ia:loadIa})[tab]();
 }
 function openDrawer(html){$('#panel').innerHTML=html;$('#drawer').hidden=false;$('#panel').querySelector('input,select,textarea,button')?.focus()}
 function closeDrawer(){$('#drawer').hidden=true}
@@ -405,7 +413,7 @@ function annForm(a){
 const ACTIONS={plan:'Forfait modifié',extend:'Essai prolongé',suspend:'Suspension / réactivation','invite-client':'Client invité',
   'resend-invite':'Invitation renvoyée','test-mail':'Test d\u2019envoi d\u2019e-mail','plans/save':'Forfait enregistré','plans/delete':'Forfait supprimé',
   'admins/add':'Administrateur ajouté','admins/remove':'Administrateur retiré','announcements/save':'Annonce publiée',
-  'announcements/delete':'Annonce supprimée',site:'Page d\u2019accueil modifiée',ia:'Fournisseur d\u2019IA modifié','ia/test':'Test de l\u2019IA'};
+  'announcements/delete':'Annonce supprimée',site:'Page d\u2019accueil modifiée',ia:'Fournisseur d\u2019IA modifié','ia/test':'Test de l\u2019IA','sante/essai':'Alerte d\u2019essai'};
 async function loadEnvois(){
   const d=await api('/api/admin/envois');
   if(d.error){$('#envoisJobs').innerHTML=`<div class="empty">${esc(d.error)}</div>`;$('#envoisTableaux').innerHTML='';return}
@@ -418,6 +426,19 @@ document.addEventListener('click',async e=>{
   const b=e.target.closest('[data-stopenvoi]');if(!b)return;
   b.disabled=true;const r=await api('/api/admin/envois/arreter',{id:b.dataset.stopenvoi,genre:b.dataset.genre,org_id:b.dataset.org});
   toast(r.error||'Envoi arrêté.');loadEnvois()});
+const GENRES={erreur:'Erreur interne',tache:'Tâche de fond',envoi:'E-mail non envoyé',ia:'Intelligence artificielle',sante:'Contrôle de santé'};
+async function loadSante(){
+  const d=await api('/api/admin/sante');
+  if(d.error){$('#santeControles').innerHTML=`<div class="empty">${esc(d.error)}</div>`;$('#santeIncidents').innerHTML='';return}
+  const etat=ok=>ok===true?'<span class="tag ok">Bon</span>':ok===false?'<span class="tag bad">À regarder</span>':'<span class="tag">Sans objet</span>';
+  $('#santeControles').innerHTML=`<table><thead><tr><th>Contrôle</th><th>État</th><th>Détail</th></tr></thead><tbody>${d.controles.map(c=>`<tr><td>${esc(c.nom)}</td><td>${etat(c.ok)}</td><td class="sub">${esc(c.detail)}</td></tr>`).join('')}</tbody></table>`;
+  $('#santeInfo').textContent=`Service démarré le ${new Date(d.demarre).toLocaleString('fr-FR',{dateStyle:'short',timeStyle:'short'})}. `
+    +(d.destinataires?`Alertes envoyées à ${d.destinataires} adresse(s) d'administrateur.`:'Aucun destinataire d\u2019alerte : renseignez ADMIN_EMAILS (ou KLDV_ALERTES) sur Render.');
+  $('#santeIncidents').innerHTML=d.incidents.length?`<table><thead><tr><th>Date</th><th>Genre</th><th>Incident</th><th>Réf.</th><th>Espace</th></tr></thead><tbody>${d.incidents.map(i=>`<tr><td class="sub">${new Date(i.date).toLocaleString('fr-FR',{dateStyle:'short',timeStyle:'short'})}</td><td>${esc(GENRES[i.genre]||i.genre)}</td><td>${esc(i.resume)}</td><td class="sub">${esc(i.ref)}</td><td class="sub">${esc(i.espace==='-'?'':i.espace)}</td></tr>`).join('')}</tbody></table>`:'<div class="empty">Aucun incident relevé.</div>';
+}
+$('#santeMaj').onclick=loadSante;
+$('#santeEssai').onclick=async()=>{const b=$('#santeEssai');b.disabled=true;const r=await api('/api/admin/sante/essai',{});b.disabled=false;
+  toast(r.error||(r.envoye?`Alerte d'essai envoyée à ${r.destinataires} adresse(s).`:r.raison))};
 async function loadJournal(){const L=await api('/api/admin/journal');if(!Array.isArray(L)){$('#journalList').innerHTML='<div class="empty">Journal indisponible.</div>';return}
   $('#journalList').innerHTML=L.length?`<table><thead><tr><th>Date</th><th>Par</th><th>Action</th><th>Détail</th></tr></thead><tbody>${L.slice(0,100).map(j=>{
     const det=['org_id','plan','email','days','trial_days','suspended','key','id'].filter(k=>j[k]!=null).map(k=>`${k} : ${esc(String(j[k]))}`).join(' · ');
