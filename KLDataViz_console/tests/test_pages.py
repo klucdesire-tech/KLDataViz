@@ -41,3 +41,11 @@ def test_essai_termine_mene_aux_forfaits():
     assert 'id="quotaBar"' in html and "quotaBar(me);" in html  # bandeau d'épuisement mis à jour avec le compte
     assert "$('#runRetry').hidden=!!a.quota;$('#runPlans').hidden=!a.quota" in html
     assert "$('#runWhere').textContent='Le traitement se fait sur nos serveurs" in html
+
+
+def test_bouton_du_chat_flotte():
+    """Le bouton flotte doucement, s'arrête au survol, et reste immobile si l'utilisateur limite les animations."""
+    html = open(os.path.join(BASE, "index.html"), encoding="utf-8").read()
+    assert "animation:flotte" in html and "@keyframes flotte" in html
+    assert ".fab:hover{animation-play-state:paused" in html
+    assert "@media (prefers-reduced-motion:reduce){.fab{animation:none}}" in html

@@ -276,8 +276,11 @@ tr.versions td{background:var(--surface-2);font-size:13px}
 /* Bouton flottant « Adifa’ » : rouvre la discussion masquée ; la pastille compte les réponses non lues */
 .fab{display:none;position:fixed;right:24px;bottom:calc(24px + env(safe-area-inset-bottom,0px));z-index:35;align-items:center;gap:9px;
   padding:13px 22px 13px 18px;border:0;border-radius:999px;background:var(--brand);color:var(--on-brand);font:inherit;font-size:15px;font-weight:600;
-  cursor:pointer;box-shadow:0 8px 24px rgba(0,0,0,.22);transition:transform .15s ease,box-shadow .15s ease}
-.fab:hover{transform:translateY(-2px);box-shadow:0 12px 28px rgba(0,0,0,.26)}
+  cursor:pointer;box-shadow:0 8px 24px rgba(0,0,0,.22);transition:box-shadow .15s ease;animation:flotte 3.2s ease-in-out infinite}
+/* Il flotte doucement pour attirer l'œil ; au survol il s'arrête, pour viser sans le poursuivre */
+@keyframes flotte{0%,100%{transform:translateY(0)}50%{transform:translateY(-7px)}}
+.fab:hover{animation-play-state:paused;box-shadow:0 12px 28px rgba(0,0,0,.26)}
+@media (prefers-reduced-motion:reduce){.fab{animation:none}}
 .fab:focus-visible{outline:3px solid var(--brand-soft);outline-offset:3px}
 .fab .i{width:20px;height:20px}
 .fab .nonlus{position:absolute;top:-6px;right:-4px;min-width:22px;height:22px;padding:0 6px;border-radius:999px;background:var(--red);color:#fff;
