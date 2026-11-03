@@ -369,7 +369,7 @@ def test_preuve_de_domaine_hackaiz(base, monkeypatch):
     assert call(base, chemin, raw=True)[0] == 404
     monkeypatch.setenv("HACKAIZ_VERIFICATION", "hackaiz-verification=c90e01a2-810c-4195")
     code, corps = call(base, chemin, raw=True)
-    assert code == 200 and corps.decode().strip() == "hackaiz-verification=c90e01a2-810c-4195"
+    assert code == 200 and corps == b"hackaiz-verification=c90e01a2-810c-4195"  # sans retour à la ligne
     monkeypatch.setenv("HACKAIZ_VERIFICATION", "<script>alert(1)</script>")
     assert call(base, chemin, raw=True)[0] == 404
 

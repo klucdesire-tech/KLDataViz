@@ -3141,7 +3141,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 preuve = (os.environ.get("HACKAIZ_VERIFICATION") or "").strip()
                 if not re.fullmatch(r"[\w.:=-]{1,200}", preuve):
                     return self._send(404, {"error": "Page introuvable."})
-                return self._send(200, preuve + "\n", "text/plain")
+                return self._send(200, preuve, "text/plain")  # la valeur exacte : un vérificateur peut comparer octet par octet
             if method == "GET" and path == "/config.js":
                 cfg = {"cloud": T.CLOUD}
                 if T.CLOUD:
