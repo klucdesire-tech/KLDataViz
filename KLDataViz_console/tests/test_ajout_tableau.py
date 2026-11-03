@@ -107,7 +107,7 @@ def test_titre_hostile_echappe(env):
     code = CODE.replace('"Montant par zone"', '"</script><script>alert(1)</script>"')
     r = question(code=code)
     sec = _section(server.ajouter_au_tableau(r["graphique_id"])["html"])
-    assert "<script>alert(1)" not in sec and "&lt;/script&gt;" in sec
+    assert "<script>alert(1)" not in sec and "\\u003c/script>" in sec  # dans les données ; la page l'affiche via esc()
 
 
 def test_six_au_plus(env):
@@ -177,4 +177,7 @@ def test_page_suit_les_filtres(env):
     html = server.ajouter_au_tableau(r["graphique_id"])["html"]
     sec = _section(html)
     assert '[[\\"zone\\",\\"Nord\\"]]' in sec or '[["zone","Nord"]]' in sec
-    assert "window.render" in sec and "suit les filtres du tableau" in sec
+    assert "window.render" in sec and "suit les filtres" in sec
+    # dessinés avec les outils du tableau de bord, dans sa grille de graphiques
+    assert "getElementById('row3')" in sec and "card(corps(" in sec and "navyTip" in sec
+    assert html.index('<section class="row3" id="row3"></section>') < html.index('id="ajoutsAdifa"')

@@ -2346,24 +2346,52 @@ def _rejouer_ajout(ajout, df, filtres=None):
     return variantes, None, complet
 
 
-AJOUTS_JS = """(function(){var A=__A__,F=__F__,P=['#0B4F8F','#0091D0','#10BCD0','#12BF9A','#1565C0','#7FDCC4'],G=[];
+AJOUTS_JS = """(function(){var A=__A__,F=__F__,G=[],SUB='Ajouté par Adifa’ · suit les filtres';
+// Dessinés avec les outils du tableau de bord (card, canvas, NAVY, DONUT, PASTEL, navyTip, axes, fmt) : même allure,
+// et placés dans sa grille de graphiques (#row3), à la suite des siens.
 function cle(){var s=window.state||{},p=[];F.forEach(function(c){if(s[c]!=null&&s[c]!=='all')p.push([c,String(s[c])])});
   p.sort(function(a,b){return a[0]<b[0]?-1:a[0]>b[0]?1:0});return {k:JSON.stringify(p),actifs:p}}
-function dessin(cv,c){var t=c.type==='pie'||c.type==='doughnut'?'doughnut':c.type==='line'||c.type==='area'?'line':c.type==='scatter'?'scatter':'bar';
-var ds=(c.values||[]).map(function(v,k){var col=P[k%P.length];return {label:(c.seriesNames||[])[k]||'',
-data:t==='scatter'?c.labels.map(function(x,n){return {x:+x,y:v[n]}}):v,backgroundColor:t==='doughnut'?P:t==='line'?'rgba(11,79,143,.08)':col,
-borderColor:t==='doughnut'?'#fff':col,borderWidth:t==='doughnut'?3:2,fill:c.type==='area',tension:.35,borderRadius:t==='bar'?6:0,pointRadius:3}});
-return new Chart(cv,{type:t,data:{labels:t==='scatter'?undefined:c.labels,datasets:ds},options:{responsive:true,maintainAspectRatio:false,
-indexAxis:c.horizontal?'y':'x',plugins:{legend:{display:ds.length>1||t==='doughnut',position:'bottom'}}}})}
-function maj(){G.forEach(function(g){g.destroy()});G=[];var f=cle();
-A.forEach(function(a,i){var v=a.variantes[f.k],note=document.getElementById('ajn'+i),txt='';
-  if(f.actifs.length&&!v){v=a.variantes['[]'];txt=a.complet?'Aucune ligne ne correspond à ces filtres : graphique sur tout le fichier.'
-    :'Combinaison de filtres trop fine pour être précalculée : graphique sur tout le fichier.'}
-  else if(f.actifs.length)txt='Filtré : '+f.actifs.map(function(p){return p[1]}).join(' · ');
-  if(note){note.textContent=txt;note.hidden=!txt}
-  (v||[]).forEach(function(c,j){var cv=document.getElementById('aj'+i+'_'+j);if(cv)G.push(dessin(cv,c))})})}
-// Ce script passe avant celui du tableau de bord : on attend sa fonction render() pour s'y accrocher
-function go(){if(!window.Chart||typeof window.render!=='function')return setTimeout(go,100);
+function genre(c){return c.type==='pie'||c.type==='doughnut'?'doughnut':c.type==='line'||c.type==='area'?'line':c.type==='scatter'?'scatter':'bar'}
+function corps(id,c,titre){if(genre(c)!=='doughnut')return canvas(id,titre);
+  var v=c.values[0]||[],tot=v.reduce(function(s,x){return s+(x||0)},0)||1;
+  return '<div class="donut">'+canvas(id,titre)+'<ul class="legend">'+c.labels.map(function(l,k){return '<li><i style="background:'+DONUT[k%DONUT.length]
+    +'"></i><span>'+esc(label(l))+'</span><b>'+Math.round((v[k]||0)/tot*100)+' %</b></li>'}).join('')+'</ul></div>'}
+// Comme le tableau de bord : barres couchées au-delà de 6 catégories ; aussi pour des noms longs, sinon certains sauteraient
+function couche(c){return !!c.horizontal||(genre(c)==='bar'&&(c.labels.length>6||c.labels.some(function(l){return String(l).length>14})))}
+function moyenne(c){var ok=(c.values[0]||[]).filter(function(x){return x!=null});return ok.reduce(function(s,x){return s+x},0)/(ok.length||1)}
+function dessin(id,c){var cv=document.getElementById(id);if(!cv)return null;var t=genre(c),h=couche(c),multi=(c.values||[]).length>1,
+  tip=Object.assign({callbacks:{label:function(x){var y=t==='doughnut'?x.parsed:h?x.parsed.x:x.parsed.y;return (x.dataset.label?x.dataset.label+' : ':'')+fmt(y)}}},navyTip);
+  if(t==='doughnut')return new Chart(cv,{type:'doughnut',data:{labels:c.labels.map(label),datasets:[{data:c.values[0],backgroundColor:DONUT,borderColor:'#fff',borderWidth:3,hoverOffset:4}]},
+    options:{responsive:true,maintainAspectRatio:false,cutout:'68%',plugins:{legend:{display:false},tooltip:tip}}});
+  var sc=h?{x:axes.y,y:{grid:{display:false},border:{display:false}}}:axes,ds;
+  if(t==='scatter'){ds=[{data:c.labels.map(function(x,n){return {x:+x,y:c.values[0][n]}}),backgroundColor:NAVY,pointRadius:4,pointHoverRadius:6}];
+    return new Chart(cv,{type:'scatter',data:{datasets:ds},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:tip},scales:{x:axes.y,y:axes.y}}})}
+  if(t==='line'){var g=cv.getContext('2d').createLinearGradient(0,0,0,250);g.addColorStop(0,'rgba(11,79,143,.22)');g.addColorStop(1,'rgba(11,79,143,0)');
+    ds=c.values.map(function(v,k){var col=multi?PASTEL[k%PASTEL.length]:NAVY;return {label:(c.seriesNames||[])[k]||'',data:v,borderColor:col,backgroundColor:k===0?g:'transparent',
+      fill:k===0,tension:.35,borderWidth:2.5,spanGaps:true,pointRadius:c.labels.length<=15?3:0,pointHoverRadius:5,pointBackgroundColor:col}})}
+  else if(!multi){var v=c.values[0],moy=moyenne(c);
+    ds=[{data:v,backgroundColor:v.map(function(x){return x>=moy?NAVY:'#10BCD0'}),borderRadius:8,borderSkipped:false,barPercentage:.6,maxBarThickness:56},
+        {type:'line',label:'Moyenne',data:v.map(function(){return moy}),borderColor:'#12BF9A',borderDash:[6,4],borderWidth:2,pointRadius:0}];
+    tip.filter=function(x){return x.datasetIndex===0}}
+  else ds=c.values.map(function(v,k){return {label:(c.seriesNames||[])[k]||'',data:v,backgroundColor:PASTEL[k%PASTEL.length],borderRadius:6,borderSkipped:false,maxBarThickness:40}});
+  return new Chart(cv,{type:t,data:{labels:c.labels.map(label),datasets:ds},options:{responsive:true,maintainAspectRatio:false,indexAxis:h?'y':'x',
+    plugins:{legend:{display:multi,position:'bottom',labels:{boxWidth:10,usePointStyle:true}},tooltip:tip},scales:sc}})}
+function enveloppe(h){return '<div class="aj-kl" style="display:contents">'+h+'</div>'}
+function maj(){G.forEach(function(g){g.destroy()});G=[];[].forEach.call(document.querySelectorAll('.aj-kl'),function(n){n.remove()});
+  var f=cle(),grille=document.getElementById('row3'),repli=document.getElementById('ajoutsAdifa'),cible=grille||repli,html='',todo=[];
+  if(repli)repli.hidden=cible!==repli;
+  A.forEach(function(a,i){var v=a.variantes[f.k],note='';
+    if(f.actifs.length&&!v){v=a.variantes['[]'];note=a.complet?'aucune ligne pour ces filtres : tout le fichier':'filtres trop fins : tout le fichier'}
+    else if(f.actifs.length)note='filtré : '+f.actifs.map(function(p){return label(p[1])}).join(' · ');
+    var sous=SUB+(note?' · '+note:'');
+    if(!v||!v.length){html+=enveloppe(card('<p style="color:var(--muted);font-size:13px;margin:0">Recalcul impossible sur les données actuelles'
+      +(a.erreur?' : '+esc(a.erreur):'')+'.</p>',a.titre,SUB));return}
+    v.forEach(function(c,j){var id='aj'+i+'_'+j,titre=c.title||a.titre,
+        s=genre(c)==='bar'&&c.values.length===1?sous+' · ligne : moyenne '+fmt(moyenne(c)):sous;  // comme ses barres
+      html+=enveloppe(card(corps(id,c,titre),titre,s));todo.push([id,c])})});
+  cible.insertAdjacentHTML('beforeend',html);todo.forEach(function(x){var g=dessin(x[0],x[1]);if(g)G.push(g)})}
+// Ce script passe avant celui du tableau de bord : on attend ses outils et sa fonction render() pour s'y accrocher
+function go(){if(!window.Chart||typeof window.render!=='function'||typeof window.card!=='function')return setTimeout(go,100);
   if(!window.render.kl){var r=window.render;window.render=function(){var x=r.apply(this,arguments);maj();return x};window.render.kl=1}maj()}
 var attente=null;function plusTard(){clearTimeout(attente);attente=setTimeout(maj,60)}
 document.addEventListener('click',plusTard);document.addEventListener('change',plusTard);  // filtres, classement cliquable
@@ -2371,31 +2399,21 @@ setTimeout(go,0)})();"""
 
 
 def _avec_ajouts(html_page, ajouts, df, filtres=None):
-    """Ajoute au tableau de bord une rangée « Ajoutés depuis la discussion », recalculée sur `df`."""
-    import html as _h
-    cartes, donnees = [], []
-    for i, a in enumerate(ajouts[:sources.MAX_AJOUTS]):
+    """Graphiques ajoutés depuis la discussion, recalculés sur `df` (et pour chaque combinaison de filtres). La page les
+    dessine dans la grille de graphiques du tableau de bord, avec son style ; ici seulement les données et le script."""
+    donnees = []
+    for a in ajouts[:sources.MAX_AJOUTS]:
         variantes, erreur, complet = _rejouer_ajout(a, df, filtres)
-        graphiques = variantes.get("[]") or []
-        donnees.append({"variantes": variantes, "complet": complet})
-        corps = ("".join(f'<div style="position:relative;height:250px;margin-top:6px"><canvas id="aj{i}_{j}" role="img" '
-                         f'aria-label="{_h.escape(str(g.get("title") or a.get("titre") or ""))}"></canvas></div>'
-                         for j, g in enumerate(graphiques))
-                 if graphiques else f'<p style="color:#9A3412;font-size:13px">Recalcul impossible sur les données actuelles : '
-                                    f'{_h.escape(erreur or "")}.</p>')
-        cartes.append(f'<div class="card"><div style="font-weight:600">{_h.escape(str(a.get("titre") or "Graphique"))}</div>{corps}'
-                      f'<p id="ajn{i}" hidden style="margin:6px 0 0;font-size:12px;color:#0B4F8F"></p>'
-                      '<p style="margin:8px 0 0;font-size:12px;color:#6B7A90">Ajouté depuis la discussion avec Adifa’ · '
-                      'suit les filtres du tableau · recalculé à chaque actualisation</p></div>')
+        donnees.append({"titre": str(a.get("titre") or "Graphique"), "variantes": variantes, "complet": complet, "erreur": erreur})
     # « < » échappé partout : aucun texte des données ne peut fermer ni ouvrir de balise dans le script
     sur = lambda o: json.dumps(_json_safe(o), ensure_ascii=False).replace("<", "\\u003c")
     js = AJOUTS_JS.replace("__A__", sur(donnees)).replace("__F__", sur([f["col"] for f in filtres or [] if f.get("col") in df.columns]))
-    section = ('<section class="row3" id="ajoutsAdifa" aria-label="Graphiques ajoutés depuis la discussion">'
-               '<h2 style="grid-column:1/-1;font-size:15px;margin:6px 0 0">Ajoutés depuis la discussion avec Adifa’</h2>'
-               + "".join(cartes) + f"</section><script>{js}</script>")
-    marque = '<section class="dict card" id="dict" hidden></section>'
-    if marque in html_page:
-        return html_page.replace(marque, marque + section, 1)
+    # Repli (page sans grille #row3) : une rangée du même style, juste après
+    section = ('<section class="row3" id="ajoutsAdifa" aria-label="Graphiques ajoutés depuis la discussion" hidden></section>'
+               f"<script>{js}</script>")
+    for marque in ('<section class="row3" id="row3"></section>', '<section class="dict card" id="dict" hidden></section>'):
+        if marque in html_page:
+            return html_page.replace(marque, marque + section, 1)
     return html_page.replace("</body>", section + "</body>", 1)
 
 
