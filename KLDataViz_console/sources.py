@@ -86,7 +86,65 @@ def _public(s):
                                  "next_refresh", "status", "rows", "structure_changed", "mail_to", "mail_freq",
                                  "next_mail", "mail_status")}
     out["connected"] = s.get("connected", True)  # anciennes fiches : toutes étaient des sources connectées
+    out["ajouts"] = [{k: a.get(k) for k in ("id", "titre", "ajoute_le")} for a in ((s.get("spec") or {}).get(CLE_AJOUTS) or [])]
     return out
+
+
+# ---------------------------------------------------------------- graphiques ajoutés depuis la discussion
+# Rangés dans la spec du tableau de bord : chaque reconstruction (actualisation, envoi, régénération) les recalcule.
+CLE_AJOUTS = "_ajouts_adifa"
+MAX_AJOUTS = 6
+
+
+def par_chemin(path: str):
+    """Identifiant du tableau de bord enregistré pour cette source, ou None."""
+    s = next((x for x in _load() if x.get("path") == path), None)
+    return s["id"] if s else None
+
+
+def spec_de(source_id: str):
+    s = next((x for x in _load() if x["id"] == source_id), None)
+    if s is None:
+        raise KeyError("Tableau de bord introuvable.")
+    return s.get("spec")
+
+
+def ajouts_de(path: str) -> list:
+    s = next((x for x in _load() if x.get("path") == path), None)
+    return list(((s or {}).get("spec") or {}).get(CLE_AJOUTS) or [])
+
+
+def ajouter_graphique(source_id: str, ajout: dict) -> list:
+    with _lock:
+        items = _load()
+        s = next((x for x in items if x["id"] == source_id), None)
+        if s is None:
+            raise KeyError("Tableau de bord introuvable.")
+        spec = dict(s.get("spec") or {"kpis": [], "graphiques": []})
+        ajouts = [a for a in (spec.get(CLE_AJOUTS) or []) if a.get("code") != ajout.get("code")]  # pas de doublon
+        if len(ajouts) >= MAX_AJOUTS:
+            raise ValueError(f"{MAX_AJOUTS} graphiques ajoutés au plus : retirez-en un depuis la page Tableau de bord.")
+        spec[CLE_AJOUTS] = ajouts + [ajout]
+        s["spec"] = spec
+        _save(items)
+    return spec[CLE_AJOUTS]
+
+
+def retirer_graphique(source_id: str, ajout_id: str) -> list:
+    with _lock:
+        items = _load()
+        s = next((x for x in items if x["id"] == source_id), None)
+        if s is None:
+            raise KeyError("Tableau de bord introuvable.")
+        spec = dict(s.get("spec") or {})
+        avant = spec.get(CLE_AJOUTS) or []
+        reste = [a for a in avant if a.get("id") != ajout_id]
+        if len(reste) == len(avant):
+            raise KeyError("Graphique introuvable dans ce tableau de bord.")
+        spec[CLE_AJOUTS] = reste
+        s["spec"] = spec
+        _save(items)
+    return reste
 
 
 def list_sources():

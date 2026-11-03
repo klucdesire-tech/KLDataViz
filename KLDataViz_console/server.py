@@ -1319,7 +1319,19 @@ def _rate_predictif(cle, maxi=8, fenetre=60):
     return True
 
 
-def build_dashboard(df, spec=None, correspondance=None):  # pas de garde _lourd : l'appel à l'IA y bloquerait un jeton
+def build_dashboard(df, spec=None, correspondance=None, ajouts=None):
+    """AGT-11, puis les graphiques ajoutés depuis la discussion (rangés dans la spec), recalculés sur ces données."""
+    ajouts = list(ajouts if ajouts is not None else (spec or {}).get(sources.CLE_AJOUTS) or [])
+    if spec is not None:
+        spec = {k: v for k, v in spec.items() if k != sources.CLE_AJOUTS}
+    result = _build_dashboard(df, spec, correspondance)
+    if ajouts:
+        result = dict(result, html=_avec_ajouts(result["html"], ajouts, df),
+                      spec=dict(result.get("spec") or {}, **{sources.CLE_AJOUTS: ajouts}))
+    return result
+
+
+def _build_dashboard(df, spec=None, correspondance=None):  # pas de garde _lourd : l'appel à l'IA y bloquerait un jeton
     """AGT-11 sur un DataFrame. `spec` fournie (source connectée qu'on actualise) : mêmes indicateurs, sans IA.
     Avec un dictionnaire, la correspondance mémorisée pour cette structure de fichier pilote le tableau de bord."""
     hermes_da_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "HERMES_DA")
@@ -1355,7 +1367,7 @@ def do_dashboard(file_path, name=None):
             return {"error": "Aucune donnée lisible dans cette source."}
         dico = dictionnaire.charger()
         corr = _correspondance_pour(df, dico, ia=True)  # 1re fois sur cette structure : propositions (règles + IA)
-        result = build_dashboard(df, correspondance=corr)
+        result = build_dashboard(df, correspondance=corr, ajouts=sources.ajouts_de(file_path))  # ils survivent à « Régénérer »
         out = {"html": result["html"], "ia": result["ia"], "kpis": result["kpis"]}
         if corr:
             out["correspondance"] = correspondances.public(df, corr, _pretty)
@@ -2238,12 +2250,163 @@ def _reponse_immediate(question, df, nom):
     return None
 
 
+# ---------------------------------------------------------------- graphiques ajoutés au tableau de bord
+def _memoriser_graphique(code, jeu, path, graphiques, question):
+    """Garde (pour cet utilisateur) le calcul d'un graphique de la discussion : le navigateur n'envoie que son
+    identifiant, jamais de code à exécuter."""
+    memo = T.state().setdefault("graphiques_chat", {})
+    while len(memo) >= 20:
+        memo.pop(next(iter(memo)))
+    gid = uuid.uuid4().hex[:12]
+    titre = str((graphiques[0] or {}).get("title") or "").strip() or str(question or "Graphique").strip()[:90]
+    memo[gid] = {"code": code, "jeu": jeu, "path": path, "titre": titre[:120]}
+    T.state()["dernier_graphique"] = gid
+    return gid
+
+
+def _rejouer_ajout(ajout, df):
+    """Recalcule un graphique ajouté sur les données du moment, dans le bac à sable. (graphiques, erreur)"""
+    tmp = os.path.join(T.current().dir("tmp"), f"ajout_{uuid.uuid4().hex}.parquet")
+    try:
+        _save_table(df, tmp)
+        out = _run_ai_code(str(ajout.get("code") or ""), {ajout.get("jeu") or "donnees": tmp})
+    finally:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+    if out.get("error"):
+        return [], str(out["error"]).splitlines()[0][:200]
+    graphiques = _charts_list(out.get("chart"))
+    return graphiques, (None if graphiques else "le calcul ne produit plus de graphique sur ces données")
+
+
+AJOUTS_JS = """(function(){var A=__A__,P=['#0B4F8F','#0091D0','#10BCD0','#12BF9A','#1565C0','#7FDCC4'];
+function go(){if(!window.Chart)return setTimeout(go,200);
+A.forEach(function(a,i){(a.charts||[]).forEach(function(c,j){var cv=document.getElementById('aj'+i+'_'+j);if(!cv)return;
+var t=c.type==='pie'||c.type==='doughnut'?'doughnut':c.type==='line'||c.type==='area'?'line':c.type==='scatter'?'scatter':'bar';
+var ds=(c.values||[]).map(function(v,k){var col=P[k%P.length];return {label:(c.seriesNames||[])[k]||'',
+data:t==='scatter'?c.labels.map(function(x,n){return {x:+x,y:v[n]}}):v,backgroundColor:t==='doughnut'?P:t==='line'?'rgba(11,79,143,.08)':col,
+borderColor:t==='doughnut'?'#fff':col,borderWidth:t==='doughnut'?3:2,fill:c.type==='area',tension:.35,borderRadius:t==='bar'?6:0,pointRadius:3}});
+new Chart(cv,{type:t,data:{labels:t==='scatter'?undefined:c.labels,datasets:ds},options:{responsive:true,maintainAspectRatio:false,
+indexAxis:c.horizontal?'y':'x',plugins:{legend:{display:ds.length>1||t==='doughnut',position:'bottom'}}}})})})}
+go()})();"""
+
+
+def _avec_ajouts(html_page, ajouts, df):
+    """Ajoute au tableau de bord une rangée « Ajoutés depuis la discussion », recalculée sur `df`."""
+    import html as _h
+    cartes, donnees = [], []
+    for i, a in enumerate(ajouts[:sources.MAX_AJOUTS]):
+        graphiques, erreur = _rejouer_ajout(a, df)
+        donnees.append({"charts": graphiques})
+        corps = ("".join(f'<div style="position:relative;height:250px;margin-top:6px"><canvas id="aj{i}_{j}" role="img" '
+                         f'aria-label="{_h.escape(str(g.get("title") or a.get("titre") or ""))}"></canvas></div>'
+                         for j, g in enumerate(graphiques))
+                 if graphiques else f'<p style="color:#9A3412;font-size:13px">Recalcul impossible sur les données actuelles : '
+                                    f'{_h.escape(erreur or "")}.</p>')
+        cartes.append(f'<div class="card"><div style="font-weight:600">{_h.escape(str(a.get("titre") or "Graphique"))}</div>{corps}'
+                      '<p style="margin:8px 0 0;font-size:12px;color:#6B7A90">Ajouté depuis la discussion avec Adifa’ · '
+                      'recalculé à chaque actualisation</p></div>')
+    # « < » échappé partout : aucun texte des données ne peut fermer ni ouvrir de balise dans le script
+    js = AJOUTS_JS.replace("__A__", json.dumps(_json_safe(donnees), ensure_ascii=False).replace("<", "\\u003c"))
+    section = ('<section class="row3" id="ajoutsAdifa" aria-label="Graphiques ajoutés depuis la discussion">'
+               '<h2 style="grid-column:1/-1;font-size:15px;margin:6px 0 0">Ajoutés depuis la discussion avec Adifa’</h2>'
+               + "".join(cartes) + f"</section><script>{js}</script>")
+    marque = '<section class="dict card" id="dict" hidden></section>'
+    if marque in html_page:
+        return html_page.replace(marque, marque + section, 1)
+    return html_page.replace("</body>", section + "</body>", 1)
+
+
+def ajouter_au_tableau(graphique_id):
+    """Ajoute un graphique de la discussion au tableau de bord de son fichier ; le reconstruit (même spec, sans IA)."""
+    if T.CLOUD and T.current().role == "viewer":  # le chat est ouvert aux lecteurs : la modification, non
+        raise ValueError("Votre rôle (lecteur) permet de consulter et de poser des questions, pas de modifier le tableau de bord.")
+    g = (T.state().get("graphiques_chat") or {}).get(str(graphique_id or ""))
+    if g is None:
+        raise ValueError("Ce graphique n'est plus disponible (le serveur a redémarré) : redemandez-le à Adifa’, puis ajoutez-le.")
+    sid = sources.par_chemin(g["path"])
+    if sid is None:
+        raise ValueError("Ce fichier n'a pas encore de tableau de bord : ouvrez la page Tableau de bord pour le générer, "
+                         "puis ajoutez le graphique.")
+    df, err = _read_df(g["path"])
+    if df is None:
+        raise ValueError(f"Lecture de la source impossible : {err}")
+    essai, erreur = _rejouer_ajout(g, df)
+    if not essai:  # calcul qui dépend d'un autre jeu (fichier lié, registre) : il ne pourrait pas être actualisé
+        raise ValueError("Ce graphique ne peut pas être recalculé à partir du seul fichier du tableau de bord "
+                         f"({erreur}) : il reste dans la discussion.")
+    deja = next((a for a in sources.ajouts_de(g["path"]) if a.get("code") == g["code"]), None)
+    if deja is None:
+        deja_la = False
+        ajout = {"id": uuid.uuid4().hex[:10], "titre": g["titre"], "code": g["code"], "jeu": g["jeu"],
+                 "ajoute_le": time.strftime("%Y-%m-%dT%H:%M:%S")}
+        sources.ajouter_graphique(sid, ajout)
+        res = build_dashboard(df, spec=sources.spec_de(sid))
+        sources.remplacer_html(sid, res["html"])
+    else:  # le même calcul est déjà dans le tableau : rien à refaire
+        deja_la, ajout = True, deja
+    return dict(sources.get(sid), ajout=ajout["id"], titre=ajout["titre"], deja=deja_la)
+
+
+def retirer_du_tableau(source_id, ajout_id):
+    sources.retirer_graphique(source_id, ajout_id)
+    s = sources.get(source_id, with_html=False)
+    df, err = _read_df(s["path"])
+    if df is not None:
+        res = build_dashboard(df, spec=sources.spec_de(source_id))
+        sources.remplacer_html(source_id, res["html"])
+    return sources.get(source_id)
+
+
+AJOUT_TABLEAU = re.compile(r"(ajout|ins[eè]r|met|place|[ée]pingl|rajout)\w*.{0,60}(tableau de bord|\bTB\b|dashboard)", re.I)
+CE_GRAPHIQUE = re.compile(r"\b(ce|cet|le dernier|ces|le|la) (graphique|diagramme|courbe|camembert)s?\b(?!\s+(de|des|du|sur|par)\b)"
+                          r"|\b(ajoute|mets|met|insère|insere|place|épingle|epingle)[- ]l[ea]\b|\b[çc]a\b", re.I)
+
+
+def _demande_ajout(question):
+    """« ajoute ce graphique au tableau de bord » → ajouter le dernier ; « ajoute un graphique de X au TB » → le créer."""
+    q = str(question or "")
+    if not AJOUT_TABLEAU.search(q):
+        return None
+    return "dernier" if CE_GRAPHIQUE.search(q) else "nouveau"
+
+
+def _phrase_ajout(r):
+    if r.get("deja"):
+        return (f"« {r['titre']} » est déjà dans le tableau de bord « {r.get('name') or 'de ce fichier'} » : "
+                "il y est recalculé à chaque actualisation de la source.")
+    return (f"C'est fait : « {r['titre']} » est ajouté au tableau de bord « {r.get('name') or 'de ce fichier'} ». "
+            "Il sera recalculé à chaque actualisation de la source ; vous pouvez le retirer depuis la page Tableau de bord.")
+
+
 def llm_chat(question, ui_context=None, history=None, progress=None, linked=None, file_path=None):
     """Voir `_llm_chat`. `file_path` : le fichier de CETTE question ; à défaut, le fichier en cours de l'utilisateur. Les copies de données préparées pour le calcul sont propres à la question et effacées ensuite :
     deux questions en même temps (deux onglets) lisaient sinon le même fichier, et l'une répondait sur les données de l'autre."""
     temporaires = []
+    demande = _demande_ajout(question)
+    if demande == "dernier":  # le graphique déjà affiché : pas de nouveau calcul, pas d'IA
+        gid = T.state().get("dernier_graphique")
+        try:
+            if not gid:
+                raise ValueError("Je n'ai pas encore dessiné de graphique dans cette discussion : demandez-le-moi d'abord, "
+                                 "puis demandez son ajout au tableau de bord.")
+            r = ajouter_au_tableau(gid)
+            return {"answer": _phrase_ajout(r), "type": "text", "table": None, "charts": [], "etapes": [],
+                    "tableau": {"source_id": r["id"]}}
+        except (ValueError, KeyError) as e:
+            return {"answer": str(e).strip("'"), "type": "text", "table": None, "charts": [], "etapes": []}
     try:
-        return _llm_chat(question, ui_context, history, progress, linked, temporaires, file_path)
+        r = _llm_chat(question, ui_context, history, progress, linked, temporaires, file_path)
+        if demande == "nouveau" and isinstance(r, dict) and r.get("graphique_id"):  # créé puis ajouté dans la foulée
+            try:
+                ajout = ajouter_au_tableau(r["graphique_id"])
+                r = dict(r, answer=f"{r.get('answer') or ''}\n\n{_phrase_ajout(ajout)}".strip(),
+                         tableau={"source_id": ajout["id"]})
+            except (ValueError, KeyError) as e:
+                r = dict(r, answer=f"{r.get('answer') or ''}\n\nGraphique non ajouté au tableau de bord : {str(e).strip(chr(39))}".strip())
+        return r
     finally:
         for f in temporaires:
             try:
@@ -2348,7 +2511,7 @@ def _llm_chat(question, ui_context, history, progress, linked, temporaires, file
                     paths[_nom] = _p
         return paths
 
-    etapes, last_table, last_chart = [], None, None
+    etapes, last_table, last_chart, code_graphique = [], None, None, None
     progress("Adifa’ réfléchit à la question…")
     for _tour in range(CHAT_MAX_CALCULS + 2):
         content = _chat_llm(messages)
@@ -2376,6 +2539,8 @@ def _llm_chat(question, ui_context, history, progress, linked, temporaires, file
             etapes.append({"pourquoi": pourquoi, "code": str(data["code"])[:4000], "ok": not out.get("error"),
                            "resultat": feedback[:1500]})
             if not out.get("error"):
+                if out.get("chart"):
+                    code_graphique = str(data["code"])
                 last_chart = out.get("chart") or last_chart
                 res = out.get("result") or {}
                 if res.get("kind") == "table":
@@ -2399,9 +2564,12 @@ def _llm_chat(question, ui_context, history, progress, linked, temporaires, file
             answer, relecture = _relire_chiffres(question, answer, messages)
         answer, douteux = _verifier_chiffres(answer or "(réponse vide)", messages, etapes)
         answer = _separer_noms_chiffres(answer, _noms_finissant_par_chiffre(current_df))
+        graphiques = _charts_list(last_chart)
         return {"answer": answer, "type": "table" if (last_table and show) else "text",
-                "table": last_table if show else None, "charts": _charts_list(last_chart), "etapes": etapes,
-                "chiffres_non_verifies": douteux, "relecture": relecture}
+                "table": last_table if show else None, "charts": graphiques, "etapes": etapes,
+                "chiffres_non_verifies": douteux, "relecture": relecture,
+                "graphique_id": _memoriser_graphique(code_graphique, current_name, cur_path, graphiques, question)
+                if graphiques and code_graphique and current_df is not None and cur_path else None}
     last = etapes[-1]["resultat"] if etapes else ""
     return {"answer": "Je n'ai pas pu conclure dans le temps imparti. Dernier résultat obtenu :\n" + last,
             "type": "table" if last_table else "text", "table": last_table, "charts": _charts_list(last_chart),
@@ -3400,7 +3568,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         # ---- POST
         if path in ("/api/analyze", "/api/chat", "/api/chat/start", "/api/insights", "/api/clean", "/api/architect",
                     "/api/architect/apply", "/api/sheets/understand", "/api/hermes/charts", "/api/hermes/clean",
-                    "/api/dashboard") and not _rate_ok(f"{ctx.key}:{path}"):
+                    "/api/dashboard", "/api/tableau/ajouter", "/api/tableau/retirer") and not _rate_ok(f"{ctx.key}:{path}"):
             return self._send(429, {"error": "Trop de demandes en peu de temps. Patientez une minute."})
         if path == "/api/analyze":
             file_path = str(p.get("file_path") or "")
@@ -3453,7 +3621,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 spec = None
                 if sid:
                     try:
-                        spec = sources.get(sid, with_html=False).get("spec")
+                        spec = sources.spec_de(sid)
                     except KeyError:
                         sid = ""
                 res = build_dashboard(df, spec=spec or {"kpis": [], "graphiques": []}, correspondance=corr)
@@ -3483,6 +3651,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return self._send(200, res)
         if path == "/api/sources/refresh":  # relit la source, mêmes indicateurs : pas de quota IA
             return self._send(200, sources.refresh(str(p.get("id")), _read_df, build_dashboard))
+        if path == "/api/tableau/ajouter":  # graphique de la discussion → tableau de bord de son fichier
+            return self._send(200, ajouter_au_tableau(p.get("graphique_id")))
+        if path == "/api/tableau/retirer":
+            return self._send(200, retirer_du_tableau(str(p.get("source_id") or ""), str(p.get("id") or "")))
         if path == "/api/sources/freq":
             return self._send(200, sources.set_freq(str(p.get("id")), str(p.get("freq"))))
         if path == "/api/sources/delete":
