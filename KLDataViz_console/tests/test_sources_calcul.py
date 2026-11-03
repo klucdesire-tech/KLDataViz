@@ -34,6 +34,7 @@ def chat(monkeypatch):
         return server.llm_chat("Quelle est la somme ?", linked=liens)
     monkeypatch.setattr(server, "_llm_config", lambda: {"api_key": "x", "model": "m"})
     monkeypatch.setattr(server, "_registry_datasets", lambda: [])
+    monkeypatch.setattr(server, "_relire_chiffres", lambda q, a, m: (a, None))  # testée à part
     return server, question, envoye
 
 
@@ -259,3 +260,115 @@ def test_page_signale_un_graphique_non_dessine():
     from pathlib import Path
     html = (Path(__file__).resolve().parents[1] / "index.html").read_text(encoding="utf-8")
     assert "Ce graphique n’a pas pu être dessiné" in html
+
+
+
+# ---------- relecture des chiffres ----------
+
+def _reponse_avec_relecture(monkeypatch, reponse, controle, sortie_calcul="Tableau :\nposte | atypiques\nIntérêts | 15\nÉpargne | 4"):
+    """Un calcul, une réponse, puis la relecture simulée."""
+    reset_app_modules()
+    import server
+    tours = iter([json.dumps({"action": "calcul", "pourquoi": "compter", "code": "result = 1"}),
+                  json.dumps({"action": "reponse", "answer": reponse}), json.dumps(controle)])
+    monkeypatch.setattr(server, "_llm_config", lambda: {"api_key": "x", "model": "m"})
+    monkeypatch.setattr(server, "_registry_datasets", lambda: [])
+    monkeypatch.setattr(server, "_chat_llm", lambda *a, **k: next(tours))
+    monkeypatch.setattr(server, "_run_ai_code", lambda code, paths: {"result": {"kind": "scalar", "value": "1"}, "sortie": sortie_calcul})
+    server.T.state()["current_path"] = None
+    return server.llm_chat("Combien sont atypiques ?")
+
+
+def test_relecture_corrige_un_total_faux(monkeypatch):
+    """Vu le 2 novembre : « 15 de ces 47 » alors que les résultats donnaient 15 + 4."""
+    r = _reponse_avec_relecture(monkeypatch, "Seules 15 de ces 47 recettes sont atypiques.",
+                                {"erreurs": [{"faux": "Seules 15 de ces 47", "juste": "Seules 19 de ces 47", "preuve": "15 + 4"}]},
+                                "Tableau :\nposte | atypiques\nIntérêts | 15\nÉpargne | 4\ntotal recettes | 47")
+    assert r["answer"].startswith("Seules 19 de ces 47") and "1 chiffre corrigé" in r["answer"]
+    assert r["relecture"]["corriges"] == [{"faux": "Seules 15 de ces 47", "juste": "Seules 19 de ces 47"}]
+
+
+def test_relecture_refuse_un_chiffre_invente(monkeypatch):
+    r = _reponse_avec_relecture(monkeypatch, "Il y a 15 cas.", {"erreurs": [{"faux": "15 cas", "juste": "312 cas"}]})
+    assert "Il y a 15 cas." in r["answer"] and "312" not in r["answer"].split("⚠")[0]
+    assert r["relecture"]["signales"] == ["15 cas"] and "à vérifier avant de diffuser" in r["answer"]
+
+
+def test_relecture_ignore_un_extrait_absent(monkeypatch):
+    r = _reponse_avec_relecture(monkeypatch, "Il y a 15 cas.", {"erreurs": [{"faux": "texte qui n'existe pas", "juste": "19"}]})
+    assert r["answer"].startswith("Il y a 15 cas.") and r["relecture"] == {"corriges": [], "signales": []}
+
+
+def test_relecture_sans_erreur_ne_change_rien(monkeypatch):
+    r = _reponse_avec_relecture(monkeypatch, "Il y a 15 cas.", {"erreurs": []})
+    assert r["answer"] == "Il y a 15 cas."
+
+
+def test_relecture_illisible_laisse_la_reponse(monkeypatch):
+    r = _reponse_avec_relecture(monkeypatch, "Il y a 15 cas.", "pas du json")
+    assert r["answer"] == "Il y a 15 cas."
+
+
+def test_pas_de_relecture_sans_calcul(monkeypatch):
+    reset_app_modules()
+    import server
+    appels = []
+    monkeypatch.setattr(server, "_llm_config", lambda: {"api_key": "x", "model": "m"})
+    monkeypatch.setattr(server, "_registry_datasets", lambda: [])
+    monkeypatch.setattr(server, "_chat_llm", lambda *a, **k: appels.append(1) or json.dumps({"action": "reponse", "answer": "Bonjour."}))
+    server.T.state()["current_path"] = None
+    assert server.llm_chat("Bonjour")["answer"] == "Bonjour." and len(appels) == 1
+
+
+def test_consigne_interdit_les_additions_de_tete():
+    reset_app_modules()
+    import server
+    assert "N'additionne jamais de tête" in server.CHAT_METHODE
+
+
+def test_deux_questions_en_meme_temps_ne_melangent_pas_les_fichiers(tmp_path, monkeypatch):
+    """Vu au banc d'essai : deux questions simultanées du même utilisateur partageaient le fichier en cours et sa copie."""
+    import threading
+    reset_app_modules()
+    import server
+    monkeypatch.setattr(server, "_llm_config", lambda: {"api_key": "x", "model": "m"})
+    monkeypatch.setattr(server, "_registry_datasets", lambda: [])
+    vus, fichiers = {}, {}
+    for nom, col in (("a", "montant_a"), ("b", "montant_b")):
+        p = tmp_path / f"{nom}.csv"
+        pd.DataFrame({col: [1, 2, 3]}).to_csv(p, index=False)
+        fichiers[nom] = str(p)
+    barriere = threading.Barrier(2)
+
+    def calcul(code, paths):
+        chemin = next(iter(paths.values()))
+        barriere.wait(timeout=10)  # les deux questions ont préparé leur copie avant de calculer
+        vus[threading.current_thread().name] = list(pd.read_parquet(chemin).columns)
+        return {"result": {"kind": "scalar", "value": "1"}}
+    monkeypatch.setattr(server, "_run_ai_code", calcul)
+    monkeypatch.setattr(server, "_relire_chiffres", lambda q, a, m: (a, None))
+    tours = {n: iter([json.dumps({"action": "calcul", "pourquoi": "x", "code": "result = 1"}), json.dumps({"action": "reponse", "answer": "ok"})]) for n in "ab"}
+    monkeypatch.setattr(server, "_chat_llm", lambda *a, **k: next(tours[threading.current_thread().name]))
+
+    def question(nom):
+        with server.T.use(server.T.LOCAL):
+            server.llm_chat("somme", file_path=fichiers[nom])
+    with server.T.use(server.T.LOCAL):
+        avant = set(os.listdir(server.T.current().dir("tmp")))
+    t = [threading.Thread(target=question, args=(n,), name=n) for n in "ab"]
+    for x in t:
+        x.start()
+    for x in t:
+        x.join(timeout=30)
+    assert vus == {"a": ["montant_a"], "b": ["montant_b"]}
+    with server.T.use(server.T.LOCAL):
+        assert not [f for f in set(os.listdir(server.T.current().dir("tmp"))) - avant if f.startswith("courant_")]
+
+
+def test_fichiers_temporaires_effaces_apres_la_question(chat, tmp_path):
+    server, q, _ = chat
+    p = tmp_path / "ventes.csv"
+    _table().to_csv(p, index=False)
+    avant = set(os.listdir(server.T.current().dir("tmp")))
+    q(str(p))
+    assert {f for f in os.listdir(server.T.current().dir("tmp")) if f.startswith(("courant_", "lie_"))} - avant == set()
