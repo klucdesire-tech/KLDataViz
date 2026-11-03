@@ -7,6 +7,7 @@ Sert l'interface web sur http://localhost:8642
 import http.server, socketserver, json, os, io, threading, time, tempfile, urllib.request, urllib.error, base64, sys, subprocess, traceback
 import pandas as pd
 import numpy as np
+import uuid
 import openpyxl
 from openpyxl.styles import Font, PatternFill
 
@@ -2004,6 +2005,8 @@ CHAT_METHODE = (
     "- Dans la réponse, précise à quelle population se rapporte chaque chiffre (« sur les 43 intérêts sur prêts ») "
     "et ne présente jamais un chiffre d'un sous-groupe comme valant pour l'ensemble.\n"
     "- Une anomalie statistique n'est pas une erreur : dis ce que les données montrent, puis ce qui reste à vérifier sur pièces.\n"
+    "- N'additionne jamais de tête : tout total, effectif ou part que tu cites doit apparaître tel quel dans un résultat de calcul ; "
+    "sinon, calcule-le d'abord.\n"
 )
 
 
@@ -2081,6 +2084,54 @@ def _charts_list(chart):
     return [p for p in map(_chart_propre, chart if isinstance(chart, list) else [chart]) if p]
 
 
+RELECTURE = """Tu es contrôleur des chiffres d'une réponse d'analyse. Tu reçois la question, les résultats RÉELS des calculs, puis
+la réponse rédigée. Ton seul travail : trouver les chiffres faux.
+
+Pour chaque nombre de la réponse (effectif, total, part, moyenne, écart, rang) :
+- retrouve-le dans les résultats, avec la même population (même filtre, même groupe) ;
+- un total qui réunit plusieurs groupes doit être la somme exacte des résultats de ces groupes ;
+- « X sur Y », « X d'entre elles » : X et Y doivent désigner les mêmes lignes que dans les résultats.
+
+Ne signale que ce que les résultats contredisent. Ne touche ni au style ni aux hypothèses. Le remplacement ne contient
+que des chiffres présents dans les résultats ou leur somme. Si aucun résultat ne permet de corriger, laisse "juste" vide.
+
+Réponds uniquement en JSON : {"erreurs": [{"faux": "extrait exact de la réponse", "juste": "extrait corrigé", "preuve": "ligne de résultat"}]}"""
+
+
+def _relire_chiffres(question, answer, messages):
+    """Relecture des chiffres face aux résultats réels. Une correction n'est appliquée que si l'extrait existe tel quel et
+    que ses chiffres se retrouvent dans les calculs ; sinon l'extrait est seulement signalé. Jamais bloquant."""
+    import verif_chiffres as V
+    resultats = "\n\n".join(m["content"] for m in messages
+                              if m.get("role") == "user" and str(m.get("content", "")).startswith("Résultat réel du calcul"))
+    if not resultats:
+        return answer, None
+    try:
+        brut = _chat_llm([{"role": "system", "content": RELECTURE},
+                          {"role": "user", "content": f"QUESTION :\n{question}\n\nRÉSULTATS :\n{resultats[:24000]}\n\nRÉPONSE :\n{answer}"}],
+                         4000)
+        erreurs = (_parse_llm_json(brut or "") or {}).get("erreurs") or []
+    except Exception as e:  # la relecture est un plus : la réponse part telle quelle
+        sys.stderr.write(f"[chat] relecture des chiffres impossible : {type(e).__name__} : {e}\n")
+        return answer, None
+    refs = V.sources(resultats)
+    corriges, signales = [], []
+    for e in erreurs if isinstance(erreurs, list) else []:
+        faux, juste = str((e or {}).get("faux") or "").strip(), str((e or {}).get("juste") or "").strip()
+        if not faux or faux not in answer:
+            continue
+        if juste and juste != faux and not V.verifier(juste, refs) and V.nombres(juste):
+            answer = answer.replace(faux, juste, 1)
+            corriges.append({"faux": faux, "juste": juste})
+        else:
+            signales.append(faux)
+    if corriges:
+        answer += f"\n\n✓ Relecture : {len(corriges)} chiffre{'s' if len(corriges) > 1 else ''} corrigé{'s' if len(corriges) > 1 else ''} d'après les calculs."
+    if signales:
+        answer += "\n\n⚠ Relecture : à vérifier avant de diffuser : " + " ; ".join(f"« {x[:80]} »" for x in signales[:3]) + "."
+    return answer, {"corriges": corriges, "signales": signales}
+
+
 def _verifier_chiffres(answer, messages, etapes):
     """Anti-hallucination : chaque chiffre significatif de la réponse doit venir des calculs exécutés ou des données
     fournies à l'IA (jamais de ses propres messages). Un chiffre introuvable est signalé, la réponse reste affichée."""
@@ -2126,12 +2177,26 @@ def _reponse_immediate(question, df, nom):
     return None
 
 
-def llm_chat(question, ui_context=None, history=None, progress=None, linked=None):
+def llm_chat(question, ui_context=None, history=None, progress=None, linked=None, file_path=None):
+    """Voir `_llm_chat`. `file_path` : le fichier de CETTE question ; à défaut, le fichier en cours de l'utilisateur. Les copies de données préparées pour le calcul sont propres à la question et effacées ensuite :
+    deux questions en même temps (deux onglets) lisaient sinon le même fichier, et l'une répondait sur les données de l'autre."""
+    temporaires = []
+    try:
+        return _llm_chat(question, ui_context, history, progress, linked, temporaires, file_path)
+    finally:
+        for f in temporaires:
+            try:
+                os.remove(f)
+            except OSError:
+                pass
+
+
+def _llm_chat(question, ui_context, history, progress, linked, temporaires, file_path=None):
     """Agent d'analyse : l'IA enchaîne des calculs (exécutés dans le bac à sable), lit leurs résultats
     réels, puis rédige sa réponse. `progress(texte)` reçoit l'étape en cours (affichage en direct).
     `linked` : [{path, name}] fichiers liés au fichier en cours (autres feuilles du classeur, fichiers croisés)."""
     progress = progress or (lambda _t: None)
-    cur_path = T.state()["current_path"]
+    cur_path = file_path or T.state()["current_path"]
     if cur_path:  # question de structure sans condition : réponse immédiate sur le fichier en cours, sans IA
         _df0, _e0 = _read_df(cur_path)
         if _df0 is None:  # jamais de réponse sur un autre jeu de données à la place de la source demandée
@@ -2179,7 +2244,8 @@ def llm_chat(question, ui_context=None, history=None, progress=None, linked=None
             continue
         lname = str(item.get("name") or source_label(lp))
         # Copie parquet pour le bac à sable (qui ne lit que parquet/CSV), comme le fichier en cours
-        tmp = os.path.join(T.current().dir("tmp"), f"lie_{T.current().key[:12]}_{len(linked_paths)}.parquet")
+        tmp = os.path.join(T.current().dir("tmp"), f"lie_{uuid.uuid4().hex}.parquet")
+        temporaires.append(tmp)
         _save_table(ldf, tmp)
         linked_paths[lname] = tmp
         context.insert(1, {"name": lname, "fichier_lie_au_fichier_en_cours": True, "lignes": int(len(ldf)),
@@ -2209,7 +2275,8 @@ def llm_chat(question, ui_context=None, history=None, progress=None, linked=None
         if paths is None:
             paths = {}
             if current_df is not None:  # en premier : c'est le `df` du calcul
-                _cur = os.path.join(T.current().dir("tmp"), f"courant_{T.current().key[:12]}.parquet")
+                _cur = os.path.join(T.current().dir("tmp"), f"courant_{uuid.uuid4().hex}.parquet")
+                temporaires.append(_cur)
                 _save_table(current_df, _cur)
                 paths[current_name] = _cur
             paths.update(linked_paths)
@@ -2265,10 +2332,14 @@ def llm_chat(question, ui_context=None, history=None, progress=None, linked=None
                          {"role": "user", "content": "Plus de calcul possible : conclus avec action \"reponse\"."}]
             continue
         show = data.get("montrer_tableau", True) is not False
+        relecture = None
+        if etapes and answer:
+            progress("Adifa’ relit ses chiffres…")
+            answer, relecture = _relire_chiffres(question, answer, messages)
         answer, douteux = _verifier_chiffres(answer or "(réponse vide)", messages, etapes)
         return {"answer": answer, "type": "table" if (last_table and show) else "text",
                 "table": last_table if show else None, "charts": _charts_list(last_chart), "etapes": etapes,
-                "chiffres_non_verifies": douteux}
+                "chiffres_non_verifies": douteux, "relecture": relecture}
     last = etapes[-1]["resultat"] if etapes else ""
     return {"answer": "Je n'ai pas pu conclure dans le temps imparti. Dernier résultat obtenu :\n" + last,
             "type": "table" if last_table else "text", "table": last_table, "charts": _charts_list(last_chart),
@@ -3479,9 +3550,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 cloud.consume(ctx, "ai")
             history = p.get("historique") if isinstance(p.get("historique"), list) else None
 
+            chemin = st.get("current_path")  # fixé maintenant : une autre question peut le changer avant le calcul
+
             def answer(progress=None):
                 linked = p.get("fichiers_lies") if isinstance(p.get("fichiers_lies"), list) else None
-                resp = llm_chat(question, p.get("contexte"), history, progress, linked)
+                resp = llm_chat(question, p.get("contexte"), history, progress, linked, chemin)
                 return resp if resp is not None else chat_query(question)  # repli par règles sans IA
             if path == "/api/chat/start":  # plusieurs allers-retours avec l'IA : tâche de fond suivie en direct
                 return self._send(200, start_job(answer))
