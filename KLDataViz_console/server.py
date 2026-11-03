@@ -2040,7 +2040,35 @@ CHAT_METHODE = (
     "- Une anomalie statistique n'est pas une erreur : dis ce que les données montrent, puis ce qui reste à vérifier sur pièces.\n"
     "- N'additionne jamais de tête : tout total, effectif ou part que tu cites doit apparaître tel quel dans un résultat de calcul ; "
     "sinon, calcule-le d'abord.\n"
+    "- Quand un nom (district, site, période) finit par un chiffre, sépare-le de sa valeur par « : » (« Korhogo 2 : 755,5 »), "
+    "jamais par une simple espace : « Korhogo 2 755,5 » se lit 2 755,5.\n"
 )
+
+
+def _noms_finissant_par_chiffre(df, max_valeurs=2000):
+    """Valeurs texte du fichier qui se terminent par un chiffre (« Korhogo 2 », « Semaine 12 »), les plus longues d'abord."""
+    noms = set()
+    if df is None:
+        return []
+    for c in df.columns:
+        col = df[c]
+        if not (pd.api.types.is_string_dtype(col) or isinstance(col.dtype, pd.CategoricalDtype)):
+            continue
+        valeurs = col.dropna().astype(str).str.strip().unique()
+        if len(valeurs) > max_valeurs:
+            continue
+        noms.update(v for v in valeurs if 2 < len(v) <= 80 and v[-1].isdigit() and re.search(r"[^\W\d_]", v))
+    return sorted(noms, key=len, reverse=True)
+
+
+def _separer_noms_chiffres(texte, noms):
+    """« Korhogo 2 755,5 » devient « Korhogo 2 : 755,5 » : le chiffre final du nom ne se lit plus comme un millier.
+    Sans effet si le nom est déjà suivi de « : », d'une parenthèse ou d'un mot."""
+    if not texte or not noms:
+        return texte
+    for nom in noms:
+        texte = re.sub(rf"(?<![\w]){re.escape(nom)}(?=[ \u00a0\u202f]+[-−]?\d)", nom + " :", texte)
+    return texte
 
 
 def _chat_llm(messages, max_tokens=8000):
@@ -2370,6 +2398,7 @@ def _llm_chat(question, ui_context, history, progress, linked, temporaires, file
             progress("Adifa’ relit ses chiffres…")
             answer, relecture = _relire_chiffres(question, answer, messages)
         answer, douteux = _verifier_chiffres(answer or "(réponse vide)", messages, etapes)
+        answer = _separer_noms_chiffres(answer, _noms_finissant_par_chiffre(current_df))
         return {"answer": answer, "type": "table" if (last_table and show) else "text",
                 "table": last_table if show else None, "charts": _charts_list(last_chart), "etapes": etapes,
                 "chiffres_non_verifies": douteux, "relecture": relecture}
