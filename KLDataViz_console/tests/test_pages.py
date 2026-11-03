@@ -49,3 +49,11 @@ def test_bouton_du_chat_flotte():
     assert "animation:flotte" in html and "@keyframes flotte" in html
     assert ".fab:hover{animation-play-state:paused" in html
     assert "@media (prefers-reduced-motion:reduce){.fab{animation:none}}" in html
+
+
+def test_touches_de_bleu_du_logo():
+    """Le bleu pétrole du logo accompagne le vert : jeton commun, dégradé, et un bleu propre au thème sombre."""
+    html = open(os.path.join(BASE, "index.html"), encoding="utf-8").read()
+    assert "--blue:#0B6E99; --blue-soft:#DDEEF6;" in html and html.count("--blue:#5DB8E3; --blue-soft:#14303D;") == 2
+    assert "--grad:linear-gradient(135deg,var(--brand) 0%,var(--blue) 100%)" in html
+    assert html.count("background:var(--grad)") >= 4  # bouton Adifa’, avatar, étape en cours, trait du haut
