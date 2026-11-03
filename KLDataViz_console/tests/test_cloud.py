@@ -348,6 +348,21 @@ def test_erreur_interne_relevee_par_la_surveillance(base, monkeypatch):
     assert code == 500 and "ZeroDivisionError" in inc["resume"] and "Aya" not in inc["resume"] and inc["espace"] == ORG_A
 
 
+def test_detecteur_de_robots_a_la_connexion(base, monkeypatch):
+    """Clé publique exposée seulement si elle est propre ; Cloudflare autorisé par la politique de sécurité."""
+    def config():
+        return call(base, "/config.js", raw=True)[1].decode()
+    monkeypatch.delenv("TURNSTILE_SITE_KEY", raising=False)
+    assert "turnstileSiteKey" not in config()
+    monkeypatch.setenv("TURNSTILE_SITE_KEY", "0x4AAAAAAAabcdefGHIJ")
+    assert '"turnstileSiteKey": "0x4AAAAAAAabcdefGHIJ"' in config()
+    monkeypatch.setenv("TURNSTILE_SITE_KEY", '"; alert(1); "')
+    assert "turnstileSiteKey" not in config()
+    assert "frame-src https://challenges.cloudflare.com" in server.CSP and "https://challenges.cloudflare.com;" in server.CSP
+    page = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "login.html"), encoding="utf-8").read()
+    assert page.count("captchaToken:await jetonRobot()") == 3  # connexion, inscription, mot de passe oublié
+
+
 def test_pages_montrent_les_envois():
     dossier = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     page = open(os.path.join(dossier, "index.html"), encoding="utf-8").read()

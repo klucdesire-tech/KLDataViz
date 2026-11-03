@@ -2946,10 +2946,11 @@ if T.CLOUD:  # en ligne : page d'accueil publique, application sur /app, adminis
 else:
     STATIC.update({"/classic": ("index_classic.html", "text/html"), "/index_classic.html": ("index_classic.html", "text/html")})
 VIEWER_POST = {"/api/chat", "/api/chat/start", "/api/insights"}  # seules actions permises au rôle « lecteur »
-CSP = ("default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+# challenges.cloudflare.com : détecteur de robots (Turnstile) de la page de connexion
+CSP = ("default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://challenges.cloudflare.com; "
        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; "
        "img-src 'self' data: blob:; connect-src 'self' " + (os.environ.get("SUPABASE_URL", "") or "") +
-       "; frame-ancestors 'none'; base-uri 'self'; form-action 'self'")
+       "; frame-src https://challenges.cloudflare.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'")
 
 _rate, _rate_lock = {}, threading.Lock()
 
@@ -3139,6 +3140,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 cfg = {"cloud": T.CLOUD}
                 if T.CLOUD:
                     cfg.update(supabaseUrl=cloud.SUPABASE_URL, supabaseAnonKey=cloud.SUPABASE_ANON_KEY)
+                    # Clé publique du détecteur de robots ; sa clé secrète est dans Supabase, qui fait la vérification
+                    cle = (os.environ.get("TURNSTILE_SITE_KEY") or "").strip()
+                    if re.fullmatch(r"[0-9A-Za-z_-]{10,100}", cle):
+                        cfg["turnstileSiteKey"] = cle
                 return self._send(200, "window.KLDV=" + json.dumps(cfg) + ";", "application/javascript")
             if method == "GET" and path.startswith("/download/"):
                 return self._download()

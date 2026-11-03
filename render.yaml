@@ -47,3 +47,5 @@ services:
         sync: false
       - key: APP_URL              # ex. https://kldataviz.onrender.com
         sync: false
+      - key: TURNSTILE_SITE_KEY   # clé publique Cloudflare Turnstile (détecteur de robots) ; la secrète va dans Supabase
+        sync: false
