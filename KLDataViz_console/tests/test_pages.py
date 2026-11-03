@@ -16,3 +16,12 @@ def test_elements_cibles_presents(page):
     used = set(re.findall(r"\$\('#([\w-]+)'\)", html))
     manquants = sorted(used - ids)
     assert not manquants, f"{page} : éléments utilisés mais absents : {manquants}"
+
+
+def test_bouton_flottant_du_chat():
+    """Le bouton qui rouvre la discussion flotte en bas à droite, hors de la barre du haut, avec un compteur."""
+    html = open(os.path.join(BASE, "index.html"), encoding="utf-8").read()
+    haut = html[html.index('<div class="top">'):html.index('<div id="annBar"')]
+    assert 'id="chatOpen"' not in haut and 'class="fab" id="chatOpen"' in html
+    assert re.search(r"\.fab\{[^}]*position:fixed;right:24px", html)
+    assert "nonLus(nonLus()+1)" in html and "if(on)nonLus(0)" in html
