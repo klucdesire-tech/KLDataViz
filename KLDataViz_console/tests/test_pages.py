@@ -25,3 +25,10 @@ def test_bouton_flottant_du_chat():
     assert 'id="chatOpen"' not in haut and 'class="fab" id="chatOpen"' in html
     assert re.search(r"\.fab\{[^}]*position:fixed;right:24px", html)
     assert "nonLus(nonLus()+1)" in html and "if(on)nonLus(0)" in html
+
+
+def test_contenu_sur_toute_la_largeur():
+    """Les pages occupent toute la largeur disponible (plus de plafond à 1100 px)."""
+    html = open(os.path.join(BASE, "index.html"), encoding="utf-8").read()
+    vue = re.search(r"\n\.view\{([^}]*)\}", html).group(1)
+    assert "max-width" not in vue
