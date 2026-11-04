@@ -834,6 +834,13 @@ body{font-family:'Fira Sans',system-ui,-apple-system,'Segoe UI',sans-serif;backg
 .top p{color:var(--muted);font-size:13px;margin-top:4px;max-width:640px}
 .chip{display:inline-flex;align-items:center;gap:8px;background:var(--card);border:1px solid var(--line);border-radius:999px;padding:8px 14px;font-size:12.5px;color:var(--muted);white-space:nowrap}
 .chip svg{width:15px;height:15px;stroke:currentColor;fill:none;stroke-width:1.8}
+button.chip{font:inherit;font-size:12.5px;cursor:pointer}button.chip:hover{border-color:var(--navy)}
+button.chip.on{background:var(--navy);border-color:var(--navy);color:#fff}
+.rangew{position:relative}.perpop{position:absolute;right:0;top:calc(100% + 6px);z-index:30;background:var(--card);border:1px solid var(--line);
+  border-radius:14px;box-shadow:0 10px 30px rgba(22,33,62,.14);padding:12px 14px;display:grid;gap:8px;min-width:250px}
+.perpop .acts{display:flex;justify-content:space-between;gap:8px}
+.perpop{max-width:calc(100vw - 32px)}@media (max-width:600px){body:not(.embedded) .perpop{left:0;right:auto}}
+.perpop .acts button{border:0;background:none;font:inherit;font-size:12px;color:var(--navy);font-weight:600;cursor:pointer;padding:4px 0}
 .filters{display:flex;flex-wrap:wrap;align-items:flex-end;gap:12px 20px;margin-bottom:16px}
 .more{border:0;background:none;color:var(--navy);font:inherit;font-size:12.5px;font-weight:600;cursor:pointer;min-height:32px;padding:0 4px;text-decoration:underline;text-underline-offset:3px}
 .extra{display:contents}.extra[hidden]{display:none}
@@ -958,7 +965,8 @@ body.embedded{min-height:0;overflow:hidden}html:has(body.embedded){overflow:hidd
 .dict-abs li{margin:2px 0;break-inside:avoid;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 __COMPO_CSS__</style></head><body>
 <header class="top"><div class="title"><h1>Tableau de bord</h1><p id="objective"></p></div>
-  <span class="chip" id="range" hidden><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg><span></span></span></header>
+  <div class="rangew"><button type="button" class="chip" id="range" hidden aria-haspopup="true" aria-expanded="false" title="Choisir la période"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg><span></span></button>
+  <div class="perpop" id="perpop" hidden></div></div></header>
 <div class="filters" id="filters"></div>
 <section class="kpis" id="kpis" aria-label="Indicateurs clés"></section>
 <section class="gaps card" id="gaps" hidden></section>
@@ -1034,7 +1042,8 @@ function boitePeriode(){var box=document.createElement('div');box.className='f';
   var opt=function(cur,vide){return '<option value="">'+vide+'</option>'+MOISDISPO.map(function(k){return '<option value="'+k+'"'+(cur===k?' selected':'')+'>'+esc(moisNom(k))+'</option>'}).join('')};
   var du=document.createElement('select'),au=document.createElement('select');du.setAttribute('aria-label','Début de période');au.setAttribute('aria-label','Fin de période');
   du.innerHTML=opt(PER.du,'Début');au.innerHTML=opt(PER.au,'Fin');
-  var maj=function(){PER.du=du.value||null;PER.au=au.value||null;if(PER.du&&PER.au&&PER.du>PER.au){var t=PER.du;PER.du=PER.au;PER.au=t;du.value=PER.du;au.value=PER.au}render()};
+  var maj=function(){PER.du=du.value||null;PER.au=au.value||null;if(PER.du&&PER.au&&PER.du>PER.au){var t=PER.du;PER.du=PER.au;PER.au=t;du.value=PER.du;au.value=PER.au}
+    periodeChangee()};
   du.onchange=maj;au.onchange=maj;w.appendChild(du);var fl=document.createElement('i');fl.textContent='→';w.appendChild(fl);w.appendChild(au);box.appendChild(w);return box}
 function buildFilters(){var el=document.getElementById('filters');el.innerHTML='';var F=META.filters||[];
   if(!F.length&&MOISDISPO.length<2){el.style.display='none';return}
@@ -1371,7 +1380,23 @@ try{if(window.self!==window.top)document.body.classList.add('embedded')}catch(e)
 // Intégré : la page parente ajuste la hauteur du cadre au contenu (pas d'ascenseur interne)
 if(document.body.classList.contains('embedded')){var lastH=0,sendH=function(){var h=Math.ceil(document.body.getBoundingClientRect().height);if(Math.abs(h-lastH)>2){lastH=h;parent.postMessage({kldvHeight:h},'*')}};
   if(window.ResizeObserver)new ResizeObserver(sendH).observe(document.body);window.addEventListener('load',sendH);setTimeout(sendH,300)}
-if(META.range){var r=document.getElementById('range');r.hidden=false;r.querySelector('span').textContent=META.range}
+// Puce de dates : affiche la période en cours ; un clic ouvre « Début → Fin » (même filtre que dans la barre)
+function majPuce(){var r=document.getElementById('range');if(!META.range&&MOISDISPO.length<2)return;r.hidden=false;
+  r.querySelector('span').textContent=perActive()?(PER.du&&PER.au?(PER.du===PER.au?moisNom(PER.du):moisNom(PER.du)+' – '+moisNom(PER.au))
+    :PER.du?'Depuis '+moisNom(PER.du):'Jusqu’à '+moisNom(PER.au)):(META.range||moisNom(MOISDISPO[0])+' – '+moisNom(MOISDISPO[MOISDISPO.length-1]));
+  r.classList.toggle('on',perActive())}
+function periodeChangee(){buildFilters();majPuce();var pp=document.getElementById('perpop');if(!pp.hidden)ouvrirPeriode(true);render()}
+function ouvrirPeriode(garder){var pp=document.getElementById('perpop'),r=document.getElementById('range');
+  if(!garder&&!pp.hidden){pp.hidden=true;r.setAttribute('aria-expanded','false');return}
+  pp.innerHTML='';pp.appendChild(boitePeriode());var a=document.createElement('div');a.className='acts';
+  a.innerHTML='<button type="button" data-p="tout">Toute la période</button><button type="button" data-p="fermer">Fermer</button>';pp.appendChild(a);
+  a.onclick=function(e){var b=e.target.closest('button');if(!b)return;if(b.dataset.p==='tout'){PER.du=null;PER.au=null;periodeChangee()}
+    pp.hidden=true;r.setAttribute('aria-expanded','false')};
+  pp.hidden=false;r.setAttribute('aria-expanded','true');if(!garder){var s0=pp.querySelector('select');if(s0)s0.focus()}}
+if(MOISDISPO.length>=2)document.getElementById('range').onclick=function(){ouvrirPeriode(false)};
+else document.getElementById('range').disabled=true;
+document.addEventListener('keydown',function(e){if(e.key==='Escape'){var pp=document.getElementById('perpop');if(!pp.hidden){pp.hidden=true;document.getElementById('range').setAttribute('aria-expanded','false')}}});
+majPuce();
 buildFilters();render();
 </script>
 </body></html>
