@@ -200,3 +200,19 @@ def test_filtre_qui_casse_le_calcul_signale(env):
     assert variantes["[]"][0]["values"] == [[10.0, 9.0], [12.0, 14.0]]
     page = server._avec_ajouts('<section class="row3" id="row3"></section></body>', [{"code": CODE_PAR_SEXE, "jeu": "x"}], df, filtres)
     assert '"compare": ["sexe"]' in page and "il compare les" in page and "intersect:false" in page
+
+
+def test_retirer_au_survol(env):
+    """« Retirer » vit dans le graphique ajouté ; il n'apparaît que si l'application l'autorise (jamais dans l'e-mail
+    ni le lien partagé) ; l'application exécute le retrait."""
+    import os
+    server, chemin, question, _ = env
+    server.do_dashboard(chemin, "Ventes")
+    s = server.ajouter_au_tableau(question()["graphique_id"])
+    sec = _section(s["html"])
+    assert f'"id": "{s["ajouts"][0]["id"]}"' in sec
+    assert "var MOD=false" in sec and "e.data.kldvModifiable" in sec and "kldvRetirer" in sec and "#DC2626" in sec
+    page = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "index.html"), encoding="utf-8").read()
+    assert 'id="dbAjouts"' not in page                         # plus de liste au-dessus du tableau
+    assert "e.data.kldvRetirer" in page and "postMessage({kldvModifiable:true}" in page
+    assert "state.me?.role!=='viewer'" in page.split("postMessage({kldvModifiable:true}")[0][-300:]  # pas pour les lecteurs

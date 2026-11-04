@@ -2379,6 +2379,23 @@ function dessin(id,c){var cv=document.getElementById(id);if(!cv)return null;var 
   return new Chart(cv,{type:t,data:{labels:c.labels.map(label),datasets:ds},options:{responsive:true,maintainAspectRatio:false,indexAxis:h?'y':'x',interaction:survol,
     plugins:{legend:{display:multi,position:'bottom',labels:{boxWidth:10,usePointStyle:true}},tooltip:tip},scales:sc}})}
 function enveloppe(h){return '<div class="aj-kl" style="display:contents">'+h+'</div>'}
+var MOD=false;  // vrai seulement si l'application qui affiche le tableau autorise la modification
+// Petit bouton rouge (corbeille + « Retirer ») ; premier clic : « Confirmer », second : retrait
+var POUBELLE='<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" '
+  +'stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/></svg>';
+function retirer(a){return MOD&&a.id?'<button type="button" class="aj-ret" data-aj="'+esc(a.id)+'" aria-label="Retirer « '+esc(a.titre)
+  +' » du tableau de bord">'+POUBELLE+'<span>Retirer</span></button>':''}
+(function(){var st=document.createElement('style');st.textContent='.aj-ret{flex:none;display:inline-flex;align-items:center;gap:4px;border:0;'
+  +'background:#DC2626;color:#fff;font:inherit;font-size:11px;font-weight:600;border-radius:999px;padding:3px 9px;min-height:24px;cursor:pointer;'
+  +'box-shadow:0 1px 3px rgba(220,38,38,.35);opacity:0;transition:opacity .15s,background .15s}'
+  +'.aj-kl .card:hover .aj-ret,.aj-kl .card:focus-within .aj-ret,.aj-ret.conf{opacity:1}.aj-ret:hover{background:#B91C1C}'
+  +'.aj-ret:focus-visible{outline:2px solid #DC2626;outline-offset:2px}.aj-ret.conf{background:#991B1B}'
+  +'@media (hover:none){.aj-ret{opacity:1}}';document.head.appendChild(st)})();
+window.addEventListener('message',function(e){if(e.source===window.parent&&e.data&&e.data.kldvModifiable&&!MOD){MOD=true;maj()}});
+document.addEventListener('click',function(e){var b=e.target.closest&&e.target.closest('.aj-ret');if(!b)return;var t=b.querySelector('span');
+  if(!b.classList.contains('conf')){b.classList.add('conf');t.textContent='Confirmer';
+    setTimeout(function(){if(b.isConnected&&!b.disabled){b.classList.remove('conf');t.textContent='Retirer'}},6000);return}
+  b.disabled=true;t.textContent='Retrait…';window.parent.postMessage({kldvRetirer:b.dataset.aj},'*')});
 function maj(){G.forEach(function(g){g.destroy()});G=[];[].forEach.call(document.querySelectorAll('.aj-kl'),function(n){n.remove()});
   var f=cle(),grille=document.getElementById('row3'),repli=document.getElementById('ajoutsAdifa'),cible=grille||repli,html='',todo=[];
   if(repli)repli.hidden=cible!==repli;
@@ -2390,15 +2407,15 @@ function maj(){G.forEach(function(g){g.destroy()});G=[];[].forEach.call(document
     else if(f.actifs.length)note='filtré : '+f.actifs.map(function(p){return label(p[1])}).join(' · ');
     var sous=SUB+(note?' · '+note:'');
     if(!v||!v.length){html+=enveloppe(card('<p style="color:var(--muted);font-size:13px;margin:0">Recalcul impossible sur les données actuelles'
-      +(a.erreur?' : '+esc(a.erreur):'')+'.</p>',a.titre,SUB));return}
+      +(a.erreur?' : '+esc(a.erreur):'')+'.</p>',a.titre,SUB,retirer(a)));return}
     v.forEach(function(c,j){var id='aj'+i+'_'+j,titre=c.title||a.titre,
         s=genre(c)==='bar'&&c.values.length===1?sous+' · ligne : moyenne '+fmt(moyenne(c)):sous;  // comme ses barres
-      html+=enveloppe(card(corps(id,c,titre),titre,s));todo.push([id,c])})});
+      html+=enveloppe(card(corps(id,c,titre),titre,s,j===0?retirer(a):''));todo.push([id,c])})});
   cible.insertAdjacentHTML('beforeend',html);todo.forEach(function(x){var g=dessin(x[0],x[1]);if(g)G.push(g)})}
 // Ce script passe avant celui du tableau de bord : on attend ses outils et sa fonction render() pour s'y accrocher
 function go(){if(!window.Chart||typeof window.render!=='function'||typeof window.card!=='function')return setTimeout(go,100);
   if(!window.render.kl){var r=window.render;window.render=function(){var x=r.apply(this,arguments);maj();return x};window.render.kl=1}maj()}
-var attente=null;function plusTard(){clearTimeout(attente);attente=setTimeout(maj,60)}
+var attente=null;function plusTard(e){if(e&&e.target&&e.target.closest&&e.target.closest('.aj-ret'))return;clearTimeout(attente);attente=setTimeout(maj,60)}
 document.addEventListener('click',plusTard);document.addEventListener('change',plusTard);  // filtres, classement cliquable
 setTimeout(go,0)})();"""
 
@@ -2411,8 +2428,8 @@ def _avec_ajouts(html_page, ajouts, df, filtres=None):
         variantes, erreur, complet = _rejouer_ajout(a, df, filtres)
         code = str(a.get("code") or "")
         compare = [f["col"] for f in filtres or [] if f"'{f['col']}'" in code or f'"{f["col"]}"' in code]
-        donnees.append({"titre": str(a.get("titre") or "Graphique"), "variantes": variantes, "complet": complet, "erreur": erreur,
-                        "compare": compare})
+        donnees.append({"id": str(a.get("id") or ""), "titre": str(a.get("titre") or "Graphique"), "variantes": variantes,
+                        "complet": complet, "erreur": erreur, "compare": compare})
     # « < » échappé partout : aucun texte des données ne peut fermer ni ouvrir de balise dans le script
     sur = lambda o: json.dumps(_json_safe(o), ensure_ascii=False).replace("<", "\\u003c")
     js = AJOUTS_JS.replace("__A__", sur(donnees)).replace("__F__", sur([f["col"] for f in filtres or [] if f.get("col") in df.columns]))
