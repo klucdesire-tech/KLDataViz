@@ -211,8 +211,56 @@ def test_retirer_au_survol(env):
     s = server.ajouter_au_tableau(question()["graphique_id"])
     sec = _section(s["html"])
     assert f'"id": "{s["ajouts"][0]["id"]}"' in sec
-    assert "var MOD=false" in sec and "e.data.kldvModifiable" in sec and "kldvRetirer" in sec and "#DC2626" in sec
+    assert "MOD=false" in sec and "e.data.kldvModifiable" in sec and "kldvRetirer" in sec and "#DC2626" in sec
     page = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "index.html"), encoding="utf-8").read()
     assert 'id="dbAjouts"' not in page                         # plus de liste au-dessus du tableau
-    assert "e.data.kldvRetirer" in page and "postMessage({kldvModifiable:true}" in page
-    assert "state.me?.role!=='viewer'" in page.split("postMessage({kldvModifiable:true}")[0][-300:]  # pas pour les lecteurs
+    assert "e.data.kldvRetirer" in page
+    # les lecteurs reçoivent seulement kldvApp (calcul à la demande), pas kldvModifiable
+    assert "postMessage(!CLOUD||state.me?.role!=='viewer'?{kldvModifiable:true}:{kldvApp:true},'*')" in page
+
+
+def _ventes_datees():
+    return pd.DataFrame({"date_vente": ["2025-01-10", "2025-01-20", "2025-02-05", "2025-02-25", "2025-03-03", "2025-03-30"],
+                         "zone": ["Nord", "Sud", "Nord", "Sud", "Nord", "Sud"], "montant": [100.0, 200.0, 300.0, 400.0, 500.0, 600.0]})
+
+
+def test_variante_a_la_demande_filtres_et_periode(env):
+    """Combinaison non précalculée ou période : le serveur recalcule le graphique ajouté sur les seules lignes retenues."""
+    server, chemin, question, _ = env
+    _ventes_datees().to_csv(chemin, index=False)
+    server.do_dashboard(chemin, "Ventes")
+    s = server.ajouter_au_tableau(question()["graphique_id"])
+    sid, aid = s["id"], s["ajouts"][0]["id"]
+    r = server.variante_ajout(sid, aid, [["zone", "Nord"]], "2025-02", "2025-03")
+    assert r["lignes"] == 2 and r["charts"][0]["values"] == [[300.0, 500.0]]
+    assert server.variante_ajout(sid, aid, [], "2025-03", None)["charts"][0]["values"] == [[500.0, 600.0]]
+    assert server.variante_ajout(sid, aid, [["zone", "Ouest"]], None, None) == {"charts": [], "lignes": 0}
+    with pytest.raises(ValueError, match="Période invalide"):
+        server.variante_ajout(sid, aid, [], "mars", None)
+    with pytest.raises(ValueError, match="Filtre invalide"):
+        server.variante_ajout(sid, aid, [["inconnue", "x"]], None, None)
+    with pytest.raises(KeyError):
+        server.variante_ajout(sid, "autre", [], None, None)
+
+
+def test_page_filtre_de_periode_et_suivi(env):
+    server, chemin, question, _ = env
+    _ventes_datees().to_csv(chemin, index=False)
+    server.do_dashboard(chemin, "Ventes")
+    html = server.ajouter_au_tableau(question()["graphique_id"])["html"]
+    # le tableau de bord a son filtre « Du … Au … », appliqué à toutes ses lignes
+    assert "function boitePeriode()" in html and "return inPer(r)&&FCOLS.every" in html
+    sec = _section(html)
+    # graphiques ajoutés : coupe des courbes dans le temps, série gardée, calcul à la demande
+    assert "function rogner(" in sec and "function garder(" in sec and "kldvVariante" in sec and "window.PER" in sec
+
+
+def test_couleurs_demandees(env):
+    server = env[0]
+    assert server._couleurs(["rouge", "#1d7a4c", "bleu foncé", "chartreuse"]) == ["#DC2626", "#1D7A4C", "#1E3A8A", None]
+    assert server._couleurs("vert") == ["#16A34A"] and server._couleurs(["inconnue"]) is None and server._couleurs(None) is None
+    c = server._chart_propre({"type": "bar", "labels": ["F", "M"], "values": [[1, 2]], "colors": ["rose", "bleu"]})
+    assert c["colors"] == ["#DB2777", "#2563EB"]
+    assert "colors" not in server._chart_propre({"type": "bar", "labels": ["F"], "values": [[1]], "colors": ["???"]})
+    assert "COULEURS : si l'utilisateur en demande" in server.CHAT_METHODE or "COULEURS : si l'utilisateur en demande" in open(
+        server.__file__, encoding="utf-8").read()
