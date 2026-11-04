@@ -637,6 +637,7 @@ tr.versions td{background:var(--surface-2);font-size:13px}
           </div>
         </div>
         <div class="card" id="corrPanel" hidden style="margin-bottom:14px"></div>
+        <div class="card" id="dbAjouts" hidden style="margin-bottom:12px"></div>
         <div id="dbBody"><div class="card empty">Chargement…</div></div>
         <div class="card" id="dbSaved" hidden style="margin-top:14px"><h2>Tableaux de bord de l'espace</h2>
           <p class="sub">Enregistrés automatiquement, visibles par les membres de votre espace.</p><div class="list" id="dbSavedList" style="margin-top:10px"></div></div>
@@ -1653,8 +1654,33 @@ $('#dbRefresh').onclick=async ev=>{const s=state.dash?.source;if(!s)return;const
 $('#dbFreq').onchange=async()=>{const s=state.dash?.source;if(!s)return;const r=await api('/api/sources/freq',{id:s.id,freq:$('#dbFreq').value});
   if(r.error){toast(r.error);return}state.dash.source=Object.assign(s,r);renderSource();
   toast(r.freq==='off'?'Actualisation automatique désactivée.':`Actualisation automatique : ${r.freq==='hourly'?'toutes les heures':'chaque jour'}.`)};
+// ---- Graphiques de la discussion ajoutés au tableau de bord (recalculés à chaque actualisation)
+function boutonAjout(m,gid){
+  const b=document.createElement('button');b.type='button';b.className='btn ghost sm';b.style.marginTop='8px';
+  b.innerHTML='<svg class="i" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>Ajouter au tableau de bord';
+  b.onclick=async()=>{b.disabled=true;b.textContent='Ajout en cours…';const r=await api('/api/tableau/ajouter',{graphique_id:gid});
+    if(r.error){b.disabled=false;b.innerHTML='<svg class="i" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>Ajouter au tableau de bord';toast(r.error);return}
+    b.textContent=r.deja?'✓ Déjà dans le tableau de bord':'✓ Ajouté au tableau de bord';
+    toast(r.deja?`« ${r.titre} » est déjà dans le tableau de bord.`:`« ${r.titre} » ajouté au tableau de bord. Il sera recalculé à chaque actualisation.`);majTableau(r.id,r)};
+  m.append(b);
+}
+async function majTableau(sid,r){  // le tableau de bord affiché reprend la version qui contient le graphique
+  if(!state.dash||state.dash.source?.id!==sid)return;
+  r=r&&r.html?r:await api('/api/sources/get?id='+encodeURIComponent(sid));if(r.error||!r.html)return;
+  state.dash.source=r;state.dash.html=r.html;if(!$('[data-view="dashboard"]').hidden)showDashboard();else renderAjouts();
+}
+function renderAjouts(){
+  const s=state.dash?.source,el=$('#dbAjouts'),L=s?.ajouts||[];el.hidden=!L.length;if(!L.length){el.innerHTML='';return}
+  const peut=!CLOUD||state.me?.role!=='viewer';
+  el.innerHTML=`<b style="font-size:14px">Ajoutés depuis la discussion avec Adifa’</b><p class="sub" style="margin:2px 0 8px">Recalculés à chaque actualisation de la source. ${L.length} sur 6 au plus.</p>`
+    +L.map(a=>`<div class="setrow"><div><b>${esc(a.titre||'Graphique')}</b><span>Ajouté le ${a.ajoute_le?new Date(a.ajoute_le).toLocaleDateString('fr-FR',{day:'numeric',month:'long'}):'—'}</span></div>${peut?`<button class="btn ghost sm" type="button" data-retirer="${esc(a.id)}">Retirer</button>`:''}</div>`).join('');
+}
+$('#dbAjouts').addEventListener('click',async e=>{const b=e.target.closest('[data-retirer]');if(!b)return;const s=state.dash?.source;if(!s)return;
+  if(b.dataset.ok!=='1'){b.dataset.ok='1';b.textContent='Confirmer';return}
+  b.disabled=true;const r=await api('/api/tableau/retirer',{source_id:s.id,id:b.dataset.retirer});
+  if(r.error){b.disabled=false;toast(r.error);return}state.dash.source=r;if(r.html){state.dash.html=r.html;showDashboard()}toast('Graphique retiré du tableau de bord.')});
 function showDashboard(){
-  const d=state.dash;$('#dbBar').hidden=false;renderSource();
+  const d=state.dash;$('#dbBar').hidden=false;renderSource();renderAjouts();
   $('#dbBadge').textContent=d.ia?'✦ Indicateurs choisis par l\'IA':'Indicateurs choisis par règles';
   // Cadre isolé : le tableau de bord exécute ses propres scripts (Chart.js embarqué) sans accès à l'application
   $('#dbBody').innerHTML='<iframe id="dbFrame" title="Tableau de bord" sandbox="allow-scripts" scrolling="no" style="display:block;width:100%;height:82vh;overflow:hidden;border:0;border-radius:16px;background:#F3F6F9"></iframe>';
@@ -2219,6 +2245,8 @@ async function ask(q){
   const text=d.answer||d.error||'(pas de réponse)';
   const m=addMsg('agent','',d.table,d.charts);
   await typeOut(m.querySelector('.mt'),text);
+  if(d.graphique_id&&(d.charts||[]).length&&(!CLOUD||state.me?.role!=='viewer'))boutonAjout(m,d.graphique_id);
+  if(d.tableau?.source_id)majTableau(d.tableau.source_id);
   if(Array.isArray(d.etapes)&&d.etapes.length){  // transparence : ce qui a été réellement calculé
     const det=document.createElement('details');det.className='corr';
     det.innerHTML=`<summary>Voir le calcul (${d.etapes.length} étape${d.etapes.length>1?'s':''})</summary>`+d.etapes.map((e,i)=>

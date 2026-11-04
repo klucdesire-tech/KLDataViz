@@ -1319,7 +1319,19 @@ def _rate_predictif(cle, maxi=8, fenetre=60):
     return True
 
 
-def build_dashboard(df, spec=None, correspondance=None):  # pas de garde _lourd : l'appel à l'IA y bloquerait un jeton
+def build_dashboard(df, spec=None, correspondance=None, ajouts=None):
+    """AGT-11, puis les graphiques ajoutés depuis la discussion (rangés dans la spec), recalculés sur ces données."""
+    ajouts = list(ajouts if ajouts is not None else (spec or {}).get(sources.CLE_AJOUTS) or [])
+    if spec is not None:
+        spec = {k: v for k, v in spec.items() if k != sources.CLE_AJOUTS}
+    result = _build_dashboard(df, spec, correspondance)
+    if ajouts:
+        result = dict(result, html=_avec_ajouts(result["html"], ajouts, df, result.get("filtres")),
+                      spec=dict(result.get("spec") or {}, **{sources.CLE_AJOUTS: ajouts}))
+    return result
+
+
+def _build_dashboard(df, spec=None, correspondance=None):  # pas de garde _lourd : l'appel à l'IA y bloquerait un jeton
     """AGT-11 sur un DataFrame. `spec` fournie (source connectée qu'on actualise) : mêmes indicateurs, sans IA.
     Avec un dictionnaire, la correspondance mémorisée pour cette structure de fichier pilote le tableau de bord."""
     hermes_da_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "HERMES_DA")
@@ -1355,7 +1367,7 @@ def do_dashboard(file_path, name=None):
             return {"error": "Aucune donnée lisible dans cette source."}
         dico = dictionnaire.charger()
         corr = _correspondance_pour(df, dico, ia=True)  # 1re fois sur cette structure : propositions (règles + IA)
-        result = build_dashboard(df, correspondance=corr)
+        result = build_dashboard(df, correspondance=corr, ajouts=sources.ajouts_de(file_path))  # ils survivent à « Régénérer »
         out = {"html": result["html"], "ia": result["ia"], "kpis": result["kpis"]}
         if corr:
             out["correspondance"] = correspondances.public(df, corr, _pretty)
@@ -2040,7 +2052,35 @@ CHAT_METHODE = (
     "- Une anomalie statistique n'est pas une erreur : dis ce que les données montrent, puis ce qui reste à vérifier sur pièces.\n"
     "- N'additionne jamais de tête : tout total, effectif ou part que tu cites doit apparaître tel quel dans un résultat de calcul ; "
     "sinon, calcule-le d'abord.\n"
+    "- Quand un nom (district, site, période) finit par un chiffre, sépare-le de sa valeur par « : » (« Korhogo 2 : 755,5 »), "
+    "jamais par une simple espace : « Korhogo 2 755,5 » se lit 2 755,5.\n"
 )
+
+
+def _noms_finissant_par_chiffre(df, max_valeurs=2000):
+    """Valeurs texte du fichier qui se terminent par un chiffre (« Korhogo 2 », « Semaine 12 »), les plus longues d'abord."""
+    noms = set()
+    if df is None:
+        return []
+    for c in df.columns:
+        col = df[c]
+        if not (pd.api.types.is_string_dtype(col) or isinstance(col.dtype, pd.CategoricalDtype)):
+            continue
+        valeurs = col.dropna().astype(str).str.strip().unique()
+        if len(valeurs) > max_valeurs:
+            continue
+        noms.update(v for v in valeurs if 2 < len(v) <= 80 and v[-1].isdigit() and re.search(r"[^\W\d_]", v))
+    return sorted(noms, key=len, reverse=True)
+
+
+def _separer_noms_chiffres(texte, noms):
+    """« Korhogo 2 755,5 » devient « Korhogo 2 : 755,5 » : le chiffre final du nom ne se lit plus comme un millier.
+    Sans effet si le nom est déjà suivi de « : », d'une parenthèse ou d'un mot."""
+    if not texte or not noms:
+        return texte
+    for nom in noms:
+        texte = re.sub(rf"(?<![\w]){re.escape(nom)}(?=[ \u00a0\u202f]+[-−]?\d)", nom + " :", texte)
+    return texte
 
 
 def _chat_llm(messages, max_tokens=8000):
@@ -2210,12 +2250,261 @@ def _reponse_immediate(question, df, nom):
     return None
 
 
+# ---------------------------------------------------------------- graphiques ajoutés au tableau de bord
+def _memoriser_graphique(code, jeu, path, graphiques, question):
+    """Garde (pour cet utilisateur) le calcul d'un graphique de la discussion : le navigateur n'envoie que son
+    identifiant, jamais de code à exécuter."""
+    memo = T.state().setdefault("graphiques_chat", {})
+    while len(memo) >= 20:
+        memo.pop(next(iter(memo)))
+    gid = uuid.uuid4().hex[:12]
+    titre = str((graphiques[0] or {}).get("title") or "").strip() or str(question or "Graphique").strip()[:90]
+    memo[gid] = {"code": code, "jeu": jeu, "path": path, "titre": titre[:120]}
+    T.state()["dernier_graphique"] = gid
+    return gid
+
+
+MAX_VARIANTES = 120  # combinaisons de filtres précalculées par graphique ajouté
+
+
+def _cle_filtres(paires):
+    """Clé d'une combinaison de filtres, identique à JSON.stringify côté page : [["colonne","valeur"],…] trié."""
+    return json.dumps(sorted([str(c), str(v)] for c, v in paires), ensure_ascii=False, separators=(",", ":"))
+
+
+def _combinaisons(df, filtres):
+    """Combinaisons de filtres présentes dans les données, des plus simples aux plus fines. (liste, complète ?)"""
+    import itertools
+    cols = [f["col"] for f in filtres or [] if f.get("col") in df.columns]
+    if not cols:
+        return [], True
+    texte = pd.DataFrame({c: df[c].astype(str).str.strip() for c in cols})
+    out = []
+    for k in range(1, len(cols) + 1):
+        for groupe in itertools.combinations(cols, k):
+            for valeurs in texte[list(groupe)].drop_duplicates().itertuples(index=False, name=None):
+                if len(out) >= MAX_VARIANTES:
+                    return out, False
+                out.append(list(zip(groupe, valeurs)))
+    return out, True
+
+
+def _code_variantes(code, jeu):
+    """Le calcul de l'IA, rejoué sur chaque combinaison de filtres dans UN seul passage au bac à sable.
+    Les combinaisons arrivent comme une table de données (data["filtres_kl"]), jamais écrites dans le code."""
+    corps = sandbox.strip_provided_imports(code)  # imports en tête : ils ne seraient plus acceptés dans la boucle
+    retrait = "\n".join("        " + ligne for ligne in corps.splitlines()) or "        pass"
+    return (f"base_kl = df\ncombos_kl = data['filtres_kl']\njeu_kl = {json.dumps(str(jeu))}\nvariantes_kl = {{}}\n"
+            "cles_kl = ['[]'] + [c for c in combos_kl['cle'].unique().tolist() if c != '[]']\n"
+            "for cle_kl in cles_kl:\n"
+            "    sous_kl = base_kl\n"
+            "    for col_kl, val_kl in combos_kl[combos_kl['cle'] == cle_kl][['col', 'val']].itertuples(index=False):\n"
+            "        sous_kl = sous_kl[sous_kl[col_kl].astype(str).str.strip() == val_kl]\n"
+            "    if len(sous_kl) == 0:\n"
+            "        continue\n"
+            "    df = sous_kl\n"
+            "    data = {jeu_kl: sous_kl}\n"
+            "    chart = None\n"
+            "    try:\n" + retrait + "\n"
+            "    except Exception:\n"
+            "        continue\n"
+            "    if chart is not None:\n"
+            "        variantes_kl[cle_kl] = chart\n"
+            "chart = {'variantes_kl': variantes_kl}\nresult = len(variantes_kl)\n")
+
+
+def _rejouer_ajout(ajout, df, filtres=None):
+    """Recalcule un graphique ajouté sur les données du moment, dans le bac à sable : sans filtre, puis pour chaque
+    combinaison de filtres du tableau de bord. ({clé: graphiques}, erreur, complet)"""
+    jeu = ajout.get("jeu") or "donnees"
+    combos, complet = _combinaisons(df, filtres)
+    tmp = os.path.join(T.current().dir("tmp"), f"ajout_{uuid.uuid4().hex}.parquet")
+    tmp_f = os.path.join(T.current().dir("tmp"), f"filtres_{uuid.uuid4().hex}.parquet")
+    try:
+        _save_table(df, tmp)
+        if combos:
+            lignes = [{"cle": _cle_filtres(c), "col": str(col), "val": str(val)} for c in combos for col, val in c]
+            pd.DataFrame(lignes, columns=["cle", "col", "val"]).to_parquet(tmp_f, index=False)
+            out = _run_ai_code(_code_variantes(str(ajout.get("code") or ""), jeu), {jeu: tmp, "filtres_kl": tmp_f})
+        else:
+            out = _run_ai_code(str(ajout.get("code") or ""), {jeu: tmp})
+    finally:
+        for f in (tmp, tmp_f):
+            try:
+                os.remove(f)
+            except OSError:
+                pass
+    if out.get("error"):
+        return {}, str(out["error"]).splitlines()[0][:200], complet
+    brut = out.get("chart")
+    if combos and isinstance(brut, dict) and isinstance(brut.get("variantes_kl"), dict):
+        variantes = {k: g for k, g in ((k, _charts_list(v)) for k, v in brut["variantes_kl"].items()) if g}
+    else:
+        variantes = {"[]": _charts_list(brut)} if _charts_list(brut) else {}
+    if not variantes.get("[]"):
+        return {}, "le calcul ne produit plus de graphique sur ces données", complet
+    return variantes, None, complet
+
+
+AJOUTS_JS = """(function(){var A=__A__,F=__F__,G=[],SUB='Ajouté par Adifa’ · suit les filtres';
+// Dessinés avec les outils du tableau de bord (card, canvas, NAVY, DONUT, PASTEL, navyTip, axes, fmt) : même allure,
+// et placés dans sa grille de graphiques (#row3), à la suite des siens.
+function cle(){var s=window.state||{},p=[];F.forEach(function(c){if(s[c]!=null&&s[c]!=='all')p.push([c,String(s[c])])});
+  p.sort(function(a,b){return a[0]<b[0]?-1:a[0]>b[0]?1:0});return {k:JSON.stringify(p),actifs:p}}
+function genre(c){return c.type==='pie'||c.type==='doughnut'?'doughnut':c.type==='line'||c.type==='area'?'line':c.type==='scatter'?'scatter':'bar'}
+function corps(id,c,titre){if(genre(c)!=='doughnut')return canvas(id,titre);
+  var v=c.values[0]||[],tot=v.reduce(function(s,x){return s+(x||0)},0)||1;
+  return '<div class="donut">'+canvas(id,titre)+'<ul class="legend">'+c.labels.map(function(l,k){return '<li><i style="background:'+DONUT[k%DONUT.length]
+    +'"></i><span>'+esc(label(l))+'</span><b>'+Math.round((v[k]||0)/tot*100)+' %</b></li>'}).join('')+'</ul></div>'}
+// Comme le tableau de bord : barres couchées au-delà de 6 catégories ; aussi pour des noms longs, sinon certains sauteraient
+function couche(c){return !!c.horizontal||(genre(c)==='bar'&&(c.labels.length>6||c.labels.some(function(l){return String(l).length>14})))}
+function moyenne(c){var ok=(c.values[0]||[]).filter(function(x){return x!=null});return ok.reduce(function(s,x){return s+x},0)/(ok.length||1)}
+function dessin(id,c){var cv=document.getElementById(id);if(!cv)return null;var t=genre(c),h=couche(c),multi=(c.values||[]).length>1,
+  tip=Object.assign({callbacks:{label:function(x){var y=t==='doughnut'?x.parsed:h?x.parsed.x:x.parsed.y;return (x.dataset.label?x.dataset.label+' : ':'')+fmt(y)}}},navyTip);
+  if(t==='doughnut')return new Chart(cv,{type:'doughnut',data:{labels:c.labels.map(label),datasets:[{data:c.values[0],backgroundColor:DONUT,borderColor:'#fff',borderWidth:3,hoverOffset:4}]},
+    options:{responsive:true,maintainAspectRatio:false,cutout:'68%',plugins:{legend:{display:false},tooltip:tip}}});
+  var sc=h?{x:axes.y,y:{grid:{display:false},border:{display:false}}}:axes,ds;
+  if(t==='scatter'){ds=[{data:c.labels.map(function(x,n){return {x:+x,y:c.values[0][n]}}),backgroundColor:NAVY,pointRadius:4,pointHoverRadius:6}];
+    return new Chart(cv,{type:'scatter',data:{datasets:ds},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:tip},scales:{x:axes.y,y:axes.y}}})}
+  if(t==='line'){var g=cv.getContext('2d').createLinearGradient(0,0,0,250);g.addColorStop(0,'rgba(11,79,143,.22)');g.addColorStop(1,'rgba(11,79,143,0)');
+    ds=c.values.map(function(v,k){var col=multi?PASTEL[k%PASTEL.length]:NAVY;return {label:(c.seriesNames||[])[k]||'',data:v,borderColor:col,backgroundColor:k===0?g:'transparent',
+      fill:k===0,tension:.35,borderWidth:2.5,spanGaps:true,pointRadius:c.labels.length<=15?3:0,pointHoverRadius:5,pointBackgroundColor:col}})}
+  else if(!multi){var v=c.values[0],moy=moyenne(c);
+    ds=[{data:v,backgroundColor:v.map(function(x){return x>=moy?NAVY:'#10BCD0'}),borderRadius:8,borderSkipped:false,barPercentage:.6,maxBarThickness:56},
+        {type:'line',label:'Moyenne',data:v.map(function(){return moy}),borderColor:'#12BF9A',borderDash:[6,4],borderWidth:2,pointRadius:0}];
+    tip.filter=function(x){return x.datasetIndex===0}}
+  else ds=c.values.map(function(v,k){return {label:(c.seriesNames||[])[k]||'',data:v,backgroundColor:PASTEL[k%PASTEL.length],borderRadius:6,borderSkipped:false,maxBarThickness:40}});
+  return new Chart(cv,{type:t,data:{labels:c.labels.map(label),datasets:ds},options:{responsive:true,maintainAspectRatio:false,indexAxis:h?'y':'x',
+    plugins:{legend:{display:multi,position:'bottom',labels:{boxWidth:10,usePointStyle:true}},tooltip:tip},scales:sc}})}
+function enveloppe(h){return '<div class="aj-kl" style="display:contents">'+h+'</div>'}
+function maj(){G.forEach(function(g){g.destroy()});G=[];[].forEach.call(document.querySelectorAll('.aj-kl'),function(n){n.remove()});
+  var f=cle(),grille=document.getElementById('row3'),repli=document.getElementById('ajoutsAdifa'),cible=grille||repli,html='',todo=[];
+  if(repli)repli.hidden=cible!==repli;
+  A.forEach(function(a,i){var v=a.variantes[f.k],note='';
+    if(f.actifs.length&&!v){v=a.variantes['[]'];note=a.complet?'aucune ligne pour ces filtres : tout le fichier':'filtres trop fins : tout le fichier'}
+    else if(f.actifs.length)note='filtré : '+f.actifs.map(function(p){return label(p[1])}).join(' · ');
+    var sous=SUB+(note?' · '+note:'');
+    if(!v||!v.length){html+=enveloppe(card('<p style="color:var(--muted);font-size:13px;margin:0">Recalcul impossible sur les données actuelles'
+      +(a.erreur?' : '+esc(a.erreur):'')+'.</p>',a.titre,SUB));return}
+    v.forEach(function(c,j){var id='aj'+i+'_'+j,titre=c.title||a.titre,
+        s=genre(c)==='bar'&&c.values.length===1?sous+' · ligne : moyenne '+fmt(moyenne(c)):sous;  // comme ses barres
+      html+=enveloppe(card(corps(id,c,titre),titre,s));todo.push([id,c])})});
+  cible.insertAdjacentHTML('beforeend',html);todo.forEach(function(x){var g=dessin(x[0],x[1]);if(g)G.push(g)})}
+// Ce script passe avant celui du tableau de bord : on attend ses outils et sa fonction render() pour s'y accrocher
+function go(){if(!window.Chart||typeof window.render!=='function'||typeof window.card!=='function')return setTimeout(go,100);
+  if(!window.render.kl){var r=window.render;window.render=function(){var x=r.apply(this,arguments);maj();return x};window.render.kl=1}maj()}
+var attente=null;function plusTard(){clearTimeout(attente);attente=setTimeout(maj,60)}
+document.addEventListener('click',plusTard);document.addEventListener('change',plusTard);  // filtres, classement cliquable
+setTimeout(go,0)})();"""
+
+
+def _avec_ajouts(html_page, ajouts, df, filtres=None):
+    """Graphiques ajoutés depuis la discussion, recalculés sur `df` (et pour chaque combinaison de filtres). La page les
+    dessine dans la grille de graphiques du tableau de bord, avec son style ; ici seulement les données et le script."""
+    donnees = []
+    for a in ajouts[:sources.MAX_AJOUTS]:
+        variantes, erreur, complet = _rejouer_ajout(a, df, filtres)
+        donnees.append({"titre": str(a.get("titre") or "Graphique"), "variantes": variantes, "complet": complet, "erreur": erreur})
+    # « < » échappé partout : aucun texte des données ne peut fermer ni ouvrir de balise dans le script
+    sur = lambda o: json.dumps(_json_safe(o), ensure_ascii=False).replace("<", "\\u003c")
+    js = AJOUTS_JS.replace("__A__", sur(donnees)).replace("__F__", sur([f["col"] for f in filtres or [] if f.get("col") in df.columns]))
+    # Repli (page sans grille #row3) : une rangée du même style, juste après
+    section = ('<section class="row3" id="ajoutsAdifa" aria-label="Graphiques ajoutés depuis la discussion" hidden></section>'
+               f"<script>{js}</script>")
+    for marque in ('<section class="row3" id="row3"></section>', '<section class="dict card" id="dict" hidden></section>'):
+        if marque in html_page:
+            return html_page.replace(marque, marque + section, 1)
+    return html_page.replace("</body>", section + "</body>", 1)
+
+
+def ajouter_au_tableau(graphique_id):
+    """Ajoute un graphique de la discussion au tableau de bord de son fichier ; le reconstruit (même spec, sans IA)."""
+    if T.CLOUD and T.current().role == "viewer":  # le chat est ouvert aux lecteurs : la modification, non
+        raise ValueError("Votre rôle (lecteur) permet de consulter et de poser des questions, pas de modifier le tableau de bord.")
+    g = (T.state().get("graphiques_chat") or {}).get(str(graphique_id or ""))
+    if g is None:
+        raise ValueError("Ce graphique n'est plus disponible (le serveur a redémarré) : redemandez-le à Adifa’, puis ajoutez-le.")
+    sid = sources.par_chemin(g["path"])
+    if sid is None:
+        raise ValueError("Ce fichier n'a pas encore de tableau de bord : ouvrez la page Tableau de bord pour le générer, "
+                         "puis ajoutez le graphique.")
+    df, err = _read_df(g["path"])
+    if df is None:
+        raise ValueError(f"Lecture de la source impossible : {err}")
+    essai, erreur, _complet = _rejouer_ajout(g, df)
+    if not essai:  # calcul qui dépend d'un autre jeu (fichier lié, registre) : il ne pourrait pas être actualisé
+        raise ValueError("Ce graphique ne peut pas être recalculé à partir du seul fichier du tableau de bord "
+                         f"({erreur}) : il reste dans la discussion.")
+    deja = next((a for a in sources.ajouts_de(g["path"]) if a.get("code") == g["code"]), None)
+    if deja is None:
+        deja_la = False
+        ajout = {"id": uuid.uuid4().hex[:10], "titre": g["titre"], "code": g["code"], "jeu": g["jeu"],
+                 "ajoute_le": time.strftime("%Y-%m-%dT%H:%M:%S")}
+        sources.ajouter_graphique(sid, ajout)
+        res = build_dashboard(df, spec=sources.spec_de(sid))
+        sources.remplacer_html(sid, res["html"])
+    else:  # le même calcul est déjà dans le tableau : rien à refaire
+        deja_la, ajout = True, deja
+    return dict(sources.get(sid), ajout=ajout["id"], titre=ajout["titre"], deja=deja_la)
+
+
+def retirer_du_tableau(source_id, ajout_id):
+    sources.retirer_graphique(source_id, ajout_id)
+    s = sources.get(source_id, with_html=False)
+    df, err = _read_df(s["path"])
+    if df is not None:
+        res = build_dashboard(df, spec=sources.spec_de(source_id))
+        sources.remplacer_html(source_id, res["html"])
+    return sources.get(source_id)
+
+
+AJOUT_TABLEAU = re.compile(r"(ajout|ins[eè]r|met|place|[ée]pingl|rajout)\w*.{0,60}(tableau de bord|\bTB\b|dashboard)", re.I)
+CE_GRAPHIQUE = re.compile(r"\b(ce|cet|le dernier|ces|le|la) (graphique|diagramme|courbe|camembert)s?\b(?!\s+(de|des|du|sur|par)\b)"
+                          r"|\b(ajoute|mets|met|insère|insere|place|épingle|epingle)[- ]l[ea]\b|\b[çc]a\b", re.I)
+
+
+def _demande_ajout(question):
+    """« ajoute ce graphique au tableau de bord » → ajouter le dernier ; « ajoute un graphique de X au TB » → le créer."""
+    q = str(question or "")
+    if not AJOUT_TABLEAU.search(q):
+        return None
+    return "dernier" if CE_GRAPHIQUE.search(q) else "nouveau"
+
+
+def _phrase_ajout(r):
+    if r.get("deja"):
+        return (f"« {r['titre']} » est déjà dans le tableau de bord « {r.get('name') or 'de ce fichier'} » : "
+                "il y est recalculé à chaque actualisation de la source.")
+    return (f"C'est fait : « {r['titre']} » est ajouté au tableau de bord « {r.get('name') or 'de ce fichier'} ». "
+            "Il sera recalculé à chaque actualisation de la source ; vous pouvez le retirer depuis la page Tableau de bord.")
+
+
 def llm_chat(question, ui_context=None, history=None, progress=None, linked=None, file_path=None):
     """Voir `_llm_chat`. `file_path` : le fichier de CETTE question ; à défaut, le fichier en cours de l'utilisateur. Les copies de données préparées pour le calcul sont propres à la question et effacées ensuite :
     deux questions en même temps (deux onglets) lisaient sinon le même fichier, et l'une répondait sur les données de l'autre."""
     temporaires = []
+    demande = _demande_ajout(question)
+    if demande == "dernier":  # le graphique déjà affiché : pas de nouveau calcul, pas d'IA
+        gid = T.state().get("dernier_graphique")
+        try:
+            if not gid:
+                raise ValueError("Je n'ai pas encore dessiné de graphique dans cette discussion : demandez-le-moi d'abord, "
+                                 "puis demandez son ajout au tableau de bord.")
+            r = ajouter_au_tableau(gid)
+            return {"answer": _phrase_ajout(r), "type": "text", "table": None, "charts": [], "etapes": [],
+                    "tableau": {"source_id": r["id"]}}
+        except (ValueError, KeyError) as e:
+            return {"answer": str(e).strip("'"), "type": "text", "table": None, "charts": [], "etapes": []}
     try:
-        return _llm_chat(question, ui_context, history, progress, linked, temporaires, file_path)
+        r = _llm_chat(question, ui_context, history, progress, linked, temporaires, file_path)
+        if demande == "nouveau" and isinstance(r, dict) and r.get("graphique_id"):  # créé puis ajouté dans la foulée
+            try:
+                ajout = ajouter_au_tableau(r["graphique_id"])
+                r = dict(r, answer=f"{r.get('answer') or ''}\n\n{_phrase_ajout(ajout)}".strip(),
+                         tableau={"source_id": ajout["id"]})
+            except (ValueError, KeyError) as e:
+                r = dict(r, answer=f"{r.get('answer') or ''}\n\nGraphique non ajouté au tableau de bord : {str(e).strip(chr(39))}".strip())
+        return r
     finally:
         for f in temporaires:
             try:
@@ -2320,7 +2609,7 @@ def _llm_chat(question, ui_context, history, progress, linked, temporaires, file
                     paths[_nom] = _p
         return paths
 
-    etapes, last_table, last_chart = [], None, None
+    etapes, last_table, last_chart, code_graphique = [], None, None, None
     progress("Adifa’ réfléchit à la question…")
     for _tour in range(CHAT_MAX_CALCULS + 2):
         content = _chat_llm(messages)
@@ -2348,6 +2637,8 @@ def _llm_chat(question, ui_context, history, progress, linked, temporaires, file
             etapes.append({"pourquoi": pourquoi, "code": str(data["code"])[:4000], "ok": not out.get("error"),
                            "resultat": feedback[:1500]})
             if not out.get("error"):
+                if out.get("chart"):
+                    code_graphique = str(data["code"])
                 last_chart = out.get("chart") or last_chart
                 res = out.get("result") or {}
                 if res.get("kind") == "table":
@@ -2370,9 +2661,13 @@ def _llm_chat(question, ui_context, history, progress, linked, temporaires, file
             progress("Adifa’ relit ses chiffres…")
             answer, relecture = _relire_chiffres(question, answer, messages)
         answer, douteux = _verifier_chiffres(answer or "(réponse vide)", messages, etapes)
+        answer = _separer_noms_chiffres(answer, _noms_finissant_par_chiffre(current_df))
+        graphiques = _charts_list(last_chart)
         return {"answer": answer, "type": "table" if (last_table and show) else "text",
-                "table": last_table if show else None, "charts": _charts_list(last_chart), "etapes": etapes,
-                "chiffres_non_verifies": douteux, "relecture": relecture}
+                "table": last_table if show else None, "charts": graphiques, "etapes": etapes,
+                "chiffres_non_verifies": douteux, "relecture": relecture,
+                "graphique_id": _memoriser_graphique(code_graphique, current_name, cur_path, graphiques, question)
+                if graphiques and code_graphique and current_df is not None and cur_path else None}
     last = etapes[-1]["resultat"] if etapes else ""
     return {"answer": "Je n'ai pas pu conclure dans le temps imparti. Dernier résultat obtenu :\n" + last,
             "type": "table" if last_table else "text", "table": last_table, "charts": _charts_list(last_chart),
@@ -3371,7 +3666,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         # ---- POST
         if path in ("/api/analyze", "/api/chat", "/api/chat/start", "/api/insights", "/api/clean", "/api/architect",
                     "/api/architect/apply", "/api/sheets/understand", "/api/hermes/charts", "/api/hermes/clean",
-                    "/api/dashboard") and not _rate_ok(f"{ctx.key}:{path}"):
+                    "/api/dashboard", "/api/tableau/ajouter", "/api/tableau/retirer") and not _rate_ok(f"{ctx.key}:{path}"):
             return self._send(429, {"error": "Trop de demandes en peu de temps. Patientez une minute."})
         if path == "/api/analyze":
             file_path = str(p.get("file_path") or "")
@@ -3424,7 +3719,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 spec = None
                 if sid:
                     try:
-                        spec = sources.get(sid, with_html=False).get("spec")
+                        spec = sources.spec_de(sid)
                     except KeyError:
                         sid = ""
                 res = build_dashboard(df, spec=spec or {"kpis": [], "graphiques": []}, correspondance=corr)
@@ -3454,6 +3749,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return self._send(200, res)
         if path == "/api/sources/refresh":  # relit la source, mêmes indicateurs : pas de quota IA
             return self._send(200, sources.refresh(str(p.get("id")), _read_df, build_dashboard))
+        if path == "/api/tableau/ajouter":  # graphique de la discussion → tableau de bord de son fichier
+            return self._send(200, ajouter_au_tableau(p.get("graphique_id")))
+        if path == "/api/tableau/retirer":
+            return self._send(200, retirer_du_tableau(str(p.get("source_id") or ""), str(p.get("id") or "")))
         if path == "/api/sources/freq":
             return self._send(200, sources.set_freq(str(p.get("id")), str(p.get("freq"))))
         if path == "/api/sources/delete":
