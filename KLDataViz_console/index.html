@@ -637,7 +637,6 @@ tr.versions td{background:var(--surface-2);font-size:13px}
           </div>
         </div>
         <div class="card" id="corrPanel" hidden style="margin-bottom:14px"></div>
-        <div class="card" id="dbAjouts" hidden style="margin-bottom:12px"></div>
         <div id="dbBody"><div class="card empty">Chargement…</div></div>
         <div class="card" id="dbSaved" hidden style="margin-top:14px"><h2>Tableaux de bord de l'espace</h2>
           <p class="sub">Enregistrés automatiquement, visibles par les membres de votre espace.</p><div class="list" id="dbSavedList" style="margin-top:10px"></div></div>
@@ -1667,23 +1666,21 @@ function boutonAjout(m,gid){
 async function majTableau(sid,r){  // le tableau de bord affiché reprend la version qui contient le graphique
   if(!state.dash||state.dash.source?.id!==sid)return;
   r=r&&r.html?r:await api('/api/sources/get?id='+encodeURIComponent(sid));if(r.error||!r.html)return;
-  state.dash.source=r;state.dash.html=r.html;if(!$('[data-view="dashboard"]').hidden)showDashboard();else renderAjouts();
+  state.dash.source=r;state.dash.html=r.html;if(!$('[data-view="dashboard"]').hidden)showDashboard();
 }
-function renderAjouts(){
-  const s=state.dash?.source,el=$('#dbAjouts'),L=s?.ajouts||[];el.hidden=!L.length;if(!L.length){el.innerHTML='';return}
-  const peut=!CLOUD||state.me?.role!=='viewer';
-  el.innerHTML=`<b style="font-size:14px">Ajoutés depuis la discussion avec Adifa’</b><p class="sub" style="margin:2px 0 8px">Recalculés à chaque actualisation de la source. ${L.length} sur 6 au plus.</p>`
-    +L.map(a=>`<div class="setrow"><div><b>${esc(a.titre||'Graphique')}</b><span>Ajouté le ${a.ajoute_le?new Date(a.ajoute_le).toLocaleDateString('fr-FR',{day:'numeric',month:'long'}):'—'}</span></div>${peut?`<button class="btn ghost sm" type="button" data-retirer="${esc(a.id)}">Retirer</button>`:''}</div>`).join('');
-}
-$('#dbAjouts').addEventListener('click',async e=>{const b=e.target.closest('[data-retirer]');if(!b)return;const s=state.dash?.source;if(!s)return;
-  if(b.dataset.ok!=='1'){b.dataset.ok='1';b.textContent='Confirmer';return}
-  b.disabled=true;const r=await api('/api/tableau/retirer',{source_id:s.id,id:b.dataset.retirer});
-  if(r.error){b.disabled=false;toast(r.error);return}state.dash.source=r;if(r.html){state.dash.html=r.html;showDashboard()}toast('Graphique retiré du tableau de bord.')});
+// « Retirer » au survol d'un graphique ajouté : le tableau (cadre isolé) demande, l'application exécute
+window.addEventListener('message',async e=>{const f=$('#dbFrame');if(!f||e.source!==f.contentWindow||!e.data||!e.data.kldvRetirer)return;
+  const s=state.dash?.source;if(!s)return;
+  const r=await api('/api/tableau/retirer',{source_id:s.id,id:String(e.data.kldvRetirer)});
+  if(r.error){toast(r.error);showDashboard();return}
+  state.dash.source=r;if(r.html)state.dash.html=r.html;showDashboard();toast('Graphique retiré du tableau de bord.')});
 function showDashboard(){
-  const d=state.dash;$('#dbBar').hidden=false;renderSource();renderAjouts();
+  const d=state.dash;$('#dbBar').hidden=false;renderSource();
   $('#dbBadge').textContent=d.ia?'✦ Indicateurs choisis par l\'IA':'Indicateurs choisis par règles';
   // Cadre isolé : le tableau de bord exécute ses propres scripts (Chart.js embarqué) sans accès à l'application
   $('#dbBody').innerHTML='<iframe id="dbFrame" title="Tableau de bord" sandbox="allow-scripts" scrolling="no" style="display:block;width:100%;height:82vh;overflow:hidden;border:0;border-radius:16px;background:#F3F6F9"></iframe>';
+  // Tableau enregistré et rôle qui peut le modifier : le cadre affiche « Retirer » au survol de ses graphiques ajoutés
+  if(d.source&&(!CLOUD||state.me?.role!=='viewer'))$('#dbFrame').onload=e=>e.target.contentWindow.postMessage({kldvModifiable:true},'*');
   $('#dbFrame').srcdoc=d.html;
 }
 // Hauteur du cadre = hauteur du tableau de bord (la page défile, pas le cadre)
