@@ -181,3 +181,22 @@ def test_page_suit_les_filtres(env):
     # dessinés avec les outils du tableau de bord, dans sa grille de graphiques
     assert "getElementById('row3')" in sec and "card(corps(" in sec and "navyTip" in sec
     assert html.index('<section class="row3" id="row3"></section>') < html.index('id="ajoutsAdifa"')
+
+
+CODE_PAR_SEXE = ('p = df.pivot_table(index="mois", columns="sexe", values="depistes", aggfunc="sum")\n'
+                 'chart = {"type": "line", "title": "Dépistages par sexe", "labels": list(p.index), '
+                 '"values": [p["F"].tolist(), p["M"].tolist()], "seriesNames": ["Femmes", "Hommes"]}')
+
+
+def test_filtre_qui_casse_le_calcul_signale(env):
+    """Un graphique « par sexe » filtré sur un seul sexe ne se calcule plus : c'est noté, pas confondu avec « non précalculé »."""
+    server = env[0]
+    df = pd.DataFrame({"mois": ["2025-01", "2025-01", "2025-02", "2025-02"], "sexe": ["F", "M", "F", "M"],
+                       "region": ["Nord", "Sud", "Nord", "Sud"], "depistes": [10, 12, 9, 14]})
+    filtres = [{"col": "sexe", "values": ["F", "M"]}, {"col": "region", "values": ["Nord", "Sud"]}]
+    variantes, erreur, complet = server._rejouer_ajout({"code": CODE_PAR_SEXE, "jeu": "x"}, df, filtres)
+    assert erreur is None and complet
+    assert variantes['[["sexe","M"]]'] is None                       # échec noté
+    assert variantes["[]"][0]["values"] == [[10.0, 9.0], [12.0, 14.0]]
+    page = server._avec_ajouts('<section class="row3" id="row3"></section></body>', [{"code": CODE_PAR_SEXE, "jeu": "x"}], df, filtres)
+    assert '"compare": ["sexe"]' in page and "il compare les" in page and "intersect:false" in page

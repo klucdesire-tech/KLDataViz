@@ -2264,7 +2264,7 @@ def _memoriser_graphique(code, jeu, path, graphiques, question):
     return gid
 
 
-MAX_VARIANTES = 120  # combinaisons de filtres précalculées par graphique ajouté
+MAX_VARIANTES = 200  # combinaisons de filtres précalculées par graphique ajouté
 
 
 def _cle_filtres(paires):
@@ -2307,9 +2307,8 @@ def _code_variantes(code, jeu):
             "    chart = None\n"
             "    try:\n" + retrait + "\n"
             "    except Exception:\n"
-            "        continue\n"
-            "    if chart is not None:\n"
-            "        variantes_kl[cle_kl] = chart\n"
+            "        chart = None\n"
+            "    variantes_kl[cle_kl] = chart\n"
             "chart = {'variantes_kl': variantes_kl}\nresult = len(variantes_kl)\n")
 
 
@@ -2338,7 +2337,8 @@ def _rejouer_ajout(ajout, df, filtres=None):
         return {}, str(out["error"]).splitlines()[0][:200], complet
     brut = out.get("chart")
     if combos and isinstance(brut, dict) and isinstance(brut.get("variantes_kl"), dict):
-        variantes = {k: g for k, g in ((k, _charts_list(v)) for k, v in brut["variantes_kl"].items()) if g}
+        # None : le calcul échoue sur ce sous-ensemble (souvent un graphique « par sexe » filtré sur un seul sexe)
+        variantes = {k: (_charts_list(v) or None) for k, v in brut["variantes_kl"].items()}
     else:
         variantes = {"[]": _charts_list(brut)} if _charts_list(brut) else {}
     if not variantes.get("[]"):
@@ -2366,6 +2366,8 @@ function dessin(id,c){var cv=document.getElementById(id);if(!cv)return null;var 
   var sc=h?{x:axes.y,y:{grid:{display:false},border:{display:false}}}:axes,ds;
   if(t==='scatter'){ds=[{data:c.labels.map(function(x,n){return {x:+x,y:c.values[0][n]}}),backgroundColor:NAVY,pointRadius:4,pointHoverRadius:6}];
     return new Chart(cv,{type:'scatter',data:{datasets:ds},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:tip},scales:{x:axes.y,y:axes.y}}})}
+  // Survol de toute la colonne, comme les courbes du tableau de bord : sinon il faut viser un point invisible
+  var survol={mode:'index',intersect:false,axis:h?'y':'x'};
   if(t==='line'){var g=cv.getContext('2d').createLinearGradient(0,0,0,250);g.addColorStop(0,'rgba(11,79,143,.22)');g.addColorStop(1,'rgba(11,79,143,0)');
     ds=c.values.map(function(v,k){var col=multi?PASTEL[k%PASTEL.length]:NAVY;return {label:(c.seriesNames||[])[k]||'',data:v,borderColor:col,backgroundColor:k===0?g:'transparent',
       fill:k===0,tension:.35,borderWidth:2.5,spanGaps:true,pointRadius:c.labels.length<=15?3:0,pointHoverRadius:5,pointBackgroundColor:col}})}
@@ -2374,14 +2376,17 @@ function dessin(id,c){var cv=document.getElementById(id);if(!cv)return null;var 
         {type:'line',label:'Moyenne',data:v.map(function(){return moy}),borderColor:'#12BF9A',borderDash:[6,4],borderWidth:2,pointRadius:0}];
     tip.filter=function(x){return x.datasetIndex===0}}
   else ds=c.values.map(function(v,k){return {label:(c.seriesNames||[])[k]||'',data:v,backgroundColor:PASTEL[k%PASTEL.length],borderRadius:6,borderSkipped:false,maxBarThickness:40}});
-  return new Chart(cv,{type:t,data:{labels:c.labels.map(label),datasets:ds},options:{responsive:true,maintainAspectRatio:false,indexAxis:h?'y':'x',
+  return new Chart(cv,{type:t,data:{labels:c.labels.map(label),datasets:ds},options:{responsive:true,maintainAspectRatio:false,indexAxis:h?'y':'x',interaction:survol,
     plugins:{legend:{display:multi,position:'bottom',labels:{boxWidth:10,usePointStyle:true}},tooltip:tip},scales:sc}})}
 function enveloppe(h){return '<div class="aj-kl" style="display:contents">'+h+'</div>'}
 function maj(){G.forEach(function(g){g.destroy()});G=[];[].forEach.call(document.querySelectorAll('.aj-kl'),function(n){n.remove()});
   var f=cle(),grille=document.getElementById('row3'),repli=document.getElementById('ajoutsAdifa'),cible=grille||repli,html='',todo=[];
   if(repli)repli.hidden=cible!==repli;
   A.forEach(function(a,i){var v=a.variantes[f.k],note='';
-    if(f.actifs.length&&!v){v=a.variantes['[]'];note=a.complet?'aucune ligne pour ces filtres : tout le fichier':'filtres trop fins : tout le fichier'}
+    if(f.actifs.length&&!v){var casse=v===null,coupe=f.actifs.filter(function(p){return (a.compare||[]).indexOf(p[0])>=0})[0];v=a.variantes['[]'];
+      note=casse&&coupe?'il compare les « '+nice(coupe[0])+' » : tout le fichier'
+        :casse?'ce filtre retire des données nécessaires au calcul : tout le fichier'
+        :a.complet?'aucune ligne pour ces filtres : tout le fichier':'combinaison non précalculée : tout le fichier'}
     else if(f.actifs.length)note='filtré : '+f.actifs.map(function(p){return label(p[1])}).join(' · ');
     var sous=SUB+(note?' · '+note:'');
     if(!v||!v.length){html+=enveloppe(card('<p style="color:var(--muted);font-size:13px;margin:0">Recalcul impossible sur les données actuelles'
@@ -2404,7 +2409,10 @@ def _avec_ajouts(html_page, ajouts, df, filtres=None):
     donnees = []
     for a in ajouts[:sources.MAX_AJOUTS]:
         variantes, erreur, complet = _rejouer_ajout(a, df, filtres)
-        donnees.append({"titre": str(a.get("titre") or "Graphique"), "variantes": variantes, "complet": complet, "erreur": erreur})
+        code = str(a.get("code") or "")
+        compare = [f["col"] for f in filtres or [] if f"'{f['col']}'" in code or f'"{f["col"]}"' in code]
+        donnees.append({"titre": str(a.get("titre") or "Graphique"), "variantes": variantes, "complet": complet, "erreur": erreur,
+                        "compare": compare})
     # « < » échappé partout : aucun texte des données ne peut fermer ni ouvrir de balise dans le script
     sur = lambda o: json.dumps(_json_safe(o), ensure_ascii=False).replace("<", "\\u003c")
     js = AJOUTS_JS.replace("__A__", sur(donnees)).replace("__F__", sur([f["col"] for f in filtres or [] if f.get("col") in df.columns]))
