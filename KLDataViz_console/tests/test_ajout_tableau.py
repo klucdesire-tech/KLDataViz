@@ -266,3 +266,17 @@ def test_couleurs_demandees(env):
     assert "colors" not in server._chart_propre({"type": "bar", "labels": ["F"], "values": [[1]], "colors": ["???"]})
     assert "COULEURS : si l'utilisateur en demande" in server.CHAT_METHODE or "COULEURS : si l'utilisateur en demande" in open(
         server.__file__, encoding="utf-8").read()
+
+
+def test_page_composee_affiche_les_graphiques_ajoutes(env, monkeypatch):
+    """La page composée selon les données masque la grille #row3 : les graphiques ajoutés vont dans leur propre rangée,
+    placée après la composition, au lieu de disparaître avec la grille."""
+    server, chemin, question, _ = env
+    monkeypatch.setenv("KLDV_COMPOSITION", "1")
+    _ventes_datees().to_csv(chemin, index=False)
+    server.do_dashboard(chemin, "Ventes")
+    html = server.ajouter_au_tableau(question()["graphique_id"])["html"]
+    sec = _section(html)
+    assert 'id="compo"' in html and "getElementById('row3').style.display='none'" in html
+    assert "grille.style.display==='none'))grille=null" in sec
+    assert "compo.parentNode.insertBefore(repli,compo.nextSibling)" in sec

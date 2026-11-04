@@ -2465,8 +2465,11 @@ document.addEventListener('click',function(e){var b=e.target.closest&&e.target.c
   b.disabled=true;t.textContent='Retrait…';window.parent.postMessage({kldvRetirer:b.dataset.aj},'*')});
 function message(t){return '<p style="color:var(--muted);font-size:13px;margin:0">'+esc(t)+'</p>'}
 function maj(){G.forEach(function(g){g.destroy()});G=[];[].forEach.call(document.querySelectorAll('.aj-kl'),function(n){n.remove()});
-  var f=cle(),P=window.PER||{},per=!!(P.du||P.au),grille=document.getElementById('row3'),repli=document.getElementById('ajoutsAdifa'),cible=grille||repli,html='',todo=[];
-  if(repli)repli.hidden=cible!==repli;
+  var f=cle(),P=window.PER||{},per=!!(P.du||P.au),grille=document.getElementById('row3'),repli=document.getElementById('ajoutsAdifa'),html='',todo=[];
+  // Page composée selon les données : elle masque la grille #row3 ; les graphiques ajoutés vont alors dans leur rangée, après la composition
+  if(grille&&(grille.hidden||grille.style.display==='none'))grille=null;var cible=grille||repli,compo=document.getElementById('compo');
+  if(repli){repli.hidden=cible!==repli;if(!grille&&compo&&compo.nextSibling!==repli)compo.parentNode.insertBefore(repli,compo.nextSibling)}
+  if(!cible)return;
   var filtre=f.actifs.length?'filtré : '+f.actifs.map(function(p){return label(p[1])}).join(' · '):'';
   A.forEach(function(a,i){var v=a.variantes[f.k],notes=[],casse=v===null,coupe=f.actifs.filter(function(p){return (a.compare||[]).indexOf(p[0])>=0})[0];
     // 1. filtres : variante précalculée, ou série gardée quand le graphique compare la colonne filtrée
