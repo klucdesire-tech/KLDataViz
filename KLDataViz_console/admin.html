@@ -29,6 +29,8 @@ aside .brand small{display:block;font-weight:500;color:#9FCBB3;font-size:12px}
 aside nav{display:grid;gap:2px}
 aside nav button{border:0;background:none;text-align:left;padding:10px 12px;border-radius:9px;color:#CFE8DA;font-size:14.5px;min-height:42px}
 aside nav button:hover{background:rgba(255,255,255,.07)}
+aside nav .pastille{display:inline-block;min-width:20px;margin-left:6px;padding:0 6px;border-radius:99px;background:#F5B544;color:#2A1A00;font-size:12px;font-weight:700;text-align:center}
+.dm-msg{max-width:42ch;white-space:pre-wrap;color:var(--muted);font-size:13px}
 aside nav button[aria-current="page"]{background:rgba(255,255,255,.12);color:#fff;font-weight:600}
 aside .foot{margin-top:auto;font-size:12.5px;display:grid;gap:8px;padding:0 8px}
 aside .foot a{color:#9FE0BC}
@@ -90,6 +92,7 @@ input:focus,select:focus,textarea:focus{border-color:var(--brand);outline:none}
     <nav id="nav">
       <button data-tab="dash" aria-current="page">Tableau de bord</button>
       <button data-tab="orgs">Clients</button>
+      <button data-tab="demos">Demandes de démo<span class="pastille" id="dmPastille" hidden></span></button>
       <button data-tab="plans">Forfaits et prix</button>
       <button data-tab="pay">Paiements</button>
       <button data-tab="envois">Envois automatiques</button>
@@ -123,6 +126,12 @@ input:focus,select:focus,textarea:focus{border-color:var(--brand);outline:none}
         <input type="search" id="orgSearch" placeholder="Rechercher un espace ou une adresse e-mail" aria-label="Rechercher un client" style="max-width:380px">
         <div class="card"><div class="tablewrap" id="orgList"><div class="empty">Chargement…</div></div></div>
       </div>
+    </section>
+
+    <!-- DEMANDES DE DÉMO -->
+    <section data-view="demos" hidden>
+      <div class="head"><div><h1>Demandes de démo</h1><p>Envoyées depuis le bouton « Demander une démo » de la page d'accueil. Les administrateurs sont aussi prévenus par e-mail.</p></div></div>
+      <div class="card"><div class="tablewrap" id="demoList"><div class="empty">Chargement…</div></div></div>
     </section>
 
     <!-- FORFAITS -->
@@ -231,14 +240,14 @@ let PLANS=[];
   const me=await api('/api/admin/me');
   if(me.error){$('#gateMsg').textContent='Votre compte n\'a pas les droits d\'administration de la plateforme.';$('#gateActs').hidden=false;return}
   $('#meEmail').textContent=me.email;$('#gate').hidden=true;$('#app').hidden=false;
-  await loadPlans();show('dash');
+  await loadPlans();show('dash');majPastille();
 })();
 $('#logout').onclick=async e=>{e.preventDefault();await sb.auth.signOut();location.replace('/login')};
 $('#nav').addEventListener('click',e=>{const b=e.target.closest('[data-tab]');if(b)show(b.dataset.tab)});
 function show(tab){
   $$('#nav [data-tab]').forEach(b=>b.dataset.tab===tab?b.setAttribute('aria-current','page'):b.removeAttribute('aria-current'));
   $$('[data-view]').forEach(v=>v.hidden=v.dataset.view!==tab);
-  ({dash:loadDash,orgs:loadOrgs,plans:renderPlans,pay:loadPay,envois:loadEnvois,sante:loadSante,ann:loadAnn,admins:loadAdmins,site:loadSite,ia:loadIa})[tab]();
+  ({dash:loadDash,orgs:loadOrgs,demos:loadDemos,plans:renderPlans,pay:loadPay,envois:loadEnvois,sante:loadSante,ann:loadAnn,admins:loadAdmins,site:loadSite,ia:loadIa})[tab]();
 }
 function openDrawer(html){$('#panel').innerHTML=html;$('#drawer').hidden=false;$('#panel').querySelector('input,select,textarea,button')?.focus()}
 function closeDrawer(){$('#drawer').hidden=true}
@@ -304,17 +313,20 @@ function mailResult(r,okMsg){return `<div class="card" style="margin-top:8px">${
 $('#testMailBtn').onclick=async ev=>{const b=ev.currentTarget;b.disabled=true;$('#testMailOut').innerHTML='<div class="card" style="margin:8px 0">Envoi en cours…</div>';
   const r=await api('/api/admin/test-mail',{});b.disabled=false;if(r.error){$('#testMailOut').innerHTML='';toast(r.error);return}
   $('#testMailOut').innerHTML=mailResult(r,`E-mail de test envoyé à ${r.to} (expéditeur : ${r.sender||'non défini'}).`)};
-$('#inviteBtn').onclick=()=>{
+$('#inviteBtn').onclick=()=>inviter();
+// Inviter un client ; depuis une demande de démo, le formulaire est prérempli et la demande passe en « traitée »
+function inviter(pre){pre=pre||{};
   openDrawer(`<header><h2 style="font-size:19px">Inviter un client</h2><span class="spacer"></span><button class="btn ghost sm" data-close>Fermer</button></header>
     <p class="sub">Crée l'espace du client et envoie l'invitation à son responsable, qui en devient propriétaire en créant son compte.</p>
-    <form class="grid" id="invForm"><label class="field" for="ivOrg">Nom de l'organisation<input type="text" id="ivOrg" required minlength="2"></label>
-      <label class="field" for="ivMail">E-mail du responsable<input type="email" id="ivMail" required></label>
+    <form class="grid" id="invForm"><label class="field" for="ivOrg">Nom de l'organisation<input type="text" id="ivOrg" required minlength="2" value="${esc(pre.org||'')}"></label>
+      <label class="field" for="ivMail">E-mail du responsable<input type="email" id="ivMail" required value="${esc(pre.email||'')}"></label>
       <label class="field" for="ivPlan">Forfait<select id="ivPlan">${planOptions('essai')}</select></label>
       <button class="btn primary" type="submit">Créer l'espace et inviter</button></form><div id="ivOut"></div>`);
   $('#invForm').onsubmit=async e=>{e.preventDefault();const r=await api('/api/admin/invite-client',{org:$('#ivOrg').value,email:$('#ivMail').value,plan:$('#ivPlan').value});
     if(r.error){toast(r.error);return}
-    $('#ivOut').innerHTML=`<div class="card" style="margin-top:8px">${r.email_sent?'Invitation envoyée par e-mail.':'Espace créé. L\'e-mail n\'a pas pu partir : envoyez ce lien au client :'}${!r.email_sent&&r.email_error?`<br><small style="color:#B45309">Cause : ${esc(r.email_error)}</small>`:''}<br><code style="word-break:break-all">${esc(r.link)}</code></div>`;loadOrgs()};
-};
+    $('#ivOut').innerHTML=`<div class="card" style="margin-top:8px">${r.email_sent?'Invitation envoyée par e-mail.':'Espace créé. L\'e-mail n\'a pas pu partir : envoyez ce lien au client :'}${!r.email_sent&&r.email_error?`<br><small style="color:#B45309">Cause : ${esc(r.email_error)}</small>`:''}<br><code style="word-break:break-all">${esc(r.link)}</code></div>`;
+    if(pre.demande){await api('/api/admin/demos/statut',{id:pre.demande,statut:'traitee',org_id:r.org_id});loadDemos()}else loadOrgs()};
+}
 
 /* ---- forfaits ---- */
 async function loadPay(){
@@ -444,6 +456,30 @@ async function loadJournal(){const L=await api('/api/admin/journal');if(!Array.i
     const det=['org_id','plan','email','days','trial_days','suspended','key','id'].filter(k=>j[k]!=null).map(k=>`${k} : ${esc(String(j[k]))}`).join(' · ');
     return `<tr><td class="sub">${fmtDate(j.date)}</td><td>${esc(j.qui||'')}</td><td>${esc(ACTIONS[j.action]||j.action)}</td><td class="sub">${det}</td></tr>`}).join('')}</tbody></table>`
     :'<div class="empty">Aucune action enregistrée pour l\u2019instant.</div>'}
+/* ---- demandes de démo ---- */
+let DEMOS=[];
+const DM_ST={nouvelle:['Nouvelle','warn'],traitee:['Traitée','ok'],ecartee:['Écartée','']};
+async function majPastille(){const r=await api('/api/admin/demos');if(!Array.isArray(r))return;DEMOS=r;
+  const n=r.filter(d=>d.status==='nouvelle').length,p=$('#dmPastille');p.hidden=!n;p.textContent=n;p.setAttribute('aria-label',n+' nouvelle'+(n>1?'s':''))}
+async function loadDemos(){
+  const r=await api('/api/admin/demos');if(!Array.isArray(r)){$('#demoList').innerHTML=`<div class="empty">${esc(r.error||'Erreur')}</div>`;return}
+  DEMOS=r;const n=r.filter(d=>d.status==='nouvelle').length,p=$('#dmPastille');p.hidden=!n;p.textContent=n;
+  $('#demoList').innerHTML=r.length?`<table><thead><tr><th>Date</th><th>Contact</th><th>Organisation</th><th>Message</th><th>État</th><th></th></tr></thead><tbody>${r.map(d=>{const st=DM_ST[d.status]||[d.status,''];
+    return `<tr><td>${esc(new Date(d.created_at).toLocaleString('fr-FR',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}))}</td>
+    <td><b>${esc(d.name)}</b><br><a href="mailto:${esc(d.email)}">${esc(d.email)}</a>${d.phone?`<br><span class="sub">${esc(d.phone)}</span>`:''}</td>
+    <td>${esc(d.org)}${d.org_name?`<br><span class="sub">Espace : ${esc(d.org_name)}</span>`:''}</td>
+    <td><div class="dm-msg">${esc(d.message||'—')}</div></td>
+    <td><span class="tag ${st[1]}">${esc(st[0])}</span>${d.handled_by?`<br><span class="sub">${esc(d.handled_by)}</span>`:''}</td>
+    <td class="r" style="white-space:nowrap">${d.status==='nouvelle'?`<button class="btn primary sm" data-dm-esp="${esc(d.id)}">Créer l'espace</button>
+      <button class="btn ghost sm" data-dm="${esc(d.id)}" data-st="traitee">Traitée</button> <button class="btn ghost sm" data-dm="${esc(d.id)}" data-st="ecartee">Écarter</button>`
+      :`<button class="btn ghost sm" data-dm="${esc(d.id)}" data-st="nouvelle">Rouvrir</button>`}</td></tr>`}).join('')}</tbody></table>`
+    :'<div class="empty">Aucune demande pour l\'instant. Le bouton « Demander une démo » est sur la page d\'accueil.</div>';
+}
+$('#demoList').addEventListener('click',async e=>{
+  const c=e.target.closest('[data-dm-esp]');if(c){const d=DEMOS.find(x=>x.id===c.dataset.dmEsp);if(d)inviter({org:d.org,email:d.email,demande:d.id});return}
+  const b=e.target.closest('[data-dm]');if(!b)return;b.disabled=true;
+  const r=await api('/api/admin/demos/statut',{id:b.dataset.dm,statut:b.dataset.st});toast(r.error||'Demande mise à jour');loadDemos()});
+
 async function loadAdmins(){
   loadJournal();
   const rows=await api('/api/admin/admins');if(rows.error){toast(rows.error);return}

@@ -3604,6 +3604,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 return self._notification_paiement(method)
             if T.CLOUD and method == "GET" and path.startswith("/api/public/"):
                 return self._public(path)
+            if T.CLOUD and method == "POST" and path == "/api/public/demo":  # demande de démo, sans compte
+                return self._demande_demo()
             if not T.CLOUD:
                 with T.use(T.LOCAL):
                     return self._route(method, path, self._payload(MAX_UPLOAD) if method == "POST" else {})
@@ -4130,6 +4132,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return self._send(502, {"error": "Vérification impossible."})
         return self._send(200 if ok else 401, {"ok": bool(ok)})
 
+    def _demande_demo(self):
+        """Formulaire « Demander une démo » de la page d'accueil : limité par adresse et au total, contre les robots."""
+        ip = (self.headers.get("X-Forwarded-For") or "").split(",")[0].strip() or self.client_address[0]
+        if not _rate_ok(f"demo:{ip}", 3, 600) or not _rate_ok("demo", 40, 3600):
+            return self._send(429, {"error": "Trop de demandes envoyées. Réessayez plus tard."})
+        return self._send(200, cloud.demande_demo(self._payload(MAX_JSON)))
+
     def _public(self, path):
         """Données publiques de la page d'accueil (sans connexion)."""
         if path == "/api/public/plans":
@@ -4160,6 +4169,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                       "/api/admin/site": lambda: cloud.site_settings(),
                       "/api/admin/ia": lambda: cloud.admin_ia(ctx),
                       "/api/admin/journal": lambda: journal.lire(200, espace=False),
+                      "/api/admin/demos": lambda: cloud.admin_demandes_demo(ctx),
                       "/api/admin/sante": surveillance.bilan}
         else:
             routes = {"/api/admin/payments/verify": lambda: cloud.admin_verifier_paiement(ctx, str(p.get("merchant_tx") or "")),
@@ -4168,6 +4178,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                       "/api/admin/extend": lambda: cloud.admin_extend_trial(ctx, str(p.get("org_id")), p.get("days") or 14),
                       "/api/admin/suspend": lambda: cloud.admin_suspend(ctx, str(p.get("org_id")), p.get("suspended")),
                       "/api/admin/invite-client": lambda: cloud.admin_invite_client(ctx, p.get("org"), p.get("email"), p.get("plan")),
+                      "/api/admin/demos/statut": lambda: cloud.admin_demande_demo_statut(ctx, str(p.get("id") or ""),
+                                                                                       str(p.get("statut") or ""), p.get("org_id")),
                       "/api/admin/resend-invite": lambda: cloud.admin_resend_invite(ctx, str(p.get("org_id")), p.get("email")),
                       "/api/admin/test-mail": lambda: cloud.admin_test_mail(ctx),
                       "/api/admin/sante/essai": surveillance.essai,

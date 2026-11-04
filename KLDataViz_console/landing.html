@@ -58,7 +58,7 @@ header.nav .wrap{display:flex;align-items:center;gap:20px;min-height:68px}
 .links{display:flex;gap:22px;margin-left:12px}
 .links a{text-decoration:none;color:var(--muted);font-weight:500;font-size:15px}.links a:hover{color:var(--fg)}
 .nav .spacer{flex:1}
-.nav .btn{min-height:42px;padding:9px 16px;font-size:14.5px}
+.nav .btn{min-height:42px;padding:9px 16px;font-size:14.5px;white-space:nowrap}
 
 /* héros */
 .hero{padding-block:clamp(48px,7vw,88px) clamp(56px,8vw,96px)}
@@ -226,6 +226,28 @@ footer a{color:var(--muted)}
 .rv{opacity:0;transform:translateY(22px);transition:opacity .7s cubic-bezier(.2,.8,.2,1),transform .7s cubic-bezier(.2,.8,.2,1)}
 .rv.in{opacity:1;transform:none}
 
+.lien-comment{align-self:center;font-weight:600;font-size:15px;color:var(--brand-strong);text-underline-offset:3px;padding:10px 4px}
+/* demande de démo */
+dialog.demo{border:0;padding:0;border-radius:20px;background:var(--surface);color:var(--fg);width:min(520px,calc(100vw - 32px));max-height:calc(100dvh - 32px);box-shadow:0 24px 80px rgba(0,0,0,.35)}
+dialog.demo::backdrop{background:rgba(6,20,12,.55);backdrop-filter:blur(3px)}
+.demo-in{padding:clamp(20px,4vw,30px);display:grid;gap:14px}
+.demo-top{display:flex;align-items:flex-start;gap:12px}.demo-top h2{font-size:23px;flex:1}
+.demo-x{flex:none;width:40px;height:40px;border-radius:10px;border:1px solid var(--line);background:transparent;color:var(--muted);font-size:22px;line-height:1;cursor:pointer}
+.demo-x:hover{color:var(--fg);border-color:var(--brand)}
+.demo p.sub{margin:0;color:var(--muted);font-size:15px}
+.demo form{display:grid;gap:12px}
+.demo .duo{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.demo label{display:grid;gap:5px;font-size:14px;font-weight:600}
+.demo label small{font-weight:400;color:var(--muted)}
+.demo input,.demo textarea{font:16px var(--sans);color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:11px 12px;min-height:46px;width:100%}
+.demo textarea{min-height:92px;resize:vertical}
+.demo input:focus,.demo textarea:focus{outline:2px solid var(--brand);outline-offset:1px;border-color:var(--brand)}
+.demo .piege{position:absolute;left:-9999px;width:1px;height:1px;overflow:hidden}
+.demo .err{margin:0;color:var(--red);font-size:14px;font-weight:600}
+.demo .note{margin:0;color:var(--muted);font-size:13px}
+.demo .ok{display:grid;gap:10px;justify-items:start}.demo .ok svg{width:44px;height:44px;color:var(--brand)}
+.demo .btn[disabled]{opacity:.65;cursor:progress}
+
 @media (max-width:960px){
   .cmd-grid{grid-template-columns:minmax(0,1fr)}.palette{position:static}
   .hero .wrap,.sec-grid{grid-template-columns:minmax(0,1fr)}
@@ -235,7 +257,8 @@ footer a{color:var(--muted)}
 @media (max-width:560px){
   .steps,.features{grid-template-columns:minmax(0,1fr)}
   .dash .low{grid-template-columns:minmax(0,1fr)}.dn{display:none}
-  .nav .login{display:none}
+  .nav .login,.nav .demo-nav{display:none}
+  .demo .duo{grid-template-columns:minmax(0,1fr)}
   .steps-ui div span{display:none}
   .stage{aspect-ratio:1/1.05}
 }
@@ -254,6 +277,7 @@ footer a{color:var(--muted)}
     <a class="logo" href="/"><img src="/logo.png" alt="">KLDataViz</a>
     <nav class="links" aria-label="Sections"><a href="#comment">Fonctionnement</a><a href="#fonctions">Fonctionnalités</a><a href="#commandes">Commandes</a><a href="#tarifs">Tarifs</a><a href="#faq">Questions</a></nav>
     <span class="spacer"></span>
+    <button type="button" class="btn ghost demo-nav" data-demo>Demander une démo</button>
     <a class="btn ghost login" href="/login">Se connecter</a>
     <a class="btn primary" href="/login?signup=1">Essai gratuit</a>
   </div>
@@ -268,7 +292,8 @@ footer a{color:var(--muted)}
         <p class="lead" id="heroSub">Importez un fichier Excel, une feuille Google ou un export DHIS2. Adifa’ vérifie la qualité, construit un tableau de bord interactif à partir de vos indicateurs et répond à vos questions, en français.</p>
         <div class="ctas">
           <a class="btn primary" href="/login?signup=1">Essayer 14 jours gratuitement</a>
-          <a class="btn ghost" href="#comment">Voir comment ça marche</a>
+          <button type="button" class="btn ghost" data-demo>Demander une démo</button>
+          <a class="lien-comment" href="#comment">Voir comment ça marche</a>
         </div>
         <div class="trust">
           <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l8 3v6c0 4.5-3.4 8.3-8 9-4.6-.7-8-4.5-8-9V6z"/></svg>Données privées à votre espace</span>
@@ -403,11 +428,35 @@ footer a{color:var(--muted)}
       <div class="final">
         <h2>Prêt à comprendre vos données ?</h2>
         <p>Créez votre espace en une minute et importez votre premier fichier. 14 jours gratuits, sans engagement.</p>
-        <div style="display:flex;gap:12px;flex-wrap:wrap"><a class="btn primary" href="/login?signup=1">Commencer l'essai gratuit</a><a class="btn ghost" id="contactBtn" href="#tarifs" hidden>Nous contacter</a></div>
+        <div style="display:flex;gap:12px;flex-wrap:wrap"><a class="btn primary" href="/login?signup=1">Commencer l'essai gratuit</a><button type="button" class="btn ghost" data-demo>Demander une démo</button><a class="btn ghost" id="contactBtn" href="#tarifs" hidden>Nous contacter</a></div>
       </div>
     </div>
   </section>
 </main>
+
+<dialog class="demo" id="demoDlg" aria-labelledby="demoTitre">
+  <div class="demo-in">
+    <div class="demo-top"><h2 id="demoTitre">Demander une démo</h2><button type="button" class="demo-x" id="demoFermer" aria-label="Fermer">×</button></div>
+    <div id="demoCorps">
+      <p class="sub">Laissez vos coordonnées : nous vous recontactons pour vous montrer KLDataViz et Adifa’ sur un exemple proche de vos données.</p>
+      <form id="demoForm" novalidate style="margin-top:14px">
+        <div class="duo">
+          <label for="dmNom">Nom complet<input id="dmNom" name="name" autocomplete="name" required minlength="2" maxlength="120"></label>
+          <label for="dmOrg">Organisation<input id="dmOrg" name="org" autocomplete="organization" required minlength="2" maxlength="120"></label>
+        </div>
+        <div class="duo">
+          <label for="dmMail">E-mail<input id="dmMail" name="email" type="email" autocomplete="email" required maxlength="254"></label>
+          <label for="dmTel"><span>Téléphone ou WhatsApp <small>(facultatif)</small></span><input id="dmTel" name="phone" type="tel" autocomplete="tel" maxlength="40"></label>
+        </div>
+        <label for="dmMsg"><span>Que voulez-vous analyser ? <small>(facultatif)</small></span><textarea id="dmMsg" name="message" maxlength="1500" placeholder="Ex. : suivi mensuel des ventes par agence, indicateurs DHIS2…"></textarea></label>
+        <div class="piege" aria-hidden="true"><label for="dmSite">Site web<input id="dmSite" name="site_web" tabindex="-1" autocomplete="off"></label></div>
+        <p class="err" id="demoErr" role="alert" hidden></p>
+        <button class="btn primary" type="submit" id="demoEnvoi">Envoyer la demande</button>
+        <p class="note">Vos coordonnées servent uniquement à vous recontacter au sujet de cette démo.</p>
+      </form>
+    </div>
+  </div>
+</dialog>
 
 <footer>
   <div class="wrap"><span>© <span id="year"></span> KLDataViz · Adifa’</span><span id="contactLine"></span><a href="/guide">Guide d'utilisation</a><a href="/login">Se connecter</a></div>
@@ -453,6 +502,32 @@ async function loadPlans(){
       <div class="price">${price}</div><ul>${(p.features||[]).map(f=>`<li>${esc(f)}</li>`).join('')}</ul>
       <a class="btn ${p.highlight?'primary':'ghost'}" href="${esc(href)}">${label}</a></div>`}).join('');
 }
+
+/* ---- demande de démo ---- */
+const dlg=$('#demoDlg'),dmForm=$('#demoForm');let dmDernier=null;
+function demoOuvrir(e){dmDernier=e&&e.currentTarget;$('#demoErr').hidden=true;
+  if(typeof dlg.showModal==='function')dlg.showModal();else dlg.setAttribute('open','');setTimeout(()=>{const f=$('#dmNom');if(f)f.focus()},30)}
+function demoFermer(){if(typeof dlg.close==='function')dlg.close();else dlg.removeAttribute('open')}
+dlg.addEventListener('close',()=>{if(dmDernier)dmDernier.focus()});
+dlg.addEventListener('click',e=>{if(e.target===dlg)demoFermer()});  // clic sur le fond
+$('#demoFermer').onclick=demoFermer;
+document.querySelectorAll('[data-demo]').forEach(b=>b.addEventListener('click',demoOuvrir));
+if(location.hash==='#demo')demoOuvrir();
+dmForm.addEventListener('input',()=>{$('#demoErr').hidden=true});
+function demoErreur(t,champ){const e=$('#demoErr');e.textContent=t;e.hidden=false;if(champ)champ.focus()}
+dmForm.addEventListener('submit',async e=>{e.preventDefault();
+  const v=k=>dmForm.elements[k].value.trim(),d={name:v('name'),org:v('org'),email:v('email'),phone:v('phone'),message:v('message'),site_web:v('site_web')};
+  if(d.name.length<2)return demoErreur('Indiquez votre nom.',$('#dmNom'));
+  if(d.org.length<2)return demoErreur('Indiquez le nom de votre organisation.',$('#dmOrg'));
+  if(!/^[^@\s]+@[^@\s.]+(\.[^@\s.]+)+$/.test(d.email))return demoErreur('Adresse e-mail invalide.',$('#dmMail'));
+  const b=$('#demoEnvoi');b.disabled=true;b.textContent='Envoi…';$('#demoErr').hidden=true;
+  let r=null;try{const x=await fetch('/api/public/demo',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(d)});r=await x.json().catch(()=>null);if(!x.ok&&r&&!r.error)r.error='Erreur '+x.status}catch(err){r=null}
+  b.disabled=false;b.textContent='Envoyer la demande';
+  if(!r||r.error)return demoErreur((r&&r.error)||'Envoi impossible pour le moment. Vérifiez votre connexion et réessayez.');
+  $('#demoCorps').innerHTML='<div class="ok" role="status"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M7.5 12.5l3 3 6-6"/></svg>'
+    +'<h3 style="font-size:19px">Demande envoyée, merci '+esc(d.name.split(' ')[0])+' !</h3><p class="sub">Nous vous recontactons très vite à l’adresse '+esc(d.email)+'.</p>'
+    +'<button type="button" class="btn ghost" id="demoOk">Fermer</button></div>';
+  $('#demoOk').onclick=demoFermer;$('#demoOk').focus()});
 
 /* ---- motion design : boucle de 4 actes ---- */
 const stage=$('#stage'),rows=[...document.querySelectorAll('#table .trow')],steps=[...document.querySelectorAll('#stepsUi div')];
