@@ -179,4 +179,4 @@ def test_dictionnaire_sans_colonne_de_periode_garde_le_filtre_de_periode():
     html = generate_dashboard(df, "t", llm=False, dictionnaire=[{"code": "V", "libelle": "ventes", "type": "nombre"}], correspondance=corr)["html"]
     data = json.loads(re.search(r"window\.DATA=(.*?);\nwindow\.KPIDEFS", html, re.S).group(1).replace("<\\/", "</"))
     assert len({str(r.get("__p"))[:7] for r in data if r.get("__p")}) == 6   # six mois : le filtre de période a de quoi filtrer
-    assert ".chip[hidden]{display:none}" in html
+    assert ".chip[hidden],.perpop[hidden]{display:none}" in html  # sans quoi « Fermer » ne masquait rien
