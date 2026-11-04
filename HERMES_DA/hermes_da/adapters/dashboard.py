@@ -834,7 +834,7 @@ body{font-family:'Fira Sans',system-ui,-apple-system,'Segoe UI',sans-serif;backg
 .top p{color:var(--muted);font-size:13px;margin-top:4px;max-width:640px}
 .chip{display:inline-flex;align-items:center;gap:8px;background:var(--card);border:1px solid var(--line);border-radius:999px;padding:8px 14px;font-size:12.5px;color:var(--muted);white-space:nowrap}
 .chip svg{width:15px;height:15px;stroke:currentColor;fill:none;stroke-width:1.8}
-.chip[hidden]{display:none}button.chip{font:inherit;font-size:12.5px;cursor:pointer}button.chip:hover{border-color:var(--navy)}
+.chip[hidden],.perpop[hidden]{display:none}button.chip{font:inherit;font-size:12.5px;cursor:pointer}button.chip:hover{border-color:var(--navy)}
 button.chip.on{background:var(--navy);border-color:var(--navy);color:#fff}
 .rangew{position:relative}.perpop{position:absolute;right:0;top:calc(100% + 6px);z-index:30;background:var(--card);border:1px solid var(--line);
   border-radius:14px;box-shadow:0 10px 30px rgba(22,33,62,.14);padding:12px 14px;display:grid;gap:8px;min-width:250px}
@@ -1396,6 +1396,9 @@ function ouvrirPeriode(garder){var pp=document.getElementById('perpop'),r=docume
 if(MOISDISPO.length>=2)document.getElementById('range').onclick=function(){ouvrirPeriode(false)};
 else document.getElementById('range').disabled=true;
 if(document.addEventListener)document.addEventListener('keydown',function(e){if(e.key==='Escape'){var pp=document.getElementById('perpop');if(!pp.hidden){pp.hidden=true;document.getElementById('range').setAttribute('aria-expanded','false')}}});
+// Un clic ailleurs dans la page referme le menu de période
+if(document.addEventListener)document.addEventListener('click',function(e){var pp=document.getElementById('perpop');
+  if(pp.hidden||!e.target.closest||e.target.closest('.rangew'))return;pp.hidden=true;document.getElementById('range').setAttribute('aria-expanded','false')});
 majPuce();
 buildFilters();render();
 </script>
