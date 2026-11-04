@@ -838,6 +838,7 @@ body{font-family:'Fira Sans',system-ui,-apple-system,'Segoe UI',sans-serif;backg
 .more{border:0;background:none;color:var(--navy);font:inherit;font-size:12.5px;font-weight:600;cursor:pointer;min-height:32px;padding:0 4px;text-decoration:underline;text-underline-offset:3px}
 .extra{display:contents}.extra[hidden]{display:none}
 .f{display:flex;flex-direction:column;gap:6px}
+.per{display:flex;align-items:center;gap:6px}.per i{font-style:normal;color:var(--muted);font-size:12px}
 .f > span{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.4px;color:var(--muted);max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .pills{display:flex;flex-wrap:wrap;gap:6px}
 .pill{border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:999px;padding:6px 12px;font:inherit;font-size:12.5px;cursor:pointer;min-height:32px;transition:background .15s,color .15s,border-color .15s}
@@ -993,7 +994,13 @@ function fmt(v){if(v==null||isNaN(v))return '—';var n=Number(v),a=Math.abs(n);
   return n.toLocaleString('fr-FR',{maximumFractionDigits:a>=100?0:a>=10?1:2})}
 function num(v){var n=parseFloat(v);return isNaN(n)?null:n}
 var FCOLS=(META.filters||[]).map(function(f){return f.col});
-function filtered(){return DATA.filter(function(r){return FCOLS.every(function(c){return state[c]==null||state[c]==='all'||String(r[c]).trim()===state[c]})})}
+// Filtre de période : mois de début et de fin (« AAAA-MM ») ; tout le fichier quand ils sont vides
+var PER={du:null,au:null};
+var MOISDISPO=(function(){var s={};DATA.forEach(function(r){if(r.__p)s[String(r.__p).slice(0,7)]=1});return Object.keys(s).sort()})();
+function perActive(){return !!(PER.du||PER.au)}
+function inPer(r){if(!perActive())return true;var m=r.__p?String(r.__p).slice(0,7):null;if(!m)return false;
+  return (!PER.du||m>=PER.du)&&(!PER.au||m<=PER.au)}
+function filtered(){return DATA.filter(function(r){return inPer(r)&&FCOLS.every(function(c){return state[c]==null||state[c]==='all'||String(r[c]).trim()===state[c]})})}
 // Taux : colonne Oui/Non (et assimilés) → 1/0 ; affiché en % (0 à 100)
 var YES={'oui':1,'yes':1,'true':1,'vrai':1,'o':1,'y':1,'positif':1,'positive':1,'1':1},NO={'non':1,'no':1,'false':1,'faux':1,'n':1,'négatif':1,'negatif':1,'négative':1,'negative':1,'0':1};
 function isRate(a){a=(a||'').toLowerCase();return a==='taux'||a==='rate'||a==='pct'||a==='proportion'}
@@ -1021,7 +1028,17 @@ var axes={x:{grid:{display:false},border:{display:false},ticks:{maxRotation:0,au
           y:{grid:{color:'#EEF0F6'},border:{display:false},ticks:{maxTicksLimit:6,callback:function(v){return fmt(v)}}}};
 
 // Filtres : 3 visibles, les autres derrière « Plus de filtres » ; pastilles jusqu'à 5 valeurs, liste au-delà
-function buildFilters(){var el=document.getElementById('filters');el.innerHTML='';var F=META.filters||[];if(!F.length){el.style.display='none';return}
+function moisNom(k){return MOIS[+k.slice(5,7)-1]+' '+k.slice(0,4)}
+function boitePeriode(){var box=document.createElement('div');box.className='f';box.innerHTML='<span>Période</span>';
+  var w=document.createElement('div');w.className='per';
+  var opt=function(cur,vide){return '<option value="">'+vide+'</option>'+MOISDISPO.map(function(k){return '<option value="'+k+'"'+(cur===k?' selected':'')+'>'+esc(moisNom(k))+'</option>'}).join('')};
+  var du=document.createElement('select'),au=document.createElement('select');du.setAttribute('aria-label','Début de période');au.setAttribute('aria-label','Fin de période');
+  du.innerHTML=opt(PER.du,'Début');au.innerHTML=opt(PER.au,'Fin');
+  var maj=function(){PER.du=du.value||null;PER.au=au.value||null;if(PER.du&&PER.au&&PER.du>PER.au){var t=PER.du;PER.du=PER.au;PER.au=t;du.value=PER.du;au.value=PER.au}render()};
+  du.onchange=maj;au.onchange=maj;w.appendChild(du);var fl=document.createElement('i');fl.textContent='→';w.appendChild(fl);w.appendChild(au);box.appendChild(w);return box}
+function buildFilters(){var el=document.getElementById('filters');el.innerHTML='';var F=META.filters||[];
+  if(!F.length&&MOISDISPO.length<2){el.style.display='none';return}
+  if(MOISDISPO.length>=2)el.appendChild(boitePeriode());
   var extra=document.createElement('div');extra.className='extra';extra.hidden=!showMore;
   F.forEach(function(f,idx){var c=f.col,vals=f.values;
     var box=document.createElement('div');box.className='f';box.innerHTML='<span title="'+esc(nice(c))+'">'+esc(short(c))+'</span>';
@@ -1067,7 +1084,7 @@ function evalF(rows,f){if(!f)return null;var R=f.filtre?rows.filter(function(r){
   if(!v.length)return null;var s=v.reduce(function(a,b){return a+b},0);
   if(m==='somme')return s;if(m==='moyenne')return s/v.length;v.sort(function(a,b){return a-b});var h=v.length>>1;return v.length%2?v[h]:(v[h-1]+v[h])/2}
 function rankedF(rows,f,dim,top){var g=groupBy(rows,dim);return Object.keys(g).map(function(k){return [k,evalF(g[k],f)]}).filter(function(e){return e[1]!=null}).sort(function(a,b){return b[1]-a[1]}).slice(0,top||8)}
-function kpiGros(k){var E=META.gros,a=(k.agregation||'').toLowerCase(),ech=!!E&&E.mode==='echantillon',filtre=FCOLS.some(function(c){return state[c]!=null&&state[c]!=='all'});
+function kpiGros(k){var E=META.gros,a=(k.agregation||'').toLowerCase(),ech=!!E&&E.mode==='echantillon',filtre=perActive()||FCOLS.some(function(c){return state[c]!=null&&state[c]!=='all'});
   return {v:E&&!filtre&&k.exact!=null&&(ech||/^m[ée]dian/.test(a))?k.exact:null,t:ech&&!filtre?k.tete:null,f:ech&&(!k.colonne||/^(somme|sum|compte|count|dernier|comptage)$/.test(a))?E.lignes/DATA.length:1,a:ech&&(filtre||k.exact==null)}}
 function grosNote(){var E=META.gros,k=document.getElementById('kpis');if(!E||document.getElementById('gros-note'))return;var p=document.createElement('p');p.id='gros-note';p.style.cssText='font-size:13px;color:var(--muted);margin:0 0 10px';
   p.textContent=E.mode==='echantillon'?'Fichier de '+fmt(E.lignes)+' lignes : les tuiles sont exactes sans filtre, estimées avec un filtre (≈). Les graphiques reposent sur un échantillon de '+fmt(DATA.length)+' lignes : lisez-y les proportions, pas les totaux.'+(E.trop_detaille?' Ce fichier est trop détaillé pour la page composée.':''):'Calculé sur les '+fmt(E.lignes)+' lignes du fichier.'+(E.mensuel?' Détail limité au mois pour ce volume.':'')+(E.retires&&E.retires.length?' Filtre retiré car trop détaillé pour cette page : '+E.retires.map(nice).join(', ')+'.':'');
@@ -1313,7 +1330,7 @@ function renderRank(){var el=document.getElementById('rank'),I=(META.indicateurs
   if(RK.k>=I.length)RK.k=0;if(RK.d>=dims.length)RK.d=0;
   var k=I[RK.k],d=dims[RK.d],filtrable=FCOLS.indexOf(d)>=0;
   // Toutes les lignes filtrées SAUF par cette dimension : le classement garde tous ses groupes, le choisi est surligné
-  var base=DATA.filter(function(r){return FCOLS.every(function(c){return c===d||state[c]==null||state[c]==='all'||String(r[c]).trim()===state[c]})});
+  var base=DATA.filter(function(r){return inPer(r)&&FCOLS.every(function(c){return c===d||state[c]==null||state[c]==='all'||String(r[c]).trim()===state[c]})});
   var e=rankedF(base,k.formule,d,15);el.hidden=false;
   if(e.length<2){var ch=function(list,cur,att){return list.map(function(x,i){return '<button class="rk-c" data-'+att+'="'+i+'" aria-pressed="'+(i===cur)+'">'+esc(att==='k'?x.nom.split(' · ')[0]:short(x))+'</button>'}).join('')};
     el.innerHTML='<div class="card-h"><div><h2>Classement · '+esc(k.nom)+'</h2></div></div><div class="rk-bar"><div class="rk-g">'+ch(I,RK.k,'k')+'</div>'+(dims.length>1?'<div class="rk-g"><span>par</span>'+ch(dims,RK.d,'d')+'</div>':'')+'</div>'

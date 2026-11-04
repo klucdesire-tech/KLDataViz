@@ -2035,7 +2035,10 @@ CHAT_METHODE = (
     "Types : bar (catégories), "
     "line ou area (évolution dans le temps, trie par période), pie/doughnut (parts), scatter (labels = x, values = [y]), "
     "histogram (labels = intervalles, values = effectifs), box (values[i] = [min, Q1, médiane, Q3, max] par catégorie). "
-    "Aucune bibliothèque de graphique (pas de matplotlib). Le graphique du dernier calcul qui en définit un est affiché.\n"
+    "Aucune bibliothèque de graphique (pas de matplotlib). Le graphique du dernier calcul qui en définit un est affiché. "
+    "COULEURS : si l'utilisateur en demande, ajoute \"colors\":[...] au graphique, une couleur par série (ou une par barre / "
+    "part quand il n'y a qu'une série), dans l'ordre : nom français (rouge, bleu, vert, orange, violet, rose, jaune, gris…) "
+    "ou hexadécimal (#1D7A4C) ; n'en mets pas s'il n'en demande pas.\n"
     "RÉPONSE FINALE : commence par la réponse directe à la question. Chiffres UNIQUEMENT issus des résultats reçus ou "
     "de l'analyse fournie, jamais inventés. Cite la méthode quand c'est un test (ex. « test de Student, p = 0,03 ») et "
     "les limites (petits effectifs, valeurs manquantes, corrélation ≠ causalité). Court pour une question simple, "
@@ -2148,9 +2151,41 @@ def _chart_propre(c):
     if not any(v is not None for s in series for v in s):
         return None
     propre = dict(c, type=type_final, labels=[str(x) for x in labels], values=series)
+    propre.pop("couleurs", None)
+    couleurs = _couleurs(c.get("colors") or c.get("couleurs") or c.get("color"))
+    if couleurs:
+        propre["colors"] = couleurs
+    else:
+        propre.pop("colors", None)
     if type_ecrit in GRAPHIQUES_HORIZONTAUX:
         propre["horizontal"] = True
     return propre
+
+
+COULEURS = {"rouge": "#DC2626", "bleu": "#2563EB", "vert": "#16A34A", "jaune": "#EAB308", "orange": "#EA580C",
+            "violet": "#7C3AED", "rose": "#DB2777", "gris": "#6B7280", "noir": "#111827", "blanc": "#F9FAFB",
+            "marron": "#92400E", "brun": "#92400E", "turquoise": "#14B8A6", "cyan": "#06B6D4", "bordeaux": "#881337",
+            "bleu clair": "#60A5FA", "bleu ciel": "#38BDF8", "bleu foncé": "#1E3A8A", "bleu marine": "#1E3A8A",
+            "vert clair": "#4ADE80", "vert foncé": "#166534", "rouge foncé": "#991B1B", "gris clair": "#D1D5DB",
+            "red": "#DC2626", "blue": "#2563EB", "green": "#16A34A", "yellow": "#EAB308", "purple": "#7C3AED",
+            "pink": "#DB2777", "grey": "#6B7280", "gray": "#6B7280", "black": "#111827", "brown": "#92400E"}
+
+
+def _couleurs(valeurs):
+    """Couleurs demandées (noms français ou anglais, « #1D7A4C ») → hexadécimal ; None si aucune n'est reconnue.
+    Une couleur inconnue laisse sa place vide : la page met alors celle de sa palette."""
+    if isinstance(valeurs, str):
+        valeurs = [valeurs]
+    if not isinstance(valeurs, (list, tuple)):
+        return None
+    out = []
+    for v in list(valeurs)[:30]:
+        t = str(v or "").strip().lower()
+        if re.fullmatch(r"#[0-9a-f]{6}|#[0-9a-f]{3}", t):
+            out.append(t.upper())
+        else:
+            out.append(COULEURS.get(t.replace("é", "é")))
+    return out if any(out) else None
 
 
 def _charts_list(chart):
@@ -2349,37 +2384,66 @@ def _rejouer_ajout(ajout, df, filtres=None):
 AJOUTS_JS = """(function(){var A=__A__,F=__F__,G=[],SUB='Ajouté par Adifa’ · suit les filtres';
 // Dessinés avec les outils du tableau de bord (card, canvas, NAVY, DONUT, PASTEL, navyTip, axes, fmt) : même allure,
 // et placés dans sa grille de graphiques (#row3), à la suite des siens.
+A.forEach(function(a){a.demandes={}});
 function cle(){var s=window.state||{},p=[];F.forEach(function(c){if(s[c]!=null&&s[c]!=='all')p.push([c,String(s[c])])});
   p.sort(function(a,b){return a[0]<b[0]?-1:a[0]>b[0]?1:0});return {k:JSON.stringify(p),actifs:p}}
 function genre(c){return c.type==='pie'||c.type==='doughnut'?'doughnut':c.type==='line'||c.type==='area'?'line':c.type==='scatter'?'scatter':'bar'}
+// Couleurs demandées à Adifa’ (c.colors, en hexadécimal) : prioritaires sur la palette du tableau de bord
+function teinte(c,k,defaut){var C=c.colors;return C&&C.length?(C[k%C.length]||defaut):defaut}
+function rgba(h,a){var x=String(h).replace('#','');if(x.length===3)x=x.split('').map(function(z){return z+z}).join('');
+  var n=parseInt(x,16);return isNaN(n)?h:'rgba('+(n>>16&255)+','+(n>>8&255)+','+(n&255)+','+a+')'}
 function corps(id,c,titre){if(genre(c)!=='doughnut')return canvas(id,titre);
   var v=c.values[0]||[],tot=v.reduce(function(s,x){return s+(x||0)},0)||1;
-  return '<div class="donut">'+canvas(id,titre)+'<ul class="legend">'+c.labels.map(function(l,k){return '<li><i style="background:'+DONUT[k%DONUT.length]
+  return '<div class="donut">'+canvas(id,titre)+'<ul class="legend">'+c.labels.map(function(l,k){return '<li><i style="background:'+teinte(c,k,DONUT[k%DONUT.length])
     +'"></i><span>'+esc(label(l))+'</span><b>'+Math.round((v[k]||0)/tot*100)+' %</b></li>'}).join('')+'</ul></div>'}
 // Comme le tableau de bord : barres couchées au-delà de 6 catégories ; aussi pour des noms longs, sinon certains sauteraient
 function couche(c){return !!c.horizontal||(genre(c)==='bar'&&(c.labels.length>6||c.labels.some(function(l){return String(l).length>14})))}
 function moyenne(c){var ok=(c.values[0]||[]).filter(function(x){return x!=null});return ok.reduce(function(s,x){return s+x},0)/(ok.length||1)}
-function dessin(id,c){var cv=document.getElementById(id);if(!cv)return null;var t=genre(c),h=couche(c),multi=(c.values||[]).length>1,
+function dessin(id,c){var cv=document.getElementById(id);if(!cv)return null;var t=genre(c),h=couche(c),multi=(c.values||[]).length>1,C=c.colors,
   tip=Object.assign({callbacks:{label:function(x){var y=t==='doughnut'?x.parsed:h?x.parsed.x:x.parsed.y;return (x.dataset.label?x.dataset.label+' : ':'')+fmt(y)}}},navyTip);
-  if(t==='doughnut')return new Chart(cv,{type:'doughnut',data:{labels:c.labels.map(label),datasets:[{data:c.values[0],backgroundColor:DONUT,borderColor:'#fff',borderWidth:3,hoverOffset:4}]},
+  if(t==='doughnut')return new Chart(cv,{type:'doughnut',data:{labels:c.labels.map(label),datasets:[{data:c.values[0],
+    backgroundColor:c.labels.map(function(l,k){return teinte(c,k,DONUT[k%DONUT.length])}),borderColor:'#fff',borderWidth:3,hoverOffset:4}]},
     options:{responsive:true,maintainAspectRatio:false,cutout:'68%',plugins:{legend:{display:false},tooltip:tip}}});
   var sc=h?{x:axes.y,y:{grid:{display:false},border:{display:false}}}:axes,ds;
-  if(t==='scatter'){ds=[{data:c.labels.map(function(x,n){return {x:+x,y:c.values[0][n]}}),backgroundColor:NAVY,pointRadius:4,pointHoverRadius:6}];
+  if(t==='scatter'){ds=[{data:c.labels.map(function(x,n){return {x:+x,y:c.values[0][n]}}),backgroundColor:teinte(c,0,NAVY),pointRadius:4,pointHoverRadius:6}];
     return new Chart(cv,{type:'scatter',data:{datasets:ds},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:tip},scales:{x:axes.y,y:axes.y}}})}
   // Survol de toute la colonne, comme les courbes du tableau de bord : sinon il faut viser un point invisible
   var survol={mode:'index',intersect:false,axis:h?'y':'x'};
-  if(t==='line'){var g=cv.getContext('2d').createLinearGradient(0,0,0,250);g.addColorStop(0,'rgba(11,79,143,.22)');g.addColorStop(1,'rgba(11,79,143,0)');
-    ds=c.values.map(function(v,k){var col=multi?PASTEL[k%PASTEL.length]:NAVY;return {label:(c.seriesNames||[])[k]||'',data:v,borderColor:col,backgroundColor:k===0?g:'transparent',
+  if(t==='line'){ds=c.values.map(function(v,k){var col=teinte(c,k,multi?PASTEL[k%PASTEL.length]:NAVY),g=cv.getContext('2d').createLinearGradient(0,0,0,250);
+      g.addColorStop(0,rgba(col,.22));g.addColorStop(1,rgba(col,0));return {label:(c.seriesNames||[])[k]||'',data:v,borderColor:col,backgroundColor:k===0?g:'transparent',
       fill:k===0,tension:.35,borderWidth:2.5,spanGaps:true,pointRadius:c.labels.length<=15?3:0,pointHoverRadius:5,pointBackgroundColor:col}})}
   else if(!multi){var v=c.values[0],moy=moyenne(c);
-    ds=[{data:v,backgroundColor:v.map(function(x){return x>=moy?NAVY:'#10BCD0'}),borderRadius:8,borderSkipped:false,barPercentage:.6,maxBarThickness:56},
+    ds=[{data:v,backgroundColor:C&&C.length?v.map(function(x,k){return C.length===v.length?C[k]:C[0]}):v.map(function(x){return x>=moy?NAVY:'#10BCD0'}),
+         borderRadius:8,borderSkipped:false,barPercentage:.6,maxBarThickness:56},
         {type:'line',label:'Moyenne',data:v.map(function(){return moy}),borderColor:'#12BF9A',borderDash:[6,4],borderWidth:2,pointRadius:0}];
     tip.filter=function(x){return x.datasetIndex===0}}
-  else ds=c.values.map(function(v,k){return {label:(c.seriesNames||[])[k]||'',data:v,backgroundColor:PASTEL[k%PASTEL.length],borderRadius:6,borderSkipped:false,maxBarThickness:40}});
+  else ds=c.values.map(function(v,k){return {label:(c.seriesNames||[])[k]||'',data:v,backgroundColor:teinte(c,k,PASTEL[k%PASTEL.length]),borderRadius:6,borderSkipped:false,maxBarThickness:40}});
   return new Chart(cv,{type:t,data:{labels:c.labels.map(label),datasets:ds},options:{responsive:true,maintainAspectRatio:false,indexAxis:h?'y':'x',interaction:survol,
     plugins:{legend:{display:multi,position:'bottom',labels:{boxWidth:10,usePointStyle:true}},tooltip:tip},scales:sc}})}
+// ---- filtres qui cassent le calcul : un graphique « par sexe » filtré sur un sexe garde la série qui correspond
+var SYN=[['f','femme','femmes','feminin','female','fille','filles'],['m','h','homme','hommes','masculin','male','garcon','garcons']];
+function norme(s){return String(s==null?'':s).toLowerCase().normalize('NFD').replace(/[\\u0300-\\u036f]/g,'').trim()}
+function correspond(nom,val){var a=norme(nom),b=norme(val);if(!a||!b)return false;if(a===b)return true;
+  if(b.length>2&&a.indexOf(b)===0||a.length>2&&b.indexOf(a)===0)return true;
+  return SYN.some(function(l){return l.indexOf(a)>=0&&l.indexOf(b)>=0})}
+function garder(v,val){var out=[];(v||[]).forEach(function(c){var noms=c.seriesNames||[],si=[];noms.forEach(function(n,i){if(correspond(n,val))si.push(i)});
+    if(si.length&&c.values.length>1){out.push(Object.assign({},c,{values:si.map(function(i){return c.values[i]}),seriesNames:si.map(function(i){return noms[i]}),
+      colors:c.colors?si.map(function(i){return c.colors[i%c.colors.length]}):undefined}));return}
+    var li=[];c.labels.forEach(function(l,i){if(correspond(l,val))li.push(i)});
+    if(li.length)out.push(Object.assign({},c,{labels:li.map(function(i){return c.labels[i]}),values:c.values.map(function(s){return li.map(function(i){return s[i]})})}))});
+  return out.length?out:null}
+// ---- filtre de période du tableau de bord (window.PER) : une courbe dans le temps se coupe aux mois choisis, exactement
+function temporel(c){return c.labels.length>0&&c.labels.every(function(l){return /^\\d{4}(-\\d{2}){0,2}$/.test(String(l))})}
+function rogner(v,du,au){return v.map(function(c){var idx=[];c.labels.forEach(function(l,i){var s=String(l),m=s.length>=7?s.slice(0,7):null,y=s.slice(0,4);
+    if(m?(!du||m>=du)&&(!au||m<=au):(!du||y>=du.slice(0,4))&&(!au||y<=au.slice(0,4)))idx.push(i)});
+  return Object.assign({},c,{labels:idx.map(function(i){return c.labels[i]}),values:c.values.map(function(s){return idx.map(function(i){return s[i]})})})})}
+function mois(k){return typeof window.moisNom==='function'?window.moisNom(k):k}
+function periode(P){return P.du&&P.au?'du '+mois(P.du)+' au '+mois(P.au):P.du?'depuis '+mois(P.du):'jusqu’à '+mois(P.au)}
+// ---- dans l'application : les combinaisons non précalculées sont calculées à la demande, sur le serveur
+var APP=false,MOD=false,REQ={},NREQ=0;
+function demander(a,i,k,actifs,P){a.demandes[k]={attente:true};var req='r'+(++NREQ);REQ[req]={i:i,k:k};
+  window.parent.postMessage({kldvVariante:{req:req,id:a.id,filtres:actifs,du:P.du||null,au:P.au||null}},'*')}
 function enveloppe(h){return '<div class="aj-kl" style="display:contents">'+h+'</div>'}
-var MOD=false;  // vrai seulement si l'application qui affiche le tableau autorise la modification
 // Petit bouton rouge (corbeille + « Retirer ») ; premier clic : « Confirmer », second : retrait
 var POUBELLE='<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" '
   +'stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/></svg>';
@@ -2391,23 +2455,39 @@ function retirer(a){return MOD&&a.id?'<button type="button" class="aj-ret" data-
   +'.aj-kl .card:hover .aj-ret,.aj-kl .card:focus-within .aj-ret,.aj-ret.conf{opacity:1}.aj-ret:hover{background:#B91C1C}'
   +'.aj-ret:focus-visible{outline:2px solid #DC2626;outline-offset:2px}.aj-ret.conf{background:#991B1B}'
   +'@media (hover:none){.aj-ret{opacity:1}}';document.head.appendChild(st)})();
-window.addEventListener('message',function(e){if(e.source===window.parent&&e.data&&e.data.kldvModifiable&&!MOD){MOD=true;maj()}});
+window.addEventListener('message',function(e){if(e.source!==window.parent||!e.data)return;
+  if(e.data.kldvApp&&!APP){APP=true;maj()}
+  if(e.data.kldvModifiable&&!MOD){MOD=true;APP=true;maj()}
+  var r=e.data.kldvVariante;if(r&&REQ[r.req]){var q=REQ[r.req];delete REQ[r.req];A[q.i].demandes[q.k]={charts:r.charts||[],erreur:r.erreur||null};maj()}});
 document.addEventListener('click',function(e){var b=e.target.closest&&e.target.closest('.aj-ret');if(!b)return;var t=b.querySelector('span');
   if(!b.classList.contains('conf')){b.classList.add('conf');t.textContent='Confirmer';
     setTimeout(function(){if(b.isConnected&&!b.disabled){b.classList.remove('conf');t.textContent='Retirer'}},6000);return}
   b.disabled=true;t.textContent='Retrait…';window.parent.postMessage({kldvRetirer:b.dataset.aj},'*')});
+function message(t){return '<p style="color:var(--muted);font-size:13px;margin:0">'+esc(t)+'</p>'}
 function maj(){G.forEach(function(g){g.destroy()});G=[];[].forEach.call(document.querySelectorAll('.aj-kl'),function(n){n.remove()});
-  var f=cle(),grille=document.getElementById('row3'),repli=document.getElementById('ajoutsAdifa'),cible=grille||repli,html='',todo=[];
+  var f=cle(),P=window.PER||{},per=!!(P.du||P.au),grille=document.getElementById('row3'),repli=document.getElementById('ajoutsAdifa'),cible=grille||repli,html='',todo=[];
   if(repli)repli.hidden=cible!==repli;
-  A.forEach(function(a,i){var v=a.variantes[f.k],note='';
-    if(f.actifs.length&&!v){var casse=v===null,coupe=f.actifs.filter(function(p){return (a.compare||[]).indexOf(p[0])>=0})[0];v=a.variantes['[]'];
-      note=casse&&coupe?'il compare les « '+nice(coupe[0])+' » : tout le fichier'
-        :casse?'ce filtre retire des données nécessaires au calcul : tout le fichier'
-        :a.complet?'aucune ligne pour ces filtres : tout le fichier':'combinaison non précalculée : tout le fichier'}
-    else if(f.actifs.length)note='filtré : '+f.actifs.map(function(p){return label(p[1])}).join(' · ');
-    var sous=SUB+(note?' · '+note:'');
-    if(!v||!v.length){html+=enveloppe(card('<p style="color:var(--muted);font-size:13px;margin:0">Recalcul impossible sur les données actuelles'
-      +(a.erreur?' : '+esc(a.erreur):'')+'.</p>',a.titre,SUB,retirer(a)));return}
+  var filtre=f.actifs.length?'filtré : '+f.actifs.map(function(p){return label(p[1])}).join(' · '):'';
+  A.forEach(function(a,i){var v=a.variantes[f.k],notes=[],casse=v===null,coupe=f.actifs.filter(function(p){return (a.compare||[]).indexOf(p[0])>=0})[0];
+    // 1. filtres : variante précalculée, ou série gardée quand le graphique compare la colonne filtrée
+    if(f.actifs.length&&!v&&casse&&coupe){var reste=f.actifs.filter(function(p){return p!==coupe});
+      v=garder(a.variantes[JSON.stringify(reste)],coupe[1]);if(v)casse=false}
+    if(f.actifs.length&&v)notes.push(filtre);
+    // 2. période : coupe exacte d'une courbe dans le temps ; sinon calcul à la demande dans l'application
+    if(per&&v&&v.every(temporel)){v=rogner(v,P.du,P.au);notes.push(periode(P))}
+    else if(per||(f.actifs.length&&!v)){var k=f.k+'|'+(P.du||'')+'|'+(P.au||''),d=a.demandes[k];
+      if(APP&&a.id){if(!d){demander(a,i,k,f.actifs,P);d=a.demandes[k]}
+        if(d.attente){v=v||a.variantes['[]'];notes=['calcul en cours pour ces filtres…']}
+        else if(d.charts&&d.charts.length){v=d.charts;notes=[filtre,per?periode(P):''].filter(Boolean)}
+        else{v=v||a.variantes['[]'];notes=[d.erreur?(coupe?'il compare les « '+nice(coupe[0])+' » : tout le fichier':'recalcul impossible pour ces filtres : tout le fichier')
+          :'aucune ligne pour ces filtres']}}
+      else{if(!v){v=a.variantes['[]'];notes.push(casse&&coupe?'il compare les « '+nice(coupe[0])+' » : tout le fichier'
+          :casse?'ce filtre retire des données nécessaires au calcul : tout le fichier'
+          :a.complet?'aucune ligne pour ces filtres : tout le fichier':'combinaison non précalculée : tout le fichier')}
+        if(per)notes.push('période appliquée dans l’application seulement : tout le fichier')}}
+    var sous=SUB+(notes.length?' · '+notes.join(' · '):'');
+    if(!v||!v.length){html+=enveloppe(card(message('Recalcul impossible sur les données actuelles'+(a.erreur?' : '+a.erreur:'')+'.'),a.titre,SUB,retirer(a)));return}
+    if(v.every(function(c){return !c.labels.length})){html+=enveloppe(card(message('Aucune donnée sur cette période.'),a.titre,sous,retirer(a)));return}
     v.forEach(function(c,j){var id='aj'+i+'_'+j,titre=c.title||a.titre,
         s=genre(c)==='bar'&&c.values.length===1?sous+' · ligne : moyenne '+fmt(moyenne(c)):sous;  // comme ses barres
       html+=enveloppe(card(corps(id,c,titre),titre,s,j===0?retirer(a):''));todo.push([id,c])})});
@@ -2471,6 +2551,46 @@ def ajouter_au_tableau(graphique_id):
     else:  # le même calcul est déjà dans le tableau : rien à refaire
         deja_la, ajout = True, deja
     return dict(sources.get(sid), ajout=ajout["id"], titre=ajout["titre"], deja=deja_la)
+
+
+def _periode_df(df):
+    """Période de chaque ligne (« AAAA-MM… »), comme la page du tableau de bord la calcule ; None sans colonne de temps."""
+    hermes_da_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "HERMES_DA")
+    if hermes_da_dir not in sys.path:
+        sys.path.insert(0, hermes_da_dir)
+    from hermes_da.adapters.dashboard import _period
+    return _period(df)[1]
+
+
+def variante_ajout(source_id, ajout_id, filtres, du=None, au=None):
+    """Un graphique ajouté recalculé sur les lignes retenues par les filtres et la période choisis dans le tableau de bord.
+    Le calcul est celui enregistré avec le graphique : le navigateur n'envoie que des valeurs de filtre."""
+    s = sources.get(source_id, with_html=False)
+    ajout = next((a for a in (sources.spec_de(source_id) or {}).get(sources.CLE_AJOUTS) or [] if a.get("id") == ajout_id), None)
+    if ajout is None:
+        raise KeyError("Graphique introuvable dans ce tableau de bord.")
+    for x in (du, au):
+        if x and not re.fullmatch(r"\d{4}-\d{2}", str(x)):
+            raise ValueError("Période invalide.")
+    df, err = _read_df(s["path"])
+    if df is None:
+        raise ValueError(f"Lecture de la source impossible : {err}")
+    garde = pd.Series(True, index=df.index)
+    for paire in (filtres if isinstance(filtres, list) else [])[:10]:
+        if not isinstance(paire, (list, tuple)) or len(paire) != 2 or str(paire[0]) not in df.columns:
+            raise ValueError("Filtre invalide.")
+        garde &= df[str(paire[0])].astype(str).str.strip() == str(paire[1])
+    if du or au:
+        per = _periode_df(df)
+        if per is None:
+            raise ValueError("Ce fichier n'a pas de colonne de période.")
+        m = per.where(per.notna()).astype("string").str[:7]
+        garde &= m.notna() & ((m >= du) if du else True) & ((m <= au) if au else True)
+    sous = df[garde.fillna(False).astype(bool)]
+    if not len(sous):
+        return {"charts": [], "lignes": 0}
+    variantes, erreur, _ = _rejouer_ajout(ajout, sous)
+    return {"charts": variantes.get("[]") or [], "erreur": erreur, "lignes": int(len(sous))}
 
 
 def retirer_du_tableau(source_id, ajout_id):
@@ -3265,7 +3385,7 @@ if T.CLOUD:  # en ligne : page d'accueil publique, application sur /app, adminis
                    "/admin": ("admin.html", "text/html")})
 else:
     STATIC.update({"/classic": ("index_classic.html", "text/html"), "/index_classic.html": ("index_classic.html", "text/html")})
-VIEWER_POST = {"/api/chat", "/api/chat/start", "/api/insights"}  # seules actions permises au rôle « lecteur »
+VIEWER_POST = {"/api/chat", "/api/chat/start", "/api/insights", "/api/tableau/variante"}  # seules actions permises au rôle « lecteur »
 # challenges.cloudflare.com : détecteur de robots (Turnstile) de la page de connexion
 CSP = ("default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://challenges.cloudflare.com; "
        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; "
@@ -3691,7 +3811,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         # ---- POST
         if path in ("/api/analyze", "/api/chat", "/api/chat/start", "/api/insights", "/api/clean", "/api/architect",
                     "/api/architect/apply", "/api/sheets/understand", "/api/hermes/charts", "/api/hermes/clean",
-                    "/api/dashboard", "/api/tableau/ajouter", "/api/tableau/retirer") and not _rate_ok(f"{ctx.key}:{path}"):
+                    "/api/dashboard", "/api/tableau/ajouter", "/api/tableau/retirer", "/api/tableau/variante") and not _rate_ok(f"{ctx.key}:{path}"):
             return self._send(429, {"error": "Trop de demandes en peu de temps. Patientez une minute."})
         if path == "/api/analyze":
             file_path = str(p.get("file_path") or "")
@@ -3776,6 +3896,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return self._send(200, sources.refresh(str(p.get("id")), _read_df, build_dashboard))
         if path == "/api/tableau/ajouter":  # graphique de la discussion → tableau de bord de son fichier
             return self._send(200, ajouter_au_tableau(p.get("graphique_id")))
+        if path == "/api/tableau/variante":  # graphique ajouté, filtré (et sur une période) à la demande du tableau affiché
+            return self._send(200, variante_ajout(str(p.get("source_id") or ""), str(p.get("id") or ""), p.get("filtres"),
+                                                  p.get("du"), p.get("au")))
         if path == "/api/tableau/retirer":
             return self._send(200, retirer_du_tableau(str(p.get("source_id") or ""), str(p.get("id") or "")))
         if path == "/api/sources/freq":

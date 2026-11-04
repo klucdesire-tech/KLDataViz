@@ -1668,6 +1668,11 @@ async function majTableau(sid,r){  // le tableau de bord affiché reprend la ver
   r=r&&r.html?r:await api('/api/sources/get?id='+encodeURIComponent(sid));if(r.error||!r.html)return;
   state.dash.source=r;state.dash.html=r.html;if(!$('[data-view="dashboard"]').hidden)showDashboard();
 }
+// Graphique ajouté filtré (ou sur une période) que la page n'a pas précalculé : l'application le demande au serveur
+window.addEventListener('message',async e=>{const f=$('#dbFrame');if(!f||e.source!==f.contentWindow||!e.data||!e.data.kldvVariante)return;
+  const q=e.data.kldvVariante,s=state.dash?.source;if(!s)return;
+  const r=await api('/api/tableau/variante',{source_id:s.id,id:String(q.id||''),filtres:Array.isArray(q.filtres)?q.filtres.slice(0,10):[],du:q.du||null,au:q.au||null});
+  if(f.isConnected)f.contentWindow.postMessage({kldvVariante:{req:q.req,charts:r.charts||[],erreur:r.error||r.erreur||null}},'*')});
 // « Retirer » au survol d'un graphique ajouté : le tableau (cadre isolé) demande, l'application exécute
 window.addEventListener('message',async e=>{const f=$('#dbFrame');if(!f||e.source!==f.contentWindow||!e.data||!e.data.kldvRetirer)return;
   const s=state.dash?.source;if(!s)return;
@@ -1680,7 +1685,7 @@ function showDashboard(){
   // Cadre isolé : le tableau de bord exécute ses propres scripts (Chart.js embarqué) sans accès à l'application
   $('#dbBody').innerHTML='<iframe id="dbFrame" title="Tableau de bord" sandbox="allow-scripts" scrolling="no" style="display:block;width:100%;height:82vh;overflow:hidden;border:0;border-radius:16px;background:#F3F6F9"></iframe>';
   // Tableau enregistré et rôle qui peut le modifier : le cadre affiche « Retirer » au survol de ses graphiques ajoutés
-  if(d.source&&(!CLOUD||state.me?.role!=='viewer'))$('#dbFrame').onload=e=>e.target.contentWindow.postMessage({kldvModifiable:true},'*');
+  if(d.source)$('#dbFrame').onload=e=>e.target.contentWindow.postMessage(!CLOUD||state.me?.role!=='viewer'?{kldvModifiable:true}:{kldvApp:true},'*');
   $('#dbFrame').srcdoc=d.html;
 }
 // Hauteur du cadre = hauteur du tableau de bord (la page défile, pas le cadre)
@@ -1861,7 +1866,11 @@ function drawChart(canvas,ch,opt={}){
   let labels=periodLabels((ch.labels||[]).map(String)).map(s=>s.length>28?s.slice(0,27)+'…':s);
   let values=(ch.values||[]).map(v=>v.map(x=>x==null?null:+x));
   // barres de catégories : triées, 15 au plus
-  if(type==='bar'&&!isHist&&values.length===1&&!ch.kind){const idx=labels.map((_,i)=>i).sort((x,y)=>(values[0][y]||0)-(values[0][x]||0)).slice(0,15);labels=idx.map(i=>labels[i]);values=[idx.map(i=>values[0][i])]}
+  // Couleurs demandées à Adifa’ (ch.colors) : une par série, ou une par barre / part quand il n'y a qu'une série
+  const C=Array.isArray(ch.colors)?ch.colors:null,parBarre=C&&values.length===1&&C.length===labels.length;
+  let couleurs=parBarre?C.slice():null;
+  if(type==='bar'&&!isHist&&values.length===1&&!ch.kind){const idx=labels.map((_,i)=>i).sort((x,y)=>(values[0][y]||0)-(values[0][x]||0)).slice(0,15);labels=idx.map(i=>labels[i]);values=[idx.map(i=>values[0][i])];if(couleurs)couleurs=idx.map(i=>couleurs[i])}
+  const serie=(i,defaut)=>C&&C[i%C.length]||defaut;
   const horizontal=type==='bar'&&!isHist&&(ch.horizontal||labels.length>6);
   const single=values.length<=1;
   const gradient=color=>c=>{const {chart}=c,{ctx,chartArea}=chart;if(!chartArea)return hexA(color,.15);const g=ctx.createLinearGradient(0,chartArea.top,0,chartArea.bottom);g.addColorStop(0,hexA(color,.30));g.addColorStop(1,hexA(color,0));return g};
@@ -1873,15 +1882,15 @@ function drawChart(canvas,ch,opt={}){
       let sxy=0,sxx=0;xs.forEach((x,j)=>{sxy+=(x-mx)*((ys[j]||0)-my);sxx+=(x-mx)**2});const b=sxx?sxy/sxx:0,a0=my-b*mx,lo=Math.min(...xs),hi=Math.max(...xs);
       datasets.push({type:'line',label:'Tendance',data:[{x:lo,y:a0+b*lo},{x:hi,y:a0+b*hi}],borderColor:amber,borderDash:[6,4],borderWidth:2,pointRadius:0,fill:false})}
   }else if(isPie){
-    datasets=[{data:values[0]||[],backgroundColor:pal,borderColor:css('--surface'),borderWidth:3,hoverOffset:6}];
+    datasets=[{data:values[0]||[],backgroundColor:C?labels.map((_,i)=>serie(i,pal[i%8])):pal,borderColor:css('--surface'),borderWidth:3,hoverOffset:6}];
   }else if(isLine){
-    datasets=values.map((vals,i)=>{const c=i===0?brand:i===1?blue:pal[i%8];return {label:ch.seriesNames?.[i]||'',data:vals,borderColor:c,
+    datasets=values.map((vals,i)=>{const c=serie(i,i===0?brand:i===1?blue:pal[i%8]);return {label:ch.seriesNames?.[i]||'',data:vals,borderColor:c,
       backgroundColor:i===0?gradient(c):hexA(c,.1),fill:i===0||t==='area',tension:.4,borderWidth:i===0?2.5:2,borderDash:i===0?[]:[6,4],
       pointRadius:0,pointHoverRadius:5,pointBackgroundColor:c,spanGaps:true,yAxisID:ch.axis2&&i===1?'y1':'y'}});
   }else{
     const ref=ch.ref?.value;
     datasets=values.map((vals,i)=>({label:ch.seriesNames?.[i]||(single?'':'Série '+(i+1)),data:vals,
-      backgroundColor:single?(isHist?hexA(brand,.85):vals.map(v=>ref==null||v>=ref?brand:hexA(brand,.42))):pal[i%8],
+      backgroundColor:couleurs?couleurs:single&&C?serie(0,brand):single?(isHist?hexA(brand,.85):vals.map(v=>ref==null||v>=ref?brand:hexA(brand,.42))):serie(i,pal[i%8]),
       borderRadius:isHist?{topLeft:4,topRight:4}:6,borderSkipped:isHist?'bottom':false,maxBarThickness:isHist?undefined:22,
       barPercentage:isHist?.96:.8,categoryPercentage:isHist?1:.8}));
   }
