@@ -250,6 +250,8 @@ def test_page_filtre_de_periode_et_suivi(env):
     html = server.ajouter_au_tableau(question()["graphique_id"])["html"]
     # le tableau de bord a son filtre « Du … Au … », appliqué à toutes ses lignes
     assert "function boitePeriode()" in html and "return inPer(r)&&FCOLS.every" in html
+    # la puce de dates en haut à droite ouvre le même filtre et montre la période choisie
+    assert 'id="perpop"' in html and "function ouvrirPeriode(" in html and "function majPuce()" in html
     sec = _section(html)
     # graphiques ajoutés : coupe des courbes dans le temps, série gardée, calcul à la demande
     assert "function rogner(" in sec and "function garder(" in sec and "kldvVariante" in sec and "window.PER" in sec
