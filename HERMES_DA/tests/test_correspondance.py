@@ -162,3 +162,21 @@ def test_colonne_des_indicateurs_jamais_dimension():
     d = pd.DataFrame({"Region": ["Nawa", "Poro"] * 6, "Periode": ["2025-01"] * 6 + ["2025-02"] * 6,
                       "Indicateur": ["HTS_TST", "TX_NEW", "TX_PVLS (N)"] * 4, "Valeur": range(12)})
     assert "Indicateur" not in C.roles(d)["dimensions"] and "Region" in C.roles(d)["dimensions"]
+
+
+
+def test_dictionnaire_sans_colonne_de_periode_garde_le_filtre_de_periode():
+    """Correspondance validée sans colonne de période : la date du fichier est retrouvée d'elle-même, sinon la page
+    n'avait plus ni dates, ni filtre de période (pastille vide). Données fictives."""
+    import json
+    import re
+    import pandas as pd
+    from hermes_da.adapters.dashboard import generate_dashboard
+    df = pd.DataFrame({"date_visite": [f"2025-{m:02d}-15" for m in range(1, 7)] * 4, "zone": ["Nord", "Sud"] * 12,
+                       "ventes": list(range(24))})
+    corr = {"dimensions": ["zone"], "indicateurs": [{"code": "V", "libelle": "ventes", "type": "nombre", "statut": "valide",
+                                                     "formule": {"mode": "somme", "colonne": "ventes"}}]}
+    html = generate_dashboard(df, "t", llm=False, dictionnaire=[{"code": "V", "libelle": "ventes", "type": "nombre"}], correspondance=corr)["html"]
+    data = json.loads(re.search(r"window\.DATA=(.*?);\nwindow\.KPIDEFS", html, re.S).group(1).replace("<\\/", "</"))
+    assert len({str(r.get("__p"))[:7] for r in data if r.get("__p")}) == 6   # six mois : le filtre de période a de quoi filtrer
+    assert ".chip[hidden]{display:none}" in html

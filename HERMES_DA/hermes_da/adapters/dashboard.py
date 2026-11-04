@@ -834,7 +834,7 @@ body{font-family:'Fira Sans',system-ui,-apple-system,'Segoe UI',sans-serif;backg
 .top p{color:var(--muted);font-size:13px;margin-top:4px;max-width:640px}
 .chip{display:inline-flex;align-items:center;gap:8px;background:var(--card);border:1px solid var(--line);border-radius:999px;padding:8px 14px;font-size:12.5px;color:var(--muted);white-space:nowrap}
 .chip svg{width:15px;height:15px;stroke:currentColor;fill:none;stroke-width:1.8}
-button.chip{font:inherit;font-size:12.5px;cursor:pointer}button.chip:hover{border-color:var(--navy)}
+.chip[hidden]{display:none}button.chip{font:inherit;font-size:12.5px;cursor:pointer}button.chip:hover{border-color:var(--navy)}
 button.chip.on{background:var(--navy);border-color:var(--navy);color:#fff}
 .rangew{position:relative}.perpop{position:absolute;right:0;top:calc(100% + 6px);z-index:30;background:var(--card);border:1px solid var(--line);
   border-radius:14px;box-shadow:0 10px 30px rgba(22,33,62,.14);padding:12px 14px;display:grid;gap:8px;min-width:250px}
@@ -1631,6 +1631,8 @@ def generate_dashboard(df, objective: str = "", job_id: str | None = None, llm=N
     if actifs:
         src = df_source
         pc = correspondance.get("periode") if correspondance.get("periode") in src.columns else None
+        if pc is None:  # correspondance sans colonne de période : la même détection que la page classique
+            pc = _period(src)[0]
         p_nom, p_ser = _period(src[[pc]]) if pc else (None, None)
         cle = p_ser.map(lambda v: v[:7] if isinstance(v, str) else None) if p_ser is not None else None
         _lic, _lvc = _C.colonnes_longues(src, dictionnaire or [])
