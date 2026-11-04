@@ -1384,7 +1384,7 @@ if(document.body.classList.contains('embedded')){var lastH=0,sendH=function(){va
 function majPuce(){var r=document.getElementById('range');if(!META.range&&MOISDISPO.length<2)return;r.hidden=false;
   r.querySelector('span').textContent=perActive()?(PER.du&&PER.au?(PER.du===PER.au?moisNom(PER.du):moisNom(PER.du)+' – '+moisNom(PER.au))
     :PER.du?'Depuis '+moisNom(PER.du):'Jusqu’à '+moisNom(PER.au)):(META.range||moisNom(MOISDISPO[0])+' – '+moisNom(MOISDISPO[MOISDISPO.length-1]));
-  r.classList.toggle('on',perActive())}
+  if(r.classList)r.classList.toggle('on',perActive())}
 function periodeChangee(){buildFilters();majPuce();var pp=document.getElementById('perpop');if(!pp.hidden)ouvrirPeriode(true);render()}
 function ouvrirPeriode(garder){var pp=document.getElementById('perpop'),r=document.getElementById('range');
   if(!garder&&!pp.hidden){pp.hidden=true;r.setAttribute('aria-expanded','false');return}
@@ -1395,7 +1395,7 @@ function ouvrirPeriode(garder){var pp=document.getElementById('perpop'),r=docume
   pp.hidden=false;r.setAttribute('aria-expanded','true');if(!garder){var s0=pp.querySelector('select');if(s0)s0.focus()}}
 if(MOISDISPO.length>=2)document.getElementById('range').onclick=function(){ouvrirPeriode(false)};
 else document.getElementById('range').disabled=true;
-document.addEventListener('keydown',function(e){if(e.key==='Escape'){var pp=document.getElementById('perpop');if(!pp.hidden){pp.hidden=true;document.getElementById('range').setAttribute('aria-expanded','false')}}});
+if(document.addEventListener)document.addEventListener('keydown',function(e){if(e.key==='Escape'){var pp=document.getElementById('perpop');if(!pp.hidden){pp.hidden=true;document.getElementById('range').setAttribute('aria-expanded','false')}}});
 majPuce();
 buildFilters();render();
 </script>
