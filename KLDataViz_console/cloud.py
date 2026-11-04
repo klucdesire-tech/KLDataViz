@@ -481,6 +481,87 @@ def admin_test_mail(ctx: Ctx) -> dict:
         return dict(info, ok=True, email_sent=False, email_error=mail_failure(exc))
 
 
+
+# ---- demandes de démonstration (page d'accueil, sans compte)
+EMAIL_RE = re.compile(r"^[^@\s]{1,64}@[^@\s.]{1,63}(?:\.[^@\s.]{1,63})+$")
+DEMO_STATUTS = ("nouvelle", "traitee", "ecartee")
+
+
+def _ligne(v, n):
+    """Texte d'une seule ligne, sans caractères de contrôle (pas d'en-tête ni de ligne injectée dans l'e-mail)."""
+    return re.sub(r"[\x00-\x1f\x7f]+", " ", str(v or "")).strip()[:n]
+
+
+def _destinataires_admin() -> list:
+    try:
+        base = {r["email"] for r in q("select email from app.platform_admins")}
+    except Exception:
+        base = set()
+    return sorted(ADMIN_EMAILS | {e.lower() for e in base if e})
+
+
+def demande_demo(data: dict) -> dict:
+    """Enregistre une demande de démo et prévient les administrateurs. Un robot (champ piège rempli) reçoit
+    la même réponse qu'une personne, mais rien n'est enregistré."""
+    if not isinstance(data, dict):
+        raise ValueError("Demande invalide.")
+    if str(data.get("site_web") or "").strip():
+        return {"ok": True}
+    name, org = _ligne(data.get("name"), 120), _ligne(data.get("org"), 120)
+    email, phone = _ligne(data.get("email"), 254).lower(), _ligne(data.get("phone"), 40)
+    message = re.sub(r"[\x00-\x08\x0b-\x1f\x7f]+", " ", str(data.get("message") or "")).strip()[:1500]
+    if len(name) < 2:
+        raise ValueError("Indiquez votre nom.")
+    if not EMAIL_RE.match(email):
+        raise ValueError("Adresse e-mail invalide.")
+    if len(org) < 2:
+        raise ValueError("Indiquez le nom de votre organisation.")
+    if phone and not re.fullmatch(r"[+()\d][\d ()+.-]{5,39}", phone):
+        raise ValueError("Numéro de téléphone invalide.")
+    # Même adresse dans les dernières 24 h : on ne crée pas de doublon et on ne relance pas les administrateurs
+    if q("""select 1 from app.demo_requests where lower(email) = %s and created_at > now() - interval '24 hours'
+            limit 1""", (email,), one=True):
+        return {"ok": True}
+    q("""insert into app.demo_requests (name, email, org, phone, message) values (%s, %s, %s, %s, %s)""",
+      (name, email, org, phone or None, message or None))
+    a = _destinataires_admin()
+    if a:
+        try:
+            send_mail(a, f"Demande de démo : {org}",
+                      f"Nouvelle demande de démonstration sur KLDataViz.\n\nNom : {name}\nOrganisation : {org}\n"
+                      f"E-mail : {email}\nTéléphone : {phone or '—'}\n\nMessage :\n{message or '—'}\n\n"
+                      f"À traiter dans l'administration, onglet « Demandes de démo » : {APP_URL}/admin")
+        except Exception as exc:  # la demande reste enregistrée et visible dans l'administration
+            import sys
+            sys.stderr.write("[demo] e-mail aux administrateurs non parti : " + mail_failure(exc) + "\n")
+    return {"ok": True}
+
+
+def admin_demandes_demo(ctx: Ctx) -> list:
+    _admin(ctx)
+    rows = q("""select d.id::text, d.created_at, d.name, d.email, d.org, d.phone, d.message, d.status, d.handled_by,
+                       d.handled_at, d.org_id::text, o.name as org_name
+                from app.demo_requests d left join app.organizations o on o.id = d.org_id
+                order by d.created_at desc limit 300""")
+    return _iso(rows, "created_at", "handled_at")
+
+
+def admin_demande_demo_statut(ctx: Ctx, demande_id: str, statut: str, org_id: str | None = None):
+    _admin(ctx)
+    if statut not in DEMO_STATUTS:
+        raise ValueError("Statut inconnu.")
+    try:
+        uuid.UUID(str(demande_id))
+        org_id = str(uuid.UUID(str(org_id))) if org_id else None
+    except ValueError:
+        raise ValueError("Demande introuvable.")
+    r = q("""update app.demo_requests set status = %s, org_id = coalesce(%s::uuid, org_id),
+               handled_by = case when %s = 'nouvelle' then null else %s end,
+               handled_at = case when %s = 'nouvelle' then null else now() end
+             where id = %s returning id""", (statut, org_id, statut, ctx.email, statut, demande_id), one=True)
+    if not r:
+        raise ValueError("Demande introuvable.")
+
 # ---- forfaits
 PLAN_FIELDS = ("label", "price", "currency", "period", "analyses", "ai", "members", "trial_days", "description",
                "features", "highlight", "public", "sort")
