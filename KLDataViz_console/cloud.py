@@ -99,12 +99,20 @@ def db():
     import psycopg
     if not DATABASE_URL:
         raise Unavailable("Base de données non configurée.")
-    try:
-        return psycopg.connect(DATABASE_URL, autocommit=True, prepare_threshold=None, connect_timeout=10)
-    except psycopg.OperationalError as exc:
-        import sys
-        sys.stderr.write("[base] connexion impossible : " + str(exc).splitlines()[0][:200] + "\n")
-        raise Unavailable("La base de données est momentanément injoignable. Réessayez dans quelques minutes.")
+    derniere = None
+    # Le pooler peut refuser une connexion pendant une seconde (redémarrage, saturation) :
+    # trois essais courts évitent d'afficher « base injoignable » pour un incident passager.
+    for essai in range(3):
+        try:
+            return psycopg.connect(DATABASE_URL, autocommit=True, prepare_threshold=None, connect_timeout=10)
+        except psycopg.OperationalError as exc:
+            derniere = exc
+            if essai < 2:
+                import time
+                time.sleep(0.4 * (essai + 1))
+    import sys
+    sys.stderr.write("[base] connexion impossible : " + str(derniere).splitlines()[0][:200] + "\n")
+    raise Unavailable("La base de données est momentanément injoignable. Réessayez dans quelques minutes.")
 
 
 def q(sql, params=(), one=False):
