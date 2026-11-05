@@ -3410,7 +3410,9 @@ EXPORTERS = {"pdf": export_pdf, "excel": export_excel, "html": export_html}
 STATIC = {"/": ("index.html", "text/html"), "/index.html": ("index.html", "text/html"),
           "/login": ("login.html", "text/html"), "/logo.png": ("logo.png", "image/png"),
           "/favicon.png": ("logo.png", "image/png"), "/chart.umd.min.js": ("chart.umd.min.js", "application/javascript"),
-          "/guide": ("guide.html", "text/html")}
+          "/guide": ("guide.html", "text/html"),
+          "/confidentialite": ("confidentialite.html", "text/html"),
+          "/mentions-legales": ("mentions-legales.html", "text/html")}
 STATIC.update({f"/guide/{n}": (f"guide_images/{n}", "image/jpeg")
                for n in os.listdir(os.path.join(BASE, "guide_images")) if n.endswith(".jpg")})
 if T.CLOUD:  # en ligne : page d'accueil publique, application sur /app, administration sur /admin

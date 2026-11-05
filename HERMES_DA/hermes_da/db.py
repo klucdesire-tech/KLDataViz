@@ -403,7 +403,7 @@ class Database:
                     counts[t] = cur.fetchone()[0]
             return {"present": True, "tables": tables, "counts": counts}
         except Exception as exc:  # schéma absent : l'agent 01 n'a pas encore tourné
-            return {"present": False, "error": str(exc)}
+            return {"present": False, "error": type(exc).__name__}
 
     # ------------------------------------------------------------------ requêtes
     def execute(self, sql: str, params: Sequence[Any] | None = None) -> int:

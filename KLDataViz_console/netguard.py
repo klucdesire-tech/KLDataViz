@@ -179,7 +179,8 @@ def safe_pg_conninfo(dsn: str) -> str:
     try:
         params = {k: v for k, v in conninfo_to_dict(dsn).items() if v not in (None, "")}
     except Exception:
-        raise BlockedURL("Chaîne de connexion PostgreSQL invalide (exemple : postgresql://utilisateur:motdepasse@serveur:5432/base).")
+        raise BlockedURL("Chaîne de connexion PostgreSQL invalide (format attendu : hôte, "
+                         "utilisateur, base et mot de passe explicites).")
     refuses = sorted(set(params) - PG_KEYS)
     if refuses:
         raise BlockedURL("Paramètre de connexion non autorisé en ligne : " + ", ".join(refuses) + ".")

@@ -154,8 +154,9 @@ def _check_ingestion(db, contract: dict, checks, errors, warnings, evidence, par
               f"{n} variable(s) dans hermes.variables vs {contract.get('column_count')} attendues")
         evidence["postgres_mirror"] = {"variables": n}
     except Exception as exc:  # noqa: BLE001
-        warnings.append(f"vérification croisée PostgreSQL impossible : {exc}")
-        checks.append({"check": "miroir_postgresql", "ok": False, "detail": str(exc), "severity": "WARNING"})
+        warnings.append(f"vérification croisée PostgreSQL impossible ({type(exc).__name__})")
+        checks.append({"check": "miroir_postgresql", "ok": False,
+                       "detail": f"vérification impossible ({type(exc).__name__})", "severity": "WARNING"})
 
     # ---- contrôles de gravité moindre
     warn_count = len(contract.get("warnings") or [])
