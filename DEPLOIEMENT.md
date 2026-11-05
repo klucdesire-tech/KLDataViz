@@ -71,6 +71,19 @@ Tant que `CINETPAY_API_KEY` et `CINETPAY_API_PASSWORD` sont vides, l'application
 
 La liste est dans **Administration → Paiements**. Le bouton **Vérifier** relit un paiement chez CinetPay s'il est resté sans suite. Attribuer un forfait à la main dans l'administration le donne sans échéance ; **Prolonger** ajoute des jours à un abonnement payé.
 
+## Sauvegarde
+
+Deux choses à sauvegarder : la base PostgreSQL (Supabase) et le disque `/data` de Render.
+
+- **Base** : Supabase fait des sauvegardes automatiques selon le plan du projet (*Database → Backups*). Vérifie que le plan les inclut ; sinon, lance le script depuis le Shell Render.
+- **Disque `/data`** (fichiers des espaces, exports) : Render → service `kldataviz` → **Shell**, puis :
+  ```
+  python scripts/sauvegarde.py --garder 7
+  ```
+  Les archives vont dans `/data/sauvegardes/` : base (`pg_dump`) + fichiers (`tar.gz`), rotation des 7 dernières.
+- **Hors site** : une sauvegarde sur le même disque ne protège pas d'une perte du disque. Télécharge régulièrement `/data/sauvegardes/` ou copie-le vers un stockage externe (S3, Google Drive).
+- **Restauration** : `pg_restore --clean --no-owner -d "$DATABASE_URL" base_AAAAMMJJ.dump` pour la base ; `tar xzf donnees_AAAAMMJJ.tar.gz -C /data` pour les fichiers.
+
 ## Sécurité : ce qui protège les données des clients
 
 - **Espaces séparés.** Chaque espace a son dossier `/data/tenants/<id>/` et son schéma PostgreSQL. Tout chemin hors de l'espace est refusé.

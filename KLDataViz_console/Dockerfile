@@ -8,7 +8,8 @@ WORKDIR /app
 
 # Polices du rapport PDF : Arial Narrow n'est pas libre de diffusion ; on installe ses équivalents condensés libres
 # (Liberation Sans Narrow si le paquet la fournit, DejaVu Sans Condensed sinon). Voir pdf_report.FONT_SETS.
-RUN apt-get update && apt-get install -y --no-install-recommends fonts-liberation fonts-dejavu-extra \
+# postgresql-client : fournit pg_dump pour scripts/sauvegarde.py (Render → Shell).
+RUN apt-get update && apt-get install -y --no-install-recommends fonts-liberation fonts-dejavu-extra postgresql-client \
     && rm -rf /var/lib/apt/lists/*
 
 COPY KLDataViz_console/requirements.txt .
