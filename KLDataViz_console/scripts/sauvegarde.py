@@ -58,12 +58,13 @@ def _data_dir() -> Path:
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description="Sauvegarde KLDataViz (base + fichiers).")
-    ap.add_argument("--dossier", default=str(RACINE / "sauvegardes"))
+    ap.add_argument("--dossier", default=None,
+                    help="dossier des sauvegardes (défaut : DATA_DIR/sauvegardes, soit /data/sauvegardes en ligne)")
     ap.add_argument("--garder", type=int, default=7, help="nombre de sauvegardes conservées")
     ap.add_argument("--sans-base", action="store_true", help="ne sauvegarder que les fichiers")
     args = ap.parse_args(argv)
 
-    sortie = Path(args.dossier)
+    sortie = Path(args.dossier) if args.dossier else _data_dir() / "sauvegardes"
     sortie.mkdir(parents=True, exist_ok=True)
     horodatage = dt.datetime.now().strftime("%Y%m%d_%H%M%S")
     dump = sortie / f"base_{horodatage}.dump"
