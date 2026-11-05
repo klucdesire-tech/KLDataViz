@@ -1,7 +1,7 @@
 # KLDataViz Studio — image de la version en ligne (KLDV_MODE=cloud)
 # Construite depuis la RACINE du dépôt (render.yaml : dockerContext « . ») pour embarquer aussi l'agent
 # AGT-11 (Tableau de bord) de HERMES_DA/hermes_da. Ce qui entre dans l'image : voir /.dockerignore (liste blanche).
-FROM python:3.14-slim
+FROM python:3.15-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 KLDV_MODE=cloud KLDV_DATA_DIR=/data PORT=10000
 WORKDIR /app
