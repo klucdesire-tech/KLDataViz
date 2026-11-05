@@ -1,6 +1,20 @@
 # -*- coding: utf-8 -*-
 """Les tests n'écrivent jamais dans le stockage réel de la console (sources connectées comprises)."""
+import os
+
 import pytest
+
+
+def pytest_collection_finish(session):
+    """Rend l'environnement initial après la collecte.
+
+    `test_cloud.py` pose KLDV_MODE=cloud au niveau module, et pytest importe tous les modules
+    de test avant d'exécuter le premier. Sans ce nettoyage, toute la suite tourne en mode cloud
+    et échoue sur « organisation inconnue » — la CI y échappait seulement parce que
+    `test_local.py`, importé après, retirait la variable.
+    """
+    for cle in ("KLDV_MODE", "KLDV_DATA_DIR", "KLDV_SECRET"):
+        os.environ.pop(cle, None)
 
 
 @pytest.fixture(autouse=True)
