@@ -1070,6 +1070,36 @@ def _arreter_envoi_admin(ctx, p):
     return {"ok": True}
 
 
+def _sauvegardes_liste():
+    """Sauvegardes présentes sur le disque persistant (nom, taille, date)."""
+    d = os.path.join(T.DATA_DIR, "sauvegardes")
+    out = []
+    try:
+        for nom in sorted(os.listdir(d), reverse=True):
+            p = os.path.join(d, nom)
+            if os.path.isfile(p):
+                st = os.stat(p)
+                out.append({"nom": nom, "taille": st.st_size,
+                            "date": time.strftime("%Y-%m-%d %H:%M", time.localtime(st.st_mtime))})
+    except OSError:
+        return []
+    return out[:20]
+
+
+def _sauvegarde_lancer():
+    """Lance scripts/sauvegarde.py dans le conteneur (base + fichiers, rotation). Réservé à l'admin."""
+    script = os.path.join(BASE, "scripts", "sauvegarde.py")
+    if not os.path.isfile(script):
+        return {"error": "script de sauvegarde absent de cette installation (version en ligne uniquement)."}
+    try:
+        r = subprocess.run([sys.executable, script, "--garder", "7"],
+                           capture_output=True, text=True, timeout=600)
+    except subprocess.TimeoutExpired:
+        return {"error": "sauvegarde interrompue au bout de 10 minutes."}
+    sortie = ((r.stdout or "") + (r.stderr or "")).strip()
+    return {"ok": r.returncode == 0, "sortie": sortie[-2000:], "sauvegardes": _sauvegardes_liste()}
+
+
 def _lecture_experte(genre, file_path=None, court=False):
     """Lecture d'Adifa’ sur des résultats calculés par le serveur, jamais sur des chiffres envoyés par le navigateur.
     L'analyse est recalculée si elle n'est plus en mémoire : la page peut survivre à un redémarrage du serveur.
@@ -4170,10 +4200,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
                       "/api/admin/ia": lambda: cloud.admin_ia(ctx),
                       "/api/admin/journal": lambda: journal.lire(200, espace=False),
                       "/api/admin/demos": lambda: cloud.admin_demandes_demo(ctx),
-                      "/api/admin/sante": surveillance.bilan}
+                      "/api/admin/sante": surveillance.bilan,
+                      "/api/admin/sauvegardes": lambda: {"sauvegardes": _sauvegardes_liste()}}
         else:
             routes = {"/api/admin/payments/verify": lambda: cloud.admin_verifier_paiement(ctx, str(p.get("merchant_tx") or "")),
                       "/api/admin/envois/arreter": lambda: _arreter_envoi_admin(ctx, p),
+                      "/api/admin/sauvegarde": lambda: _sauvegarde_lancer(),
                       "/api/admin/plan": lambda: cloud.admin_set_plan(ctx, str(p.get("org_id")), p.get("plan"), p.get("trial_days")),
                       "/api/admin/extend": lambda: cloud.admin_extend_trial(ctx, str(p.get("org_id")), p.get("days") or 14),
                       "/api/admin/suspend": lambda: cloud.admin_suspend(ctx, str(p.get("org_id")), p.get("suspended")),
