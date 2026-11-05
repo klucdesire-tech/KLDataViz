@@ -436,14 +436,14 @@ def test_echec_de_la_composition_garde_la_page_classique(gen, monkeypatch):
     assert 'id="compo"' not in res["html"] and "composition" not in res["spec"]
 
 
-def test_reserve_aux_administrateurs(monkeypatch):
+def test_ouverte_par_defaut_et_retour_arriere(monkeypatch):
     reset_app_modules()
     import server  # noqa: PLC0415
     monkeypatch.delenv("KLDV_COMPOSITION", raising=False)
-    assert server._composition_active() is False
+    assert server._composition_active() is True      # ouverte à tous par défaut
     monkeypatch.setenv("KLDV_COMPOSITION", "1")
     assert server._composition_active() is True
-    monkeypatch.delenv("KLDV_COMPOSITION")
+    monkeypatch.setenv("KLDV_COMPOSITION", "0")      # retour arrière : réservée aux administrateurs
     monkeypatch.setattr(server.T, "CLOUD", True)
     monkeypatch.setattr(server.T, "current", lambda: type("C", (), {"is_admin": False})())
     assert server._composition_active() is False
