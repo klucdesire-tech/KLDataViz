@@ -1289,10 +1289,10 @@ def _correspondance_pour(df, dico, ia=False):
 
 
 def _composition_active():
-    """Page composée selon les données : réservée aux administrateurs tant qu'elle n'est pas ouverte à tous."""
-    if os.environ.get("KLDV_COMPOSITION"):
-        return True
-    return bool(T.CLOUD and T.current().is_admin)
+    """Page composée : ouverte à tous. `KLDV_COMPOSITION=0` la réserve aux administrateurs (retour arrière)."""
+    if os.environ.get("KLDV_COMPOSITION") == "0":
+        return bool(T.CLOUD and T.current().is_admin)
+    return True
 
 
 def _predictif_actif():
