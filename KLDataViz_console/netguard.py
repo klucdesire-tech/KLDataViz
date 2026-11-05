@@ -44,12 +44,18 @@ def public_ips(host: str, port: int) -> list:
     return list(dict.fromkeys(info[4][0] for info in infos))
 
 
-_NAT64 = (ipaddress.ip_network("64:ff9b::/96"), ipaddress.ip_network("64:ff9b:1::/48"))
+_IPV6_DOUTEUSES = tuple(ipaddress.ip_network(n) for n in (
+    "64:ff9b::/96", "64:ff9b:1::/48",  # NAT64
+    "::/96",                           # « IPv4-compatible » (::7f00:1 = 127.0.0.1), obsolète
+    "::ffff:0:0:0/96",                 # SIIT (::ffff:0:a.b.c.d)
+    "fec0::/10",                       # site-local, obsolète
+))
 
 
 def _ipv4_embarquee(ip) -> bool:
-    """IPv6 qui transporte une adresse IPv4 (::ffff:a.b.c.d, 6to4, NAT64) : refusée, l'IPv4 cachée peut être interne."""
-    return ip.version == 6 and bool(ip.ipv4_mapped or ip.sixtofour or any(ip in n for n in _NAT64))
+    """IPv6 qui transporte une adresse IPv4 (::ffff:a.b.c.d, 6to4, NAT64, IPv4-compatible, SIIT) ou plage obsolète
+    (site-local) : refusée, l'adresse cachée peut être interne."""
+    return ip.version == 6 and bool(ip.ipv4_mapped or ip.sixtofour or any(ip in n for n in _IPV6_DOUTEUSES))
 
 
 class _PinnedHTTPSConnection(http.client.HTTPSConnection):
@@ -197,6 +203,9 @@ def safe_pg_conninfo(dsn: str) -> str:
                   # « service='' » n'est pas possible, libpq le cherche et échoue)
                   password=params.get("password", ""), passfile=os.devnull, sslcertmode="disable",
                   gssencmode="disable",
+                  # mot de passe seulement : ni Kerberos/SSPI (jeton du poste ou du serveur), ni authentification
+                  # « trust » silencieuse qu'un faux serveur accepterait pour cacher une session inattendue
+                  require_auth="scram-sha-256,md5,password",
                   keepalives="1", keepalives_idle="30", keepalives_interval="10", keepalives_count="3",
                   tcp_user_timeout=str(PG_STATEMENT_TIMEOUT_MS + 30_000))
     return make_conninfo(**params)

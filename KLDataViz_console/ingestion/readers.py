@@ -244,6 +244,7 @@ def read_postgres_table(dsn: str, table: str, schema: str = "public", limit: int
 
     warnings: list[str] = []
     with psycopg.connect(dsn) as conn:
+        minuteur = _echeance_globale(conn, dsn)
         cible = sql.Identifier(schema, table)  # nom cité par psycopg : un « " » dans le nom ne sort pas de l'identifiant
         with conn.cursor() as cur:
             cur.execute(
@@ -288,6 +289,8 @@ def read_postgres_table(dsn: str, table: str, schema: str = "public", limit: int
             df = pd.DataFrame.from_records(lignes, columns=noms, coerce_float=True)
             cur.execute("SELECT current_database(), current_user, version()")
             db, user, version = cur.fetchone()
+        if minuteur:
+            minuteur.cancel()
 
     df.columns = [str(c).strip() for c in df.columns]
     if limit and total > len(df):
@@ -310,6 +313,41 @@ def read_postgres_table(dsn: str, table: str, schema: str = "public", limit: int
         "warnings": warnings,
     }
     return df, meta
+
+
+PG_ECHEANCE_EN_LIGNE_S = int(os.environ.get("KLDV_PG_ECHEANCE_S", "180"))
+
+
+def _echeance_globale(conn, dsn: str):
+    """Connexion préparée par la version en ligne (adresse épinglée `hostaddr`) : la lecture entière doit tenir en
+    PG_ECHEANCE_EN_LIGNE_S. statement_timeout et LIMIT sont des demandes au serveur du client, qu'un faux serveur
+    ignore (silence, envoi au goutte-à-goutte) : passé l'échéance, la socket est coupée de notre côté et libpq
+    échoue au lieu de bloquer un fil du serveur indéfiniment. Rien pour une connexion locale."""
+    import socket
+    import threading
+
+    from psycopg.conninfo import conninfo_to_dict
+
+    try:
+        if not conninfo_to_dict(dsn).get("hostaddr"):
+            return None
+    except Exception:
+        return None
+
+    def couper():
+        try:
+            s = socket.socket(fileno=conn.pgconn.socket)  # la socket de libpq, sans la dupliquer
+            try:
+                s.shutdown(socket.SHUT_RDWR)
+            finally:
+                s.detach()  # ne pas fermer le descripteur : libpq s'en charge
+        except Exception:
+            pass
+
+    minuteur = threading.Timer(PG_ECHEANCE_EN_LIGNE_S, couper)
+    minuteur.daemon = True
+    minuteur.start()
+    return minuteur
 
 
 def _mask_dsn(dsn: str) -> str:
