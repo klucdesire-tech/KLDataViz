@@ -156,8 +156,13 @@ def send_mail(recipients, subject, body, attachment=None):
         server = smtplib.SMTP_SSL(m["host"], port, timeout=30)
     else:
         server = smtplib.SMTP(m["host"], port, timeout=30)
-        if m.get("tls", True):
-            server.starttls()
+        server.ehlo()
+        if not server.has_extn("starttls"):
+            server.close()
+            raise RuntimeError("Le serveur SMTP n'offre pas STARTTLS : envoi refusé, "
+                               "identifiants et message partiraient en clair.")
+        server.starttls()
+        server.ehlo()
     try:
         if m.get("user"):
             server.login(m["user"], m.get("password", ""))

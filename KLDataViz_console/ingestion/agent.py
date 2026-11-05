@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 import time
 import traceback
 import uuid
@@ -265,7 +266,9 @@ def ingest(source: str, *, kind: str = "auto", sheet: str | int | None = None, t
     except Exception as exc:  # noqa: BLE001
         status = "ERREUR"
         errors.append(f"{type(exc).__name__} : {exc}")
-        audit.append({"step": "erreur", "at": now_iso(), "detail": traceback.format_exc(limit=3)})
+        # La trace complète reste dans les journaux du serveur ; le rapport ne montre que le type.
+        sys.stderr.write(f"[ingestion] {traceback.format_exc(limit=5)}\n")
+        audit.append({"step": "erreur", "at": now_iso(), "detail": type(exc).__name__})
 
     # ---------------------------------------------------------------------- métadonnées PostgreSQL
     if dataset_id:
@@ -296,8 +299,8 @@ def ingest(source: str, *, kind: str = "auto", sheet: str | int | None = None, t
         except Exception as exc:  # noqa: BLE001
             errors.append(f"Enregistrement des métadonnées impossible ({type(exc).__name__} : {exc}) ; "
                           f"les fichiers de version restent disponibles sur disque.")
-            store_info = {"backend": registry.backend, "error": str(exc)}
-            step("metadonnees_echec", str(exc))
+            store_info = {"backend": registry.backend, "error": type(exc).__name__}
+            step("metadonnees_echec", type(exc).__name__)
 
     if not errors and warnings and status == "OK":
         status = "OK_AVEC_AVERTISSEMENTS"

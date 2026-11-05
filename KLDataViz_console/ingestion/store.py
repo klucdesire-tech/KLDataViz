@@ -447,7 +447,7 @@ def _txt(value: Any) -> str | None:
 
 
 def _mask(dsn: str) -> str:
-    """Masque le mot de passe d'un DSN (« postgres://u:secret@h/db » ou « … password=secret … »).
+    """Masque le mot de passe d'une chaîne de connexion (partie « mot de passe »).
 
     Analyse par recherche de sous-chaînes (str.find), sans regex à retour arrière."""
     import re
