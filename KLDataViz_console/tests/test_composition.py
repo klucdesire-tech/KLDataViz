@@ -86,8 +86,9 @@ def test_hierarchie_prend_le_niveau_intermediaire(plan):
 
 
 def test_variete_sur_un_fichier_riche(plan):
+    """Plusieurs questions différentes ; un type ne revient (sur une autre mesure) que s'il reste plus parlant que les autres."""
     types = [c["type"] for c in _cartes(plan(J.JEUX["sante"]()))]
-    assert len(set(types)) == len(types) >= 6
+    assert len(set(types)) >= 5 and max(types.count(t) for t in types) <= 2, types
 
 
 @pytest.mark.parametrize("jeu", ["sante", "ventes"])
@@ -139,3 +140,51 @@ def test_toutes_les_cartes_viennent_du_catalogue(plan):
         for c in _cartes(plan(df)):
             sans = {k: v for k, v in c.items() if k != "span"}
             assert sans in props, (jeu, sans)
+
+
+# ---- choix selon ce que les données montrent (données fictives de même forme, messages différents)
+def _meme_forme(graine, saison=0.0, divergence=0.0, dominante=1.0, hausse=0.0):
+    import numpy as np  # noqa: PLC0415
+    rng = np.random.default_rng(graine)
+    lignes = []
+    for i, m in enumerate(pd.period_range("2024-01", "2025-12", freq="M").astype(str)):
+        for j, r in enumerate(["Nord", "Sud", "Est", "Ouest", "Centre"]):
+            base = 100 * (dominante if r == "Nord" else 1)
+            mois = int(m[5:])
+            v = base * (1 + saison * np.sin(mois / 12 * 2 * np.pi)) * (1 + divergence * (j - 2) * i / 24) * (1 + hausse * (m >= "2025"))
+            lignes.append({"mois": m, "region": r, "ventes": round(v * rng.normal(1, .03), 1), "clients": round(v / 4 * rng.normal(1, .03))})
+    return pd.DataFrame(lignes)
+
+
+def _types(p):
+    return {c["type"] for c in _cartes(p)}
+
+
+def test_meme_forme_pages_differentes(plan):
+    saison = plan(_meme_forme(1, saison=.45, divergence=.6))
+    plate = plan(_meme_forme(2, dominante=6.0))
+    assert _signature(saison) != _signature(plate)
+    assert "chaleur" in _types(saison) and "comparee" in _types(saison)   # des moments et des lieux qui se distinguent
+    assert {"anneau", "classement"} & _types(plate)                       # un lieu écrase les autres
+    assert not {"comparee", "pente", "chaleur"} & _types(plate)           # tout évolue pareil : rien à comparer
+
+
+def test_bruit_seul_ne_fait_pas_de_graphique(plan):
+    p = plan(_meme_forme(3))
+    assert not {"comparee", "pente", "passage", "chaleur"} & _types(p), _types(p)
+    assert 1 <= len(_cartes(p)) <= 8
+
+
+def test_variation_nette_amene_le_passage(plan):
+    assert "passage" in _types(plan(_meme_forme(4, hausse=.3)))
+    assert "passage" not in _types(plan(_meme_forme(5)))
+
+
+def test_notes_entre_0_et_1_et_stables():
+    from hermes_da.adapters import catalogue, fiche, interet  # noqa: PLC0415
+    df = _meme_forme(6, saison=.3)
+    f, large = fiche.lire_fiche(df), fiche._long_to_wide(df)[0]
+    props = catalogue.proposer(f, large)
+    notes = interet.noter(props, f, large)
+    assert len(notes) == len(props) and all(0 <= n <= 1 for n in notes)
+    assert notes == interet.noter(props, f, large)

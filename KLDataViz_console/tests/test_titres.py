@@ -20,6 +20,7 @@ def mod():
     reset_app_modules()
     sys.path.insert(0, os.path.join(APP, "..", "HERMES_DA"))
     from hermes_da.adapters import composition, dashboard, fiche, titres  # noqa: PLC0415
+    composition.CHOIX = "modele"  # on teste les titres de chaque type, pas le choix des graphiques (test_composition)
     return type("M", (), {"gen": staticmethod(lambda df, **k: dashboard.generate_dashboard(df, "", **dict({"llm": False, "dictionnaire": [], "composition": True}, **k))),
                           "T": titres, "C": composition, "F": fiche})
 
