@@ -188,7 +188,8 @@ def safe_pg_conninfo(dsn: str) -> str:
     if not host or host.startswith("/") or "," in host:
         raise BlockedURL("Indiquez l'adresse Internet d'un seul serveur PostgreSQL (pas localhost ni un socket local).")
     if not params.get("user") or not params.get("dbname"):
-        raise BlockedURL("Indiquez l'utilisateur et la base dans la connexion (postgresql://utilisateur:motdepasse@serveur:5432/base).")
+        raise BlockedURL("Indiquez l'utilisateur et la base dans la connexion (format : postgresql://, puis "
+                         "utilisateur, mot de passe, serveur, port et base).")
     port = str(params.get("port") or "5432")
     if not port.isdigit() or not 0 < int(port) < 65536:
         raise BlockedURL("Port PostgreSQL invalide.")
