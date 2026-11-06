@@ -11,9 +11,9 @@
 <style>
 /* Layout: barre latérale des sections | contenu (tableau de bord, clients, forfaits, annonces, administrateurs, site) */
 :root{--bg:#F3F6F4;--surface:#FFFFFF;--surface-2:#EBF1ED;--line:#D9E3DD;--fg:#11241A;--muted:#55685D;--brand:#1D7A4C;--brand-strong:#15633D;--brand-soft:#DCEFE4;--grad-fin:#0B6E99;--grad:linear-gradient(135deg,var(--brand) 0%,var(--grad-fin) 100%);--on-brand:#FFFFFF;
-  --amber:#A8580A;--amber-soft:#FCEFD9;--red:#B4372A;--red-soft:#FBE3DF;--deep:#0F3D27;--sans:'Fira Sans',system-ui,-apple-system,'Segoe UI',sans-serif;--mono:'Fira Code',ui-monospace,Consolas,monospace;--r:12px;color-scheme:light}
-@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0D1411;--surface:#141D18;--surface-2:#1A2620;--line:#273730;--fg:#E4EEE8;--muted:#93A79B;--brand:#3FBF7E;--brand-strong:#5FD196;--brand-soft:#173826;--grad-fin:#5DB8E3;--on-brand:#06140C;--amber:#F0A852;--amber-soft:#3A2A14;--red:#F2776A;--red-soft:#3C1D19;--deep:#0A2417;color-scheme:dark}}
-:root[data-theme="dark"]{--bg:#0D1411;--surface:#141D18;--surface-2:#1A2620;--line:#273730;--fg:#E4EEE8;--muted:#93A79B;--brand:#3FBF7E;--brand-strong:#5FD196;--brand-soft:#173826;--grad-fin:#5DB8E3;--on-brand:#06140C;--amber:#F0A852;--amber-soft:#3A2A14;--red:#F2776A;--red-soft:#3C1D19;--deep:#0A2417;color-scheme:dark}
+  --amber:#A8580A;--amber-soft:#FCEFD9;--red:#B4372A;--red-soft:#FBE3DF;--deep:#0F3D27;--deep-fin:#0B3B55;--deep-grad:linear-gradient(160deg,var(--deep) 0%,var(--deep-fin) 100%);--sans:'Fira Sans',system-ui,-apple-system,'Segoe UI',sans-serif;--mono:'Fira Code',ui-monospace,Consolas,monospace;--r:12px;color-scheme:light}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0D1411;--surface:#141D18;--surface-2:#1A2620;--line:#273730;--fg:#E4EEE8;--muted:#93A79B;--brand:#3FBF7E;--brand-strong:#5FD196;--brand-soft:#173826;--grad-fin:#5DB8E3;--on-brand:#06140C;--amber:#F0A852;--amber-soft:#3A2A14;--red:#F2776A;--red-soft:#3C1D19;--deep:#0A2417;--deep-fin:#0A2230;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#0D1411;--surface:#141D18;--surface-2:#1A2620;--line:#273730;--fg:#E4EEE8;--muted:#93A79B;--brand:#3FBF7E;--brand-strong:#5FD196;--brand-soft:#173826;--grad-fin:#5DB8E3;--on-brand:#06140C;--amber:#F0A852;--amber-soft:#3A2A14;--red:#F2776A;--red-soft:#3C1D19;--deep:#0A2417;--deep-fin:#0A2230;color-scheme:dark}
 *{box-sizing:border-box}html,body{height:100%;margin:0}
 body{background:var(--bg);color:var(--fg);font:15px/1.5 var(--sans)}
 button{font:inherit;color:inherit;cursor:pointer}
@@ -22,7 +22,7 @@ button{font:inherit;color:inherit;cursor:pointer}
 h1,h2{margin:0;text-wrap:balance}
 .num{font-family:var(--mono);font-variant-numeric:tabular-nums}
 .app{display:grid;grid-template-columns:240px minmax(0,1fr);min-height:100%}
-aside{background:var(--deep);color:#CFE8DA;padding:20px 12px;display:flex;flex-direction:column;gap:18px}
+aside{background:var(--deep-grad);color:#CFE8DA;padding:20px 12px;display:flex;flex-direction:column;gap:18px}
 aside .brand{display:flex;gap:10px;align-items:center;padding:0 8px;font-weight:700;color:#fff}
 aside .brand img{width:28px;height:36px;object-fit:contain;background:#fff;border-radius:6px;padding:2px}
 aside .brand small{display:block;font-weight:500;color:#9FCBB3;font-size:12px}
@@ -79,7 +79,7 @@ input:focus,select:focus,textarea:focus{border-color:var(--brand);outline:none}
 .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:var(--fg);color:var(--bg);padding:10px 16px;border-radius:10px;font-size:14px;z-index:60;max-width:calc(100% - 32px)}
 .gate{min-height:100%;display:grid;place-items:center;padding:24px;text-align:center}
 .gate .card{max-width:440px;display:grid;gap:12px}
-.ann-prev{border-radius:10px;padding:10px 12px;background:var(--deep);color:#E3F3EA;font-size:14px}
+.ann-prev{border-radius:10px;padding:10px 12px;background:var(--deep-grad);color:#E3F3EA;font-size:14px}
 .ann-prev.warning{background:#5A3A0B}
 @media (max-width:860px){.app{grid-template-columns:minmax(0,1fr)}aside{flex-direction:row;flex-wrap:wrap;align-items:center}aside nav{display:flex;flex-wrap:wrap}aside .foot{display:none}.two{grid-template-columns:minmax(0,1fr)}}
 </style>
@@ -274,7 +274,7 @@ async function loadDash(){
     .map(k=>`<div class="kpi"><span class="l">${k[0]}</span><span class="v">${k[1]}</span><span class="d">${k[2]}</span></div>`).join('');
   const labels={essai:'En essai',expire:'Essai expiré',suspendu:'Suspendus'};
   const total=Object.values(s.by_plan).reduce((a,b)=>a+b,0)||1;
-  $('#byPlan').innerHTML=Object.entries(s.by_plan).sort((a,b)=>b[1]-a[1]).map(([k,n])=>`<div style="display:grid;gap:4px;margin-bottom:10px"><div style="display:flex;justify-content:space-between"><span>${esc(labels[k]||planLabel(k))}</span><span class="num">${n}</span></div><div style="height:8px;background:var(--surface-2);border-radius:99px;overflow:hidden"><i style="display:block;height:100%;width:${n/total*100}%;background:${k==='suspendu'||k==='expire'?'var(--red)':k==='essai'?'var(--amber)':'var(--brand)'};border-radius:99px"></i></div></div>`).join('')||'<div class="empty">Aucun espace pour le moment.</div>';
+  $('#byPlan').innerHTML=Object.entries(s.by_plan).sort((a,b)=>b[1]-a[1]).map(([k,n])=>`<div style="display:grid;gap:4px;margin-bottom:10px"><div style="display:flex;justify-content:space-between"><span>${esc(labels[k]||planLabel(k))}</span><span class="num">${n}</span></div><div style="height:8px;background:var(--surface-2);border-radius:99px;overflow:hidden"><i style="display:block;height:100%;width:${n/total*100}%;background:${k==='suspendu'||k==='expire'?'var(--red)':k==='essai'?'var(--amber)':'linear-gradient(90deg,var(--brand),var(--grad-fin))'};border-radius:99px"></i></div></div>`).join('')||'<div class="empty">Aucun espace pour le moment.</div>';
   $('#recent').innerHTML=s.recent.length?`<table><thead><tr><th>Utilisateur</th><th>Espace</th><th>Forfait</th><th>Inscrit le</th></tr></thead><tbody>${s.recent.map(r=>`<tr><td>${esc(r.email)}</td><td>${esc(r.org||'— (sans espace)')}</td><td>${r.plan?`<span class="tag">${esc(planLabel(r.plan))}</span>`:''}</td><td>${fmtDate(r.created_at)}</td></tr>`).join('')}</tbody></table>`:'<div class="empty">Aucune inscription.</div>';
   if(chart)chart.destroy();
   chart=new Chart($('#signupChart'),{type:'bar',data:{labels:s.signups.map(x=>new Date(x.day).toLocaleDateString('fr-FR',{day:'numeric',month:'short'})),datasets:[{data:s.signups.map(x=>x.n),backgroundColor:css('--brand'),borderRadius:4,maxBarThickness:14}]},

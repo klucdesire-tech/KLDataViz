@@ -256,7 +256,7 @@ tr.versions td{background:var(--surface-2);font-size:13px}
 .chat{position:relative;background:var(--surface);border-left:1px solid var(--line);display:flex;flex-direction:column;min-height:0}
 .chat .grip{position:absolute;left:-5px;top:0;bottom:0;width:10px;cursor:col-resize;z-index:5;touch-action:none}
 .chat .grip::after{content:"";position:absolute;left:4px;top:0;bottom:0;width:2px;background:transparent;transition:background .15s}
-.chat .grip:hover::after,.chat.resizing .grip::after{background:var(--brand)}
+.chat .grip:hover::after,.chat.resizing .grip::after{background:linear-gradient(180deg,var(--brand),var(--blue))}
 .chat.resizing,.chat.resizing *{user-select:none}
 .chat header .hbtns{margin-left:auto;display:flex;gap:6px}
 .chat header{display:flex;align-items:center;gap:10px;padding:16px 18px;border-bottom:1px solid var(--line)}
