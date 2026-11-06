@@ -99,12 +99,31 @@ def db():
     import psycopg
     if not DATABASE_URL:
         raise Unavailable("Base de données non configurée.")
-    try:
-        return psycopg.connect(DATABASE_URL, autocommit=True, prepare_threshold=None, connect_timeout=10)
-    except psycopg.OperationalError as exc:
-        import sys
-        sys.stderr.write("[base] connexion impossible : " + str(exc).splitlines()[0][:200] + "\n")
-        raise Unavailable("La base de données est momentanément injoignable. Réessayez dans quelques minutes.")
+    # Le pooler refuse parfois une connexion pendant une seconde (redémarrage, saturation) : on réessaie, avec une
+    # attente totale bornée. Sans borne, une vraie panne réseau (délai dépassé à chaque essai) bloquait ~30 s par requête.
+    debut, derniere = time.monotonic(), None
+    for essai, delai in enumerate(BASE_DELAIS):
+        try:
+            return psycopg.connect(DATABASE_URL, autocommit=True, prepare_threshold=None, connect_timeout=delai)
+        except psycopg.OperationalError as exc:
+            derniere = exc
+            if _erreur_definitive(exc) or essai == len(BASE_DELAIS) - 1 or time.monotonic() - debut >= BASE_BUDGET:
+                break
+            time.sleep(0.4 * (essai + 1))
+    import sys
+    sys.stderr.write("[base] connexion impossible : " + str(derniere).splitlines()[0][:200] + "\n")
+    raise Unavailable("La base de données est momentanément injoignable. Réessayez dans quelques minutes.")
+
+
+BASE_DELAIS = (4, 3, 3)  # délai de chaque essai de connexion, en secondes (libpq : 2 au minimum)
+BASE_BUDGET = 6          # au-delà, plus de nouvel essai : ~8 s d'attente au pire au lieu de ~31
+
+
+def _erreur_definitive(exc) -> bool:
+    """Erreur qu'un nouvel essai ne corrigera pas (mot de passe refusé, base ou rôle inexistant)."""
+    m = str(exc).lower()
+    return any(x in m for x in ("password authentication failed", "authentification par mot de passe",
+                                "does not exist", "n'existe pas", "no pg_hba.conf entry"))
 
 
 def q(sql, params=(), one=False):
