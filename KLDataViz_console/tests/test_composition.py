@@ -180,6 +180,36 @@ def test_variation_nette_amene_le_passage(plan):
     assert "passage" not in _types(plan(_meme_forme(5)))
 
 
+def test_fichier_annuel_garde_pente_et_passage():
+    """Une valeur par an (relecture Hermes, PR 185) : la comparaison 2024 → 2025 ne doit pas tomber à 0."""
+    from hermes_da.adapters import catalogue, fiche, interet  # noqa: PLC0415
+    lignes = [{"annee": f"{a}-12", "region": r, "montant": base * (1.25 if a == 2025 else 1) * (1.4 if r == "Sud" and a == 2025 else 1)}
+              for a in (2023, 2024, 2025) for r, base in (("Nord", 900.0), ("Sud", 300.0), ("Est", 500.0), ("Ouest", 700.0))]
+    df = pd.DataFrame(lignes)
+    f, large = fiche.lire_fiche(df), fiche._long_to_wide(df)[0]
+    props = catalogue.proposer(f, large)
+    notes = {p["type"]: n for p, n in zip(props, interet.noter(props, f, large))}
+    assert notes.get("passage", 0) >= interet.SEUIL and notes.get("pente", 0) >= interet.SEUIL, notes
+
+
+def test_lien_entre_mesures_sans_scipy(monkeypatch):
+    """La note des barres jumelées ne passe pas par scipy (corr(method="spearman") l'importe à la volée)."""
+    import builtins  # noqa: PLC0415
+    from hermes_da.adapters import catalogue, fiche, interet  # noqa: PLC0415
+    vrai = builtins.__import__
+
+    def sans_scipy(nom, *a, **k):
+        if nom.startswith("scipy"):
+            raise ImportError("scipy absent")
+        return vrai(nom, *a, **k)
+    monkeypatch.setattr(builtins, "__import__", sans_scipy)
+    df = pd.DataFrame({"centre": [f"C{i}" for i in range(12)], "visites": [10.0 * i + 5 for i in range(12)],
+                       "taux_reussite": [40.0 + 4 * i for i in range(12)]})
+    f, large = fiche.lire_fiche(df), fiche._long_to_wide(df)[0]
+    props = [p for p in catalogue.proposer(f, large) if p["type"] == "bulles"]
+    assert props and max(interet.noter(props, f, large)) >= 0.9
+
+
 def test_notes_entre_0_et_1_et_stables():
     from hermes_da.adapters import catalogue, fiche, interet  # noqa: PLC0415
     df = _meme_forme(6, saison=.3)

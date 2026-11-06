@@ -38,8 +38,9 @@ class Mesures:
             cle = df[self.periode].astype(str)
             self.mois = cle.str[:4] if per.get("unite") == "annee" else cle.str[:7]
             self.annee = cle.str[:4]
+            self.mois_num = cle.str[5:7]  # le mois lu sur la période brute : `mois` est tronqué à l'année sur un fichier annuel
         else:
-            self.mois = self.annee = None
+            self.mois = self.annee = self.mois_num = None
 
     def valeurs(self, c):
         return pd.to_numeric(self.df[c], errors="coerce")
@@ -152,7 +153,7 @@ def _deux_annees(M, p):
         return None
     a, b = annees[-2], annees[-1]
     communs = set(per.get("mois_communs") or [])
-    garde = M.mois.str[5:7].isin(communs) if communs and M.mois is not None else pd.Series(True, index=M.df.index)
+    garde = M.mois_num.isin(communs) if communs and M.mois_num is not None else pd.Series(True, index=M.df.index)
     d = M.df[p["dimension"]]
     t = M.valeurs(p["mesure"]).where(garde).groupby([d, M.annee])
     t = (t.sum(min_count=1) if p["agregation"] == "somme" else t.mean()).unstack()
@@ -195,7 +196,7 @@ def _bulles(M, p):
     xy = pd.concat([x, y], axis=1, join="inner").dropna()
     if len(xy) < 4 or xy.iloc[:, 0].nunique() < 2 or xy.iloc[:, 1].nunique() < 2:
         return 0.0
-    r = float(xy.iloc[:, 0].corr(xy.iloc[:, 1], method="spearman"))
+    r = float(xy.iloc[:, 0].rank().corr(xy.iloc[:, 1].rank()))  # Spearman, sans dépendre de scipy
     if not math.isfinite(r):
         return 0.0
     taille = 0.6 if p.get("nature") == "volume" and p.get("nature_y") == "volume" else 1.0
