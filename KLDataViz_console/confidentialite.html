@@ -61,9 +61,23 @@ td:first-child{color:var(--muted);width:34%}
 
   <div class="card">
     <h2 style="margin-top:0">Intelligence artificielle</h2>
-    <p>L'assistant Adifa’ ne reçoit <strong>jamais les lignes de vos fichiers</strong>. Il reçoit des noms et types de
-    colonnes, des étiquettes de catégories et des résultats déjà calculés, afin de rédiger une interprétation. Les
-    calculs sont exécutés localement, dans un environnement isolé.</p>
+    <p>Votre fichier complet n'est <strong>jamais envoyé</strong> au fournisseur du modèle de langage. Pour comprendre
+    votre question et y répondre, l'assistant Adifa’ lui transmet :</p>
+    <ul>
+      <li>la structure du fichier : noms et types des colonnes, nombre de lignes ;</li>
+      <li>quelques valeurs d'exemple par colonne (les trois premières) et les catégories les plus fréquentes ;</li>
+      <li>les résultats des calculs faits pour votre question : chiffres, synthèses, et tableaux limités à 50 lignes.
+        Si un calcul affiche des lignes de vos données, ces lignes en font partie ;</li>
+      <li>votre question et l'historique de la discussion.</li>
+    </ul>
+    <p><strong>Avant tout envoi, les données qui identifient une personne sont pseudonymisées</strong> : noms, téléphones,
+    e-mails, adresses, numéros de dossier ou de patient, dates de naissance et textes libres sont remplacés par des
+    jetons (par exemple ⟦P12⟧), puis remis en clair dans la réponse que vous lisez. Le fournisseur ne les voit pas.
+    Restent visibles pour lui : les noms de colonnes, les catégories (district, sexe, tranche d'âge…), les nombres et
+    les dates qui n'identifient personne. Un identifiant numérique de moins de 6 chiffres n'est pas masqué, car il se
+    confondrait avec un effectif ou un montant.</p>
+    <p>Les calculs eux-mêmes sont exécutés sur nos serveurs, dans un processus isolé. Pour des données de santé,
+    retirez de préférence avant l'import les informations qui identifient les personnes.</p>
   </div>
 
   <div class="card">
@@ -72,7 +86,7 @@ td:first-child{color:var(--muted);width:34%}
       <tr><td>Supabase</td><td>Base de données et authentification (Francfort, UE).</td></tr>
       <tr><td>Render</td><td>Hébergement de l'application et stockage des fichiers de votre espace.</td></tr>
       <tr><td>Brevo</td><td>Envoi des e-mails (invitations, rapports, alertes).</td></tr>
-      <tr><td>DeepSeek</td><td>Fournisseur du modèle de langage, pour la rédaction des interprétations (sans lignes de données).</td></tr>
+      <tr><td>DeepSeek</td><td>Fournisseur du modèle de langage : il reçoit les éléments décrits ci-dessus, jamais le fichier complet.</td></tr>
       <tr><td>CinetPay</td><td>Traitement des paiements.</td></tr>
     </table>
     <p>Aucune donnée n'est vendue.</p>
@@ -98,7 +112,7 @@ td:first-child{color:var(--muted);width:34%}
       <li>Chiffrement en transit (HTTPS, TLS) et sessions séparées par espace.</li>
       <li>Code de l'IA vérifié puis exécuté dans un processus isolé, sans accès aux secrets.</li>
       <li>Liens de partage signés, à durée limitée.</li>
-      <li>Sauvegardes régulières de la base et des fichiers.</li>
+      <li>Sauvegardes de la base et des fichiers, lancées depuis l'administration.</li>
     </ul>
   </div>
 
