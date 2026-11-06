@@ -51,7 +51,9 @@ console.log(JSON.stringify(sortie));
 def gen():
     reset_app_modules()
     sys.path.insert(0, os.path.join(APP, "..", "HERMES_DA"))
+    from hermes_da.adapters import composition  # noqa: PLC0415
     from hermes_da.adapters.dashboard import generate_dashboard  # noqa: PLC0415
+    composition.CHOIX = "modele"  # on teste le dessin de chaque type, pas le choix des graphiques (test_composition)
     return lambda df, **k: generate_dashboard(df, "", llm=False, dictionnaire=[], **k)
 
 

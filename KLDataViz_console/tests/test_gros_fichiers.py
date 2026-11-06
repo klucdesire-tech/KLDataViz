@@ -19,7 +19,8 @@ from test_rendu_composition import executer, sans_node  # noqa: E402
 def mod():
     reset_app_modules()
     sys.path.insert(0, os.path.join(APP, "..", "HERMES_DA"))
-    from hermes_da.adapters import cube, dashboard  # noqa: PLC0415
+    from hermes_da.adapters import composition, cube, dashboard  # noqa: PLC0415
+    composition.CHOIX = "modele"  # exactitude du résumé pour chaque type de graphique, pas le choix (test_composition)
     return type("M", (), {"gen": staticmethod(lambda df, **k: dashboard.generate_dashboard(df, "", **dict({"llm": False, "dictionnaire": []}, **k))), "cube": cube})
 
 

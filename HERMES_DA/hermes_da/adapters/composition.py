@@ -1,11 +1,22 @@
 # -*- coding: utf-8 -*-
 """Composition d'un tableau de bord : choisit un modèle, jusqu'à 8 graphiques, et leur place sur 12 colonnes.
 
-Part des propositions du catalogue et n'en invente aucune. Déterministe : à fichier et vedettes égaux, page égale.
-Chaque ligne de la grille fait exactement 12 colonnes, sur toutes les pages, quel que soit le nombre de cartes."""
+Part des propositions du catalogue et n'en invente aucune. Le modèle fixe la première carte (la question de base :
+l'objectif, l'évolution ou le classement) ; les suivantes sont celles que les données rendent parlantes (`interet`),
+la plus parlante d'abord. Deux fichiers de même forme n'ont donc plus la même page. Déterministe : à fichier et
+vedettes égaux, page égale. Chaque ligne de la grille fait exactement 12 colonnes, quel que soit le nombre de cartes."""
+from . import interet
 from .catalogue import proposer
 
 MAX_CARTES = 8
+MIN_CARTES = 3       # une page qui n'a rien de saillant montre quand même l'essentiel
+PLANCHER = 0.1       # sous cette note, même pour compléter : le graphique ne dirait rien
+# Pour compléter une page sans rien de saillant : des vues neutres, jamais un graphique qui suggère un motif absent
+SOCLE = {"courbe", "classement", "anneau", "treemap", "histogramme"}
+MAX_PAR_TYPE = 2     # au-delà, la page répète la même question
+# « interet » : les graphiques que les données rendent parlants. « modele » : l'ordre fixe de chaque modèle, gardé pour
+# les tests de dessin, qui ont besoin d'obtenir à coup sûr un type de graphique donné sur un petit fichier.
+CHOIX = "interet"
 MESURES_CLES = 3     # au-delà, la page s'éparpille ; en deçà, elle répète la même mesure
 LARGEUR = 12
 
@@ -71,7 +82,28 @@ def _doublon(p, choisis):
     return False
 
 
-def selectionner(fiche, props, modele, df, vedettes=()):
+def _ordre(modele, genre):
+    """Place du type dans l'ordre de lecture du modèle : départage deux graphiques aussi parlants."""
+    for i, case in enumerate(MODELES[modele]):
+        if genre in case.split("|"):
+            return i
+    return len(MODELES[modele])
+
+
+def _valeur(p, note, cles, dimension, deja):
+    """Intérêt de la carte sur cette page : sa note, moins ce qui ferait doublon avec les cartes déjà posées."""
+    m = p.get("mesure")
+    v = note
+    v -= 0.12 * deja["usages"].get(m, 0)                   # une autre mesure plutôt que la même encore
+    v -= 0.08 if m not in cles else 0.0                    # les mesures principales d'abord
+    v -= 0.05 if p.get("dimension") not in (None, dimension) else 0.0
+    v -= 0.2 if (p["type"], p.get("dimension")) in deja["vues"] else 0.0
+    v -= 0.6 * deja["types"].get(p["type"], 0)            # une autre question plutôt que le même graphique encore
+    return v
+
+
+def _selon_modele(fiche, props, modele, df, vedettes=()):
+    """Ordre fixe du modèle : chaque case prend la première proposition disponible."""
     mesure, dimension = _vedettes(fiche, props, df, vedettes)
     cles = _mesures_cles(fiche, mesure)
     deja = {"usages": {}, "paires": set()}
@@ -90,6 +122,43 @@ def selectionner(fiche, props, modele, df, vedettes=()):
     return choisis, mesure, dimension
 
 
+def selectionner(fiche, props, modele, df, vedettes=()):
+    if CHOIX == "modele":
+        return _selon_modele(fiche, props, modele, df, vedettes)
+    mesure, dimension = _vedettes(fiche, props, df, vedettes)
+    cles = _mesures_cles(fiche, mesure)
+    notes = dict(zip(map(id, props), interet.noter(props, fiche, df)))
+    deja = {"usages": {}, "paires": set(), "types": {}, "vues": set()}
+    choisis = []
+
+    def poser(p):
+        choisis.append(p)
+        deja["types"][p["type"]] = deja["types"].get(p["type"], 0) + 1
+        deja["vues"].add((p["type"], p.get("dimension")))
+        deja["usages"][p.get("mesure")] = deja["usages"].get(p.get("mesure"), 0) + 1
+        deja["paires"].add((p.get("mesure"), p.get("dimension")))
+
+    # 1. La question de base du modèle, même si les données y sont peu contrastées
+    for genre in MODELES[modele][0].split("|"):
+        permis = [p for p in props if p["type"] == genre]
+        if permis:
+            poser(min(permis, key=lambda x: _rang(x, cles, dimension, deja)))
+            break
+    # 2. Puis les graphiques les plus parlants, en variant les questions
+    for plancher in (interet.SEUIL, PLANCHER):
+        while len(choisis) < (MAX_CARTES if plancher == interet.SEUIL else MIN_CARTES):
+            permis = [(i, p) for i, p in enumerate(props) if p not in choisis and not _doublon(p, choisis)
+                      and deja["types"].get(p["type"], 0) < MAX_PAR_TYPE
+                      and (plancher == interet.SEUIL or p["type"] in SOCLE)
+                      and notes[id(p)] >= plancher and _valeur(p, notes[id(p)], cles, dimension, deja) >= plancher - 0.3]
+            if not permis:
+                break
+            _, p = max(permis, key=lambda ip: (round(_valeur(ip[1], notes[id(ip[1])], cles, dimension, deja), 3),
+                                               -_ordre(modele, ip[1]["type"]), -ip[0]))
+            poser(p)
+    return choisis, mesure, dimension
+
+
 def _etaler(ligne, reste):
     """Partage la place restante à parts égales : deux cartes seules font 6 et 6, pas 4 et 8."""
     i = 0
@@ -99,20 +168,45 @@ def _etaler(ligne, reste):
         i += 1
 
 
-def placer(cartes):
-    """Range les cartes en lignes de 12 colonnes. Une carte se réduit jusqu'à son minimum avant de passer à la ligne."""
-    lignes, ligne, reste = [], [], LARGEUR
-    for c in cartes:
-        voulue, minimum = LARGEURS[c["type"]], MINIMA.get(c["type"], MINIMUM)
-        if ligne and min(voulue, reste) < minimum:
-            _etaler(ligne, reste)
-            lignes.append(ligne)
-            ligne, reste = [], LARGEUR
-        span = min(voulue, reste)
-        ligne.append(dict(c, span=span))
-        reste -= span
-    if ligne:
-        _etaler(ligne, reste)
+def _mini(c):
+    return MINIMA.get(c["type"], MINIMUM)
+
+
+def _loger(ligne, c):
+    """Largeur que la carte peut prendre dans la ligne, en resserrant les autres jusqu'à leur minimum ; None si impossible."""
+    reste = LARGEUR - sum(x["span"] for x in ligne)
+    jeu = sum(x["span"] - _mini(x) for x in ligne)
+    if reste + jeu < _mini(c):
+        return None
+    return max(_mini(c), min(LARGEURS[c["type"]], reste))
+
+
+def _resserrer(ligne, besoin):
+    """Libère `besoin` colonnes, en prenant d'abord aux cartes qui ont le plus de marge."""
+    while besoin > 0:
+        x = max(ligne, key=lambda y: (y["span"] - _mini(y), -ligne.index(y)))
+        x["span"] -= 1
+        besoin -= 1
+
+
+def placer(cartes, regard=2):
+    """Range les cartes en lignes de 12 colonnes. Une carte se réduit jusqu'à son minimum avant de passer à la ligne ;
+    si la suivante ne loge pas, l'une des `regard` cartes d'après peut prendre sa place dans la ligne."""
+    file, lignes = list(cartes), []
+    while file:
+        c = file.pop(0)
+        ligne = [dict(c, span=min(LARGEURS[c["type"]], LARGEUR))]
+        while file:
+            for i, suivante in enumerate(file[:1 + regard]):
+                span = _loger(ligne, suivante)
+                if span is not None:
+                    _resserrer(ligne, span - (LARGEUR - sum(x["span"] for x in ligne)))
+                    ligne.append(dict(suivante, span=span))
+                    file.pop(i)
+                    break
+            else:
+                break
+        _etaler(ligne, LARGEUR - sum(x["span"] for x in ligne))
         lignes.append(ligne)
     return lignes
 
