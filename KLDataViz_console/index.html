@@ -69,9 +69,11 @@ nav.menu .count{margin-left:auto;font:500 11.5px var(--mono);color:var(--muted)}
 .spacer{flex:1}
 .iconbtn{width:40px;height:40px;border-radius:10px;border:1px solid var(--line);background:var(--surface);display:grid;place-items:center;color:var(--muted)}
 .iconbtn:hover{color:var(--fg);background:var(--surface-2)}
-.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;border-radius:10px;padding:10px 16px;min-height:42px;font-weight:600;font-size:14px;border:1px solid transparent;transition:background .15s,border-color .15s,transform .1s;text-decoration:none}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;border-radius:999px;padding:10px 18px;min-height:42px;font-weight:600;font-size:14px;border:1px solid transparent;transition:background .15s,border-color .15s,transform .1s;text-decoration:none}
 .btn:active{transform:translateY(1px)}
-.btn.primary{background:var(--brand);color:var(--on-brand)}.btn.primary:hover{background:var(--brand-strong)}
+.btn.primary{background:var(--grad);color:var(--on-brand);box-shadow:0 4px 14px color-mix(in srgb,var(--brand) 30%,transparent)}.btn.primary:hover{filter:brightness(1.06);box-shadow:0 8px 22px color-mix(in srgb,var(--blue) 34%,transparent);transform:translateY(-1px)}
+/* Même allure que le bouton Adifa’ : pilule, dégradé vert → bleu, ombre douce ; l'appui la retire */
+.btn{transition:background .15s,border-color .15s,box-shadow .2s,filter .2s,transform .15s}.btn.primary:active{transform:translateY(0);filter:none}.btn.primary[disabled]{box-shadow:none;filter:none;transform:none}
 .btn.ghost{background:var(--surface);border-color:var(--line);color:var(--fg)}.btn.ghost:hover{background:var(--surface-2)}
 .btn.sm{min-height:34px;padding:5px 11px;font-size:13px}
 .btn[disabled]{opacity:.55;cursor:not-allowed}
@@ -215,7 +217,7 @@ pre.code{font-family:var(--mono);font-size:12px;background:var(--surface-2);bord
 .scoreline{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;margin-top:6px}
 .scoreline .num{font-size:15px;font-weight:600}
 .chipf{border:1px solid var(--line);background:var(--surface);border-radius:99px;padding:6px 13px;font-size:13px;min-height:36px}
-.chipf[aria-pressed="true"]{background:var(--brand);border-color:var(--brand);color:var(--on-brand);font-weight:600}
+.chipf[aria-pressed="true"]{background:var(--grad);border-color:var(--brand);color:var(--on-brand);font-weight:600}
 .rowbtns{display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap;align-items:center}
 .dsx{padding:0;width:34px;min-width:34px;height:34px;display:inline-grid;place-items:center;color:var(--muted)}.dsx:hover{color:var(--red);border-color:var(--red)}
 .dsconfirm{display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap}.dsconfirm>span:first-child{flex:1;min-width:220px}
@@ -262,7 +264,7 @@ tr.versions td{background:var(--surface-2);font-size:13px}
 .msgs{flex:1;overflow:auto;padding:16px 18px;display:flex;flex-direction:column;gap:12px}
 .m{max-width:94%;font-size:14px;line-height:1.55;padding:10px 13px;border-radius:12px;overflow-wrap:anywhere;min-width:0}
 .m.agent{background:var(--surface-2);border-top-left-radius:4px;align-self:flex-start}
-.m.user{background:var(--brand);color:var(--on-brand);border-top-right-radius:4px;align-self:flex-end}
+.m.user{background:var(--grad);color:var(--on-brand);border-top-right-radius:4px;align-self:flex-end}
 .m .mt{white-space:pre-wrap}
 .m table{margin-top:8px;font-size:12.5px;background:var(--surface);border-radius:8px}
 .m td,.m th{padding:6px 8px}

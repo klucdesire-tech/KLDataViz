@@ -10,10 +10,10 @@
 <script src="/chart.umd.min.js"></script>
 <style>
 /* Layout: barre latérale des sections | contenu (tableau de bord, clients, forfaits, annonces, administrateurs, site) */
-:root{--bg:#F3F6F4;--surface:#FFFFFF;--surface-2:#EBF1ED;--line:#D9E3DD;--fg:#11241A;--muted:#55685D;--brand:#1D7A4C;--brand-strong:#15633D;--brand-soft:#DCEFE4;--on-brand:#FFFFFF;
+:root{--bg:#F3F6F4;--surface:#FFFFFF;--surface-2:#EBF1ED;--line:#D9E3DD;--fg:#11241A;--muted:#55685D;--brand:#1D7A4C;--brand-strong:#15633D;--brand-soft:#DCEFE4;--grad-fin:#0B6E99;--grad:linear-gradient(135deg,var(--brand) 0%,var(--grad-fin) 100%);--on-brand:#FFFFFF;
   --amber:#A8580A;--amber-soft:#FCEFD9;--red:#B4372A;--red-soft:#FBE3DF;--deep:#0F3D27;--sans:'Fira Sans',system-ui,-apple-system,'Segoe UI',sans-serif;--mono:'Fira Code',ui-monospace,Consolas,monospace;--r:12px;color-scheme:light}
-@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0D1411;--surface:#141D18;--surface-2:#1A2620;--line:#273730;--fg:#E4EEE8;--muted:#93A79B;--brand:#3FBF7E;--brand-strong:#5FD196;--brand-soft:#173826;--on-brand:#06140C;--amber:#F0A852;--amber-soft:#3A2A14;--red:#F2776A;--red-soft:#3C1D19;--deep:#0A2417;color-scheme:dark}}
-:root[data-theme="dark"]{--bg:#0D1411;--surface:#141D18;--surface-2:#1A2620;--line:#273730;--fg:#E4EEE8;--muted:#93A79B;--brand:#3FBF7E;--brand-strong:#5FD196;--brand-soft:#173826;--on-brand:#06140C;--amber:#F0A852;--amber-soft:#3A2A14;--red:#F2776A;--red-soft:#3C1D19;--deep:#0A2417;color-scheme:dark}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0D1411;--surface:#141D18;--surface-2:#1A2620;--line:#273730;--fg:#E4EEE8;--muted:#93A79B;--brand:#3FBF7E;--brand-strong:#5FD196;--brand-soft:#173826;--grad-fin:#5DB8E3;--on-brand:#06140C;--amber:#F0A852;--amber-soft:#3A2A14;--red:#F2776A;--red-soft:#3C1D19;--deep:#0A2417;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#0D1411;--surface:#141D18;--surface-2:#1A2620;--line:#273730;--fg:#E4EEE8;--muted:#93A79B;--brand:#3FBF7E;--brand-strong:#5FD196;--brand-soft:#173826;--grad-fin:#5DB8E3;--on-brand:#06140C;--amber:#F0A852;--amber-soft:#3A2A14;--red:#F2776A;--red-soft:#3C1D19;--deep:#0A2417;color-scheme:dark}
 *{box-sizing:border-box}html,body{height:100%;margin:0}
 body{background:var(--bg);color:var(--fg);font:15px/1.5 var(--sans)}
 button{font:inherit;color:inherit;cursor:pointer}
@@ -29,7 +29,7 @@ aside .brand small{display:block;font-weight:500;color:#9FCBB3;font-size:12px}
 aside nav{display:grid;gap:2px}
 aside nav button{border:0;background:none;text-align:left;padding:10px 12px;border-radius:9px;color:#CFE8DA;font-size:14.5px;min-height:42px}
 aside nav button:hover{background:rgba(255,255,255,.07)}
-aside nav .pastille{display:inline-block;min-width:20px;margin-left:6px;padding:0 6px;border-radius:99px;background:#F5B544;color:#2A1A00;font-size:12px;font-weight:700;text-align:center}
+aside nav .pastille{display:inline-block;min-width:20px;margin-left:6px;padding:0 6px;border-radius:999px;background:var(--red);color:#fff;font-size:12px;font-weight:700;line-height:20px;text-align:center;box-shadow:0 0 0 2px var(--deep)}  /* comme la pastille du bouton Adifa’ */
 .dm-msg{max-width:42ch;white-space:pre-wrap;color:var(--muted);font-size:13px}
 aside nav button[aria-current="page"]{background:rgba(255,255,255,.12);color:#fff;font-weight:600}
 aside .foot{margin-top:auto;font-size:12.5px;display:grid;gap:8px;padding:0 8px}
@@ -54,8 +54,9 @@ tr:last-child td{border-bottom:0}tbody tr:hover td{background:var(--surface-2)}
 td.r,th.r{text-align:right}
 .tag{display:inline-flex;gap:5px;font-size:12px;font-weight:600;padding:2px 9px;border-radius:99px;white-space:nowrap;background:var(--surface-2);color:var(--muted)}
 .tag.ok{background:var(--brand-soft);color:var(--brand-strong)}.tag.warn{background:var(--amber-soft);color:var(--amber)}.tag.bad{background:var(--red-soft);color:var(--red)}
-.btn{display:inline-flex;align-items:center;justify-content:center;gap:7px;border-radius:10px;padding:9px 14px;min-height:40px;font-weight:600;font-size:14px;border:1px solid transparent;background:var(--surface);transition:background .15s}
-.btn.primary{background:var(--brand);color:var(--on-brand)}.btn.primary:hover{background:var(--brand-strong)}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:7px;border-radius:999px;padding:9px 16px;min-height:40px;font-weight:600;font-size:14px;border:1px solid transparent;background:var(--surface);transition:background .15s}
+.btn.primary{background:var(--grad);color:var(--on-brand);box-shadow:0 4px 14px color-mix(in srgb,var(--brand) 30%,transparent)}.btn.primary:hover{filter:brightness(1.06);box-shadow:0 8px 22px color-mix(in srgb,var(--grad-fin) 34%,transparent);transform:translateY(-1px)}
+.btn{transition:background .15s,border-color .15s,box-shadow .2s,filter .2s,transform .15s}.btn.primary:active{transform:translateY(0);filter:none}.btn.primary[disabled]{box-shadow:none;filter:none;transform:none}
 .btn.ghost{border-color:var(--line)}.btn.ghost:hover{background:var(--surface-2)}
 .btn.sm{min-height:32px;padding:4px 10px;font-size:13px}.btn.danger{color:var(--red);border-color:var(--red)}
 input,select,textarea{font:inherit;font-size:14px;padding:9px 11px;border:1px solid var(--line);border-radius:10px;background:var(--surface);color:var(--fg);min-height:40px;width:100%}
