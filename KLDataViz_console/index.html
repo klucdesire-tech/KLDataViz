@@ -131,15 +131,15 @@ td.r,th.r{text-align:right}
 .task:last-child{border-bottom:0}
 .task .dot{width:28px;height:28px;border-radius:50%;display:grid;place-items:center;background:var(--surface-2);color:var(--muted)}
 .task.doing .dot{background:var(--brand-soft);color:var(--brand)}
-.task.done .dot{background:var(--brand);color:var(--on-brand)}
+.task.done .dot{background:var(--grad);color:var(--on-brand)}
 .task.warn .dot{background:var(--amber-soft);color:var(--amber)}
 .task.err .dot{background:var(--red-soft);color:var(--red)}
 .task b{font-size:14px;display:block}.task span{font-size:13px;color:var(--muted);overflow-wrap:anywhere}
 .task em{font-style:normal;font:500 12px var(--mono);color:var(--muted)}
 .spin{display:inline-block;width:14px;height:14px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:sp .8s linear infinite;vertical-align:middle}
 @keyframes sp{to{transform:rotate(360deg)}}
-.bar{height:8px;background:var(--surface-2);border-radius:99px;overflow:hidden}.bar i{display:block;height:100%;width:0;background:var(--brand);border-radius:99px;transition:width .4s ease}
-.meter{height:6px;border-radius:99px;background:var(--surface-2);overflow:hidden}.meter i{display:block;height:100%;background:var(--brand);border-radius:99px}
+.bar{height:8px;background:var(--surface-2);border-radius:99px;overflow:hidden}.bar i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--brand),var(--blue));border-radius:99px;transition:width .4s ease}
+.meter{height:6px;border-radius:99px;background:var(--surface-2);overflow:hidden}.meter i{display:block;height:100%;background:linear-gradient(90deg,var(--brand),var(--blue));border-radius:99px}
 .meter i.warn{background:var(--amber)}.meter i.bad{background:var(--red)}
 
 /* verify */
@@ -204,7 +204,7 @@ details.more>div{padding-bottom:14px}
 .field small{font-weight:400;color:var(--muted)}
 .switch{position:relative;width:44px;height:26px;border-radius:99px;border:0;background:var(--line);flex:none;transition:background .15s}
 .switch::after{content:"";position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:var(--surface);box-shadow:0 1px 3px rgba(0,0,0,.25);transition:transform .15s}
-.switch[aria-checked="true"]{background:var(--brand)}
+.switch[aria-checked="true"]{background:var(--grad)}
 .switch[aria-checked="true"]::after{transform:translateX(18px)}
 .issue.toggle{grid-template-columns:4px minmax(0,1fr) auto;align-items:center}
 .issue.off b,.issue.off span{opacity:.55}
@@ -216,6 +216,8 @@ details.corr b{display:inline;font-size:13px}
 pre.code{font-family:var(--mono);font-size:12px;background:var(--surface-2);border-radius:8px;padding:8px 10px;margin:6px 0 0;white-space:pre-wrap;overflow-wrap:anywhere;max-height:240px;overflow:auto}
 .scoreline{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;margin-top:6px}
 .scoreline .num{font-size:15px;font-weight:600}
+/* gain apporté par les corrections : pastille au dégradé du bouton Adifa’ */
+.tag.gain{background:var(--grad);color:var(--on-brand);box-shadow:0 2px 8px color-mix(in srgb,var(--brand) 28%,transparent)}
 .chipf{border:1px solid var(--line);background:var(--surface);border-radius:99px;padding:6px 13px;font-size:13px;min-height:36px}
 .chipf[aria-pressed="true"]{background:var(--grad);border-color:var(--brand);color:var(--on-brand);font-weight:600}
 .rowbtns{display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap;align-items:center}
@@ -1141,10 +1143,12 @@ function quality(acc){
 function renderVerify(){
   const a=state.original;if(!a)return;
   const before=quality(new Set()),after=quality(state.accept);
-  const col=before.score>=90?'var(--brand)':before.score>=70?'var(--amber)':'var(--red)';
-  $('#ring').style.background=`conic-gradient(${col} ${before.score}%, var(--surface-2) 0)`;
+  // Bon score : arc au dégradé vert → bleu du bouton Adifa’ ; sinon une couleur d'alerte unie (orange, rouge)
+  const arc=before.score>=90?`var(--brand) 0%, var(--blue) ${before.score}%`
+    :`${before.score>=70?'var(--amber)':'var(--red)'} 0% ${before.score}%`;
+  $('#ring').style.background=`conic-gradient(${arc}, var(--surface-2) 0)`;
   $('#ringV').textContent=before.score;
-  $('#scoreAfter').innerHTML=`${after.score} / 100 ${after.score>before.score?`<span class="tag ok">+${after.score-before.score}</span>`:''}`;
+  $('#scoreAfter').innerHTML=`${after.score} / 100 ${after.score>before.score?`<span class="tag gain">+${after.score-before.score}</span>`:''}`;
   $('#ringTxt').textContent=`Complétude ${dec(a.completeness_pct)} % · ${nf(a.missing_total)} valeur(s) manquante(s) · ${(a.anomalies||[]).length} colonne(s) avec des valeurs aberrantes.`;
   $('#dsChips').innerHTML=[`${nf(a.rows)} lignes`,`${a.columns} colonnes`,a.size_kb?`${dec(a.size_kb)} Ko`:'source en ligne'].map(x=>`<span class="tag type">${x}</span>`).join('');
   $('#scoreHow').innerHTML='Score = 100 moins des pénalités plafonnées. Détail avec les corrections choisies :<br>'+after.parts.map(p=>`${p[0]} : −${dec(p[1].toFixed(1))}`).join(' · ');
