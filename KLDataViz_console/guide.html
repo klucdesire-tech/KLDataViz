@@ -10,12 +10,12 @@
 <style>
 :root{
   --bg:#F3F6F4; --surface:#FFFFFF; --surface-2:#EBF1ED; --line:#D9E3DD; --fg:#11241A; --muted:#55685D;
-  --brand:#1D7A4C; --brand-strong:#15633D; --brand-soft:#DCEFE4; --on-brand:#FFFFFF; --amber-soft:#FCEFD9;
+  --brand:#1D7A4C; --brand-strong:#15633D; --brand-soft:#DCEFE4;--grad-fin:#0B6E99;--grad:linear-gradient(135deg,var(--brand) 0%,var(--grad-fin) 100%); --on-brand:#FFFFFF; --amber-soft:#FCEFD9;
   --sans:'Fira Sans',system-ui,-apple-system,'Segoe UI',sans-serif; color-scheme:light;
 }
 @media (prefers-color-scheme:dark){:root{
   --bg:#0D1411; --surface:#141D18; --surface-2:#1A2620; --line:#273730; --fg:#E4EEE8; --muted:#93A79B;
-  --brand:#3FBF7E; --brand-strong:#5FD196; --brand-soft:#173826; --on-brand:#06140C; --amber-soft:#3A2A14; color-scheme:dark}}
+  --brand:#3FBF7E; --brand-strong:#5FD196; --brand-soft:#173826;--grad-fin:#5DB8E3; --on-brand:#06140C; --amber-soft:#3A2A14; color-scheme:dark}}
 *{box-sizing:border-box}
 html{scroll-behavior:smooth;scroll-padding-top:16px}
 @media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
@@ -27,7 +27,7 @@ header{background:var(--surface);border-bottom:1px solid var(--line)}
 .bar{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:64px}
 .logo{display:flex;align-items:center;gap:10px;font-weight:700;color:var(--fg);text-decoration:none}
 .logo img{width:30px;height:30px;object-fit:contain}
-.btn{display:inline-flex;align-items:center;min-height:44px;padding:0 16px;border-radius:12px;background:var(--brand);color:var(--on-brand);font-weight:600;font-size:15px;text-decoration:none}
+.btn{display:inline-flex;align-items:center;min-height:44px;padding:0 20px;border-radius:999px;background:var(--grad);color:var(--on-brand);box-shadow:0 4px 14px color-mix(in srgb,var(--brand) 30%,transparent);transition:background .15s,border-color .15s,box-shadow .2s,filter .2s,transform .15s;font-weight:600;font-size:15px;text-decoration:none}.btn:hover{filter:brightness(1.06);box-shadow:0 8px 22px color-mix(in srgb,var(--grad-fin) 34%,transparent);transform:translateY(-1px)}
 .btn:hover{background:var(--brand-strong)}
 .page{display:grid;grid-template-columns:minmax(0,1fr);gap:32px;padding-block:32px 56px}
 .toc{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px 18px;font-size:15.5px}

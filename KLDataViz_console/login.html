@@ -11,13 +11,13 @@
 <style>
 /* Page de connexion : thème sombre de l'application (jetons « dark » du Studio), accent vert de marque */
 :root{--page:#F3F6F4;--frame:#FFFFFF;--surface:#FFFFFF;--field:#EBF1ED;--field-2:#FFFFFF;--line:#D9E3DD;--fg:#11241A;--muted:#55685D;
-  --brand:#1D7A4C;--brand-strong:#15633D;--brand-soft:#DCEFE4;--on-brand:#FFFFFF;--red:#B4372A;--red-soft:#FBE3DF;--ok-soft:#DCEFE4;
+  --brand:#1D7A4C;--brand-strong:#15633D;--brand-soft:#DCEFE4;--grad-fin:#0B6E99;--grad:linear-gradient(135deg,var(--brand) 0%,var(--grad-fin) 100%);--on-brand:#FFFFFF;--red:#B4372A;--red-soft:#FBE3DF;--ok-soft:#DCEFE4;
   --blue-soft:#DEE8FA;--amber-soft:#FCEFD9;--chart-2:#2F62C9;--chart-3:#A8580A;
   --shadow:0 1px 2px rgba(17,36,26,.05),0 18px 50px rgba(17,36,26,.12);
   --sans:'Fira Sans',system-ui,-apple-system,'Segoe UI',sans-serif;--mono:'Fira Code',ui-monospace,Consolas,monospace;color-scheme:light}
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
   --page:#0D1411;--frame:#141D18;--surface:#141D18;--field:#1A2620;--field-2:#1F2D26;--line:#273730;--fg:#E4EEE8;--muted:#93A79B;
-  --brand:#3FBF7E;--brand-strong:#5FD196;--brand-soft:#173826;--on-brand:#06140C;--red:#F2776A;--red-soft:#3C1D19;--ok-soft:#173826;
+  --brand:#3FBF7E;--brand-strong:#5FD196;--brand-soft:#173826;--grad-fin:#5DB8E3;--on-brand:#06140C;--red:#F2776A;--red-soft:#3C1D19;--ok-soft:#173826;
   --blue-soft:#1A2740;--amber-soft:#3A2A14;--chart-2:#7EA6F5;--chart-3:#F0A852;
   --shadow:0 1px 2px rgba(0,0,0,.3),0 18px 50px rgba(0,0,0,.4);color-scheme:dark}}
 *{box-sizing:border-box}
@@ -58,12 +58,12 @@ a{color:inherit}
 .hero h1 em{font-style:normal;color:var(--brand)}
 .hero p{color:var(--muted);font-size:15px;max-width:42ch;margin:18px 0 26px}
 .cta{display:flex;flex-wrap:wrap;gap:12px}
-.pill{display:inline-flex;align-items:center;justify-content:center;gap:8px;border-radius:12px;min-height:48px;padding:0 20px;font:600 15.5px var(--sans);
+.pill{display:inline-flex;align-items:center;justify-content:center;gap:8px;border-radius:999px;min-height:48px;padding:0 20px;font:600 15.5px var(--sans);
   text-decoration:none;cursor:pointer;transition:background .2s,border-color .2s,box-shadow .2s,transform .15s}
 .pill.outline{border:1px solid var(--line);color:var(--fg);background:var(--surface)}
 .pill.outline:hover{border-color:var(--brand)}
-.pill.solid{border:1px solid transparent;background:var(--brand);color:var(--on-brand)}
-.pill.solid:hover{background:var(--brand-strong)}
+.pill.solid{border:1px solid transparent;background:var(--grad);color:var(--on-brand);box-shadow:0 4px 14px color-mix(in srgb,var(--brand) 30%,transparent)}
+.pill.solid:hover{filter:brightness(1.06);box-shadow:0 8px 22px color-mix(in srgb,var(--grad-fin) 34%,transparent);transform:translateY(-1px)}
 .pill:active{transform:translateY(1px)}
 /* Formulaire */
 .card{width:min(440px,100%);justify-self:end;display:grid;gap:14px}
@@ -89,9 +89,10 @@ form{display:grid;gap:12px}
 .switch button,.link{background:none;border:0;color:var(--brand);font:600 14px var(--sans);cursor:pointer;padding:6px 2px}
 .switch button:hover,.link:hover{color:var(--brand-strong);text-decoration:underline;text-underline-offset:3px}
 .link{justify-self:start;font-size:13.5px}
-.btn{border:0;border-radius:12px;min-height:50px;padding:0 20px;font:600 15.5px var(--sans);background:var(--brand);color:var(--on-brand);cursor:pointer;
+.btn{border:0;border-radius:999px;min-height:50px;padding:0 22px;font:600 15.5px var(--sans);background:var(--grad);box-shadow:0 4px 14px color-mix(in srgb,var(--brand) 30%,transparent);color:var(--on-brand);cursor:pointer;
   display:inline-flex;align-items:center;justify-content:center;gap:8px;transition:background .2s,transform .15s}
-.btn:hover{background:var(--brand-strong)}.btn:active{transform:translateY(1px)}.btn[disabled]{opacity:.65;cursor:wait}
+.btn:hover{filter:brightness(1.06);box-shadow:0 8px 22px color-mix(in srgb,var(--grad-fin) 34%,transparent);transform:translateY(-1px)}.btn:active{transform:translateY(0);filter:none}.btn[disabled]{opacity:.65;cursor:wait;box-shadow:none;filter:none;transform:none}
+.btn,.pill{transition:background .15s,border-color .15s,box-shadow .2s,filter .2s,transform .15s}
 .msg{border-radius:12px;padding:11px 14px;font-size:14px}
 .msg.err{background:var(--red-soft);color:var(--red)}.msg.ok{background:var(--ok-soft);color:var(--brand-strong)}
 .legal{font-size:12px;color:var(--muted);text-align:center;margin:4px 0 0}
