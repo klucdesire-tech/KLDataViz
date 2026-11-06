@@ -163,7 +163,7 @@ form{display:grid;gap:12px}
           <i class="ico" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6"/></svg></i></label>
         <label class="field" for="upEmail"><span>Adresse e-mail professionnelle</span><input type="email" id="upEmail" autocomplete="email" placeholder="vous@organisation.org" required>
           <i class="ico" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg></i></label>
-        <label class="field" for="upPass"><span>Mot de passe (10 caractères minimum)</span><input type="password" id="upPass" autocomplete="new-password" minlength="10" required>
+        <label class="field" for="upPass"><span>Mot de passe (10 caractères, avec majuscule, minuscule et chiffre)</span><input type="password" id="upPass" autocomplete="new-password" minlength="10" pattern="(?=.*[a-z])(?=.*[A-Z])(?=.*[0-9]).{10,}" title="10 caractères au moins, dont une majuscule, une minuscule et un chiffre" required>
           <button class="ico" type="button" data-eye="upPass" aria-label="Afficher le mot de passe"><svg viewBox="0 0 24 24"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg></button></label>
         <div class="switch">Déjà membre ? <button type="button" data-tab="in">Se connecter</button></div>
         <button class="btn" type="submit">Créer mon compte</button>
@@ -180,7 +180,7 @@ form{display:grid;gap:12px}
 
       <form id="fNew" hidden>
         <h2>Nouveau<br>mot de passe<i>.</i></h2>
-        <label class="field" for="nwPass"><span>Nouveau mot de passe (10 caractères minimum)</span><input type="password" id="nwPass" autocomplete="new-password" minlength="10" required>
+        <label class="field" for="nwPass"><span>Nouveau mot de passe (10 caractères, avec majuscule, minuscule et chiffre)</span><input type="password" id="nwPass" autocomplete="new-password" minlength="10" pattern="(?=.*[a-z])(?=.*[A-Z])(?=.*[0-9]).{10,}" title="10 caractères au moins, dont une majuscule, une minuscule et un chiffre" required>
           <button class="ico" type="button" data-eye="nwPass" aria-label="Afficher le mot de passe"><svg viewBox="0 0 24 24"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg></button></label>
         <button class="btn" type="submit">Enregistrer</button>
       </form>
@@ -203,7 +203,9 @@ function show(id){forms.forEach(f=>$('#'+f).hidden=f!==id);
 function $$(s){return [...document.querySelectorAll(s)]}
 function msg(t,ok){const m=$('#msg');m.hidden=!t;m.textContent=t||'';m.className='msg '+(ok?'ok':'err')}
 const FR={'Invalid login credentials':'Adresse e-mail ou mot de passe incorrect.','Email not confirmed':'Confirmez d\'abord votre adresse : cliquez sur le lien reçu par e-mail.',
-  'User already registered':'Un compte existe déjà avec cette adresse. Connectez-vous.','Password should be at least':'Mot de passe trop court.',
+  'User already registered':'Un compte existe déjà avec cette adresse. Connectez-vous.','Password should be at least':'Mot de passe trop court : 10 caractères au moins.',
+  'Password should contain':'Le mot de passe doit contenir une majuscule, une minuscule et un chiffre.',
+  'known to be weak':'Ce mot de passe figure dans des fuites connues ou est trop facile à deviner : choisissez-en un autre.',
   'For security purposes':'Trop de tentatives. Patientez une minute puis réessayez.',
   'captcha protection':'Vérification anti-robot refusée ou expirée. Réessayez ; si cela persiste, rechargez la page.'};
 const fr=e=>{const t=String(e?.message||e||'Erreur inconnue');const k=Object.keys(FR).find(k=>t.startsWith(k)||t.includes(k));return k?FR[k]:t};
@@ -242,7 +244,10 @@ $('#fIn').onsubmit=e=>{e.preventDefault();busy(e.target,async()=>{
   const {error}=await sb.auth.signInWithPassword({email:$('#inEmail').value.trim(),password:$('#inPass').value,
     options:{captchaToken:await jetonRobot()}});
   if(error)throw error;location.replace(HOME)})};
-$('#fUp').onsubmit=e=>{e.preventDefault();busy(e.target,async()=>{
+// Même règle que la configuration de Supabase Auth : le serveur la vérifie aussi
+const motDePasseFaible=p=>p.length<10||!/[a-z]/.test(p)||!/[A-Z]/.test(p)||!/[0-9]/.test(p);
+const REGLE_MDP='Mot de passe trop faible : 10 caractères au moins, dont une majuscule, une minuscule et un chiffre.';
+$('#fUp').onsubmit=e=>{e.preventDefault();if(motDePasseFaible($('#upPass').value)){msg(REGLE_MDP);$('#upPass').focus();return}busy(e.target,async()=>{
   const {data,error}=await sb.auth.signUp({email:$('#upEmail').value.trim(),password:$('#upPass').value,
     options:{data:{full_name:$('#upName').value.trim()},emailRedirectTo:location.origin+HOME,captchaToken:await jetonRobot()}});
   if(error)throw error;
@@ -252,7 +257,7 @@ $('#fReset').onsubmit=e=>{e.preventDefault();busy(e.target,async()=>{
   const {error}=await sb.auth.resetPasswordForEmail($('#rsEmail').value.trim(),{redirectTo:location.origin+'/login?reset=1',
     captchaToken:await jetonRobot()});
   if(error)throw error;robotSuivant();msg('Si un compte existe pour cette adresse, un lien vient d\'être envoyé.',true)})};
-$('#fNew').onsubmit=e=>{e.preventDefault();busy(e.target,async()=>{
+$('#fNew').onsubmit=e=>{e.preventDefault();if(motDePasseFaible($('#nwPass').value)){msg(REGLE_MDP);$('#nwPass').focus();return}busy(e.target,async()=>{
   const {error}=await sb.auth.updateUser({password:$('#nwPass').value});if(error)throw error;location.replace(HOME)})};
 
 const qs=new URLSearchParams(location.search);
