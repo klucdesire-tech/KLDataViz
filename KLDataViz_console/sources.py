@@ -66,7 +66,7 @@ def _now():
 
 def connectable(path: str) -> bool:
     """Une source se relit si c'est un lien https (ou http en local), un fichier local, ou une source DHIS2."""
-    if path.startswith("dhis2://"):
+    if path.startswith(("dhis2://", "kobo://", "odk://")):  # connecteurs : relus par leur API
         return True
     if path.startswith("https://") or (not T.CLOUD and path.startswith("http://")):
         return True

@@ -53,6 +53,7 @@ import studio
 import sources
 import shares
 import dhis2
+import formulaires
 import dictionnaire
 import journal
 import surveillance
@@ -250,6 +251,8 @@ def source_label(file_path):
     """Nom lisible et sans caractère interdit pour une source (fichier ou URL)."""
     import re
     from urllib.parse import urlparse
+    if formulaires.est_formulaire(file_path):
+        return formulaires.nom_source(file_path)
     if file_path.startswith(("http://", "https://")):
         u = urlparse(file_path)
         if _host_is(u, "docs.google.com") and "/spreadsheets/" in u.path:
@@ -311,7 +314,7 @@ def mark_agrege(path, on=True):
 def _read_df(file_path, sheet=None):
     """Comme _read_df_raw, et réattache le drapeau « agrégé » d'un fichier dérivé (témoin .agrege)."""
     df, err = _read_df_raw(file_path, sheet)
-    if df is not None and not file_path.startswith(("http://", "https://", "dhis2://")) \
+    if df is not None and not file_path.startswith(("http://", "https://", "dhis2://", formulaires.KOBO, formulaires.ODK)) \
             and os.path.exists(file_path + AGREGE_SUFFIX):
         df.attrs["agrege"] = True
     confidentialite.enregistrer(df)  # ses identifiants ne partiront jamais en clair vers l'IA
@@ -326,6 +329,8 @@ def _read_df_raw(file_path, sheet=None):
     En ligne : seuls les fichiers de l'organisation et les liens https publics sont acceptés."""
     if file_path.startswith("dhis2://"):
         return dhis2.read_dhis2(file_path, allow_private=not T.CLOUD)
+    if formulaires.est_formulaire(file_path):  # KoboToolbox / ODK Central : réponses lues par l'API, actualisables
+        return formulaires.lire(file_path, allow_private=not T.CLOUD)
     tmp_to_delete = None
     is_url = file_path.startswith(("http://", "https://"))
     if T.CLOUD and not is_url and not T.current().owns(file_path):
@@ -1368,6 +1373,18 @@ def dhis2_connect(p):
     dhis2.save_credentials(instance, user, pwd)
     return {"uri": uri, "instance": instance, "name": f"DHIS2 {instance.split('/')[0]}", "rows": int(len(df)),
             "indicateurs": int(df["indicateur"].nunique()), "periodes": sorted(df["periode"].dropna().astype(str).unique())[-3:]}
+
+
+def formulaire_connect(p):
+    """Lien d'un formulaire KoboToolbox ou ODK Central + accès → source « kobo:// » ou « odk:// » prête à analyser.
+    Le jeton ou le mot de passe est chiffré dans l'espace (même coffre que DHIS2), jamais renvoyé ni journalisé."""
+    if T.CLOUD:
+        cloud.require(T.current(), "owner", "analyst")
+    genre = str(p.get("genre") or "").strip().lower()
+    if genre not in ("kobo", "odk"):
+        raise ValueError("Choisissez KoboToolbox ou ODK Central.")
+    return formulaires.connecter(genre, str(p.get("link") or ""), str(p.get("user") or "").strip(),
+                                 str(p.get("secret") or ""), allow_private=not T.CLOUD)
 
 
 def _corr_llm():
@@ -3026,7 +3043,7 @@ def _json_safe(obj):
 
 def _architect_df(file_path):
     """Lit la source pour l'architecte : détection d'encodage et de séparateur (« ; » des exports FR/DHIS2)."""
-    if file_path.startswith(("http://", "https://", "dhis2://")):
+    if file_path.startswith(("http://", "https://", "dhis2://", formulaires.KOBO, formulaires.ODK)):
         df, err = _read_df(file_path)
         return df, {"fichier": source_label(file_path)}, err
     if T.CLOUD and not T.current().owns(file_path):
@@ -4082,6 +4099,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
             res = dictionnaire.importer(data, str(p.get("name") or ""))
             journal.ajouter("dictionnaire d'indicateurs importé", details={"nom": res.get("nom")})
             return self._send(200, res)
+        if path == "/api/formulaires/connect":  # KoboToolbox / ODK Central : accès chiffrés, puis lecture d'essai
+            res = formulaire_connect(p)
+            if not res.get("error"):
+                journal.ajouter("formulaire de collecte connecté", details={"source": res.get("name")})
+            return self._send(200, res)
         if path == "/api/dhis2/connect":  # identifiants chiffrés dans l'espace, puis lecture d'essai
             res = dhis2_connect(p)
             if not res.get("error"):
@@ -4403,7 +4425,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         kwargs = {"registry_schema": T.current().schema}
         if T.storage_root():
             kwargs["storage_root"] = T.storage_root()
-        if source.startswith("dhis2://"):  # lu par le connecteur, versionné comme un fichier CSV de l'espace
+        if source.startswith(("dhis2://", formulaires.KOBO, formulaires.ODK)):  # lu par le connecteur, versionné en CSV
             df, err = _read_df(source)
             if err:
                 raise ValueError(err)
