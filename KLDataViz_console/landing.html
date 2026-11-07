@@ -3,8 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<title>KLDataViz — l'analyste de données qui parle français</title>
-<meta name="description" content="Importez un fichier Excel ou une feuille Google. Adifa’ vérifie la qualité, trouve ce qui compte et prépare vos rapports, en français.">
+<title>KLDataViz — Vos chiffres ont déjà vu le problème. Vous, pas encore.</title>
+<meta name="description" content="Adifa’, l’analyste de données IA qui parle français, lit vos fichiers Excel, Google Sheets ou DHIS2 et vous montre en quelques minutes ce qui baisse, ce qui dérape et où agir. Entreprises, santé, ONG.">
 <link rel="icon" href="/logo.png">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@500;600&family=Fira+Sans:wght@400;500;600;700;800&display=swap">
 <style>
@@ -201,6 +201,25 @@ footer{padding-block:36px;color:var(--muted);font-size:14px}
 footer .wrap{display:flex;gap:16px;flex-wrap:wrap;justify-content:space-between;align-items:center}
 footer a{color:var(--muted)}
 
+/* problème → solution (voix du public) */
+.habits-t{font:600 15px var(--sans);color:var(--fg);margin:0 0 12px}
+.habits{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-bottom:48px}
+.habit{display:grid;grid-template-columns:24px minmax(0,1fr);gap:10px;padding:14px 16px;border:1px dashed var(--line);border-radius:14px;font-size:14.5px;color:var(--muted)}
+.habit b{display:block;color:var(--fg);font-size:15px}
+.habit svg{width:20px;height:20px;margin-top:2px;color:var(--red);fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round}
+.pain-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px}
+.pain{background:var(--surface);border:1px solid var(--line);border-radius:18px;overflow:hidden;display:flex;flex-direction:column}
+.pain .voice{padding:22px 22px 20px;display:grid;gap:10px;align-content:start;flex:1}
+.pain .who{font:600 12px var(--sans);letter-spacing:.09em;text-transform:uppercase;color:var(--muted)}
+.pain blockquote{margin:0;font-size:18px;line-height:1.42;font-weight:600}
+.pain .pb{font-size:14px;color:var(--muted)}.pain .pb b{color:var(--red)}
+.pain .fix{background:var(--brand-soft);border-top:1px solid var(--line);padding:18px 22px 20px;display:grid;gap:6px}
+.pain .fix .t{font:600 12px var(--sans);letter-spacing:.09em;text-transform:uppercase;color:var(--brand-strong)}
+.pain .fix p{margin:0;font-size:15px}
+.pain .fix p b{color:var(--brand-strong)}
+.punch{margin:40px 0 0;font-size:clamp(19px,2vw,23px);font-weight:700;letter-spacing:-.01em;max-width:46ch}
+.punch em{font-style:normal;color:var(--brand)}
+
 /* commandes : palette animée + liste */
 .cmd-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.1fr);gap:clamp(24px,4vw,48px);align-items:start}
 .palette{background:var(--surface);border:1px solid var(--line);border-radius:18px;box-shadow:var(--shadow);overflow:hidden;position:sticky;top:96px}
@@ -253,10 +272,11 @@ dialog.demo::backdrop{background:rgba(6,20,12,.55);backdrop-filter:blur(3px)}
   .cmd-grid{grid-template-columns:minmax(0,1fr)}.palette{position:static}
   .hero .wrap,.sec-grid{grid-template-columns:minmax(0,1fr)}
   .steps{grid-template-columns:repeat(2,minmax(0,1fr))}.features{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .pain-grid{grid-template-columns:minmax(0,1fr);max-width:640px}
   .links{display:none}
 }
 @media (max-width:560px){
-  .steps,.features{grid-template-columns:minmax(0,1fr)}
+  .steps,.features,.habits{grid-template-columns:minmax(0,1fr)}
   .dash .low{grid-template-columns:minmax(0,1fr)}.dn{display:none}
   .nav .login,.nav .demo-nav{display:none}
   .demo .duo{grid-template-columns:minmax(0,1fr)}
@@ -276,7 +296,7 @@ dialog.demo::backdrop{background:rgba(6,20,12,.55);backdrop-filter:blur(3px)}
 <header class="nav">
   <div class="wrap">
     <a class="logo" href="/"><img src="/logo.png" alt="">KLDataViz</a>
-    <nav class="links" aria-label="Sections"><a href="#comment">Fonctionnement</a><a href="#fonctions">Fonctionnalités</a><a href="#commandes">Commandes</a><a href="#tarifs">Tarifs</a><a href="#faq">Questions</a></nav>
+    <nav class="links" aria-label="Sections"><a href="#probleme">Pourquoi</a><a href="#comment">Fonctionnement</a><a href="#fonctions">Fonctionnalités</a><a href="#tarifs">Tarifs</a><a href="#faq">Questions</a></nav>
     <span class="spacer"></span>
     <button type="button" class="btn ghost demo-nav" data-demo>Demander une démo</button>
     <a class="btn ghost login" href="/login">Se connecter</a>
@@ -289,12 +309,12 @@ dialog.demo::backdrop{background:rgba(6,20,12,.55);backdrop-filter:blur(3px)}
     <div class="wrap">
       <div>
         <div class="eyebrow">Adifa’ · analyste de données IA</div>
-        <h1 id="heroTitle" style="margin-top:14px">Vos données expliquées en <em>minutes</em>, pas en semaines.</h1>
-        <p class="lead" id="heroSub">Importez un fichier Excel, une feuille Google ou un export DHIS2. Adifa’ vérifie la qualité, construit un tableau de bord interactif à partir de vos indicateurs et répond à vos questions, en français.</p>
+        <h1 id="heroTitle" style="margin-top:14px">Vos chiffres ont déjà vu le problème.<br><em>Vous, pas encore.</em></h1>
+        <p class="lead" id="heroSub">Adifa’, l’analyste de données IA qui parle français, lit vos fichiers Excel, Google Sheets ou DHIS2 et vous montre en quelques minutes ce qui baisse, ce qui dérape et où agir. Posez votre question comme à un collègue. Sans formule, sans formation, sans attendre personne.</p>
         <div class="ctas">
-          <a class="btn primary" href="/login?signup=1">Essayer 14 jours gratuitement</a>
+          <a class="btn primary" href="/login?signup=1">Voir ce que disent mes chiffres</a>
           <button type="button" class="btn ghost" data-demo>Demander une démo</button>
-          <a class="lien-comment" href="#comment">Voir comment ça marche</a>
+          <a class="lien-comment" href="#probleme">Vous vous reconnaissez ?</a>
         </div>
         <div class="trust">
           <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l8 3v6c0 4.5-3.4 8.3-8 9-4.6-.7-8-4.5-8-9V6z"/></svg>Données privées à votre espace</span>
@@ -333,36 +353,64 @@ dialog.demo::backdrop{background:rgba(6,20,12,.55);backdrop-filter:blur(3px)}
               <div class="dn" style="transition-delay:.55s"><h5>Part par zone</h5><div class="ring"></div><ul><li style="--c:var(--brand)">Alpha</li><li style="--c:var(--blue)">Bêta</li><li style="--c:var(--amber)">Autres</li></ul></div>
             </div>
           </div>
-          <div class="insight"><div class="t">Point clé trouvé par Adifa’</div><p id="typed"></p></div>
+          <div class="insight"><div class="t">Problème repéré par Adifa’</div><p id="typed"></p></div>
         </div>
         <div class="steps-ui" id="stepsUi"><div><b>1</b><span>Importer</span></div><div><b>2</b><span>Vérifier</span></div><div><b>3</b><span>Tableau de bord</span></div><div><b>4</b><span>Comprendre</span></div></div>
       </div>
     </div>
   </section>
 
+  <section id="probleme">
+    <div class="wrap">
+      <div class="sec-head rv"><div class="eyebrow">Le problème</div><h2>Les signaux sont là. Ils se perdent dans vos fichiers.</h2><p>Ventes, dépenses, indicateurs de santé, résultats de projet : tout est dans Excel, DHIS2, les rapports, les cahiers et WhatsApp. Mais personne ne relie ces chiffres. Alors l’argent et les efforts se perdent sans bruit : une activité qui ne donne pas de résultats, un rapport faux envoyé au bailleur, un problème découvert trop tard.</p><div class="chips" style="margin-top:6px"><span class="chip">Commerce</span><span class="chip">Services</span><span class="chip">BTP</span><span class="chip">Transport</span><span class="chip">Santé et districts</span><span class="chip">Écoles</span><span class="chip">ONG et humanitaire</span><span class="chip">Projets financés</span><span class="chip">Industrie</span></div></div>
+      <p class="habits-t rv">Aujourd’hui, on s’en sort comment ?</p>
+      <div class="habits">
+        <div class="habit rv"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg><div><b>La seule personne qui maîtrise Excel</b>Quand elle est absente, tout s’arrête.</div></div>
+        <div class="habit rv"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg><div><b>Un consultant payé à la mission</b>Cher, et la réponse arrive après la décision.</div></div>
+        <div class="habit rv"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg><div><b>Des tableaux croisés faits à la main</b>Une formule cassée suffit à fausser tout le rapport.</div></div>
+      </div>
+      <p class="habits-t rv">Ce que nous entendons dans les entreprises, les structures de santé et les projets</p>
+      <div class="pain-grid">
+        <div class="pain rv">
+          <div class="voice"><span class="who">1 · Dirigeant / coordonnateur de projet</span><blockquote>« On dépense beaucoup d’argent et d’énergie… mais on ne sait pas vraiment ce qui donne des résultats&nbsp;!&nbsp;»</blockquote><span class="pb"><b>Le problème :</b> un produit vendu à perte, une agence qui coûte plus qu’elle ne rapporte, une activité de projet qui n’atteint pas sa cible. Personne ne le voit.</span></div>
+          <div class="fix"><span class="t">La solution avec Adifa’</span><p>Vous demandez « <b>Qu’est-ce qui marche, et qu’est-ce qui ne marche pas ?</b> ». Adifa’ compare chaque produit, agence, district ou activité à son objectif et vous montre où agir.</p></div>
+        </div>
+        <div class="pain rv">
+          <div class="voice"><span class="who">2 · Responsable financier / chargé de suivi-évaluation</span><blockquote>« Chaque fin de mois, on passe des nuits à consolider les fichiers… et si un chiffre est faux, c’est le financement qui saute&nbsp;!&nbsp;»</blockquote><span class="pb"><b>Le problème :</b> doublons, données manquantes, formules cassées. Un rapport faux à la direction ou au bailleur coûte la confiance, et parfois l’argent.</span></div>
+          <div class="fix"><span class="t">La solution avec Adifa’</span><p>Adifa’ <b>contrôle la qualité</b> des données, relie vos indicateurs à des formules que vous validez une fois, et produit le <b>rapport PDF ou Excel</b> prêt à envoyer.</p></div>
+        </div>
+        <div class="pain rv">
+          <div class="voice"><span class="who">3 · Chef de service / responsable de district</span><blockquote>« On ne découvre les problèmes qu’au moment du rapport, quand c’est déjà trop tard&nbsp;!&nbsp;»</blockquote><span class="pb"><b>Le problème :</b> des ventes qui baissent, une couverture vaccinale qui chute, un site qui ne remonte plus ses données : on le voit des mois après.</span></div>
+          <div class="fix"><span class="t">La solution avec Adifa’</span><p>Un <b>tableau de bord à jour</b>, relié à Excel, Google Sheets ou DHIS2, et un rapport envoyé <b>automatiquement chaque semaine</b> qui signale ce qui baisse. Vous réagissez à temps.</p></div>
+        </div>
+      </div>
+      <p class="punch rv">Vous ne pouvez pas corriger ce que vous ne voyez pas.<br><em>Adifa’ vous le montre.</em></p>
+    </div>
+  </section>
+
   <section id="comment" class="alt">
     <div class="wrap">
-      <div class="sec-head rv"><div class="eyebrow">Fonctionnement</div><h2>Du fichier brut au rapport, en quatre étapes guidées</h2><p>Pas de formule, pas de code. Adifa’ vous accompagne à chaque étape et vous gardez la main sur chaque décision.</p></div>
+      <div class="sec-head rv"><div class="eyebrow">Fonctionnement</div><h2>Du fichier brut au problème repéré, en quatre étapes</h2><p>Pas de formule, pas de code. Adifa’ fait le travail d’analyse ; vous gardez la main sur chaque décision.</p></div>
       <div class="steps">
         <div class="step rv"><span class="n">1</span><h3>Importer</h3><p>Excel (plusieurs feuilles), CSV, JSON, Parquet, un lien Google Sheets ou OneDrive, un export DHIS2 ou une base PostgreSQL. Les tableaux au format rapport sont reconnus.</p></div>
-        <div class="step rv"><span class="n">2</span><h3>Vérifier</h3><p>Doublons, formats de date, valeurs manquantes : un score de qualité et des corrections à activer une par une.</p></div>
-        <div class="step rv"><span class="n">3</span><h3>Analyser</h3><p>Graphiques commentés, tableau de bord interactif piloté par votre dictionnaire d'indicateurs, questions en français.</p></div>
-        <div class="step rv"><span class="n">4</span><h3>Partager</h3><p>Lien de partage, fichier HTML autonome, rapports PDF ou Excel, et envoi automatique chaque semaine ou chaque mois.</p></div>
+        <div class="step rv"><span class="n">2</span><h3>Fiabiliser</h3><p>Doublons, dates mal saisies, valeurs manquantes : un score de qualité et des corrections à activer une par une. Un chiffre faux ne passe pas.</p></div>
+        <div class="step rv"><span class="n">3</span><h3>Voir</h3><p>Ce qui baisse, ce qui dérape, ce qui marche : graphiques commentés, tableau de bord interactif et réponses à vos questions en français.</p></div>
+        <div class="step rv"><span class="n">4</span><h3>Agir à temps</h3><p>Rapport envoyé automatiquement chaque semaine ou chaque mois, lien de partage, PDF ou Excel prêt pour la direction ou le bailleur.</p></div>
       </div>
     </div>
   </section>
 
   <section id="fonctions">
     <div class="wrap">
-      <div class="sec-head rv"><div class="eyebrow">Fonctionnalités</div><h2>Tout ce qu'une équipe data fait à la main, en quelques clics</h2></div>
+      <div class="sec-head rv"><div class="eyebrow">Fonctionnalités</div><h2>Tout pour voir le problème avant qu'il vous coûte</h2><p>Le travail d'une équipe data, sans l'équipe data.</p></div>
       <div class="features">
-        <div class="feat rv"><svg viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 4.5-3.4 8.3-8 9-4.6-.7-8-4.5-8-9V6zM9 12l2 2 4-4"/></svg><h3>Qualité des données</h3><p>Score de qualité, corrections expliquées et activables une par une. Votre fichier d'origine n'est jamais modifié.</p></div>
+        <div class="feat rv"><svg viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 4.5-3.4 8.3-8 9-4.6-.7-8-4.5-8-9V6zM9 12l2 2 4-4"/></svg><h3>Des chiffres fiables</h3><p>Score de qualité, corrections expliquées et activables une par une. Votre fichier d'origine n'est jamais modifié.</p></div>
         <div class="feat rv"><svg viewBox="0 0 24 24"><path d="M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z"/></svg><h3>Tableau de bord interactif <span class="new">Nouveau</span></h3><p>Tuiles, cartes de suivi (barres et courbe), classement, camembert. Un clic filtre tout ; « comment ce chiffre est calculé ? » sur chaque tuile.</p></div>
         <div class="feat rv"><svg viewBox="0 0 24 24"><path d="M5 4h11l3 3v13H5zM9 9h6M9 13h6M9 17h4"/></svg><h3>Dictionnaire d'indicateurs <span class="new">Nouveau</span></h3><p>Importez votre référentiel (codes, types, définitions). Adifa’ relie chaque indicateur à vos colonnes par une formule que vous validez.</p></div>
-        <div class="feat rv"><svg viewBox="0 0 24 24"><path d="M4 5h16v11H8l-4 4z"/></svg><h3>Questions en français</h3><p>Adifa’ enchaîne de vrais calculs et montre chaque étape. Les chiffres de sa réponse sont vérifiés avant d'être affichés.</p></div>
+        <div class="feat rv"><svg viewBox="0 0 24 24"><path d="M4 5h16v11H8l-4 4z"/></svg><h3>Questions en français</h3><p>« Qu'est-ce qui a baissé ce mois-ci ? » Adifa’ enchaîne de vrais calculs et montre chaque étape. Les chiffres de sa réponse sont vérifiés avant d'être affichés.</p></div>
         <div class="feat rv"><svg viewBox="0 0 24 24"><path d="M3 7h18M3 12h18M3 17h18M8 3v18"/></svg><h3>Architecte de données</h3><p>Pour un fichier mal structuré : Adifa’ propose une structure d'analyse et génère le modèle Excel correspondant.</p></div>
         <div class="feat rv"><svg viewBox="0 0 24 24"><path d="M10 14a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1M14 10a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1"/></svg><h3>Sources connectées</h3><p>Google Sheets, OneDrive, DHIS2 : actualisez le tableau de bord sans réimporter. Croisez plusieurs fichiers ou feuilles.</p></div>
-        <div class="feat rv"><svg viewBox="0 0 24 24"><path d="M5 5h14v15H5zM5 10h14M9 3v4M15 3v4"/></svg><h3>Rapports planifiés</h3><p>Adifa’ relit la source, refait l'analyse et envoie le rapport à jour à vos destinataires.</p></div>
+        <div class="feat rv"><svg viewBox="0 0 24 24"><path d="M5 5h14v15H5zM5 10h14M9 3v4M15 3v4"/></svg><h3>Rapports automatiques</h3><p>Chaque semaine ou chaque mois, Adifa’ relit la source, refait l'analyse et envoie le rapport à jour : vous voyez ce qui change sans le chercher.</p></div>
         <div class="feat rv"><svg viewBox="0 0 24 24"><path d="M16 11a4 4 0 1 0-8 0M4 20a8 8 0 0 1 16 0"/></svg><h3>Travail en équipe</h3><p>Propriétaire, analyste ou lecteur. Chaque espace est séparé, avec son journal d'activité.</p></div>
         <div class="feat rv"><svg viewBox="0 0 24 24"><path d="M7 3h10v18H7zM11 18h2"/></svg><h3>Sur ordinateur et téléphone</h3><p>Interface adaptée au téléphone, mode sombre, chat Adifa’ masquable et ouvert à la demande.</p></div>
       </div>
@@ -371,7 +419,7 @@ dialog.demo::backdrop{background:rgba(6,20,12,.55);backdrop-filter:blur(3px)}
 
   <section id="commandes" class="alt">
     <div class="wrap">
-      <div class="sec-head rv"><div class="eyebrow">Commandes</div><h2>Tout ce que vous pouvez demander à KLDataViz</h2><p>Chaque action tient en un clic ou une phrase. Voici les commandes disponibles aujourd'hui.</p></div>
+      <div class="sec-head rv"><div class="eyebrow">Commandes</div><h2>Une question, une réponse</h2><p>Chaque action tient en un clic ou une phrase. Voici tout ce que vous pouvez demander aujourd'hui.</p></div>
       <div class="cmd-grid">
         <div class="palette rv" aria-hidden="true">
           <div class="q"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg><span id="cmdTyped"></span><span class="caret"></span><kbd>Entrée</kbd></div>
@@ -383,7 +431,7 @@ dialog.demo::backdrop{background:rgba(6,20,12,.55);backdrop-filter:blur(3px)}
           <div class="rv"><h3>Vérifier</h3><div class="chips"><span class="chip">Score de qualité</span><span class="chip">Corrections proposées</span><span class="chip">Analyser sans corriger</span><span class="chip">Proposer une structure</span><span class="chip">Générer le modèle Excel</span></div></div>
           <div class="rv"><h3>Indicateurs <span class="new">Nouveau</span></h3><div class="chips"><span class="chip">Importer un dictionnaire</span><span class="chip">Vérifier / modifier les formules</span><span class="chip">Valider les propositions sûres</span><span class="chip">Reproposer</span><span class="chip">Enregistrer et mettre à jour le tableau de bord</span></div></div>
           <div class="rv"><h3>Tableau de bord</h3><div class="chips"><span class="chip">Semaine · Mois · Trimestre</span><span class="chip">Période précédente · Même période N-1</span><span class="chip">Filtrer en un clic <em>classement</em></span><span class="chip">Comment ce chiffre est calculé ?</span><span class="chip">Actualiser la source</span><span class="chip">Supprimer un tableau</span></div></div>
-          <div class="rv"><h3>Demander à Adifa’</h3><div class="chips"><span class="chip">« Combien de lignes ? » <em>instantané</em></span><span class="chip">« Compare les régions »</span><span class="chip">« Quelle tendance depuis juin ? »</span><span class="chip">Suggestions de questions</span></div></div>
+          <div class="rv"><h3>Demander à Adifa’</h3><div class="chips"><span class="chip">« Combien de lignes ? » <em>instantané</em></span><span class="chip">« Compare les régions »</span><span class="chip">« Quelle tendance depuis juin ? »</span><span class="chip">« Qu’est-ce qui a baissé ce mois-ci ? »</span><span class="chip">Suggestions de questions</span></div></div>
           <div class="rv"><h3>Partager et gérer</h3><div class="chips"><span class="chip">Créer un lien de partage</span><span class="chip">Télécharger en HTML</span><span class="chip">Recevoir ce rapport automatiquement</span><span class="chip">Inviter un membre</span><span class="chip">Exporter toutes les données (.zip)</span><span class="chip">Supprimer les données de l'espace</span></div></div>
         </div>
       </div>
@@ -392,7 +440,7 @@ dialog.demo::backdrop{background:rgba(6,20,12,.55);backdrop-filter:blur(3px)}
 
   <section id="tarifs">
     <div class="wrap">
-      <div class="sec-head rv"><div class="eyebrow">Tarifs</div><h2>Commencez gratuitement, évoluez à votre rythme</h2><p>Chaque forfait comprend toutes les fonctionnalités. Seuls les volumes changent.</p></div>
+      <div class="sec-head rv"><div class="eyebrow">Tarifs</div><h2>Voyez ce que disent vos chiffres, gratuitement pendant 14 jours</h2><p>Chaque forfait comprend toutes les fonctionnalités. Seuls les volumes changent.</p></div>
       <div class="plans" id="plans"><p class="empty">Chargement des forfaits…</p></div>
     </div>
   </section>
@@ -414,6 +462,8 @@ dialog.demo::backdrop{background:rgba(6,20,12,.55);backdrop-filter:blur(3px)}
   <section id="faq">
     <div class="wrap" style="max-width:860px">
       <div class="sec-head rv"><div class="eyebrow">Questions</div><h2>Questions fréquentes</h2></div>
+      <details class="faq"><summary>Pour quel type d’organisation ?</summary><p>Toutes celles qui ont des chiffres dans des fichiers : commerces, entreprises de services, BTP, transport, structures de santé et districts (DHIS2), écoles, ONG et projets financés par des bailleurs.</p></details>
+      <details class="faq"><summary>Mes fichiers sont en désordre. Ça marche quand même ?</summary><p>Oui. Adifa’ reconnaît les tableaux au format rapport (lignes de titre, totaux, plusieurs feuilles), signale les doublons et les erreurs, et propose une structure si le fichier est mal organisé.</p></details>
       <details class="faq"><summary>Faut-il savoir programmer ?</summary><p>Non. Vous déposez un fichier, vous choisissez les corrections et vous posez vos questions en français.</p></details>
       <details class="faq"><summary>Quels fichiers puis-je importer ?</summary><p>Excel (.xlsx, .xls), CSV, JSON, Parquet, les feuilles Google Sheets et les fichiers OneDrive ou SharePoint partagés par lien. Les tableaux avec lignes de titre ou de totaux sont reconnus.</p></details>
       <details class="faq"><summary>Mes données servent-elles à entraîner une IA ?</summary><p>Non. Adifa’ n'envoie jamais votre fichier complet : seulement sa structure, quelques valeurs d'exemple, les résultats des calculs (tableaux de 50 lignes au plus) et votre question, uniquement pour produire la réponse. Les noms, téléphones, adresses et numéros de dossier sont remplacés par des jetons avant l'envoi. <a href="/confidentialite">Le détail</a>.</p></details>
@@ -427,9 +477,9 @@ dialog.demo::backdrop{background:rgba(6,20,12,.55);backdrop-filter:blur(3px)}
   <section>
     <div class="wrap">
       <div class="final">
-        <h2>Prêt à comprendre vos données ?</h2>
-        <p>Créez votre espace en une minute et importez votre premier fichier. 14 jours gratuits, sans engagement.</p>
-        <div style="display:flex;gap:12px;flex-wrap:wrap"><a class="btn primary" href="/login?signup=1">Commencer l'essai gratuit</a><button type="button" class="btn ghost" data-demo>Demander une démo</button><a class="btn ghost" id="contactBtn" href="#tarifs" hidden>Nous contacter</a></div>
+        <h2>Et si vous voyiez le problème avant qu’il vous coûte ?</h2>
+        <p>Importez un de vos vrais fichiers : en quelques minutes, Adifa’ vous montre ce qui baisse, ce qui dérape et où agir. 14 jours gratuits, sans carte bancaire. L’analyse de données, enfin accessible à toutes les organisations, même celles qui n’ont pas d’analyste.</p>
+        <div style="display:flex;gap:12px;flex-wrap:wrap"><a class="btn primary" href="/login?signup=1">Analyser mon premier fichier</a><button type="button" class="btn ghost" data-demo>Demander une démo</button><a class="btn ghost" id="contactBtn" href="#tarifs" hidden>Nous contacter</a></div>
       </div>
     </div>
   </section>
@@ -474,7 +524,7 @@ let site={};
 /* ---- contenus paramétrés par l'administration ---- */
 get('/api/public/site').then(s=>{
   site=s||{};
-  if(site.hero_title){const t=esc(site.hero_title);$('#heroTitle').innerHTML=t.replace(/\bminutes\b/,'<em>minutes</em>')}
+  if(site.hero_title){const t=esc(site.hero_title),m=t.match(/^(.+?[.!?])\s+(.+)$/);$('#heroTitle').innerHTML=m?m[1]+'<br><em>'+m[2]+'</em>':t.replace(/\bminutes\b/,'<em>minutes</em>')}  // deux phrases : la seconde en couleur
   if(site.hero_subtitle)$('#heroSub').textContent=site.hero_subtitle;
   const c=[];if(site.contact_email)c.push(`<a href="mailto:${esc(site.contact_email)}">${esc(site.contact_email)}</a>`);
   if(site.contact_whatsapp)c.push(`WhatsApp ${esc(site.contact_whatsapp)}`);
@@ -532,7 +582,7 @@ dmForm.addEventListener('submit',async e=>{e.preventDefault();
 
 /* ---- motion design : boucle de 4 actes ---- */
 const stage=$('#stage'),rows=[...document.querySelectorAll('#table .trow')],steps=[...document.querySelectorAll('#stepsUi div')];
-const INSIGHT='Les ventes ont augmenté de <b>24 %</b> depuis mars. La <b>Zone Epsilon</b> est en tête, la <b>Zone Delta</b> reste sous la moyenne.';
+const INSIGHT='Les retours ont augmenté de <b>9 %</b> en mars. La <b>Zone Delta</b> reste sous la moyenne : c’est là qu’il faut agir.';
 const ACTS=[3200,3400,3600,4600];
 let timers=[],running=false,gen=0;
 const CELLS=[...document.querySelectorAll('[data-fix]')].map(el=>({el,orig:el.textContent,fix:el.dataset.fix}));
