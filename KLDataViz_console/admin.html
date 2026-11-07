@@ -158,7 +158,8 @@ input:focus,select:focus,textarea:focus{border-color:var(--brand);outline:none}
         <p class="sub">Erreurs internes, tâches en échec, e-mails non envoyés, pannes d'IA. La référence se retrouve dans les journaux Render.</p>
         <div class="tablewrap" id="santeIncidents" style="margin-top:8px"><div class="empty">Chargement…</div></div></div>
       <div class="card" style="margin-top:16px"><h2>Sauvegarde</h2>
-        <p class="sub">Base et fichiers, dans <code>/data/sauvegardes</code> — les 7 dernières sont conservées. Copie-les hors de Render : une perte du disque emporterait aussi les sauvegardes.</p>
+        <p class="sub">Base et fichiers, dans <code>/data/sauvegardes</code> — les 7 dernières sont conservées. Avec la copie hors site configurée (<code>SAUVEGARDE_S3_*</code>), chaque sauvegarde part aussi, chiffrée, vers votre stockage : une perte du disque ne les emporte plus.</p>
+        <p class="sub" id="sauvegardeEtat" style="margin-top:6px"></p>
         <div class="tablewrap" id="sauvegardesListe" style="margin-top:8px"><div class="empty">Chargement…</div></div>
         <div style="margin-top:12px"><button class="btn primary" id="sauvegardeLancer">Sauvegarder maintenant</button></div>
       </div>
@@ -462,6 +463,9 @@ async function loadSauvegardes(){
   const d=await api('/api/admin/sauvegardes');
   const l=(d&&d.sauvegardes)||[];
   const taille=o=>o>=1048576?(o/1048576).toFixed(1)+' Mo':Math.max(1,Math.round(o/1024))+' Ko';
+  const e=d&&d.etat,quand=e&&e.date?new Date(e.date).toLocaleString('fr-FR',{dateStyle:'short',timeStyle:'short'}):'';
+  $('#sauvegardeEtat').innerHTML=(d&&d.automatique?'<b>Automatique</b> : une par jour, la nuit.':'<b>Manuelle seulement</b> : configurez la copie hors site pour l\u2019automatique.')
+    +(e?` Dernière : ${esc(quand)}, ${e.ok?'réussie':'<span style="color:var(--red)">en échec</span>'} · copie hors site : ${esc(e.distant||'?')}.`:'');
   $('#sauvegardesListe').innerHTML=l.length
     ?`<table><thead><tr><th>Fichier</th><th>Taille</th><th>Date</th></tr></thead><tbody>${l.map(x=>`<tr><td>${esc(x.nom)}</td><td>${taille(x.taille)}</td><td class="sub">${esc(x.date)}</td></tr>`).join('')}</tbody></table>`
     :'<div class="empty">Aucune sauvegarde pour l\u2019instant.</div>';
