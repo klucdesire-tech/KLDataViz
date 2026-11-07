@@ -73,16 +73,28 @@ La liste est dans **Administration → Paiements**. Le bouton **Vérifier** reli
 
 ## Sauvegarde
 
-Deux choses à sauvegarder : la base PostgreSQL (Supabase) et le disque `/data` de Render.
+Deux choses à sauvegarder : la base PostgreSQL (Supabase) et le disque `/data` de Render. `scripts/sauvegarde.py` fait
+les deux : base (`pg_dump`) et fichiers (`tar.gz`) dans `/data/sauvegardes/`, rotation des 7 dernières.
 
-- **Base** : Supabase fait des sauvegardes automatiques selon le plan du projet (*Database → Backups*). Vérifie que le plan les inclut ; sinon, lance le script depuis le Shell Render.
-- **Disque `/data`** (fichiers des espaces, exports) : Render → service `kldataviz` → **Shell**, puis :
-  ```
-  python scripts/sauvegarde.py --garder 7
-  ```
-  Les archives vont dans `/data/sauvegardes/` : base (`pg_dump`) + fichiers (`tar.gz`), rotation des 7 dernières.
-- **Hors site** : une sauvegarde sur le même disque ne protège pas d'une perte du disque. Télécharge régulièrement `/data/sauvegardes/` ou copie-le vers un stockage externe (S3, Google Drive).
-- **Restauration** : `pg_restore --clean --no-owner -d "$DATABASE_URL" base_AAAAMMJJ.dump` pour la base ; `tar xzf donnees_AAAAMMJJ.tar.gz -C /data` pour les fichiers.
+- **À la main** : Admin → Santé du service → « Sauvegarder maintenant », ou Render → Shell :
+  `python scripts/sauvegarde.py --garder 7`.
+- **Copie hors site, chiffrée, une par jour** : une sauvegarde sur le même disque ne protège pas d'une perte du
+  disque. Dès que `SAUVEGARDE_S3_BUCKET` est posée, le service fait une sauvegarde chaque nuit (entre 1 h et 6 h UTC)
+  et en envoie une copie **chiffrée sur le serveur** vers un stockage compatible S3 (30 copies gardées par sorte).
+  Le contrôle « Sauvegarde » de la page Santé (et de `/healthz/complet`) passe en échec si la dernière a échoué ou a
+  plus de 30 h.
+  1. Cloudflare → R2 → créer un compartiment (ex. `kldataviz-sauvegardes`, région Europe), puis un jeton d'API R2
+     « Lecture et écriture d'objets » limité à ce compartiment.
+  2. Générer la clé de chiffrement (Render → Shell) : `python scripts/sauvegarde.py --nouvelle-cle`.
+     **La recopier aussi dans un gestionnaire de mots de passe** : sans elle, les copies sont illisibles.
+  3. Render → Environment : `SAUVEGARDE_S3_BUCKET`, `SAUVEGARDE_S3_ENDPOINT` (`https://<id du compte>.r2.cloudflarestorage.com`),
+     `SAUVEGARDE_S3_CLE_ID`, `SAUVEGARDE_S3_CLE_SECRETE`, `SAUVEGARDE_CHIFFREMENT_CLE`.
+  Sans clé de chiffrement, rien ne part (aucune copie en clair hors du serveur). Backblaze B2 fonctionne de la même
+  façon (son adresse S3 en `SAUVEGARDE_S3_ENDPOINT`).
+- **Restauration** : télécharger la copie `.kldv` du compartiment, puis la déchiffrer avec la même clé :
+  `SAUVEGARDE_CHIFFREMENT_CLE=… python scripts/sauvegarde.py --dechiffrer base_AAAAMMJJ_HHMMSS.dump.kldv base.dump`.
+  Ensuite `pg_restore --clean --no-owner -d "$DATABASE_URL" base.dump` pour la base ;
+  `tar xzf donnees_AAAAMMJJ.tar.gz -C /data` pour les fichiers.
 
 ## Sécurité : ce qui protège les données des clients
 
