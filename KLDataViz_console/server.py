@@ -1695,6 +1695,64 @@ def _llm_config():
     return dict(local, provider="deepseek") if local else None
 
 
+# IA de secours (OpenRouter) : appelée seulement quand le fournisseur principal est en panne (pannes passagères
+# épuisées, compte refusé, coupe-circuit ouvert). Un autre fournisseur que DeepSeek, pour ne pas tomber avec lui :
+# Mistral Small par défaut, bon en français et peu coûteux. OpenRouter n'envoie la requête qu'aux hébergeurs qui ne
+# gardent pas les données (`data_collection: deny`) ; le contenu est pseudonymisé comme pour l'IA principale.
+OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
+SECOURS_MODELE = "mistralai/mistral-small-2603"
+SECOURS_SIGNAL = 10 * 60  # au plus un signalement « IA de secours utilisée » toutes les 10 minutes
+_SECOURS = {"signale": 0.0, "dernier_ok": None}
+_APPEL = threading.local()  # l'appel principal en cours a-t-il échoué pour une panne du fournisseur ?
+
+
+def _secours_config():
+    key = (os.environ.get("OPENROUTER_API_KEY") or "").strip()
+    if not key:
+        return None
+    return {"provider": "openrouter", "api_key": key, "base_url": os.environ.get("OPENROUTER_BASE_URL") or OPENROUTER_URL,
+            "model": (os.environ.get("OPENROUTER_MODEL") or "").strip() or SECOURS_MODELE}
+
+
+def _llm_call_secours(sec, msgs, max_tokens, temperature, timeout):
+    """Un appel à l'IA de secours (format OpenAI, sans « reasoning_effort »). Un second essai après une saturation."""
+    payload = {"model": sec["model"], "messages": msgs, "temperature": temperature, "max_tokens": max_tokens,
+               "provider": {"data_collection": "deny"}}
+    body = json.dumps(payload).encode("utf-8")
+    for essai in range(2):
+        req = urllib.request.Request(sec["base_url"], data=body, method="POST",
+                                     headers={"Content-Type": "application/json", "Authorization": "Bearer " + sec["api_key"],
+                                              "X-Title": "KLDataViz"})
+        t0 = time.time()
+        try:
+            r = urllib.request.urlopen(req, timeout=min(timeout, 90))
+            content = json.loads(r.read().decode())["choices"][0]["message"]["content"]
+            if content and str(content).strip():
+                _SECOURS["dernier_ok"] = surveillance._maintenant()
+                sys.stderr.write(f"[ia] réponse de l'IA de secours ({sec['model']}, {time.time() - t0:.1f} s)\n")
+                _signal_secours(f"IA principale en panne : Adifa’ répond avec l'IA de secours ({sec['model']})")
+                return content
+            motif = "réponse vide"
+        except urllib.error.HTTPError as e:
+            motif = f"HTTP {e.code}"
+            if e.code in (429, 500, 502, 503, 504) and essai == 0:
+                time.sleep(2)
+                continue
+        except Exception as e:  # délai dépassé, réseau, JSON illisible
+            motif = type(e).__name__
+        sys.stderr.write(f"[ia] IA de secours en échec ({motif}, {time.time() - t0:.1f} s)\n")
+        _signal_secours(f"IA de secours en échec aussi ({motif}) : Adifa’ répond par règles")
+        return None
+    return None
+
+
+def _signal_secours(texte):
+    """Prévenir les administrateurs sans les inonder : la bascule peut durer des heures."""
+    if time.time() - _SECOURS["signale"] >= SECOURS_SIGNAL:
+        _SECOURS["signale"] = time.time()
+        surveillance.ia(False, texte)
+
+
 def ia_test():
     """Test de connexion demandé par l'administrateur : un très court appel au fournisseur choisi."""
     cfg = _llm_config()
@@ -1703,9 +1761,16 @@ def ia_test():
     _IA_PANNE.update(echecs=0, jusqua=0.0)  # un test explicite lève la pause automatique
     t0 = time.time()
     r = _llm_call([{"role": "user", "content": "Réponds uniquement : OK"}], 16, timeout=60, effort="low", attempts=1)
-    return {"ok": bool(r), "fournisseur": "Claude" if cfg.get("provider") == "anthropic" else "DeepSeek",
-            "modele": cfg.get("model"), "secondes": round(time.time() - t0, 1),
-            "message": "Connexion réussie." if r else "Pas de réponse : clé refusée, crédit épuisé ou service indisponible."}
+    out = {"ok": bool(r), "fournisseur": "Claude" if cfg.get("provider") == "anthropic" else "DeepSeek",
+           "modele": cfg.get("model"), "secondes": round(time.time() - t0, 1),
+           "message": "Connexion réussie." if r else "Pas de réponse : clé refusée, crédit épuisé ou service indisponible."}
+    sec = _secours_config()
+    if sec:  # l'IA de secours se teste aussi : on ne découvre pas une clé invalide le jour de la panne
+        t1 = time.time()
+        ok = bool(_llm_call_secours(sec, [{"role": "user", "content": "Réponds uniquement : OK"}], 16, 0, 60))
+        out["secours"] = {"ok": ok, "modele": sec["model"], "secondes": round(time.time() - t1, 1)}
+        out["message"] += (f" Secours OpenRouter ({sec['model']}) : " + ("connexion réussie." if ok else "pas de réponse, vérifier la clé."))
+    return out
 
 
 def _claude_call(cfg, msgs, max_tokens, timeout, model, effort):
@@ -1774,11 +1839,15 @@ def _ia_resultat(ok, motif=""):
 
 def _sante_ia():
     """Contrôle « Intelligence artificielle » du bilan : sans appel payant, d'après les derniers appels réels."""
-    cfg = _llm_config()
-    if not cfg or not cfg.get("api_key"):
+    cfg, sec = _llm_config(), _secours_config()
+    if (not cfg or not cfg.get("api_key")) and not sec:
         return False, "aucune clé d'IA configurée"
+    if not cfg or not cfg.get("api_key"):
+        return True, f"IA principale sans clé : IA de secours seule ({sec['model']})"
     if not ia_disponible():
-        return False, f"en pause après des pannes répétées (reprise dans {round(_IA_PANNE['jusqua'] - time.time())} s)"
+        reprise = f"en pause après des pannes répétées (reprise dans {round(_IA_PANNE['jusqua'] - time.time())} s)"
+        # Adifa’ répond quand même : le service n'est pas en panne, mais les administrateurs sont prévenus (alerte « IA »)
+        return (True, f"IA principale {reprise} ; IA de secours en service ({sec['model']})") if sec else (False, reprise)
     ok, echec = surveillance._etat["ia_ok"], surveillance._etat["ia_echec"]
     detail = f"{cfg.get('provider') or 'deepseek'}, modèle {cfg.get('model')}"
     if ok:
@@ -1803,16 +1872,25 @@ def _llm_call_brut(messages, max_tokens=8000, temperature=0, timeout=120, model=
 
     Réessais espacés (2 s puis 6 s, ou le délai « Retry-After » du fournisseur) seulement pour les pannes passagères
     (429, 5xx, délai dépassé) ; une clé refusée ou un solde épuisé (401/402/403) n'est pas réessayé."""
-    cfg = _llm_config()
-    if not cfg or not cfg.get("api_key"):
-        return None
-    if not ia_disponible():
+    cfg, sec = _llm_config(), _secours_config()
+    principal = bool(cfg and cfg.get("api_key"))
+    if not principal and not sec:
         return None
     msgs = [dict(m) for m in messages]
     if msgs and msgs[0].get("role") == "system" and GARDE_DONNEES not in str(msgs[0].get("content", "")):
         msgs[0]["content"] = str(msgs[0].get("content", "")) + GARDE_DONNEES
-    if cfg.get("provider") == "anthropic":
-        return _llm_call_claude(cfg, msgs, max_tokens, timeout, model, effort, attempts)
+    if principal and ia_disponible():
+        _APPEL.panne = False
+        texte = (_llm_call_claude(cfg, msgs, max_tokens, timeout, model, effort, attempts) if cfg.get("provider") == "anthropic"
+                 else _llm_call_principal(cfg, msgs, max_tokens, temperature, timeout, model, effort, attempts))
+        # Réponse vide, requête refusée, refus du modèle : le fournisseur va bien, l'appelant applique son repli
+        if texte or not getattr(_APPEL, "panne", False):
+            return texte
+    return _llm_call_secours(sec, msgs, max_tokens, temperature, timeout) if sec else None
+
+
+def _llm_call_principal(cfg, msgs, max_tokens, temperature, timeout, model, effort, attempts):
+    """DeepSeek (format OpenAI). Pose `_APPEL.panne` quand l'échec vient du fournisseur : l'IA de secours prend le relais."""
     # Modèle choisi dans l'administration : il s'impose aux modèles par défaut de chaque agent (« deepseek-flash »)
     payload = {"model": cfg["model"] if cfg.get("model_impose") else (model or cfg.get("model", "deepseek-v4-pro")), "messages": msgs,
                "temperature": temperature, "max_tokens": max_tokens}
@@ -1844,6 +1922,7 @@ def _llm_call_brut(messages, max_tokens=8000, temperature=0, timeout=120, model=
                                  + ("solde épuisé ou clé invalide" if e.code in (401, 402, 403) else "requête refusée") + "\n")
                 if e.code in (401, 402, 403):  # compte en cause : touche tout le monde → compte pour le coupe-circuit
                     _ia_resultat(False, f"DeepSeek refuse le compte ({motif}) : solde épuisé ou clé invalide")
+                _APPEL.panne = e.code in (401, 402, 403, 404)  # compte ou modèle en cause, pas la question posée
                 return None
             try:
                 attente = min(20.0, float(e.headers.get("Retry-After") or attente))
@@ -1860,6 +1939,7 @@ def _llm_call_brut(messages, max_tokens=8000, temperature=0, timeout=120, model=
             time.sleep(attente)
     if panne:
         _ia_resultat(False)
+        _APPEL.panne = True
     return None
 
 def _llm_call_claude(cfg, msgs, max_tokens, timeout, model, effort, attempts):
@@ -1883,6 +1963,7 @@ def _llm_call_claude(cfg, msgs, max_tokens, timeout, model, effort, attempts):
                              + ("crédit épuisé ou clé invalide" if code in (401, 402, 403) else "requête refusée") + "\n")
             if code in (401, 402, 403):
                 _ia_resultat(False, f"Claude refuse le compte (HTTP {code}) : crédit épuisé ou clé invalide")
+            _APPEL.panne = code in (401, 402, 403, 404)
             return None
         if motif in ("refus du modèle", "réponse vide"):
             return None
@@ -1893,6 +1974,7 @@ def _llm_call_claude(cfg, msgs, max_tokens, timeout, model, effort, attempts):
             time.sleep(min(20.0, float(m.group(1))) if m else pauses[min(attempt, len(pauses) - 1)])
     if panne:
         _ia_resultat(False)
+        _APPEL.panne = True
     return None
 
 
