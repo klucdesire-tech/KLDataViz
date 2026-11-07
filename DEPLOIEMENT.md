@@ -96,6 +96,29 @@ les deux : base (`pg_dump`) et fichiers (`tar.gz`) dans `/data/sauvegardes/`, ro
   Ensuite `pg_restore --clean --no-owner -d "$DATABASE_URL" base.dump` pour la base ;
   `tar xzf donnees_AAAAMMJJ.tar.gz -C /data` pour les fichiers.
 
+## Envoi par WhatsApp (rapports planifiés et alertes)
+
+Inactif tant que les variables ne sont pas posées. Ensuite, un numéro (`+225 07 00 00 00 00`) peut figurer parmi les
+destinataires d'un rapport planifié, à côté des e-mails : il reçoit le rapport PDF ou Excel en pièce jointe.
+
+1. **Meta Business** (business.facebook.com) : vérifier l'entreprise, puis WhatsApp Manager → ajouter un numéro
+   d'envoi (un numéro qui n'est pas déjà utilisé sur l'application WhatsApp) et un moyen de paiement (Meta facture
+   chaque conversation ouverte par un modèle).
+2. **Deux modèles**, catégorie « Utilitaire », langue « Français » :
+   - rapport (ex. `rapport_kldataviz`) : en-tête **Document** ; corps à 3 variables, par exemple
+     « Votre rapport {{1}} du {{2}} est prêt. À retenir : {{3}} » ;
+   - alerte (ex. `alerte_kldataviz`) : corps à 1 variable, par exemple « Surveillance KLDataViz : {{1}} ».
+   Attendre leur approbation par Meta (quelques minutes à 48 h).
+3. **Jeton permanent** : Meta Business → Utilisateurs système → créer un utilisateur « admin », lui donner le compte
+   WhatsApp, puis « Générer un jeton » avec `whatsapp_business_messaging` (sans expiration).
+4. Render → Environment : `WHATSAPP_JETON`, `WHATSAPP_NUMERO_ID` (WhatsApp Manager → API → « Phone number ID »),
+   `WHATSAPP_MODELE_RAPPORT`, `WHATSAPP_MODELE_ALERTE`, et pour les alertes `KLDV_ALERTES_WHATSAPP`
+   (numéros d'astreinte séparés par des virgules). Facultatif : `WHATSAPP_LANGUE` (`fr`), `WHATSAPP_INDICATIF`
+   (`225`, pour les numéros écrits sans indicatif).
+5. Admin → Santé du service → « Envoyer une alerte d'essai » : le message dit combien de numéros WhatsApp l'ont reçue.
+
+Une alerte WhatsApp part même si Brevo est en panne ; elle ne cite que le nombre et le genre des incidents.
+
 ## Sécurité : ce qui protège les données des clients
 
 - **Espaces séparés.** Chaque espace a son dossier `/data/tenants/<id>/` et son schéma PostgreSQL. Tout chemin hors de l'espace est refusé.

@@ -458,7 +458,8 @@ async function loadSante(){
 }
 $('#santeMaj').onclick=loadSante;
 $('#santeEssai').onclick=async()=>{const b=$('#santeEssai');b.disabled=true;const r=await api('/api/admin/sante/essai',{});b.disabled=false;
-  toast(r.error||(r.envoye?`Alerte d'essai envoyée à ${r.destinataires} adresse(s).`:r.raison))};
+  const w=r.whatsapp,wt=!w?'':w.envoyes?` WhatsApp : ${w.envoyes} numéro(s).`:` WhatsApp non envoyé : ${w.erreur||'échec'}.`;
+  toast(r.error||((r.envoye?`Alerte d'essai envoyée à ${r.destinataires} adresse(s).`:r.raison)+wt))};
 async function loadSauvegardes(){
   const d=await api('/api/admin/sauvegardes');
   const l=(d&&d.sauvegardes)||[];

@@ -569,7 +569,7 @@ tr.versions td{background:var(--surface-2);font-size:13px}
             <label class="field" for="ssFreq">Fréquence<select id="ssFreq"><option value="monthly">Le 1er du mois</option><option value="weekly">Chaque lundi</option><option value="daily">Chaque jour</option></select></label>
             <label class="field" for="ssHour">Heure<select id="ssHour"></select></label>
             <label class="field" for="ssFmt">Format<select id="ssFmt"><option value="pdf">PDF</option><option value="excel">Excel</option><option value="html">HTML</option></select></label>
-            <label class="field" for="ssTo">Destinataires <small>(facultatif)</small><input type="email" id="ssTo" multiple placeholder="direction@exemple.ci"></label>
+            <label class="field" for="ssTo">Destinataires <small>(e-mails ou numéros WhatsApp, facultatif)</small><input type="text" id="ssTo" autocomplete="off" placeholder="direction@exemple.ci, +225 07 00 00 00 00"></label>
             <button class="btn primary" type="submit">Planifier</button>
           </form>
           <p class="sub" id="ssNote" style="margin-top:8px"></p>
@@ -600,7 +600,7 @@ tr.versions td{background:var(--surface-2);font-size:13px}
             <label class="field" for="scFreq">Fréquence<select id="scFreq"><option value="monthly">Le 1er du mois</option><option value="weekly">Chaque lundi</option><option value="daily">Chaque jour</option></select></label>
             <label class="field" for="scHour">Heure<select id="scHour"></select></label>
             <label class="field" for="scFmt">Format<select id="scFmt"><option value="pdf">PDF</option><option value="excel">Excel</option><option value="html">HTML</option></select></label>
-            <label class="field" for="scTo">Destinataires <small>(facultatif)</small><input type="email" id="scTo" multiple placeholder="direction@exemple.ci"></label>
+            <label class="field" for="scTo">Destinataires <small>(e-mails ou numéros WhatsApp, facultatif)</small><input type="text" id="scTo" autocomplete="off" placeholder="direction@exemple.ci, +225 07 00 00 00 00"></label>
             <button class="btn primary" type="submit">Planifier</button>
           </form>
         </div>
