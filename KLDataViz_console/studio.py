@@ -209,10 +209,16 @@ def create_schedule(payload):
     freq = payload.get("freq") if payload.get("freq") in FREQS else "monthly"
     fmt = payload.get("format") if payload.get("format") in ("pdf", "excel", "html") else "pdf"
     hour = int(payload.get("hour") or 7)
-    to = [x.strip() for x in re.split(r"[,;\s]+", str(payload.get("to") or "")) if x.strip()]
-    bad = [x for x in to if not re.match(r"^[^@\s]{1,64}@[^@\s.]{1,63}(?:\.[^@\s.]{1,63})+$", x)]
+    import whatsapp
+    mails, numeros = whatsapp.separer(whatsapp.decouper(payload.get("to")))  # ValueError : numéro invalide
+    bad = [x for x in mails if not re.match(r"^[^@\s]{1,64}@[^@\s.]{1,63}(?:\.[^@\s.]{1,63})+$", x)]
     if bad:
         raise ValueError("Adresse e-mail invalide : " + ", ".join(bad))
+    if numeros and not whatsapp.pret("rapport"):
+        raise ValueError("L'envoi par WhatsApp n'est pas encore activé sur ce service : indiquez une adresse e-mail.")
+    if numeros and "." + fmt.replace("excel", "xlsx") not in whatsapp.FORMATS:
+        raise ValueError("Pour un envoi par WhatsApp, choisissez le format PDF ou Excel.")
+    to = mails + numeros
     job = {"id": uuid.uuid4().hex[:10], "source": source,
            "name": str(payload.get("name") or os.path.basename(source.split("?")[0]) or source),
            "freq": freq, "hour": hour, "format": fmt, "to": to, "on": True,
@@ -297,19 +303,42 @@ def run_schedule(job_id, analyze_fn, exporters, exports_dir, commentary_fn=None)
         if ev:
             result = dict(result, _evolution=ev)
         fn = exporters[job["format"]](result)
-        if job.get("to"):
-            try:
-                import hermes_report
-                send_mail(job["to"], f"Rapport KLDataViz — {job['name']} — {now:%d/%m/%Y}",
-                          hermes_report.email_text(job["name"], result, ev) + pied_envoi(),
-                          os.path.join(exports_dir, fn))
-                status = f"Envoyé à {len(job['to'])} destinataire(s)"
-            except Exception as exc:
-                status = f"Rapport créé, e-mail non envoyé : {exc}"
-        else:
-            status = "Rapport créé"
+        status = envoyer_rapport(job, result, ev, os.path.join(exports_dir, fn), now)
     return update_schedule(job_id, last_run=now.isoformat(timespec="seconds"), last_status=status, last_file=fn,
                            next_run=next_run(job["freq"], job["hour"], now).isoformat(timespec="seconds"))
+
+
+def envoyer_rapport(job, result, ev, fichier, now) -> str:
+    """E-mail aux adresses, WhatsApp aux numéros ; rend le statut affiché dans le menu Planifié. Un canal en panne
+    n'empêche pas l'autre."""
+    import whatsapp
+    try:
+        mails, numeros = whatsapp.separer(job.get("to"))
+    except ValueError as exc:
+        return f"Rapport créé, non envoyé : {exc}"
+    if not mails and not numeros:
+        return "Rapport créé"
+    morceaux = []
+    if mails:
+        try:
+            import hermes_report
+            send_mail(mails, f"Rapport KLDataViz — {job['name']} — {now:%d/%m/%Y}",
+                      hermes_report.email_text(job["name"], result, ev) + pied_envoi(), fichier)
+            morceaux.append(f"e-mail à {len(mails)} adresse(s)")
+        except Exception as exc:
+            morceaux.append(f"e-mail non envoyé : {exc}")
+    if numeros:
+        retenir = (ev or {}).get("resume") or "Le rapport complet est joint."
+        try:
+            r = whatsapp.envoyer_rapport(numeros, job["name"], f"{now:%d/%m/%Y}", retenir, fichier)
+            if r["envoyes"]:
+                morceaux.append(f"WhatsApp à {r['envoyes']} numéro(s)")
+            for numero, motif in r["echecs"][:3]:
+                morceaux.append(f"WhatsApp non envoyé au {numero} : {motif}")
+        except Exception as exc:
+            morceaux.append(f"WhatsApp non envoyé : {exc}")
+    ok = any(m.startswith(("e-mail à", "WhatsApp à")) for m in morceaux)
+    return ("Envoyé : " if ok else "Rapport créé, ") + " ; ".join(morceaux)
 
 
 def start_scheduler(analyze_fn, exporters, exports_dir, commentary_fn=None):

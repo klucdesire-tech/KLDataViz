@@ -319,8 +319,27 @@ def _texte(groupes, retablis, base_url):
     return corps
 
 
-def alerter(force=False, envoyer=None) -> dict:
-    """Envoie le résumé des incidents en attente si le délai est passé. `envoyer` : pour les tests."""
+def _alerte_whatsapp(groupes, retablis, n, envoyer_wa=None) -> dict:
+    """Le même résumé, très court, aux numéros d'astreinte (KLDV_ALERTES_WHATSAPP) : il arrive même si Brevo est en
+    panne. Rien n'y est cité d'un espace ni d'une donnée : les genres d'incident et le nombre."""
+    import whatsapp
+    if groupes:
+        genres = sorted({GENRES.get(g, g) for g, _ in groupes})
+        resume = f"{n} incident{'s' if n > 1 else ''} : " + ", ".join(genres[:4]) + ". Détail dans l'e-mail et la page Admin."
+    else:
+        resume = "Service revenu à la normale : " + ", ".join(retablis[:3])
+    try:
+        r = (envoyer_wa or whatsapp.envoyer_alerte)(resume)
+    except Exception as exc:
+        sys.stderr.write(f"[surveillance] alerte WhatsApp non envoyée : {type(exc).__name__}\n")
+        return {"envoyes": 0}
+    for _, motif in r.get("echecs") or []:
+        sys.stderr.write(f"[surveillance] alerte WhatsApp non envoyée : {motif}\n")
+    return r
+
+
+def alerter(force=False, envoyer=None, envoyer_wa=None) -> dict:
+    """Envoie le résumé des incidents en attente si le délai est passé. `envoyer`, `envoyer_wa` : pour les tests."""
     with _lock:
         if not _en_attente and not _retablis:
             return {"envoye": False, "raison": "rien de nouveau"}
@@ -332,31 +351,42 @@ def alerter(force=False, envoyer=None) -> dict:
         return {"envoye": False, "raison": "aucun destinataire (KLDV_ALERTES ou ADMIN_EMAILS)"}
     n = sum(g["n"] for g in groupes.values())
     sujet = (f"KLDataViz : {n} incident{'s' if n > 1 else ''} à regarder" if groupes else "KLDataViz : service revenu à la normale")
+    wa = _alerte_whatsapp(groupes, retablis, n, envoyer_wa)
     try:
         (envoyer or cloud.envoyer_brevo)(dest, sujet, _texte(groupes, retablis, cloud.APP_URL))
     except Exception as exc:  # pas de signaler() ici : une panne d'envoi ne doit pas s'alimenter elle-même
         sys.stderr.write(f"[surveillance] alerte non envoyée : {exc}\n")
-        return {"envoye": False, "raison": str(exc)[:300]}
+        if not wa.get("envoyes"):
+            return {"envoye": False, "raison": str(exc)[:300]}
     with _lock:
         for k in groupes:
             _en_attente.pop(k, None)
         del _retablis[:len(retablis)]
         _etat["derniere_alerte"] = time.time()
-    return {"envoye": True, "destinataires": len(dest), "incidents": n}
+    return {"envoye": True, "destinataires": len(dest), "incidents": n, "whatsapp": wa.get("envoyes", 0)}
 
 
-def essai() -> dict:
-    """Alerte d'essai demandée depuis l'administration : prouve que la chaîne d'envoi fonctionne."""
+def essai(envoyer_wa=None) -> dict:
+    """Alerte d'essai demandée depuis l'administration : prouve que la chaîne d'envoi fonctionne (e-mail, et WhatsApp
+    s'il est configuré pour les alertes)."""
+    import whatsapp
+    wa = None
+    if whatsapp.pret("alerte") and whatsapp.destinataires_alertes():
+        try:
+            r = (envoyer_wa or whatsapp.envoyer_alerte)("Alerte d'essai demandée depuis l'administration.")
+            wa = {"envoyes": r.get("envoyes", 0), "erreur": (r.get("echecs") or [(None, "")])[0][1][:300]}
+        except Exception as exc:
+            wa = {"envoyes": 0, "erreur": str(exc)[:300]}
     dest = destinataires()
     if not dest:
-        return {"envoye": False, "raison": "aucun destinataire (KLDV_ALERTES ou ADMIN_EMAILS)"}
+        return {"envoye": False, "raison": "aucun destinataire (KLDV_ALERTES ou ADMIN_EMAILS)", "whatsapp": wa}
     try:
         cloud.send_mail(dest, "KLDataViz : alerte d'essai",
                         "Bonjour,\n\nCeci est une alerte d'essai demandée depuis l'administration. Si vous la lisez, les "
                         "alertes de surveillance vous parviendront.\n\nKLDataViz")
     except Exception as exc:  # déjà noté comme envoi raté par cloud.send_mail
-        return {"envoye": False, "raison": str(exc)[:300]}
-    return {"envoye": True, "destinataires": len(dest)}
+        return {"envoye": False, "raison": str(exc)[:300], "whatsapp": wa}
+    return {"envoye": True, "destinataires": len(dest), "whatsapp": wa}
 
 
 def _redemarrage():
