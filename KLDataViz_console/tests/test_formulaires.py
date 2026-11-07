@@ -123,6 +123,13 @@ def test_erreurs_lisibles(F):
     df, err = F.lire(f"kobo://kf.kobotoolbox.org/{UID}", allow_private=True, creds=("jeton", "x"))
     assert "injoignable" in err and "getaddrinfo" not in err and "Errno" not in err
 
+    class Bizarre:  # réponse qui n'est pas du JSON : aucun nom d'exception à l'écran
+        def open(self, req, timeout=None):
+            raise KeyError("results")
+    F.urllib.request.build_opener = lambda *a: Bizarre()
+    df, err = F.lire(f"kobo://kf.kobotoolbox.org/{UID}", allow_private=True, creds=("jeton", "x"))
+    assert "réponse inattendue" in err and "KeyError" not in err
+
 
 def test_connexion_enregistre_l_acces_chiffre_seulement_si_l_essai_reussit(F, tmp_path):
     lien = f"https://kf.kobotoolbox.org/#/forms/{UID}/summary"

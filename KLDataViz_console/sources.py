@@ -65,8 +65,10 @@ def _now():
 
 
 def connectable(path: str) -> bool:
-    """Une source se relit si c'est un lien https (ou http en local), un fichier local, ou une source DHIS2."""
-    if path.startswith(("dhis2://", "kobo://", "odk://")):  # connecteurs : relus par leur API
+    """Une source se relit si c'est un lien https (ou http en local), un fichier local, ou un connecteur
+    (DHIS2, KoboToolbox, ODK Central)."""
+    import formulaires  # ici : sources.py reste léger à l'import (formulaires charge pandas)
+    if path.startswith(("dhis2://", formulaires.KOBO, formulaires.ODK)):  # connecteurs : relus par leur API
         return True
     if path.startswith("https://") or (not T.CLOUD and path.startswith("http://")):
         return True

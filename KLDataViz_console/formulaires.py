@@ -20,6 +20,7 @@ from __future__ import annotations
 import base64
 import json
 import re
+import sys
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -220,8 +221,10 @@ def lire(uri: str, allow_private: bool = False, creds=None):
         return None, f"{nom} a refusé la requête (HTTP {e.code}) : {motif}."
     except urllib.error.URLError:  # le détail système (« getaddrinfo failed ») n'aide pas l'utilisateur
         return None, f"Serveur {nom} injoignable : vérifiez l'adresse dans le lien, puis réessayez."
-    except Exception as e:  # noqa: BLE001
-        return None, f"Lecture {nom} impossible : {type(e).__name__}"
+    except Exception as e:  # noqa: BLE001 — le détail part dans les journaux, pas à l'écran
+        sys.stderr.write(f"[formulaires] lecture {nom} impossible : {type(e).__name__}\n")
+        return None, (f"Lecture {nom} impossible : réponse inattendue du serveur. Réessayez ; si cela continue, "
+                      "vérifiez le lien du formulaire.")
     df, repetes = en_tableau(genre, reponses)
     if df.empty:
         return None, f"Le formulaire {nom} n'a encore aucune réponse."
