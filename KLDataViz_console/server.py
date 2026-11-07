@@ -45,6 +45,7 @@ except Exception as _arch_exc:
     ARCHITECT_ERROR = str(_arch_exc)
 
 import hashlib, hmac, re, secrets
+import datetime as dt
 import tenancy as T
 import sandbox, netguard
 import paiement
@@ -1078,7 +1079,7 @@ def _sauvegardes_liste():
     try:
         for nom in sorted(os.listdir(d), reverse=True):
             p = os.path.join(d, nom)
-            if os.path.isfile(p):
+            if os.path.isfile(p) and not nom.startswith("."):  # .etat.json : le résultat, pas une sauvegarde
                 st = os.stat(p)
                 out.append({"nom": nom, "taille": st.st_size,
                             "date": time.strftime("%Y-%m-%d %H:%M", time.localtime(st.st_mtime))})
@@ -1087,18 +1088,89 @@ def _sauvegardes_liste():
     return out[:20]
 
 
+_SAUVEGARDE_LOCK = threading.Lock()  # une seule sauvegarde à la fois (bouton cliqué deux fois, ou pendant l'automatique)
+SAUVEGARDE_HEURES = range(1, 6)        # heures UTC de la sauvegarde quotidienne (la nuit à Abidjan)
+SAUVEGARDE_MAX_AGE = 30 * 3600         # au-delà, le contrôle « Sauvegarde » passe en échec
+
+
+def _sauvegarde_etat():
+    """Dernier résultat noté par scripts/sauvegarde.py (date, ok, copie hors site), ou None."""
+    try:
+        with open(os.path.join(T.DATA_DIR, "sauvegardes", ".etat.json"), encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return None
+
+
+def _sauvegarde_auto():
+    """Sauvegarde quotidienne : dès qu'une copie hors site est configurée, ou sur demande (KLDV_SAUVEGARDE_AUTO=1)."""
+    return bool((os.environ.get("SAUVEGARDE_S3_BUCKET") or "").strip()) or os.environ.get("KLDV_SAUVEGARDE_AUTO") == "1"
+
+
+def _age_sauvegarde(etat):
+    try:
+        return time.time() - dt.datetime.fromisoformat(etat["date"]).timestamp()
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
 def _sauvegarde_lancer():
-    """Lance scripts/sauvegarde.py dans le conteneur (base + fichiers, rotation). Réservé à l'admin."""
+    """Lance scripts/sauvegarde.py dans le conteneur (base + fichiers, rotation, copie hors site chiffrée). Admin."""
     script = os.path.join(BASE, "scripts", "sauvegarde.py")
     if not os.path.isfile(script):
         return {"error": "script de sauvegarde absent de cette installation (version en ligne uniquement)."}
+    if not _SAUVEGARDE_LOCK.acquire(blocking=False):
+        return {"error": "une sauvegarde est déjà en cours."}
     try:
         r = subprocess.run([sys.executable, script, "--garder", "7"],
-                           capture_output=True, text=True, timeout=600)
+                           capture_output=True, text=True, timeout=1800)
     except subprocess.TimeoutExpired:
-        return {"error": "sauvegarde interrompue au bout de 10 minutes."}
+        return {"error": "sauvegarde interrompue au bout de 30 minutes."}
+    finally:
+        _SAUVEGARDE_LOCK.release()
     sortie = ((r.stdout or "") + (r.stderr or "")).strip()
-    return {"ok": r.returncode == 0, "sortie": sortie[-2000:], "sauvegardes": _sauvegardes_liste()}
+    return {"ok": r.returncode == 0, "sortie": sortie[-2000:], "sauvegardes": _sauvegardes_liste(), "etat": _sauvegarde_etat()}
+
+
+def _sauvegarde_due(etat, maintenant=None):
+    """Une par jour, la nuit ; rattrapage à toute heure si la dernière a plus de 30 h (service arrêté la nuit)."""
+    maintenant = maintenant or dt.datetime.now(dt.timezone.utc)
+    age = _age_sauvegarde(etat) if etat else None
+    if age is None:
+        return True
+    return (age >= 20 * 3600 and maintenant.hour in SAUVEGARDE_HEURES) or age >= SAUVEGARDE_MAX_AGE
+
+
+def _boucle_sauvegardes():
+    time.sleep(600)  # laisser le service démarrer : un redéploiement ne lance pas une sauvegarde aussitôt
+    while True:
+        try:
+            if _sauvegarde_due(_sauvegarde_etat()):
+                r = _sauvegarde_lancer()
+                etat = _sauvegarde_etat() or {}
+                if r.get("error") or not r.get("ok"):
+                    surveillance.signaler("tache", "Sauvegarde automatique en échec : "
+                                          + (r.get("error") or f"copie hors site {etat.get('distant', '?')}"))
+        except Exception as exc:  # noqa: BLE001 - la boucle ne s'arrête jamais
+            surveillance.signaler("tache", f"Sauvegarde automatique en échec : {type(exc).__name__}")
+        time.sleep(600)
+
+
+def _sante_sauvegarde():
+    if not _sauvegarde_auto():
+        return None, "sauvegarde automatique non configurée (copie hors site : SAUVEGARDE_S3_*)"
+    etat = _sauvegarde_etat()
+    if not etat:
+        return None, "aucune sauvegarde encore faite depuis la configuration"
+    age, quand = _age_sauvegarde(etat), str(etat.get("date", ""))[:16].replace("T", " à ")
+    if not etat.get("ok"):
+        return False, f"dernière tentative le {quand} en échec (copie hors site : {etat.get('distant')})"
+    if age is not None and age > SAUVEGARDE_MAX_AGE:
+        return False, f"dernière sauvegarde réussie le {quand}, il y a plus de 30 h"
+    return True, f"dernière sauvegarde le {quand}, copie hors site : {etat.get('distant')}"
+
+
+surveillance.controle("Sauvegarde", _sante_sauvegarde)
 
 
 def _lecture_experte(genre, file_path=None, court=False):
@@ -4289,7 +4361,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                       "/api/admin/journal": lambda: journal.lire(200, espace=False),
                       "/api/admin/demos": lambda: cloud.admin_demandes_demo(ctx),
                       "/api/admin/sante": surveillance.bilan,
-                      "/api/admin/sauvegardes": lambda: {"sauvegardes": _sauvegardes_liste()}}
+                      "/api/admin/sauvegardes": lambda: {"sauvegardes": _sauvegardes_liste(), "etat": _sauvegarde_etat(),
+                                                         "automatique": _sauvegarde_auto()}}
         else:
             routes = {"/api/admin/payments/verify": lambda: cloud.admin_verifier_paiement(ctx, str(p.get("merchant_tx") or "")),
                       "/api/admin/envois/arreter": lambda: _arreter_envoi_admin(ctx, p),
@@ -4407,6 +4480,8 @@ if __name__ == "__main__":
         threading.Thread(target=cloud.boucle_paiements, daemon=True).start()
         suivi_erreurs.demarrer()  # Sentry, seulement si SENTRY_DSN est posée
         surveillance.demarrer()
+        if _sauvegarde_auto():
+            threading.Thread(target=_boucle_sauvegardes, daemon=True).start()
     host = "0.0.0.0" if T.CLOUD else "127.0.0.1"
     port = int(os.environ.get("PORT") or PORT)
     socketserver.ThreadingTCPServer.allow_reuse_address = True
