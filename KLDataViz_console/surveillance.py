@@ -7,6 +7,10 @@
   valeur d'un fichier.
 - Bilan : base, disque, mémoire, IA, e-mail, boucles d'envoi. Lu par l'administration. /healthz reste une simple preuve
   de vie : si elle échouait quand la base tombe, Render redémarrerait le service en boucle sans rien réparer.
+- Sentry (si SENTRY_DSN est posée, `suivi_erreurs.py`) : chaque incident y part aussi, sans message d'exception ni
+  donnée, avec la pile d'appels pour les erreurs internes.
+- /healthz/complet : l'état des contrôles pour une surveillance extérieure (UptimeRobot, Better Stack), 503 si l'un
+  échoue. Il donne seulement le nom des contrôles en échec, recalculé au plus toutes les 30 secondes.
 - Alertes : un e-mail aux administrateurs (KLDV_ALERTES, sinon ADMIN_EMAILS) dans la minute qui suit le premier
   incident, puis au plus un résumé toutes les 30 minutes tant qu'il en arrive de nouveaux, et un message quand un
   contrôle redevient bon. Si le service entier est arrêté, il ne peut rien envoyer : une surveillance extérieure de
@@ -23,6 +27,7 @@ import time
 import traceback
 
 import cloud
+import suivi_erreurs
 import tenancy as T
 
 GENRES = {"erreur": "Erreur interne", "tache": "Tâche de fond en échec", "envoi": "E-mail non envoyé",
@@ -115,6 +120,8 @@ def signaler(genre: str, resume: str, ref: str = "", espace: str = "") -> None:
                 g["espaces"].add(inc["espace"])
             _ecrire(inc)
         sys.stderr.write(f"[surveillance] {GENRES.get(genre, genre)} : {resume}{' (réf. ' + ref + ')' if ref else ''}\n")
+        if genre not in ("erreur", "tache"):  # les erreurs partent avec leur pile d'appels (erreur_interne)
+            suivi_erreurs.message(genre, resume, ref, inc["espace"])
     except Exception:
         pass
 
@@ -140,6 +147,7 @@ def _chemin_sans_donnee(path: str) -> str:
 def erreur_interne(ref: str, method: str, path: str, exc: BaseException, genre: str = "erreur", espace: str = "") -> None:
     lieu = _lieu(exc)
     signaler(genre, f"{method} {_chemin_sans_donnee(path)} : {type(exc).__name__}" + (f" ({lieu})" if lieu else ""), ref, espace)
+    suivi_erreurs.exception(exc, genre, ref, f"{method} {_chemin_sans_donnee(path)}", espace)
 
 
 def battement(nom: str) -> None:
@@ -256,6 +264,22 @@ def bilan() -> dict:
         recents = list(_incidents)[-100:][::-1]
     return {"ok": all(c["ok"] is not False for c in out), "controles": out, "incidents": recents,
             "destinataires": len(destinataires()), "demarre": dt.datetime.fromtimestamp(_etat["demarre"], dt.timezone.utc).isoformat(timespec="seconds")}
+
+
+_public = {"t": 0.0, "r": None}
+DUREE_PUBLIC = 30  # secondes : une surveillance qui interroge chaque minute ne refait pas tous les contrôles
+
+
+def etat_public() -> dict:
+    """Pour une surveillance extérieure : ok, et le nom des contrôles en échec (aucun détail, aucun incident)."""
+    with _lock:
+        if _public["r"] is not None and time.time() - _public["t"] < DUREE_PUBLIC:
+            return _public["r"]
+    b = bilan()
+    r = {"ok": b["ok"], "en_echec": [c["nom"] for c in b["controles"] if c["ok"] is False], "verifie": _maintenant()}
+    with _lock:
+        _public.update(t=time.time(), r=r)
+    return r
 
 
 def _suivre(b: dict) -> None:

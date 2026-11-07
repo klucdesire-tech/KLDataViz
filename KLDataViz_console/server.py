@@ -55,6 +55,7 @@ import dhis2
 import dictionnaire
 import journal
 import surveillance
+import suivi_erreurs
 import correspondances
 if T.CLOUD:
     import cloud
@@ -3609,8 +3610,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 fn, ctype = STATIC[path]
                 with open(os.path.join(BASE, fn), "rb") as f:
                     return self._send(200, f.read(), ctype)
-            if method == "GET" and path == "/healthz":
+            if method == "GET" and path == "/healthz":  # preuve de vie pour Render : ne dépend pas de la base
                 return self._send(200, {"ok": True})
+            if method == "GET" and path == "/healthz/complet":  # pour une surveillance extérieure : 503 si un contrôle échoue
+                r = surveillance.etat_public()
+                return self._send(200 if r["ok"] else 503, r)
             if method == "GET" and path == "/.well-known/hackaiz-verification.txt":
                 # Preuve de propriété du domaine pour l'audit de sécurité Hackaiz : valeur publique, posée dans Render
                 preuve = (os.environ.get("HACKAIZ_VERIFICATION") or "").strip()
@@ -4319,6 +4323,7 @@ if __name__ == "__main__":
     sources.start_auto_refresh(_read_df, build_dashboard, cloud.org_ctx if T.CLOUD else None)
     if T.CLOUD:
         threading.Thread(target=cloud.boucle_paiements, daemon=True).start()
+        suivi_erreurs.demarrer()  # Sentry, seulement si SENTRY_DSN est posée
         surveillance.demarrer()
     host = "0.0.0.0" if T.CLOUD else "127.0.0.1"
     port = int(os.environ.get("PORT") or PORT)
