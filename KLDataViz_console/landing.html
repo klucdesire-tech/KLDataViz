@@ -3,8 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<title>KLDataViz — l'analyste de données qui parle français</title>
-<meta name="description" content="Importez un fichier Excel ou une feuille Google. Adifa’ vérifie la qualité, trouve ce qui compte et prépare vos rapports, en français.">
+<title>KLDataViz — Adifa’, l'analyste de données IA qui parle français</title>
+<meta name="description" content="Vos chiffres sont dans Excel, mais personne ne sait répondre ? Donnez votre fichier à Adifa’ et posez votre question en français : graphiques clairs, chiffres qui comptent et quoi faire, en quelques minutes.">
 <link rel="icon" href="/logo.png">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@500;600&family=Fira+Sans:wght@400;500;600;700;800&display=swap">
 <style>
@@ -201,6 +201,24 @@ footer{padding-block:36px;color:var(--muted);font-size:14px}
 footer .wrap{display:flex;gap:16px;flex-wrap:wrap;justify-content:space-between;align-items:center}
 footer a{color:var(--muted)}
 
+/* problème → solution (voix du public) */
+.habits-t{font:600 15px var(--sans);color:var(--fg);margin:0 0 12px}
+.habits{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-bottom:48px}
+.habit{display:grid;grid-template-columns:24px minmax(0,1fr);gap:10px;padding:14px 16px;border:1px dashed var(--line);border-radius:14px;font-size:14.5px;color:var(--muted)}
+.habit b{display:block;color:var(--fg);font-size:15px}
+.habit svg{width:20px;height:20px;margin-top:2px;color:var(--red);fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round}
+.pain-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px}
+.pain{background:var(--surface);border:1px solid var(--line);border-radius:18px;overflow:hidden;display:flex;flex-direction:column}
+.pain .voice{padding:22px 22px 20px;display:grid;gap:10px;align-content:start;flex:1}
+.pain .who{font:600 12px var(--sans);letter-spacing:.09em;text-transform:uppercase;color:var(--muted)}
+.pain blockquote{margin:0;font-size:18px;line-height:1.42;font-weight:600}
+.pain .fix{background:var(--brand-soft);border-top:1px solid var(--line);padding:18px 22px 20px;display:grid;gap:6px}
+.pain .fix .t{font:600 12px var(--sans);letter-spacing:.09em;text-transform:uppercase;color:var(--brand-strong)}
+.pain .fix p{margin:0;font-size:15px}
+.pain .fix p b{color:var(--brand-strong)}
+.punch{margin:40px 0 0;font-size:clamp(19px,2vw,23px);font-weight:700;letter-spacing:-.01em;max-width:46ch}
+.punch em{font-style:normal;color:var(--brand)}
+
 /* commandes : palette animée + liste */
 .cmd-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.1fr);gap:clamp(24px,4vw,48px);align-items:start}
 .palette{background:var(--surface);border:1px solid var(--line);border-radius:18px;box-shadow:var(--shadow);overflow:hidden;position:sticky;top:96px}
@@ -253,10 +271,11 @@ dialog.demo::backdrop{background:rgba(6,20,12,.55);backdrop-filter:blur(3px)}
   .cmd-grid{grid-template-columns:minmax(0,1fr)}.palette{position:static}
   .hero .wrap,.sec-grid{grid-template-columns:minmax(0,1fr)}
   .steps{grid-template-columns:repeat(2,minmax(0,1fr))}.features{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .pain-grid{grid-template-columns:minmax(0,1fr);max-width:640px}
   .links{display:none}
 }
 @media (max-width:560px){
-  .steps,.features{grid-template-columns:minmax(0,1fr)}
+  .steps,.features,.habits{grid-template-columns:minmax(0,1fr)}
   .dash .low{grid-template-columns:minmax(0,1fr)}.dn{display:none}
   .nav .login,.nav .demo-nav{display:none}
   .demo .duo{grid-template-columns:minmax(0,1fr)}
@@ -276,7 +295,7 @@ dialog.demo::backdrop{background:rgba(6,20,12,.55);backdrop-filter:blur(3px)}
 <header class="nav">
   <div class="wrap">
     <a class="logo" href="/"><img src="/logo.png" alt="">KLDataViz</a>
-    <nav class="links" aria-label="Sections"><a href="#comment">Fonctionnement</a><a href="#fonctions">Fonctionnalités</a><a href="#commandes">Commandes</a><a href="#tarifs">Tarifs</a><a href="#faq">Questions</a></nav>
+    <nav class="links" aria-label="Sections"><a href="#probleme">Pourquoi</a><a href="#comment">Fonctionnement</a><a href="#fonctions">Fonctionnalités</a><a href="#tarifs">Tarifs</a><a href="#faq">Questions</a></nav>
     <span class="spacer"></span>
     <button type="button" class="btn ghost demo-nav" data-demo>Demander une démo</button>
     <a class="btn ghost login" href="/login">Se connecter</a>
@@ -289,12 +308,12 @@ dialog.demo::backdrop{background:rgba(6,20,12,.55);backdrop-filter:blur(3px)}
     <div class="wrap">
       <div>
         <div class="eyebrow">Adifa’ · analyste de données IA</div>
-        <h1 id="heroTitle" style="margin-top:14px">Vos données expliquées en <em>minutes</em>, pas en semaines.</h1>
-        <p class="lead" id="heroSub">Importez un fichier Excel, une feuille Google ou un export DHIS2. Adifa’ vérifie la qualité, construit un tableau de bord interactif à partir de vos indicateurs et répond à vos questions, en français.</p>
+        <h1 id="heroTitle" style="margin-top:14px">Vos réponses en <em>minutes</em>, pas la semaine prochaine.</h1>
+        <p class="lead" id="heroSub">Donnez votre fichier à Adifa’, l’analyste de données IA qui parle français, et posez votre question comme à un collègue. Vous obtenez des graphiques clairs, les chiffres qui comptent et ce qu’il faut faire. Sans formule, sans formation, sans attendre personne.</p>
         <div class="ctas">
           <a class="btn primary" href="/login?signup=1">Essayer 14 jours gratuitement</a>
           <button type="button" class="btn ghost" data-demo>Demander une démo</button>
-          <a class="lien-comment" href="#comment">Voir comment ça marche</a>
+          <a class="lien-comment" href="#probleme">Vous vous reconnaissez ?</a>
         </div>
         <div class="trust">
           <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l8 3v6c0 4.5-3.4 8.3-8 9-4.6-.7-8-4.5-8-9V6z"/></svg>Données privées à votre espace</span>
@@ -337,6 +356,33 @@ dialog.demo::backdrop{background:rgba(6,20,12,.55);backdrop-filter:blur(3px)}
         </div>
         <div class="steps-ui" id="stepsUi"><div><b>1</b><span>Importer</span></div><div><b>2</b><span>Vérifier</span></div><div><b>3</b><span>Tableau de bord</span></div><div><b>4</b><span>Comprendre</span></div></div>
       </div>
+    </div>
+  </section>
+
+  <section id="probleme">
+    <div class="wrap">
+      <div class="sec-head rv"><div class="eyebrow">Le problème</div><h2>Assis sur une mine d’or de données… et on décide quand même à l’aveugle</h2><p>Les chiffres sont là : dans Excel, dans les caisses, dans les rapports. Mais quand le DG demande « Quel produit nous fait vraiment gagner de l’argent ? », personne ne peut répondre avant la semaine prochaine.</p></div>
+      <p class="habits-t rv">Aujourd’hui, on s’en sort comment ?</p>
+      <div class="habits">
+        <div class="habit rv"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg><div><b>La seule personne qui maîtrise Excel</b>Quand elle est absente, tout s’arrête.</div></div>
+        <div class="habit rv"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg><div><b>Un consultant payé à la mission</b>Cher, et la réponse arrive après la décision.</div></div>
+        <div class="habit rv"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg><div><b>Des tableaux croisés faits à la main</b>Une formule cassée suffit à fausser tout le rapport.</div></div>
+      </div>
+      <div class="pain-grid">
+        <div class="pain rv">
+          <div class="voice"><span class="who">Le dirigeant</span><blockquote>« J’ai tous mes chiffres dans Excel, mais je ne sais toujours pas quel produit me fait vraiment gagner de l’argent ! »</blockquote></div>
+          <div class="fix"><span class="t">Avec Adifa’</span><p>Vous posez la question <b>en français</b>. Adifa’ fait les vrais calculs, montre chaque étape et vous dit quoi faire, <b>en quelques minutes</b>.</p></div>
+        </div>
+        <div class="pain rv">
+          <div class="voice"><span class="who">La personne qui fait les tableaux</span><blockquote>« Chaque fin de mois, je passe mes nuits sur des tableaux croisés… et une seule formule cassée fausse tout ! »</blockquote></div>
+          <div class="fix"><span class="t">Avec Adifa’</span><p><b>Aucune formule à écrire.</b> Adifa’ repère doublons, dates mal saisies et valeurs manquantes, et vérifie ses chiffres avant de les afficher. Votre fichier d’origine reste intact.</p></div>
+        </div>
+        <div class="pain rv">
+          <div class="voice"><span class="who">Le responsable d’équipe</span><blockquote>« Quand le rapport arrive enfin, la décision a déjà été prise sans les chiffres ! »</blockquote></div>
+          <div class="fix"><span class="t">Avec Adifa’</span><p>Un <b>tableau de bord prêt à partager</b>, et le rapport à jour envoyé automatiquement chaque semaine ou chaque mois. Plus besoin d’attendre quelqu’un.</p></div>
+        </div>
+      </div>
+      <p class="punch rv">Résultat : des décisions prises avec <em>des chiffres clairs</em>, au lieu de l’intuition.</p>
     </div>
   </section>
 
@@ -427,8 +473,8 @@ dialog.demo::backdrop{background:rgba(6,20,12,.55);backdrop-filter:blur(3px)}
   <section>
     <div class="wrap">
       <div class="final">
-        <h2>Prêt à comprendre vos données ?</h2>
-        <p>Créez votre espace en une minute et importez votre premier fichier. 14 jours gratuits, sans engagement.</p>
+        <h2>Testez Adifa’ sur vos propres données</h2>
+        <p>Importez un de vos vrais fichiers et posez votre première question. 14 jours gratuits, sans carte bancaire. Rendons l’analyse de données accessible à toutes les entreprises, même celles qui n’ont pas d’analyste.</p>
         <div style="display:flex;gap:12px;flex-wrap:wrap"><a class="btn primary" href="/login?signup=1">Commencer l'essai gratuit</a><button type="button" class="btn ghost" data-demo>Demander une démo</button><a class="btn ghost" id="contactBtn" href="#tarifs" hidden>Nous contacter</a></div>
       </div>
     </div>
