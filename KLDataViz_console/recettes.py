@@ -271,7 +271,8 @@ def proposer(df):
 # ---------------------------------------------------------------- mémoire des recettes
 def signature(df):
     """Forme d'un fichier : ses colonnes (noms normalisés, dans l'ordre). Deux mois d'un même rapport ont la même."""
-    return hashlib.sha1("|".join(_norme(c) for c in df.columns).encode()).hexdigest()[:16]
+    # empreinte de forme, pas de sécurité : usedforsecurity=False (Bandit B324), les signatures restent les mêmes
+    return hashlib.sha1("|".join(_norme(c) for c in df.columns).encode(), usedforsecurity=False).hexdigest()[:16]
 
 
 def _chemin(dossier):
