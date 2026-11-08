@@ -354,25 +354,67 @@ def _actualite(df, per_col, per, dims, aujourd_hui):
     # Dans un registre, un mois sans ligne pour un lieu veut dire « aucun cas », pas « rapport manquant ».
     rapport = lignes_par is not None and len(lignes_par) and lignes_par.std(ddof=0) <= .2 * lignes_par.mean()
     if rapport and len(presents) >= 2:
-        paires = pd.DataFrame({"u": df[lieu].astype(str), "m": mois}).dropna().drop_duplicates()
-        unites = paires["u"].nunique()
-        attendu = unites * len(presents)
-        recu = len(paires)
-        taux = 100 * recu / attendu if attendu else 100
-        suivi = {"colonne": str(lieu), "unites": int(unites), "periodes": len(presents), "recues": int(recu),
-                 "attendues": int(attendu), "taux": round(taux, 1)}
+        suivi = matrice_declarations(df[lieu].astype(str), mois, lieu)
+        recu, attendu, taux, unites = suivi["recues"], suivi["attendues"], suivi["taux"], suivi["unites"]
         if recu < attendu:
-            manque = (paires.groupby("u")["m"].nunique().rsub(len(presents)))
-            manque = manque[manque > 0].sort_values(ascending=False)
-            ex = ", ".join(f"{u} ({int(k)} mois)" for u, k in manque.head(3).items())
+            retard = [u for u in suivi["par_unite"] if u["manquants"]]
+            ex = ", ".join(f"{u['unite']} ({len(u['manquants'])} mois)" for u in retard[:3])
             # un manque au dernier mois fausse la tendance la plus récente, celle qu'on lit en premier
-            dernier_incomplet = paires[paires["m"] == dernier]["u"].nunique() < unites
+            dernier_incomplet = bool(suivi["dernier"]["manquants"])
             g = "grave" if taux < 80 else "attention" if taux < 95 or dernier_incomplet else "info"
+            manquants = suivi["dernier"]["manquants"]
+            fin = (f" Au dernier mois ({suivi['dernier']['mois']}), pas encore de déclaration pour : "
+                   f"{', '.join(manquants[:5])}{' et ' + str(len(manquants) - 5) + ' autre(s)' if len(manquants) > 5 else ''}."
+                   if dernier_incomplet else "")
             out.append(_constat(g, f"Déclarations reçues : {taux:.0f} % ({recu} sur {attendu})",
-                                f"{len(manque)} {lieu} sur {unites} n'ont pas déclaré tous les mois (ex. {ex}). Une baisse peut "
-                                "venir d'un manque de déclaration plutôt que d'une vraie baisse.", attendu - recu, attendu,
+                                f"{len(retard)} {lieu} sur {unites} n'ont pas déclaré tous les mois (ex. {ex}).{fin} Une baisse "
+                                "peut venir d'un manque de déclaration plutôt que d'une vraie baisse.", attendu - recu, attendu,
                                 lieu, cle="declarations"))
     return out, suivi
+
+
+MOIS_MATRICE = 24   # mois montrés dans la matrice (les plus récents) ; les taux portent sur toute la période
+UNITES_MATRICE = 300
+
+
+def matrice_declarations(unites, mois, colonne):
+    """Complétude des rapports selon le guide de l'OMS : pour chaque site et chaque mois, rapport reçu ou manquant.
+    Un site est attendu à partir de son premier rapport : un centre ouvert en cours d'année n'est pas en retard
+    avant son ouverture. Les sites attendus sont ceux du fichier : sans liste officielle des sites, un site qui n'a
+    jamais déclaré ne peut pas être vu (limite dite à l'écran).
+
+    Rend les taux global, par mois et par site, et une ligne par site : « 1 » reçu, « 0 » manquant, « - » pas
+    encore attendu, sur les MOIS_MATRICE derniers mois."""
+    paires = pd.DataFrame({"u": unites, "m": mois}).dropna().drop_duplicates()
+    axe = sorted(paires["m"].unique())
+    premier = paires.groupby("u")["m"].min()
+    recus = set(map(tuple, paires[["u", "m"]].itertuples(index=False)))
+    par_unite = []
+    for u in premier.index:
+        attendus = [m for m in axe if m >= premier[u]]
+        manquants = [m for m in attendus if (u, m) not in recus]
+        cases = "".join("-" if m < premier[u] else "1" if (u, m) in recus else "0" for m in axe[-MOIS_MATRICE:])
+        par_unite.append({"unite": str(u), "recues": len(attendus) - len(manquants), "attendues": len(attendus),
+                          "taux": round(100 * (len(attendus) - len(manquants)) / len(attendus), 1),
+                          "manquants": [m.strftime("%m/%Y") for m in manquants], "cases": cases})
+    par_unite.sort(key=lambda x: (x["taux"], x["unite"]))
+    par_mois = []
+    for m in axe:
+        attendus = [u for u in premier.index if premier[u] <= m]
+        n_recus = sum(1 for u in attendus if (u, m) in recus)
+        par_mois.append({"mois": m.strftime("%m/%Y"), "recues": n_recus, "attendues": len(attendus),
+                         "taux": round(100 * n_recus / len(attendus), 1) if attendus else 100.0})
+    recu = sum(x["recues"] for x in par_unite)
+    attendu = sum(x["attendues"] for x in par_unite)
+    der = axe[-1]
+    return {"colonne": str(colonne), "unites": int(len(premier)), "periodes": len(axe), "recues": int(recu),
+            "attendues": int(attendu), "taux": round(100 * recu / attendu, 1) if attendu else 100.0,
+            "mois": [m.strftime("%m/%Y") for m in axe[-MOIS_MATRICE:]], "par_mois": par_mois,
+            "par_unite": par_unite[:UNITES_MATRICE], "unites_cachees": max(0, len(par_unite) - UNITES_MATRICE),
+            "dernier": {"mois": der.strftime("%m/%Y"),
+                        "manquants": sorted(str(u) for u in premier.index if premier[u] <= der and (u, der) not in recus)},
+            "methode": "Rapports reçus sur rapports attendus (guide OMS). Un site est attendu chaque mois à partir de son "
+                       "premier rapport ; les sites sont ceux du fichier."}
 
 
 # ---------------------------------------------------------------- point d'entrée

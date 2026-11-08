@@ -773,6 +773,22 @@ def qualite_pdf(story, q, st):
                                    bulletText="•"))
         if len(constats) > 12:
             story.append(Paragraph(f"… et {len(constats) - 12} autre(s) constat(s), détaillés dans KLDataViz.", st["small"]))
+    d = q.get("declarations")
+    if d and d.get("par_unite"):
+        story.append(Spacer(1, 4))
+        story.append(Paragraph(f"Déclarations reçues : {pct(d['taux'])} ({nf(d['recues'])} sur {nf(d['attendues'])})",
+                               st["h2"]))
+        story.append(Paragraph(esc(d.get("methode", "")), st["small"]))
+        derniers = d["par_mois"][-12:]
+        story.append(table(["Mois"] + [m["mois"][:2] + "/" + m["mois"][5:] for m in derniers],
+                           [["Reçus (%)"] + [f"{m['taux']:.0f}" for m in derniers]], st=st, zebra=False))
+        retard = [u for u in d["par_unite"] if u["manquants"]][:10]
+        if retard:
+            story.append(Spacer(1, 3))
+            story.append(table([d["colonne"].capitalize(), "Reçus", "Attendus", "Taux", "Mois manquants"],
+                               [[u["unite"], str(u["recues"]), str(u["attendues"]), f"{u['taux']:.0f} %",
+                                 ", ".join(u["manquants"][:6]) + ("…" if len(u["manquants"]) > 6 else "")] for u in retard],
+                               widths=[45 * mm, 18 * mm, 20 * mm, 16 * mm, CONTENT_W - 99 * mm], st=st))
     story.append(Spacer(1, 6))
 
 

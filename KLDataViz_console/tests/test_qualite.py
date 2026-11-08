@@ -61,7 +61,9 @@ def _constats(b):
 def test_fichier_sain_sans_alerte(Q):
     b = Q.bilan(_sain(), aujourd_hui=AUJOURD_HUI)
     assert b["note"] == 100 and b["graves"] == 0 and b["attentions"] == 0, b["resume"]
-    assert b["declarations"] == {"colonne": "centre", "unites": 4, "periodes": 12, "recues": 48, "attendues": 48, "taux": 100.0}
+    d = b["declarations"]
+    assert {k: d[k] for k in ("colonne", "unites", "periodes", "recues", "attendues", "taux")} ==         {"colonne": "centre", "unites": 4, "periodes": 12, "recues": 48, "attendues": 48, "taux": 100.0}
+    assert all(u["cases"] == "1" * 12 for u in d["par_unite"]) and d["dernier"]["manquants"] == []
 
 
 ATTENDUS = {  # clé du constat : (dimension, gravité, nombre, lignes)
@@ -119,6 +121,27 @@ def test_registre_jamais_pris_pour_des_doublons(Q, densite):
     df = _registre().head(densite)
     cles = {c["cle"] for d in Q.bilan(df, aujourd_hui=AUJOURD_HUI)["dimensions"] for c in d["constats"]}
     assert "cle_double" not in cles
+
+
+def _matrice():
+    """5 centres, 6 mois. Manquent : B en mars, C en juin (dernier mois), E en février et mai. D ouvre en mars."""
+    absents = {("B", 3), ("C", 6), ("E", 2), ("E", 5)}
+    return pd.DataFrame([{"mois": f"2025-0{m}", "centre": c, "consultations": 100 + m}
+                         for m in range(1, 7) for c in "ABCDE" if (c, m) not in absents and not (c == "D" and m < 3)])
+
+
+def test_matrice_des_declarations_a_reponse_connue(Q):
+    d = Q.bilan(_matrice(), aujourd_hui=AUJOURD_HUI)["declarations"]
+    assert (d["recues"], d["attendues"], d["taux"]) == (24, 28, 85.7)       # D n'est pas attendu avant son ouverture
+    lignes = {u["unite"]: (u["cases"], u["recues"], u["attendues"], u["manquants"]) for u in d["par_unite"]}
+    assert lignes == {"A": ("111111", 6, 6, []), "B": ("110111", 5, 6, ["03/2025"]), "C": ("111110", 5, 6, ["06/2025"]),
+                      "D": ("--1111", 4, 4, []), "E": ("101101", 4, 6, ["02/2025", "05/2025"])}
+    assert [u["unite"] for u in d["par_unite"]][:3] == ["E", "B", "C"]      # les moins complets d'abord
+    assert [(m["mois"], m["recues"], m["attendues"]) for m in d["par_mois"]] == [
+        ("01/2025", 4, 4), ("02/2025", 3, 4), ("03/2025", 4, 5), ("04/2025", 5, 5), ("05/2025", 4, 5), ("06/2025", 4, 5)]
+    assert d["dernier"] == {"mois": "06/2025", "manquants": ["C"]}
+    c = _constats(Q.bilan(_matrice(), aujourd_hui=AUJOURD_HUI))["declarations"]
+    assert c["gravite"] == "attention" and "pas encore de déclaration pour : C" in c["detail"]
 
 
 def test_declarations_manquantes(Q):
@@ -214,6 +237,7 @@ def test_tableau_de_bord_meme_bilan_que_l_import(tmp_path):
     meta = json.loads(re.search(r"window\.META\s*=\s*(\{.*?\});\s*\n", html, re.S).group(1))
     assert (meta["qualite"]["note"], meta["qualite"]["graves"], meta["qualite"]["attentions"]) == (q["note"], q["graves"], q["attentions"])
     assert meta["qualite"]["principaux"][0]["gravite"] == "grave" and "function qualiteNote" in html
+    assert meta["qualite"]["declarations"]["colonne"] == "centre" and "Déclarations reçues" in html
 
 
 def test_rapport_pdf_contient_le_bilan(tmp_path, monkeypatch):
@@ -225,3 +249,18 @@ def test_rapport_pdf_contient_le_bilan(tmp_path, monkeypatch):
     out = tmp_path / "rapport.pdf"
     pdf_report.build(server.analyze(src), str(out))
     assert vus and vus[0]["note"] <= 69 and out.read_bytes()[:4] == b"%PDF"
+    assert vus[0]["declarations"]["par_unite"]                     # la matrice est bien passée au rapport
+
+
+def test_matrice_dans_le_rapport_pdf(tmp_path):
+    """La section des déclarations se construit : mois en colonnes, sites en retard en tableau."""
+    reset_app_modules()
+    import pdf_report  # noqa: PLC0415
+    from reportlab.platypus import Paragraph, Table  # noqa: PLC0415
+    import qualite  # noqa: PLC0415
+    story = []
+    pdf_report.qualite_pdf(story, qualite.bilan(_matrice(), aujourd_hui=AUJOURD_HUI), pdf_report._styles())
+    textes = " ".join(p.getPlainText() for p in story if isinstance(p, Paragraph))
+    assert "Déclarations reçues : 85,7 % (24 sur 28)" in textes.replace(" ", " ").replace(" ", " ")
+    tableaux = [t for t in story if isinstance(t, Table)]
+    assert len(tableaux) >= 3                                     # dimensions, mois, sites en retard

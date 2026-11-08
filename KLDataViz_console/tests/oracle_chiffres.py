@@ -271,7 +271,8 @@ def comparer_carte(df, c, gran, partiel=None):
             if str(a).lower() in ("somme", "sum", "compte", "count", "dernier"):
                 k = cle(df, gran)
                 na, nb = (nombres(df.loc[k == p, col]).size for p in (pa, pb))
-                signale = "moins de valeurs déclarées" in str(c.get("texte") or "")
+                texte = str(c.get("texte") or "")
+                signale = "moins de valeurs déclarées" in texte or "pas de déclaration en" in texte
                 if na and nb < na * .9 and not signale:
                     ou.append(f"courbe {col} : {nb} valeurs en {pb} contre {na} en {pa}, la phrase ne le signale pas")
                 if signale and not (na and nb < na * .9):

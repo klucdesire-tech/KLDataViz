@@ -179,7 +179,13 @@ function cpMessage(c,rows){try{var m=CP_MSG[c.type](c,rows);if(!m)return null;m.
 // Valeurs déclarées pour une mesure sur une période (cases résumées d'un gros fichier : leur effectif)
 function cpDeclarees(rows,c,k){return rows.reduce(function(s,r){if(!r.__p||pkey(r.__p)!==k)return s;if(META.cube){var v=num(r[c.mesure+'__v']);return s+(v||0)}return s+(num(r[c.mesure])!=null?1:0)},0)}
 // Une somme baisse aussi quand des lignes manquent : on le dit plutôt que d'annoncer une baisse qui n'en est peut-être pas une
-function cpNoteManques(c,rows,a,b,va,vb){if(!/^(somme|sum|compte|count|dernier)$/.test((c.agregation||'').toLowerCase()))return null;var na=cpDeclarees(rows,c,a),nb=cpDeclarees(rows,c,b);if(!na||nb>=na*.9)return null;
+// Les sites qui ont déclaré la période précédente et pas la dernière (colonne des sites connue par le bilan qualité)
+function cpSitesManquants(c,rows,a,b){var D=META.qualite&&META.qualite.declarations,u=D&&D.colonne;if(!u)return null;var ua={},ub={},vu=false;
+  rows.forEach(function(r){if(!r.__p||r[u]==null)return;vu=true;var k=pkey(r.__p),ok=META.cube?num(r[c.mesure+'__v'])>0:num(r[c.mesure])!=null;if(!ok)return;if(k===a)ua[String(r[u])]=1;else if(k===b)ub[String(r[u])]=1});
+  if(!vu)return null;var m=Object.keys(ua).filter(function(k){return !ub[k]}).sort();return {m:m,na:Object.keys(ua).length,nb:Object.keys(ub).length,col:u}}
+function cpNoteManques(c,rows,a,b,va,vb){if(!/^(somme|sum|compte|count|dernier)$/.test((c.agregation||'').toLowerCase()))return null;
+  var S=cpSitesManquants(c,rows,a,b);if(S&&S.m.length)return 'Attention : '+(S.m.length<=3?S.m.join(', '):S.m.length+' '+cpMot(S.col))+' : pas de déclaration en '+plabel(b)+' ('+S.nb+' sur '+S.na+')'+(vb<va?', la baisse peut venir de ce manque':'');
+  var na=cpDeclarees(rows,c,a),nb=cpDeclarees(rows,c,b);if(!na||nb>=na*.9)return null;
   return 'Attention : moins de valeurs déclarées en '+plabel(b)+' ('+fmt(nb)+' contre '+fmt(na)+' en '+plabel(a)+')'+(vb<va?', la baisse peut venir des données manquantes':'')}
 function cpEvolution(a,b,c){var d=b-a;if(c.nature==='taux'&&Math.max(Math.abs(a),Math.abs(b))>2){var p=Math.round(Math.abs(d)*10)/10;return p?(d>0?'en hausse de ':'en baisse de ')+fmt(p)+' point'+(p>=2?'s':''):'sans changement'}
   if(a>0){var x=100*Math.abs(d)/a;return x>=.05?(d>0?'en hausse de ':'en baisse de ')+cpPct(x):'sans changement'}return d?(d>0?'en hausse de ':'en baisse de ')+fmt(Math.abs(d)):'sans changement'}
