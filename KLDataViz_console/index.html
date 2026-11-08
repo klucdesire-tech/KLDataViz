@@ -159,6 +159,15 @@ td.r,th.r{text-align:right}
 .qm{overflow-x:auto;margin-top:10px}.qm table{border-collapse:separate;border-spacing:2px;font-size:12px}.qm th{font-weight:500;color:var(--muted);white-space:nowrap;padding:0 2px;text-transform:none;letter-spacing:0;font-size:12px}
 .qm th.u{text-align:left;max-width:180px;overflow:hidden;text-overflow:ellipsis;color:var(--fg)}.qm td{width:18px;height:18px;border-radius:4px;padding:0}
 .qm td.r{background:var(--brand)}.qm td.m{background:var(--red)}.qm td.n{background:var(--surface-2)}.qm td.t{width:auto;background:none;padding:0 6px;white-space:nowrap;font-variant-numeric:tabular-nums}
+.rc-et{display:flex;align-items:center;gap:10px;padding:9px 10px;border:1px solid var(--line);border-radius:10px;margin-top:6px;background:var(--surface)}
+.rc-et .n{width:22px;height:22px;border-radius:50%;display:grid;place-items:center;font-size:12px;font-weight:700;color:#fff;background:linear-gradient(135deg,var(--brand),var(--blue));flex:none}
+.rc-et .t{flex:1;min-width:0}.rc-et .t b{display:block;font-size:13.5px;font-weight:600}.rc-et .t span{font-size:12px;color:var(--muted)}
+.rc-et button{border:0;background:none;cursor:pointer;color:var(--muted);font-size:15px;padding:2px 5px;border-radius:6px}.rc-et button:hover{background:var(--surface-2);color:var(--fg)}
+.rc-add{display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end;margin-top:12px;padding:12px;border:1px dashed var(--line);border-radius:10px}
+.rc-add label{display:flex;flex-direction:column;font-size:12px;color:var(--muted);gap:4px}.rc-cols{display:flex;flex-wrap:wrap;gap:6px;max-width:100%}
+.rc-cols label{flex-direction:row;align-items:center;gap:4px;font-size:12.5px;color:var(--fg);background:var(--surface-2);padding:3px 8px;border-radius:999px}
+.rc-tab{overflow-x:auto;margin-top:8px;font-size:12px}.rc-tab table{border-collapse:collapse}.rc-tab th,.rc-tab td{padding:4px 8px;border-bottom:1px solid var(--line);white-space:nowrap;text-align:left}
+.rc-tab th{font-weight:600;color:var(--muted)}
 .qm-l{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--muted);margin-top:8px}.qm-l span{display:inline-flex;align-items:center;gap:5px}.qm-l i{width:11px;height:11px;border-radius:3px;display:inline-block}
 .issue b{font-size:14px;display:block}.issue span{font-size:13px;color:var(--muted);overflow-wrap:anywhere}
 .fill{display:flex;align-items:center;gap:8px;min-width:130px}.fill .meter{flex:1}
@@ -513,6 +522,17 @@ tr.versions td{background:var(--surface-2);font-size:13px}
           <div class="qdims" id="qualDims"></div>
           <div id="qualConstats"></div>
           <div id="qualDecl" hidden></div>
+        </div>
+        <div class="card" id="recCard" hidden>
+          <div class="toolbar"><h2>Recette de transformation</h2><span class="spacer"></span><span class="aibadge" id="recBadge"></span></div>
+          <p class="sub" style="margin:2px 0 0">Comme les étapes appliquées de Power Query : chaque étape remet le fichier en forme, et la recette enregistrée est rejouée sur les prochains fichiers de même forme (rapport du mois suivant, source actualisée, rapport planifié).</p>
+          <div id="recEtapes"></div>
+          <div class="rc-add" id="recAjout"></div>
+          <p id="recMsg" class="sub" style="margin:10px 0 0"></p>
+          <details style="margin-top:8px"><summary class="sub" style="cursor:pointer">Aperçu du tableau obtenu</summary><div class="rc-tab" id="recApercu"></div></details>
+          <div class="toolbar" style="margin-top:12px;gap:8px"><span class="spacer"></span>
+            <button class="btn ghost sm" id="recSuppr" hidden>Supprimer la recette</button>
+            <button class="btn primary sm" id="recEnreg">Enregistrer la recette et réanalyser</button></div>
         </div>
         <div class="card">
           <div class="toolbar"><h2>Corrections proposées</h2><span class="spacer"></span><button class="btn ghost sm" id="toggleAll"></button></div>
@@ -1061,6 +1081,7 @@ async function startRun(path,name,size,opts={}){
   set(0,'done',`${nf(a.rows)} lignes, ${a.columns} colonnes, ${a.size_kb?dec(a.size_kb)+' Ko':'source en ligne'}`,secs(t0));prog(45);
   state.original=a;state.analysis=a;
   if(!opts.fromRegistry)autoRegister(path,name);  // en tâche de fond, sans retarder l'analyse
+  loadRecette(path,name);  // recette de transformation proposée ou mémorisée, en tâche de fond
   t0=performance.now();set(1,'doing');
   const c=await api('/api/clean',{file_path:path});
   state.cleanTried=true;
@@ -1203,6 +1224,81 @@ function renderDeclarations(D){const el=$('#qualDecl');el.hidden=!(D&&D.par_unit
     ${reste.length?`<details style="margin-top:6px"><summary class="sub" style="cursor:pointer">Voir les ${reste.length} autres ${esc(D.colonne)}</summary><div class="qm"><table>${tete}${reste.map(ligne).join('')}</table></div></details>`:''}
     ${D.unites_cachees?`<p class="sub">${D.unites_cachees} autres non affichés.</p>`:''}
     <div class="qm-l"><span><i style="background:var(--brand)"></i>reçu</span><span><i style="background:var(--red)"></i>manquant</span><span><i style="background:var(--surface-2)"></i>pas encore attendu</span><span>Dernière ligne : % de rapports reçus chaque mois</span></div>`}
+/* ---- recettes de transformation (recettes.py) : étapes visibles, modifiables, rejouées ---- */
+const REC_OPS={recopier_bas:'Recopier vers le bas (cellules fusionnées)',depivoter:'Dépivoter des colonnes',retirer_lignes:'Retirer des lignes',
+  garder_lignes:'Garder des lignes',fractionner:'Fractionner une colonne',renommer:'Renommer une colonne',retirer_colonnes:'Retirer des colonnes',
+  remplacer:'Remplacer des valeurs',convertir:'Convertir le type',regrouper:'Regrouper'};
+async function loadRecette(path,name){
+  state.recette={path,name,etapes:[],chargement:true};
+  const d=await api('/api/recette/proposer',{file_path:path});
+  if(state.recette?.path!==path)return;
+  state.recette=Object.assign({path,name},d.error?{etapes:d.etapes||[],erreur:d.error,avant:d.avant}:d);
+  state.recette.origine=JSON.stringify(state.recette.etapes||[]);
+  renderRecette()}
+function recColonnes(){const R=state.recette,j=R.journal||[];return j.length?j[j.length-1].colonnes_apres:(R.avant?.colonnes||[])}
+function renderRecette(){const R=state.recette,card=$('#recCard');if(!card)return;
+  card.hidden=!R||(!(R.etapes||[]).length&&!R.memorisee&&!R.essaye);if(card.hidden&&!R)return;
+  $('#recBadge').textContent=R.memorisee?'Recette mémorisée pour ce type de fichier':(R.etapes||[]).length?'✦ Proposée par Adifa’, à valider':'';
+  const j=R.journal||[];
+  $('#recEtapes').innerHTML=(R.etapes||[]).map((e,i)=>{const x=j[i];return `<div class="rc-et"><span class="n">${i+1}</span><div class="t"><b>${esc(x?.libelle||REC_OPS[e.op]||e.op)}</b>
+    <span>${x?`${nf(x.lignes_avant)} → ${nf(x.lignes_apres)} lignes${x.touches?` · ${nf(x.touches)} élément(s) touché(s)`:''}${x.avertissement?` · ⚠ ${esc(x.avertissement)}`:''}`:'non appliquée'}</span></div>
+    <button title="Monter" aria-label="Monter l'étape ${i+1}" data-rc="haut" data-i="${i}" ${i?'':'disabled'}>↑</button>
+    <button title="Descendre" aria-label="Descendre l'étape ${i+1}" data-rc="bas" data-i="${i}" ${i<R.etapes.length-1?'':'disabled'}>↓</button>
+    <button title="Retirer" aria-label="Retirer l'étape ${i+1}" data-rc="suppr" data-i="${i}">✕</button></div>`}).join('')
+    ||'<p class="sub" style="margin:8px 0 0">Aucune étape : le fichier est utilisé tel qu’il arrive.</p>';
+  const q=R.qualite;
+  $('#recMsg').innerHTML=R.erreur?`<span style="color:var(--red)">${esc(R.erreur)}</span>`
+    :R.apres?`Après la recette : <b>${nf(R.apres.total)}</b> lignes × ${R.apres.colonnes.length} colonnes${q?` · qualité <b>${q.note} / 100</b>${q.graves?` · ${q.graves} problème(s) grave(s)`:''}`:''}.`:'';
+  const t=R.apres||R.avant;
+  $('#recApercu').innerHTML=t?`<table><thead><tr>${t.colonnes.map(c=>`<th>${esc(c)}</th>`).join('')}</tr></thead><tbody>${t.lignes.map(l=>`<tr>${l.map(v=>`<td>${esc(v)}</td>`).join('')}</tr>`).join('')}</tbody></table>`:'';
+  $('#recSuppr').hidden=!R.memorisee;$('#recEnreg').disabled=!!R.erreur;
+  recFormulaire($('#recAjout').dataset.op||'recopier_bas')}
+function recFormulaire(op){const box=$('#recAjout'),cols=recColonnes();box.dataset.op=op;
+  const coches=(n)=>`<div class="rc-cols">${cols.map(c=>`<label><input type="checkbox" name="${n}" value="${esc(c)}">${esc(c)}</label>`).join('')}</div>`;
+  const une=(n,lab)=>`<label>${lab}<select name="${n}">${cols.map(c=>`<option value="${esc(c)}">${esc(c)}</option>`).join('')}</select></label>`;
+  const txt=(n,lab,v='',ph='')=>`<label>${lab}<input name="${n}" value="${esc(v)}" placeholder="${esc(ph)}"></label>`;
+  const champs={recopier_bas:`<label style="flex-basis:100%">Colonnes${coches('colonnes')}</label>`,
+    depivoter:`<label style="flex-basis:100%">Colonnes à dépivoter${coches('colonnes')}</label>${txt('nom','Nom de la nouvelle colonne','periode')}${txt('valeur','Nom de la colonne des valeurs','valeur')}`,
+    retirer_lignes:`${une('colonne','Dans la colonne')}${txt('motif','Contenant (texte ou motif)','','Sous-total')}`,
+    garder_lignes:`${une('colonne','Dans la colonne')}${txt('valeurs','Valeurs à garder (séparées par ;)','')}`,
+    fractionner:`${une('colonne','Colonne')}${txt('separateur','Séparateur',' - ')}${txt('noms','Nouveaux noms (séparés par ;)','District;Centre')}`,
+    renommer:`${une('colonne','Colonne')}${txt('nouveau','Nouveau nom','')}`,
+    retirer_colonnes:`<label style="flex-basis:100%">Colonnes${coches('colonnes')}</label>`,
+    remplacer:`${une('colonne','Colonne')}${txt('avant','Remplacer','')}${txt('apres','par','')}`,
+    convertir:`${une('colonne','Colonne')}<label>En<select name="type"><option value="nombre">nombre</option><option value="date">date</option><option value="texte">texte</option></select></label>`,
+    regrouper:`<label style="flex-basis:100%">Regrouper par${coches('par')}</label>${une('mesure','Mesure')}<label>Calcul<select name="agg"><option value="somme">somme</option><option value="moyenne">moyenne</option><option value="compte">compte</option><option value="min">min</option><option value="max">max</option></select></label>`};
+  box.innerHTML=`<label>Ajouter une étape<select id="recOp">${Object.entries(REC_OPS).map(([k,v])=>`<option value="${k}" ${k===op?'selected':''}>${v}</option>`).join('')}</select></label>${champs[op]}<button class="btn sm" id="recAjouter" type="button">Ajouter</button>`;
+  $('#recOp').onchange=e=>recFormulaire(e.target.value);
+  $('#recAjouter').onclick=()=>{const e=recEtape(op,box);if(e){state.recette.etapes=[...(state.recette.etapes||[]),e];recEssayer()}}}
+function recEtape(op,box){const v=n=>box.querySelector(`[name="${n}"]`)?.value?.trim()||'',coch=n=>[...box.querySelectorAll(`input[name="${n}"]:checked`)].map(x=>x.value),
+  liste=n=>v(n).split(';').map(x=>x.trim()).filter(Boolean),manque=t=>{toast(t);return null};
+  switch(op){
+    case 'recopier_bas':case 'retirer_colonnes':{const c=coch('colonnes');return c.length?{op,colonnes:c}:manque('Cochez au moins une colonne.')}
+    case 'depivoter':{const c=coch('colonnes');return c.length>1?{op,colonnes:c,nom:v('nom')||'attribut',valeur:v('valeur')||'valeur'}:manque('Cochez au moins deux colonnes.')}
+    case 'retirer_lignes':return v('motif')?{op,colonne:v('colonne'),motif:v('motif')}:manque('Indiquez le texte des lignes à retirer.')
+    case 'garder_lignes':return liste('valeurs').length?{op,colonne:v('colonne'),valeurs:liste('valeurs')}:manque('Indiquez au moins une valeur.')
+    case 'fractionner':{const n=liste('noms');return n.length>1?{op,colonne:v('colonne'),separateur:box.querySelector('[name="separateur"]').value||' - ',noms:n}:manque('Indiquez au moins deux noms.')}
+    case 'renommer':return v('nouveau')?{op,colonnes:{[v('colonne')]:v('nouveau')}}:manque('Indiquez le nouveau nom.')
+    case 'remplacer':return v('avant')?{op,colonne:v('colonne'),remplacements:{[v('avant')]:v('apres')}}:manque('Indiquez la valeur à remplacer.')
+    case 'convertir':return {op,colonne:v('colonne'),type:v('type')}
+    case 'regrouper':{const p=coch('par');return p.length?{op,par:p,mesures:{[v('mesure')]:v('agg')}}:manque('Cochez au moins une colonne de regroupement.')}
+  }return null}
+async function recEssayer(){const R=state.recette;if(!R)return;$('#recMsg').innerHTML='<span class="spin"></span> Essai de la recette…';
+  const d=await api('/api/recette/essayer',{file_path:R.path,etapes:R.etapes});
+  if(state.recette!==R)return;
+  Object.assign(R,{journal:d.journal||[],apres:d.apres||null,qualite:d.qualite||null,erreur:d.error||null,essaye:true});
+  if(d.avant)R.avant=d.avant;renderRecette()}
+document.addEventListener('click',e=>{const b=e.target.closest('[data-rc]');if(!b||!state.recette)return;
+  const E=state.recette.etapes,i=+b.dataset.i;
+  if(b.dataset.rc==='suppr')E.splice(i,1);else if(b.dataset.rc==='haut'&&i>0)[E[i-1],E[i]]=[E[i],E[i-1]];else if(b.dataset.rc==='bas'&&i<E.length-1)[E[i+1],E[i]]=[E[i],E[i+1]];
+  recEssayer()});
+$('#recEnreg').onclick=async()=>{const R=state.recette;if(!R)return;const b=$('#recEnreg');b.disabled=true;
+  const d=await api('/api/recette/enregistrer',{file_path:R.path,etapes:R.etapes});b.disabled=false;
+  if(d.error){toast(d.error);return}
+  toast('Recette enregistrée : elle sera rejouée sur les prochains fichiers de même forme.');startRun(R.path,R.name)};
+$('#recSuppr').onclick=async()=>{const R=state.recette;if(!R||!confirm('Supprimer la recette ? Les prochains fichiers de cette forme seront lus tels qu’ils arrivent.'))return;
+  const d=await api('/api/recette/supprimer',{file_path:R.path});if(d.error){toast(d.error);return}
+  toast('Recette supprimée.');startRun(R.path,R.name)};
 function renderVerify(){
   const a=state.original;if(!a)return;
   const before=quality(new Set()),after=quality(state.accept);
