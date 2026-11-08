@@ -126,3 +126,14 @@ def test_export_du_classeur_mal_forme_par_l_api(M, tmp_path, monkeypatch):
     assert len(noms) == 5 + len(etapes)              # Fichier, Classeur, Feuille, sautées, en-têtes, puis la recette
     mauvais = server.recette_action("export_m", {"file_path": src, "etapes": [{"op": "recopier_bas", "colonnes": ["Région"]}]})
     assert "Région" in mauvais["error"]              # une recette qui ne s'applique pas ne s'exporte pas
+
+
+def test_bouton_export_toujours_accessible():
+    """Le bouton est dans l'en-tête de la carte (pas en bas à droite, sous la bulle d'Adifa’ sur téléphone), et la carte
+    s'affiche même quand aucune étape n'est proposée (fichier déjà bien formé) : sinon on ne peut ni ajouter d'étape ni
+    exporter."""
+    html = open(os.path.join(APP, "index.html"), encoding="utf-8").read()
+    entete = re.search(r'<div class="card" id="recCard" hidden>\s*<div class="toolbar"[^>]*>(.*?)</div>', html, re.S).group(1)
+    assert 'id="recExportM"' in entete
+    rendu = html[html.index("function renderRecette()"):][:400]
+    assert "card.hidden=!R||!!R.chargement;" in rendu and "etapes" not in rendu.split("card.hidden=", 1)[1].split(";")[0]

@@ -524,7 +524,7 @@ tr.versions td{background:var(--surface-2);font-size:13px}
           <div id="qualDecl" hidden></div>
         </div>
         <div class="card" id="recCard" hidden>
-          <div class="toolbar"><h2>Recette de transformation</h2><span class="spacer"></span><span class="aibadge" id="recBadge"></span></div>
+          <div class="toolbar" style="flex-wrap:wrap;gap:8px"><h2>Recette de transformation</h2><span class="spacer"></span><span class="aibadge" id="recBadge"></span><button class="btn ghost sm" id="recExportM" title="Requête Power Query (M) pour Excel ou Power BI">Exporter en Power Query</button></div>
           <p class="sub" style="margin:2px 0 0">Comme les étapes appliquées de Power Query : chaque étape remet le fichier en forme, et la recette enregistrée est rejouée sur les prochains fichiers de même forme (rapport du mois suivant, source actualisée, rapport planifié).</p>
           <div id="recEtapes"></div>
           <div class="rc-add" id="recAjout"></div>
@@ -535,7 +535,6 @@ tr.versions td{background:var(--surface-2);font-size:13px}
             <div class="toolbar" style="gap:8px;margin-top:6px"><span class="spacer"></span><button class="btn ghost sm" id="recMCopier">Copier</button><button class="btn sm" id="recMTelecharger">Télécharger (.pq)</button></div></div>
           <div class="toolbar" style="margin-top:12px;gap:8px"><span class="spacer"></span>
             <button class="btn ghost sm" id="recSuppr" hidden>Supprimer la recette</button>
-            <button class="btn ghost sm" id="recExportM" title="Requête Power Query (M) pour Excel ou Power BI">Exporter en Power Query</button>
             <button class="btn primary sm" id="recEnreg">Enregistrer la recette et réanalyser</button></div>
         </div>
         <div class="card">
@@ -1241,7 +1240,7 @@ async function loadRecette(path,name){
   renderRecette()}
 function recColonnes(){const R=state.recette,j=R.journal||[];return j.length?j[j.length-1].colonnes_apres:(R.avant?.colonnes||[])}
 function renderRecette(){const R=state.recette,card=$('#recCard');if(!card)return;
-  card.hidden=!R||(!(R.etapes||[]).length&&!R.memorisee&&!R.essaye);if(card.hidden&&!R)return;
+  card.hidden=!R||!!R.chargement;if(card.hidden)return;  // toujours visible une fois le fichier lu : ajouter une étape, exporter en Power Query
   $('#recBadge').textContent=R.memorisee?'Recette mémorisée pour ce type de fichier':(R.etapes||[]).length?'✦ Proposée par Adifa’, à valider':'';
   const j=R.journal||[];
   $('#recEtapes').innerHTML=(R.etapes||[]).map((e,i)=>{const x=j[i];return `<div class="rc-et"><span class="n">${i+1}</span><div class="t"><b>${esc(x?.libelle||REC_OPS[e.op]||e.op)}</b>
@@ -1249,7 +1248,7 @@ function renderRecette(){const R=state.recette,card=$('#recCard');if(!card)retur
     <button title="Monter" aria-label="Monter l'étape ${i+1}" data-rc="haut" data-i="${i}" ${i?'':'disabled'}>↑</button>
     <button title="Descendre" aria-label="Descendre l'étape ${i+1}" data-rc="bas" data-i="${i}" ${i<R.etapes.length-1?'':'disabled'}>↓</button>
     <button title="Retirer" aria-label="Retirer l'étape ${i+1}" data-rc="suppr" data-i="${i}">✕</button></div>`}).join('')
-    ||'<p class="sub" style="margin:8px 0 0">Aucune étape : le fichier est utilisé tel qu’il arrive.</p>';
+    ||'<p class="sub" style="margin:8px 0 0">Aucune étape : le fichier est déjà bien formé, il est utilisé tel qu’il arrive. Vous pouvez ajouter une étape ci-dessous ou l’exporter en Power Query.</p>';
   const q=R.qualite;
   $('#recMsg').innerHTML=R.erreur?`<span style="color:var(--red)">${esc(R.erreur)}</span>`
     :R.apres?`Après la recette : <b>${nf(R.apres.total)}</b> lignes × ${R.apres.colonnes.length} colonnes${q?` · qualité <b>${q.note} / 100</b>${q.graves?` · ${q.graves} problème(s) grave(s)`:''}`:''}.`:'';
