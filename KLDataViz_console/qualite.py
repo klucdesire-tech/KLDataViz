@@ -319,6 +319,14 @@ def _total_juste(df, m, nums, per):
 
 def _coherence(df, dims, controles, nums=(), per=None):
     out, n = [], len(df)
+    if df.attrs.get("recette_erreur"):  # la remise en forme mémorisée ne s'applique plus : fichier lu tel quel
+        out.append(_constat("grave", "La recette de transformation ne s'applique plus à ce fichier",
+                            f"{df.attrs['recette_erreur']} Le fichier est analysé tel quel : vérifiez sa forme ou mettez la "
+                            "recette à jour.", n, max(n, 1), cle="recette_erreur"))
+    if df.attrs.get("recette"):
+        r = df.attrs["recette"]
+        out.append(_constat("info", f"Recette de transformation appliquée ({len(r['etapes'])} étape(s))",
+                            " ; ".join(e["libelle"] for e in r["etapes"][:5]) + ".", 0, max(n, 1), cle="recette"))
     for c in dims:
         t = df[c].astype(str).str.strip()
         m = t.str.match(TOTAUX) & df[c].notna()
