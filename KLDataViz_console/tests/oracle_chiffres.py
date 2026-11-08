@@ -27,9 +27,18 @@ MOIS_PAR = {"Q": 3, "Y": 12}
 
 
 # ---------------------------------------------------------------- calculs de base
+TOTAL = re.compile(r"^\s*(sous[-\s]?|grand\s+)?total(e|s|aux)?(\s+g[ée]n[ée]ral)?\s*$|^\s*ensemble\s*$", re.I)
+
+
 def preparer(df):
-    """Libellés de groupe ramenés à une forme : espaces en trop retirés, casse ignorée (forme la plus fréquente)."""
+    """Libellés de groupe ramenés à une forme : espaces en trop retirés, casse ignorée (forme la plus fréquente) ;
+    lignes « Total » écartées : elles répètent la somme des autres lignes."""
     df = df.copy()
+    texte = [c for c in df.columns if df[c].dtype == object or pd.api.types.is_string_dtype(df[c])]
+    if texte and "niveau" not in df.columns:
+        cumul = df[texte].apply(lambda s: s.astype(str).str.match(TOTAL) & s.notna()).any(axis=1)
+        if cumul.any() and cumul.mean() <= .2 and (~cumul).sum() >= 2:
+            df = df[~cumul]
     for c in df.columns:
         if df[c].dtype != object and not pd.api.types.is_string_dtype(df[c]):
             continue

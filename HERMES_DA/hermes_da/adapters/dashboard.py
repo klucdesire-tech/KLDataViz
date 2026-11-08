@@ -1098,7 +1098,14 @@ function kpiGros(k){var E=META.gros,a=(k.agregation||'').toLowerCase(),ech=!!E&&
 function grosNote(){var E=META.gros,k=document.getElementById('kpis');if(!E||document.getElementById('gros-note'))return;var p=document.createElement('p');p.id='gros-note';p.style.cssText='font-size:13px;color:var(--muted);margin:0 0 10px';
   p.textContent=E.mode==='echantillon'?'Fichier de '+fmt(E.lignes)+' lignes : les tuiles sont exactes sans filtre, estimées avec un filtre (≈). Les graphiques reposent sur un échantillon de '+fmt(DATA.length)+' lignes : lisez-y les proportions, pas les totaux.'+(E.trop_detaille?' Ce fichier est trop détaillé pour la page composée.':''):'Calculé sur les '+fmt(E.lignes)+' lignes du fichier.'+(E.mensuel?' Détail limité au mois pour ce volume.':'')+(E.retires&&E.retires.length?' Filtre retiré car trop détaillé pour cette page : '+E.retires.map(nice).join(', ')+'.':'');
   k.parentNode.insertBefore(p,k)}
-function renderKpis(all){grosNote();document.getElementById('kpis').innerHTML=KPIDEFS.slice(0,5).map(function(k,i){
+// Bilan qualité du fichier entier (normes ISO/IEC 25012 et OMS) : il ne change pas avec les filtres
+function qualiteNote(){var Q=META.qualite,k=document.getElementById('kpis');if(!Q||document.getElementById('qualite-note'))return;
+  var t=Q.graves?['#FDECEA','#E0533D']:Q.attentions?['#FFF4E0','#E8A33D']:['#E8F5EE','#1D7A4C'],d=document.createElement('div');d.id='qualite-note';
+  d.style.cssText='background:'+t[0]+';border-left:4px solid '+t[1]+';border-radius:10px;padding:10px 14px;margin:0 0 14px;font-size:13.5px;line-height:1.45';
+  d.innerHTML='<b>Qualité des données : '+esc(Q.note)+' / 100</b> · '+esc(Q.resume)+((Q.principaux||[]).length?'<ul style="margin:6px 0 0;padding-left:18px">'+Q.principaux.map(function(c){return '<li>'+esc(c.titre)+' <span style="color:var(--muted)">('+esc(c.dimension)+')</span></li>'}).join('')+'</ul>':'')
+    +'<div style="color:var(--muted);font-size:12px;margin-top:4px">Sur tout le fichier, selon '+esc(Q.normes)+'. Détail dans l’écran « Vérifier ».</div>';
+  k.parentNode.insertBefore(d,k)}
+function renderKpis(all){qualiteNote();grosNote();document.getElementById('kpis').innerHTML=KPIDEFS.slice(0,5).map(function(k,i){
   var rows=k.hors?all.filter(function(r){return k.hors.valeurs.indexOf(String(r[k.hors.colonne]).trim().toLowerCase())<0}):all,
     G=kpiGros(k),v=G.v!=null?G.v:(k.formule?evalF(rows,k.formule):agg(rows,k.colonne,k.agregation)),sub='';if(G.v==null&&v!=null)v*=G.f;
   var u=(k.formule?k.pct:isRate(k.agregation))&&v!=null?' %':'';
@@ -1436,6 +1443,28 @@ def _render_html(objective: str, data_json: str, kpi_defs: list, filter_cols: li
             .replace("__OBJECTIVE__", obj))
 
 
+TOTAL_LIGNE = re.compile(r"^\s*(sous[-\s]?|grand\s+)?total(e|s|aux)?(\s+g[ée]n[ée]ral)?\s*$|^\s*ensemble\s*$", re.I)
+
+
+def sans_lignes_de_total(df):
+    """Lignes de cumul (« Total », « Sous-total », « Ensemble ») mêlées aux lignes de détail : additionnées aux autres,
+    elles comptaient tout deux fois (« Total : dépistés » à 12 079 au lieu de 2 080). Écartées comme dans la page
+    d'analyse, quand ce sont bien des cumuls : 20 % des lignes au plus, et au moins deux lignes de détail. La colonne
+    « niveau » d'un rapport remis à plat (total / sexe / âge) est une désagrégation, pas un cumul : gardée."""
+    import pandas as pd
+    if len(df) < 3 or "niveau" in {str(c) for c in df.columns}:
+        return df
+    texte = [c for c in df.columns if df[c].dtype == object or pd.api.types.is_string_dtype(df[c])]
+    if not texte:
+        return df
+    cumul = df[texte].apply(lambda s: s.astype(str).str.match(TOTAL_LIGNE) & s.notna()).any(axis=1)
+    if not cumul.any() or cumul.mean() > .2 or (~cumul).sum() < 2:
+        return df
+    sortie = df[~cumul]
+    sortie.attrs = dict(df.attrs, lignes_total_ecartees=int(cumul.sum()))
+    return sortie
+
+
 def harmoniser_libelles(df):
     """Libellés saisis à la main : « Abidjan » et « Abidjan␣ », « Oui » et « oui » désignent le même groupe. Sans cela,
     un classement, un filtre ou une part du total les compterait à part. Espaces en trop retirés ; variantes qui ne
@@ -1486,7 +1515,7 @@ def _long_to_wide(df):
 
 
 def generate_dashboard(df, objective: str = "", job_id: str | None = None, llm=None, spec: dict | None = None,
-                       dictionnaire: list | None = None, correspondance: dict | None = None,
+                       dictionnaire: list | None = None, correspondance: dict | None = None, qualite: dict | None = None,
                        composition: bool = False) -> dict:
     """Génère un tableau de bord (KPI + HTML interactif) depuis un DataFrame.
 
@@ -1503,7 +1532,7 @@ def generate_dashboard(df, objective: str = "", job_id: str | None = None, llm=N
     """
     # Valeurs déjà agrégées : drapeau posé par la source (connecteur DHIS2), ou colonnes exactes du connecteur
     # (si le drapeau s'est perdu en route, ex. copie CSV)
-    df = harmoniser_libelles(df)
+    df = sans_lignes_de_total(harmoniser_libelles(df))
     agrege = bool(df.attrs.get("agrege")) or {"indicateur", "periode", "unite_organisation", "valeur"} <= {
         str(c) for c in df.columns}
     if agrege:
@@ -1571,7 +1600,8 @@ def generate_dashboard(df, objective: str = "", job_id: str | None = None, llm=N
         kpis.append(kpi)
 
     if not kpis and ia:  # aucune proposition de l'IA n'est calculable : repli par règles
-        return generate_dashboard(df, objective, job_id, llm=False, composition=composition or bool(spec.get("composition")))
+        return generate_dashboard(df, objective, job_id, llm=False, composition=composition or bool(spec.get("composition")),
+                                  qualite=qualite)
 
     charts_count = 0
     for g in spec.get("graphiques", [])[:8]:
@@ -1788,6 +1818,8 @@ def generate_dashboard(df, objective: str = "", job_id: str | None = None, llm=N
         meta["gros"] = {"mode": "echantillon", "lignes": len(data),
                         "trop_detaille": bool((composition or spec.get("composition")) and not meta.get("indicateurs"))}
 
+    if qualite:  # bilan qualité du fichier (console) : bandeau en tête de page
+        meta["qualite"] = _json_safe(qualite)
     html = _render_html(objective, data_json, kpi_defs, filter_cols, meta)
     path = None
     if job_id:
