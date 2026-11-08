@@ -180,7 +180,9 @@ def test_ecarts_de_desagregation_repris(Q):
 def test_valeurs_extremes_reprises(Q):
     anomalies = [{"column": "consultations", "type": "valeur aberrante (IQR)", "count": 2,
                   "detail": "2 valeur(s) hors de la plage habituelle [300 ; 400]"}]
-    c = _constats(Q.bilan(_sain(), anomalies=anomalies, aujourd_hui=AUJOURD_HUI))["extremes"]
+    # fichier sans site ni période : les valeurs extrêmes viennent de la lecture globale (IQR) de l'analyse
+    anomalies[0]["column"] = "age"
+    c = _constats(Q.bilan(J.sans_dates(), anomalies=anomalies, aujourd_hui=AUJOURD_HUI))["extremes"]
     assert c["dimension"] == "plausibilite" and c["n"] == 2
 
 
@@ -264,3 +266,76 @@ def test_matrice_dans_le_rapport_pdf(tmp_path):
     assert "Déclarations reçues : 85,7 % (24 sur 28)" in textes.replace(" ", " ").replace(" ", " ")
     tableaux = [t for t in story if isinstance(t, Table)]
     assert len(tableaux) >= 3                                     # dimensions, mois, sites en retard
+
+
+# ---------------------------------------------------------------- cohérence interne (étape 3)
+def _suivi_mensuel():
+    """4 centres × 24 mois, une ligne par centre et par mois : un CHU 5 fois plus grand que les autres, du paludisme
+    qui double chaque saison des pluies. Rien d'anormal : aucune alerte attendue."""
+    rng = np.random.default_rng(11)
+    lignes = []
+    for a in (2023, 2024):
+        for m in range(1, 13):
+            for c, taille in (("CHU Nord", 5), ("CS A", 1), ("CS B", 1), ("CS C", 1)):
+                pluie = 2 if m in (6, 7, 8, 9, 10) else 1
+                dep = int(rng.integers(180, 220) * taille)
+                lignes.append({"mois": f"{a}-{m:02d}", "centre": c, "consultations": int(rng.integers(280, 320) * taille),
+                               "cas_paludisme": int(rng.integers(40, 50) * taille * pluie), "depistes": dep,
+                               "positifs": int(dep * .05), "cpn1": int(rng.integers(30, 36) * taille),
+                               "cpn4": int(rng.integers(15, 20) * taille)})
+    return pd.DataFrame(lignes)
+
+
+def _constats_liste(b, cle):
+    return [dict(c, dimension=d["cle"]) for d in b["dimensions"] for c in d["constats"] if c["cle"] == cle]
+
+
+def test_suivi_sain_sans_alerte_de_coherence(Q):
+    b = Q.bilan(_suivi_mensuel(), aujourd_hui=dt.date(2025, 1, 15))
+    assert not _constats_liste(b, "extremes_site") and not _constats_liste(b, "regle"), b["resume"]
+
+
+def test_valeur_hors_habitude_de_son_site(Q):
+    df = _suivi_mensuel()
+    i_dix = df.index[(df["centre"] == "CS B") & (df["mois"] == "2024-03")][0]
+    i_bas = df.index[(df["centre"] == "CHU Nord") & (df["mois"] == "2023-11")][0]
+    df.loc[i_dix, "consultations"] *= 10          # un zéro de trop
+    df.loc[i_bas, "consultations"] = 5            # saisie tronquée
+    c = _constats_liste(Q.bilan(df, aujourd_hui=dt.date(2025, 1, 15)), "extremes_site")
+    assert len(c) == 1 and c[0]["colonne"] == "consultations" and c[0]["dimension"] == "plausibilite"
+    assert c[0]["n"] == 2 and c[0]["lignes"] == sorted([i_dix + 2, i_bas + 2])
+    assert "un zéro de trop" in c[0]["detail"] and c[0]["gravite"] == "attention"
+
+
+def test_grand_site_pas_extreme_pour_l_iqr_global(Q):
+    """L'IQR de tout le fichier signale le CHU (5 fois plus grand) : la lecture site par site le remplace."""
+    anomalies = [{"column": "consultations", "type": "valeur aberrante (IQR)", "count": 24, "detail": "24 valeur(s)"}]
+    b = Q.bilan(_suivi_mensuel(), anomalies=anomalies, aujourd_hui=dt.date(2025, 1, 15))
+    assert not _constats_liste(b, "extremes")
+
+
+def test_regle_ligne_positifs_et_testes(Q):
+    df = _suivi_mensuel()
+    i = df.index[(df["centre"] == "CS C") & (df["mois"] == "2024-06")][0]
+    df.loc[i, "positifs"] = df.loc[i, "depistes"] + 7
+    c = _constats_liste(Q.bilan(df, aujourd_hui=dt.date(2025, 1, 15)), "regle")
+    assert len(c) == 1 and c[0]["gravite"] == "grave" and c[0]["dimension"] == "coherence"
+    assert c[0]["lignes"] == [i + 2] and "positifs ≤ testés" in c[0]["titre"]
+
+
+def test_regle_de_cohorte_par_site(Q):
+    """CPN4 > CPN1 un mois donné peut arriver ; sur toute la période d'un site, non."""
+    df = _suivi_mensuel()
+    un_mois = df.index[(df["centre"] == "CS A") & (df["mois"] == "2024-02")][0]
+    df.loc[un_mois, "cpn4"] = df.loc[un_mois, "cpn1"] + 3                  # un mois seulement : rien à dire
+    assert not _constats_liste(Q.bilan(df, aujourd_hui=dt.date(2025, 1, 15)), "regle")
+    df.loc[df["centre"] == "CS B", "cpn4"] = df.loc[df["centre"] == "CS B", "cpn1"] + 2   # toute la période
+    c = _constats_liste(Q.bilan(df, aujourd_hui=dt.date(2025, 1, 15)), "regle")
+    assert len(c) == 1 and c[0]["gravite"] == "attention" and "CS B" in c[0]["detail"] and c[0]["n"] == 24
+
+
+def test_regle_marge_et_chiffre_d_affaires(Q):
+    df = J.ventes()
+    df.loc[17, "marge"] = df.loc[17, "chiffre_affaires"] * 2
+    c = _constats_liste(Q.bilan(df, aujourd_hui=dt.date(2026, 1, 15)), "regle")
+    assert len(c) == 1 and c[0]["lignes"] == [19] and "marge ≤ chiffre d'affaires" in c[0]["titre"]
