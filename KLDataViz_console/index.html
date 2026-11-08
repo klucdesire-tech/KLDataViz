@@ -153,6 +153,9 @@ td.r,th.r{text-align:right}
 .issue:last-child{border-bottom:0}
 .issue .sev{border-radius:4px;background:var(--amber)}
 .issue .sev.info{background:var(--blue)}
+.qdims{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin:10px 0 14px}
+.qd-h{display:flex;justify-content:space-between;gap:6px;font-size:13px}.qd-h span{color:var(--muted)}
+.qd-b{height:8px;border-radius:999px;background:var(--surface-2);margin-top:6px;overflow:hidden}.qd-b i{display:block;height:100%;border-radius:999px}
 .issue b{font-size:14px;display:block}.issue span{font-size:13px;color:var(--muted);overflow-wrap:anywhere}
 .fill{display:flex;align-items:center;gap:8px;min-width:130px}.fill .meter{flex:1}
 
@@ -499,6 +502,12 @@ tr.versions td{background:var(--surface-2);font-size:13px}
               <p class="sub" id="ringTxt"></p><div class="chips" id="dsChips"></div></div>
           </div>
           <div class="card"><h2>Ce qu'Adifa’ a compris</h2><div class="sub" style="font-size:14px;color:var(--fg);margin-top:8px" id="understood"></div></div>
+        </div>
+        <div class="card" id="qualCard" hidden>
+          <div class="toolbar"><h2>Bilan qualité du fichier</h2><span class="spacer"></span><span class="sub" id="qualNormes"></span></div>
+          <p class="sub" id="qualResume"></p>
+          <div class="qdims" id="qualDims"></div>
+          <div id="qualConstats"></div>
         </div>
         <div class="card">
           <div class="toolbar"><h2>Corrections proposées</h2><span class="spacer"></span><button class="btn ghost sm" id="toggleAll"></button></div>
@@ -1169,9 +1178,19 @@ function quality(acc){
     ['Colonnes vides',Math.min(15,vides*5)],['Types incorrects',Math.min(15,types*2)],['Valeurs aberrantes',Math.min(10,outl/numCells*200)]];
   return {score:Math.max(0,Math.round(100-parts.reduce((s,p)=>s+p[1],0))),parts};
 }
+function renderQualite(Q){const c=$('#qualCard');if(!c)return;c.hidden=!Q;if(!Q)return;
+  $('#qualNormes').textContent='Référentiels : '+Q.normes;$('#qualResume').textContent=Q.resume;
+  const coul=s=>s==='grave'?'var(--red)':s==='attention'?'var(--amber)':'var(--brand)';
+  $('#qualDims').innerHTML=Q.dimensions.map(d=>`<div class="qd"><div class="qd-h"><b>${esc(d.nom)}</b><span class="num">${d.note==null?'non mesurée':d.note+' / 100'}</span></div><div class="qd-b"><i style="width:${d.note==null?0:d.note}%;background:${coul(d.statut)}"></i></div></div>`).join('');
+  const ordre={grave:0,attention:1,info:2},tous=Q.dimensions.flatMap(d=>d.constats.map(x=>Object.assign({dim:d.nom},x))).sort((x,y)=>ordre[x.gravite]-ordre[y.gravite]);
+  $('#qualConstats').innerHTML=tous.length?tous.map(x=>`<div class="issue"><span class="sev ${x.gravite==='info'?'info':''}" style="${x.gravite==='grave'?'background:var(--red)':''}"></span><div><b>${esc(x.titre)}</b><span>${esc(x.dim)} · ${esc(x.detail)}${(x.lignes||[]).length?` Ligne${x.lignes.length>1?'s':''} ${x.lignes.join(', ')}${x.n>x.lignes.length?'…':''}.`:''}</span></div></div>`).join('')
+    :`<div class="empty">${IC.check} Aucun problème relevé selon ces normes.</div>`}
 function renderVerify(){
   const a=state.original;if(!a)return;
   const before=quality(new Set()),after=quality(state.accept);
+  // La note affichée est celle du bilan selon les normes ; les corrections choisies l'améliorent d'autant (estimation)
+  const Q=a.qualite;if(Q){const gain=after.score-before.score;before.score=Q.note;after.score=Math.min(100,Math.max(Q.note,Q.note+gain))}
+  renderQualite(Q);
   // Bon score : arc au dégradé vert → bleu du bouton Adifa’ ; sinon une couleur d'alerte unie (orange, rouge)
   const arc=before.score>=90?`var(--brand) 0%, var(--blue) ${before.score}%`
     :`${before.score>=70?'var(--amber)':'var(--red)'} 0% ${before.score}%`;
@@ -1180,7 +1199,8 @@ function renderVerify(){
   $('#scoreAfter').innerHTML=`${after.score} / 100 ${after.score>before.score?`<span class="tag gain">+${after.score-before.score}</span>`:''}`;
   $('#ringTxt').textContent=`Complétude ${dec(a.completeness_pct)} % · ${nf(a.missing_total)} valeur(s) manquante(s) · ${(a.anomalies||[]).length} colonne(s) avec des valeurs aberrantes.`;
   $('#dsChips').innerHTML=[`${nf(a.rows)} lignes`,`${a.columns} colonnes`,a.size_kb?`${dec(a.size_kb)} Ko`:'source en ligne'].map(x=>`<span class="tag type">${x}</span>`).join('');
-  $('#scoreHow').innerHTML='Score = 100 moins des pénalités plafonnées. Détail avec les corrections choisies :<br>'+after.parts.map(p=>`${p[0]} : −${dec(p[1].toFixed(1))}`).join(' · ');
+  $('#scoreHow').innerHTML=Q?esc(Q.methode)+' La note « avec les corrections choisies » est une estimation.'
+    :'Score = 100 moins des pénalités plafonnées. Détail avec les corrections choisies :<br>'+after.parts.map(p=>`${p[0]} : −${dec(p[1].toFixed(1))}`).join(' · ');
   const cd=a.columns_detail||[], nNum=Object.keys(a.numeric_stats||{}).length;
   // Identifiant : valeurs toutes différentes ET pas une mesure (un montant peut aussi être unique sur chaque ligne)
   const MESURE=/montant|chiffre|prix|total|valeur|quantit|somme|co[uû]t|salaire|marge|poids|surface|^ca$|^ca_|_ca$/i;
