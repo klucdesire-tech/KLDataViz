@@ -39,6 +39,7 @@ SCENARIOS = {
     "gros": [{}, {"gran": "Q"}, {"gran": "Y"}, {"filtres": {"zone": "Sud"}}],
     "communes": [{}],
     "libelles": [{}, {"filtres": {"ville": "Abidjan"}}],
+    "totaux": [{}, {"gran": "Q"}, {"filtres": {"district": "Cocody"}}],
 }
 
 
@@ -145,6 +146,17 @@ def test_libelles_harmonises_sans_toucher_au_fichier_recu():
     assert df.equals(avant)                                  # le tableau reçu est intact
     propre = J.ventes()
     assert harmoniser_libelles(propre) is propre             # rien à changer : aucune copie
+
+
+def test_ligne_total_jamais_additionnee():
+    """Export Excel avec une ligne « Total » par mois : les tuiles additionnent les districts, pas aussi leur total."""
+    reset_app_modules()
+    sys.path.insert(0, os.path.join(APP, "..", "HERMES_DA"))
+    from hermes_da.adapters.dashboard import generate_dashboard  # noqa: PLC0415
+    df = P.totaux()
+    tuile = next(k for k in generate_dashboard(df, "", llm=False, dictionnaire=[], composition=True)["kpis"]
+                 if k["colonne"] == "depistes")
+    assert tuile["valeur"] == df[df["district"] != "Total"]["depistes"].sum()
 
 
 def test_baisse_due_a_un_manque_le_dit(tmp_path):

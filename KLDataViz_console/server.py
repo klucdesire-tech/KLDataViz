@@ -929,35 +929,9 @@ def _lourd(fn):
     return wrap
 
 
-@_lourd
-def analyze(file_path):
-    df, err = _read_df(file_path)
-    if err and re.search(r"Permission denied|Errno 13|being used by another process", str(err)):
-        return {"error": "Fichier illisible : il est sans doute ouvert dans Excel. Fermez-le et réessayez."}
-    if err:
-        return {"error": err}
-    if df is None:
-        return {"error": "Fichier illisible (peut-être ouvert dans Excel ou protégé). Fermez-le et réessayez."}
-    lu = dict(df.attrs)  # feuille lue dans un classeur
-    libelles = {str(c): _pretty(c) for c in df.columns}
-
-    size = os.path.getsize(file_path) if os.path.exists(file_path) else 0
-    rows, cols = df.shape
-    total_cells = rows * cols
-
-    columns = []
-    missing_total = 0
-    for c in df.columns:
-        na = int(df[c].isna().sum())
-        missing_total += na
-        columns.append({
-            "name": str(c),
-            "dtype": str(df[c].dtype),
-            "missing": na,
-            "missing_pct": round(na / rows * 100, 2) if rows else 0,
-            "unique": int(df[c].nunique(dropna=True)),
-        })
-
+def _stats_et_extremes(df):
+    """Statistiques des colonnes numériques et valeurs extrêmes (IQR, ou IQR sur le logarithme pour les données très
+    asymétriques). Une seule définition pour l'analyse et le bandeau qualité du tableau de bord."""
     numeric = df.select_dtypes(include=[np.number])
     num_stats = {}
     anomalies = []
@@ -996,8 +970,42 @@ def analyze(file_path):
             anomalies.append({
                 "column": str(c), "type": "valeur aberrante (IQR)",
                 "count": int(len(outliers)),
+                "lignes": [int(i) + 2 for i in df.index.get_indexer(outliers.index[:20]) if i >= 0],
                 "detail": f"{len(outliers)} valeur(s) hors de la plage habituelle [{lo:,.2f} ; {hi:,.2f}]".replace(",", " "),
             })
+    return numeric, num_stats, anomalies
+
+
+@_lourd
+def analyze(file_path):
+    df, err = _read_df(file_path)
+    if err and re.search(r"Permission denied|Errno 13|being used by another process", str(err)):
+        return {"error": "Fichier illisible : il est sans doute ouvert dans Excel. Fermez-le et réessayez."}
+    if err:
+        return {"error": err}
+    if df is None:
+        return {"error": "Fichier illisible (peut-être ouvert dans Excel ou protégé). Fermez-le et réessayez."}
+    lu = dict(df.attrs)  # feuille lue dans un classeur
+    libelles = {str(c): _pretty(c) for c in df.columns}
+
+    size = os.path.getsize(file_path) if os.path.exists(file_path) else 0
+    rows, cols = df.shape
+    total_cells = rows * cols
+
+    columns = []
+    missing_total = 0
+    for c in df.columns:
+        na = int(df[c].isna().sum())
+        missing_total += na
+        columns.append({
+            "name": str(c),
+            "dtype": str(df[c].dtype),
+            "missing": na,
+            "missing_pct": round(na / rows * 100, 2) if rows else 0,
+            "unique": int(df[c].nunique(dropna=True)),
+        })
+
+    numeric, num_stats, anomalies = _stats_et_extremes(df)
 
     cat = df.select_dtypes(exclude=[np.number])
     cat_top = {}
@@ -1034,9 +1042,35 @@ def analyze(file_path):
         "charts": [] if _is_report(df) else _with_rule_readings([_infer_kind(c) for c in _auto_charts(df)]),
         "smart_charts": _with_rule_readings(_report_charts(df) if _is_report(df) else _smart_charts(df)),
         **({"controles": report_checks(df)[:200]} if _is_report(df) else {}),
+        "qualite": _bilan_qualite(df, anomalies),
         **({"feuille": {"lue": lu["feuille"], "autres": [n for n in lu["feuilles"] if n != lu["feuille"]]}}
            if lu.get("feuilles") else {}),
     }
+
+
+def _bilan_qualite(df, anomalies=None):
+    """Bilan qualité selon les normes (qualite.py), sur le fichier tel qu'il a été reçu. Ne bloque jamais l'analyse."""
+    try:
+        import qualite
+        return qualite.bilan(df, anomalies=anomalies, controles=report_checks(df) if _is_report(df) else None)
+    except Exception as exc:  # noqa: BLE001
+        sys.stderr.write(f"[qualite] bilan impossible : {type(exc).__name__}\n")
+        return None
+
+
+def _qualite_tableau(df):
+    """Le bilan en bref, pour le bandeau du tableau de bord : note, résumé, trois constats principaux."""
+    try:
+        anomalies = _stats_et_extremes(df)[2]
+    except Exception:  # noqa: BLE001
+        anomalies = None
+    b = _bilan_qualite(df, anomalies)
+    if not b:
+        return None
+    import qualite
+    return {"note": b["note"], "resume": b["resume"], "graves": b["graves"], "attentions": b["attentions"],
+            "normes": b["normes"], "principaux": [{"titre": c["titre"], "gravite": c["gravite"], "dimension": c["dimension"]}
+                                                  for c in qualite.principaux(b)]}
 
 
 def _inference(df):
@@ -1465,15 +1499,16 @@ def _build_dashboard(df, spec=None, correspondance=None):  # pas de garde _lourd
         dico = []
     if correspondance is None and dico:
         correspondance = _correspondance_pour(df, dico, ia=False)  # actualisation : mémorisée, jamais l'IA
+    qualite = _qualite_tableau(df)  # bandeau en tête de page : les chiffres ne se lisent pas sans leur qualité
     if spec is not None:
         return generate_dashboard(df, "Tableau de bord KLDataViz", llm=False, spec=spec, dictionnaire=dico,
-                                  correspondance=correspondance)
+                                  correspondance=correspondance, qualite=qualite)
     cfg = _llm_config()  # en ligne : clé DEEPSEEK_API_KEY de l'environnement (pas de llm_config.json)
     model = os.environ.get("KLDV_DASHBOARD_MODEL") or (cfg or {}).get("dashboard_model") or "deepseek-flash"
     llm = (lambda m, n: _llm_call(m, n, model=model, effort="low", timeout=120, attempts=1)
            or _llm_call(m, n, model=model, effort="low", timeout=90, attempts=1)) if cfg else None
     return generate_dashboard(df, "Tableau de bord KLDataViz", llm=llm, dictionnaire=dico, correspondance=correspondance,
-                              composition=_composition_active())
+                              composition=_composition_active(), qualite=qualite)
 
 
 def do_dashboard(file_path, name=None):

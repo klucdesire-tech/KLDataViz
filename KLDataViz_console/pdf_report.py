@@ -749,6 +749,33 @@ def analyses(story, contenu, numero, st):
     return numero + 1
 
 
+def qualite_pdf(story, q, st):
+    """Bilan qualité du fichier (normes ISO/IEC 25012 et OMS) : note par dimension, puis les constats principaux."""
+    if not q:
+        return
+    story.append(Paragraph("Qualité des données", st["h2"]))
+    niveau = "bad" if q.get("graves") else "warn" if q.get("attentions") else "info"
+    story.append(callout(f"<b>Note {esc(q.get('note'))} / 100</b> — {esc(q.get('resume'))}<br/>"
+                         f"<font size=8>Selon {esc(q.get('normes'))}.</font>", st, niveau))
+    story.append(Spacer(1, 4))
+    etats = {"grave": "problème grave", "attention": "à vérifier", "bon": "conforme", None: "non mesurée"}
+    story.append(table(["Dimension", "Note", "État"],
+                       [[d["nom"], "—" if d.get("note") is None else f"{d['note']} / 100", etats.get(d.get("statut"), "")]
+                        for d in q.get("dimensions", [])], widths=[60 * mm, 30 * mm, CONTENT_W - 90 * mm], st=st))
+    constats = [dict(c, dim=d["nom"]) for d in q.get("dimensions", []) for c in d.get("constats", []) if c["gravite"] != "info"]
+    constats.sort(key=lambda c: 0 if c["gravite"] == "grave" else 1)
+    if constats:
+        story.append(Spacer(1, 4))
+        for c in constats[:12]:
+            lignes = c.get("lignes") or []
+            ou = f" Lignes {', '.join(map(str, lignes[:8]))}{'…' if c.get('n', 0) > len(lignes[:8]) else ''}." if lignes else ""
+            story.append(Paragraph(f"<b>{esc(c['titre'])}</b> ({esc(c['dim'])}) — {esc(c['detail'])}{esc(ou)}", st["bullet"],
+                                   bulletText="•"))
+        if len(constats) > 12:
+            story.append(Paragraph(f"… et {len(constats) - 12} autre(s) constat(s), détaillés dans KLDataViz.", st["small"]))
+    story.append(Spacer(1, 6))
+
+
 def callout(text, st, level="info"):
     bg, bd = {"warn": (AMBER_L, AMBER), "bad": (RED_L, RED)}.get(level, (GREEN_L, GREEN))
     t = Table([[Paragraph(text, st["body"])]], colWidths=[CONTENT_W])
@@ -869,6 +896,7 @@ def build(result, path):
     t.setStyle(TableStyle([("LINEBELOW", (0, 0), (-1, -1), 0.4, LINE), ("BACKGROUND", (0, 0), (0, -1), GREEN_L),
                            ("TOPPADDING", (0, 0), (-1, -1), 4), ("BOTTOMPADDING", (0, 0), (-1, -1), 4)]))
     story.append(t)
+    qualite_pdf(story, r.get("qualite"), st)
 
     # ---- 2. Synthèse
     story.append(Paragraph("2. Synthèse des résultats", st["h1"]))

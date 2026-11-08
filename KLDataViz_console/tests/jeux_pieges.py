@@ -7,7 +7,8 @@ Chacun a déjà fait afficher un chiffre faux, ou y aurait conduit :
 - negatifs : résultats nets positifs et négatifs ;
 - gros : plus de 6 000 lignes, la page passe en résumé exact ;
 - communes : 55 groupes, plus que ce qu'un classement affiche ;
-- libelles : un même lieu écrit avec des espaces en trop ou une autre casse.
+- libelles : un même lieu écrit avec des espaces en trop ou une autre casse ;
+- totaux : une ligne « Total » par mois sous les districts, comme dans un export Excel.
 Déterministes : mêmes valeurs à chaque exécution."""
 import numpy as np
 import pandas as pd
@@ -71,4 +72,16 @@ def libelles():
     return pd.DataFrame(lignes)
 
 
-JEUX = {"stock_jour": stock_jour, "trous": trous, "negatifs": negatifs, "gros": gros, "communes": communes, "libelles": libelles}
+def totaux():
+    rng = np.random.default_rng(47)
+    lignes = []
+    for m in MOIS[-10:]:
+        bloc = [{"mois": m, "district": d, "depistes": int(rng.integers(80, 200)), "positifs": int(rng.integers(2, 12))}
+                for d in ["Abobo", "Cocody", "Yopougon", "Treichville"]]
+        lignes += bloc + [{"mois": m, "district": "Total", "depistes": sum(x["depistes"] for x in bloc),
+                           "positifs": sum(x["positifs"] for x in bloc)}]
+    return pd.DataFrame(lignes)
+
+
+JEUX = {"stock_jour": stock_jour, "trous": trous, "negatifs": negatifs, "gros": gros, "communes": communes, "libelles": libelles,
+        "totaux": totaux}
