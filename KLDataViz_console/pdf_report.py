@@ -176,9 +176,11 @@ def file_type(name):
 # --------------------------------------------------------------------------- #
 # Interprétations (règles, uniquement à partir des chiffres de l'analyse)
 # --------------------------------------------------------------------------- #
-def _vals(chart, i=0):
+def _vals(chart, i=0, vides=False):
+    """Valeurs d'une série. Un trou (période sans valeur) vaut 0 pour les sommes de parts, mais `vides=True` le garde
+    vide : une évolution ne doit pas lire « niveau le plus bas : 0 » pour un mois non déclaré."""
     try:
-        return [float(x) if x is not None else 0.0 for x in chart["values"][i]]
+        return [float(x) if x is not None else (None if vides else 0.0) for x in chart["values"][i]]
     except (KeyError, IndexError, TypeError, ValueError):
         return []
 
@@ -189,16 +191,24 @@ def interpret_chart(c):
     names = c.get("seriesNames") or []
     out = []
     if kind == "trend" and typ == "line":
+        labels_tous = labels
         for i, name in enumerate(names[:3]):
-            v = _vals(c, i)
+            brut = _vals(c, i, vides=True)
+            garde = [j for j, x in enumerate(brut) if x is not None]
+            v = [brut[j] for j in garde]
             if len(v) < 2:
                 continue
-            raw = [str(x) for x in (c.get("labels") or [])]
-            monthly = len(v) >= 13 and len(raw) == len(v) and all(re.fullmatch(r"\d{4}-\d{2}", x) for x in raw)
+            labels = [labels_tous[j] for j in garde if j < len(labels_tous)]
+            raw = [str((c.get("labels") or [])[j]) for j in garde if j < len(c.get("labels") or [])]
             # Données mensuelles sur plus d'un an : comparer au même mois de l'année précédente (une récolte, une
-            # saison des pluies ne sont pas une « baisse » quand on compare octobre à septembre)
-            first, last = (v[-13], v[-1]) if monthly else (v[0], v[-1])
-            ref_lab = labels[-13] if monthly else "la première période"
+            # saison des pluies ne sont pas une « baisse » quand on compare octobre à septembre). Le mois est retrouvé
+            # par son libellé : avec des mois non déclarés, la 13e valeur avant la fin n'est plus le même mois.
+            mensuel = len(raw) == len(v) and all(re.fullmatch(r"\d{4}-\d{2}", x) for x in raw)
+            avant = f"{int(raw[-1][:4]) - 1}{raw[-1][4:]}" if mensuel else None
+            monthly = bool(avant) and avant in raw
+            j0 = raw.index(avant) if monthly else 0
+            first, last = v[j0], v[-1]
+            ref_lab = labels[j0] if monthly else "la première période"
             hi, lo = max(v), min(v)
             ihi, ilo = v.index(hi), v.index(lo)
             chg = (last - first) / first * 100 if first else None
@@ -447,14 +457,15 @@ def draw_line(c, w=CONTENT_W, h=210):
     """Évolution façon écran Analyser : 1re série en aire verte lissée, 2e en pointillés ambre (axe droit si échelles éloignées)."""
     labels = _app_labels(c.get("labels") or [])
     names = c.get("seriesNames") or [""]
-    series = [_vals(c, i) for i in range(len(names))]
-    series = [s for s in series if s] or [[0.0]]
+    series = [_vals(c, i, vides=True) for i in range(len(names))]
+    series = [s for s in series if any(x is not None for x in s)] or [[0.0]]
     two_axes = bool(c.get("axis2")) and len(series) > 1
     d = Drawing(w, h)
     left, right, bottom, top = 46, (46 if two_axes else 14), (40 if len(series) > 1 else 26), 10
     pw, ph = w - left - right, h - bottom - top
 
     def scale_for(vals):
+        vals = [x for x in vals if x is not None] or [0.0]
         lo, hi = min(vals), max(vals)
         g = (hi - lo) * 0.08 or abs(hi) * 0.08 or 1  # marge de 8 % sans partir de zéro, comme Chart.js
         tk = _ticks(lo - g, hi + g)
@@ -483,13 +494,27 @@ def draw_line(c, w=CONTENT_W, h=210):
             d.add(String(xs[i], bottom - 12, _short(labels[i], 16), fontName="Body", fontSize=7.5, fillColor=INK, textAnchor="middle"))
     for k, vals in enumerate(series):
         axis = 1 if two_axes and k == 1 else 0
-        pts = [(xs[i], y(v, axis)) for i, v in enumerate(vals)]
         col = _series_color(k)
-        if k == 0:
-            d.add(_smooth_path(pts, close_to=bottom, fillColor=colors.Color(col.red, col.green, col.blue, alpha=0.16),
-                               strokeColor=None))
-        d.add(_smooth_path(pts, fillColor=None, strokeColor=col, strokeWidth=2 if k == 0 else 1.6,
-                           strokeDashArray=None if k == 0 else [4, 3]))
+        # tronçons continus : un mois non déclaré coupe la courbe au lieu de la faire tomber à zéro
+        troncons, cur = [], []
+        for i, v in enumerate(vals):
+            if v is None:
+                if cur:
+                    troncons.append(cur)
+                cur = []
+            else:
+                cur.append((xs[i], y(v, axis)))
+        if cur:
+            troncons.append(cur)
+        for pts in troncons:
+            if len(pts) == 1:
+                d.add(Circle(pts[0][0], pts[0][1], 2, fillColor=col, strokeColor=None))
+                continue
+            if k == 0:
+                d.add(_smooth_path(pts, close_to=bottom, fillColor=colors.Color(col.red, col.green, col.blue, alpha=0.16),
+                                   strokeColor=None))
+            d.add(_smooth_path(pts, fillColor=None, strokeColor=col, strokeWidth=2 if k == 0 else 1.6,
+                               strokeDashArray=None if k == 0 else [4, 3]))
     if len(series) > 1:
         x = left
         for k, nm in enumerate(names):
