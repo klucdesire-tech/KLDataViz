@@ -101,3 +101,30 @@ def test_colonne_texte_nommee_valeur_sans_collision(S):
     df = pd.DataFrame({"indicateur": ["X", "Y"] * 3, "valeur": ["a", "b"] * 3, "Site A": [1, 2, 3, 4, 5, 6],
                        "Site B": [2, 3, 4, 5, 6, 7]})
     assert S._smart_charts(df) is not None                       # aucune exception, aucun titre « … par valeur »
+
+
+def test_pdf_meme_mois_annee_precedente_malgre_les_trous():
+    """Relecture de Hermes : avec des mois non déclarés, la comparaison annuelle doit porter sur le même mois
+    (déc. 24 → déc. 25), pas sur le 13e point avant la fin (janv. 24)."""
+    reset_app_modules()
+    import pdf_report  # noqa: PLC0415
+    labels = [f"{a}-{m:02d}" for a in (2024, 2025) for m in range(1, 13)]
+    valeurs = [10.0 + i for i in range(24)]
+    for trou in (3, 4, 5, 14, 15):
+        valeurs[trou] = None
+    c = {"kind": "trend", "type": "line", "labels": labels, "values": [valeurs], "seriesNames": ["Cas"]}
+    texte = pdf_report.interpret_chart(c)
+    assert "déc. 24" in texte and f"de {pdf_report.nf(valeurs[11])} à {pdf_report.nf(valeurs[23])}" in texte, texte
+    assert "le niveau le plus bas en janv. 24 (10)" in texte                    # un trou n'est pas un minimum à 0
+
+
+def test_pdf_courbe_coupee_aux_trous_jamais_a_zero():
+    reset_app_modules()
+    import pdf_report  # noqa: PLC0415
+    from reportlab.graphics.shapes import Circle  # noqa: PLC0415
+    c = {"kind": "trend", "type": "line", "labels": ["2025-01", "2025-02", "2025-03", "2025-04", "2025-05", "2025-06"],
+         "values": [[100.0, 120.0, None, None, None, 150.0]], "seriesNames": ["Cas"]}
+    d = pdf_report.draw_line(c)
+    points = [x for x in d.contents if isinstance(x, Circle) and x.r == 2]
+    assert len(points) == 1                                    # le dernier mois, seul, est un point ; aucun tracé vers 0
+    assert pdf_report._vals(c, 0, vides=True)[2] is None and pdf_report._vals(c, 0)[2] == 0.0
