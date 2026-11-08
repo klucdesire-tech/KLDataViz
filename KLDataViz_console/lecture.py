@@ -22,6 +22,10 @@ DEVISE = re.compile(r"^(?:(?:f\s?cfa|cfa|xof|eur|usd)\s+|[€$]\s*)|(?:\s+(?:f\s
 # Preuve qu'une colonne contient des nombres écrits « à la main » : séparateur de milliers, virgule décimale, devise
 PREUVE = re.compile(r"^[+-]?\d{1,3}([   .]\d{3})+,\d+$|^[+-]?\d{1,3}([   ]\d{3})+$|^[+-]?\d+,\d+$")
 SEUIL = 0.95             # part des valeurs remplies qui doivent se lire comme des nombres
+# Colonnes de codes et de numéros : jamais des quantités, même écrites comme des nombres (relecture de la PR 198)
+NOM_CODE = re.compile(r"t[ée]l[ée]?phone|^tel(_|\b)|portable|mobile|contact|whatsapp|fax|code|matricule|identifiant|"
+                      r"(^|_)id($|_)|cni|passeport|num[ée]ro|^n°|^no_|postal|ifu|rccm|imei|iban", re.I)
+ZERO_INITIAL = re.compile(r"^[+-]?0[\d\s]")   # « 071 234 567 », « 0 123 456 », « 007 » : jamais un montant
 DATE = re.compile(r"^\s*(\d{1,2})[/.-](\d{1,2})[/.-](\d{2,4})(\s|$)")
 MAX_EXEMPLES = 20
 
@@ -52,12 +56,16 @@ def nombres(df):
         s = df[c]
         if not (s.dtype == object or pd.api.types.is_string_dtype(s)):
             continue
+        if NOM_CODE.search(str(c)):
+            continue
         rempli = s[s.notna()]
         texte = rempli.astype(str).str.strip()
         utile = texte[~texte.str.lower().isin(ATTENTES)]
         if len(utile) < 2:
             continue
         propre = utile.map(_texte)
+        if propre.str.match(ZERO_INITIAL).any():
+            continue  # zéro initial : téléphones, codes ; le convertir ferait perdre le zéro et en ferait une mesure
         if not propre.str.match(PREUVE).any() and not utile.map(lambda v: bool(DEVISE.search(str(v).strip()))).any():
             continue  # rien d'écrit « à la main » : des codes (« 007 ») ou du vrai texte, laissés tels quels
         virgule = bool(propre.str.contains(r"\d,\d").any())

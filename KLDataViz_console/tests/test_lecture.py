@@ -39,6 +39,24 @@ def test_codes_telephones_et_texte_laisses_tels_quels(L):
     assert conv == [] and sortie is df                     # aucune copie : rien n'a changé
 
 
+@pytest.mark.parametrize("colonne, valeurs", [
+    ("v", ["071 234 567", "072 345 678", "073 456 789"]),              # téléphones par groupes de 3 (relecture PR 198)
+    ("v", ["0 123 456", "1 234 567", "2 345 678"]),                     # un seul zéro initial suffit
+    ("telephone", ["1 234 567", "2 345 678", "3 456 789"]),            # le nom de la colonne le dit
+    ("code_site", ["1 234", "2 345", "3 456"]),
+    ("numero_cni", ["123 456 789", "234 567 890", "345 678 901"]),
+])
+def test_telephones_et_codes_jamais_convertis(L, colonne, valeurs):
+    df = pd.DataFrame({colonne: valeurs})
+    sortie, conv = L.nombres(df)
+    assert conv == [] and sortie[colonne].tolist() == valeurs          # zéro initial gardé, pas une mesure
+
+
+def test_zero_virgule_reste_un_nombre(L):
+    df, conv = L.nombres(pd.DataFrame({"taux_moyen": ["0,5", "0,25", "1 200,5"]}))
+    assert df["taux_moyen"].tolist() == [0.5, 0.25, 1200.5]
+
+
 def test_valeur_qui_n_est_pas_un_nombre_ecartee_avec_sa_ligne(L):
     valeurs = [f"1 {100 + i},5" for i in range(30)]
     valeurs[17] = "trois cents"
