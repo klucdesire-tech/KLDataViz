@@ -1016,7 +1016,7 @@ function rate(rows,col){var t=rows.filter(function(r){return !isNull(r[col])}).m
   if(t.every(function(x){return YES[x]||NO[x]}))return t.filter(function(x){return YES[x]}).length/t.length*100;
   var v=t.map(num).filter(function(x){return x!=null});if(!v.length)return null;var m=v.reduce(function(p,q){return p+q},0)/v.length;return Math.max.apply(null,v)<=1?m*100:m}
 function agg(rows,col,a){a=(a||'').toLowerCase();
-  if(a==='dernier'){var lp=null;rows.forEach(function(r){if(r.__p&&(lp==null||r.__p>lp))lp=r.__p});rows=rows.filter(function(r){return r.__p===lp});a='somme'}
+  if(a==='dernier'){var lp=null;rows.forEach(function(r){var m=r.__p?String(r.__p).slice(0,7):null;if(m&&(lp==null||m>lp))lp=m});rows=rows.filter(function(r){return r.__p&&String(r.__p).slice(0,7)===lp});a='somme'}
   if(a==='compte'||a==='count'||!col)return col?rows.filter(function(r){return r[col]!=null&&r[col]!==''}).length:rows.length;
   if(isRate(a))return rate(rows,col);
   var v=rows.map(function(r){return num(r[col])}).filter(function(x){return x!=null});if(!v.length)return null;
@@ -1066,8 +1066,8 @@ function howCalc(k,rows){if(k.formule){var t0=(k.description||'')+(k.statut==='p
     return t0+(rows.length<DATA.length?' Calculé sur les '+fmt(rows.length)+' lignes retenues par les filtres.':'')}
   var a=(k.agregation||'').toLowerCase(),c=k.colonne?'« '+nice(k.colonne)+' »':'',n=rows.length,t;
   var nb=k.colonne?rows.filter(function(r){return !isNull(r[k.colonne])}).length:n;
-  if(a==='dernier'){var lp=null;rows.forEach(function(r){if(r.__p&&(lp==null||r.__p>lp))lp=r.__p});
-    t='Somme de '+c+' au dernier mois disponible'+(lp?' ('+label(lp)+')':'')+'. C’est un stock (valeur à une date) : il ne s’additionne pas d’un mois à l’autre.'}
+  if(a==='dernier'){var lp=null;rows.forEach(function(r){var m=r.__p?String(r.__p).slice(0,7):null;if(m&&(lp==null||m>lp))lp=m});
+    t='Somme de '+c+' au dernier mois disponible'+(lp?' ('+moisNom(lp)+')':'')+'. C’est un stock (valeur à une date) : il ne s’additionne pas d’un mois à l’autre.'}
   else if(isRate(a))t='Part de « Oui » parmi les '+fmt(nb)+' lignes où '+c+' est renseignée. Les cases vides ne comptent ni pour « Oui » ni pour « Non ».';
   else if(a==='somme'||a==='sum')t='Somme de '+c+' sur les '+fmt(nb)+' lignes renseignées.';
   else if(a==='moyenne'||a==='mean')t='Moyenne de '+c+' sur '+fmt(nb)+' valeurs renseignées.';
@@ -1436,6 +1436,35 @@ def _render_html(objective: str, data_json: str, kpi_defs: list, filter_cols: li
             .replace("__OBJECTIVE__", obj))
 
 
+def harmoniser_libelles(df):
+    """Libellés saisis à la main : « Abidjan » et « Abidjan␣ », « Oui » et « oui » désignent le même groupe. Sans cela,
+    un classement, un filtre ou une part du total les compterait à part. Espaces en trop retirés ; variantes qui ne
+    diffèrent que par la casse ramenées à la forme la plus fréquente. Seules les colonnes de texte changent, et le
+    tableau reçu n'est jamais modifié (copie seulement si une valeur change)."""
+    import pandas as pd
+    sortie = None
+    for c in df.columns:
+        s = df[c]
+        if not (s.dtype == object or pd.api.types.is_string_dtype(s)):
+            continue
+        texte = s[s.map(lambda v: isinstance(v, str))]
+        if texte.empty:
+            continue
+        propre = texte.str.strip().str.replace(r"\s+", " ", regex=True)
+        cle = propre.str.casefold()
+        if cle.nunique() < propre.nunique():  # variantes de casse : la forme la plus fréquente, la première à égalité
+            forme = propre.groupby(cle, sort=False).agg(lambda x: x.value_counts(sort=True).index[0])
+            propre = cle.map(forme)
+        change = propre != texte
+        if change.any():
+            if sortie is None:
+                sortie = df.copy()
+                sortie.attrs = dict(df.attrs)
+            sortie[c] = sortie[c].astype(object)
+            sortie.loc[change[change].index, c] = propre[change]
+    return df if sortie is None else sortie
+
+
 def _long_to_wide(df):
     """Export « long » (DHIS2 : Indicateur + Valeur par ligne) → une colonne par indicateur.
 
@@ -1474,6 +1503,7 @@ def generate_dashboard(df, objective: str = "", job_id: str | None = None, llm=N
     """
     # Valeurs déjà agrégées : drapeau posé par la source (connecteur DHIS2), ou colonnes exactes du connecteur
     # (si le drapeau s'est perdu en route, ex. copie CSV)
+    df = harmoniser_libelles(df)
     agrege = bool(df.attrs.get("agrege")) or {"indicateur", "periode", "unite_organisation", "valeur"} <= {
         str(c) for c in df.columns}
     if agrege:
@@ -1494,6 +1524,10 @@ def generate_dashboard(df, objective: str = "", job_id: str | None = None, llm=N
     import pandas as pd
     p_col, p_ser = _period(df)
     last_p = max((v for v in p_ser.dropna().unique() if isinstance(v, str)), default=None) if p_ser is not None else None
+    # Stock : tout le dernier MOIS. Avec des dates au jour, chaque site déclare un jour différent ; le dernier jour seul
+    # ne compterait qu'un site (« File active (mai 2025) » à 436 au lieu de 1 475).
+    last_p = last_p[:7] if last_p else None
+    p_mois = p_ser.astype(str).str[:7].where(p_ser.notna()) if p_ser is not None else None
     seen = set()
     hors = None  # réservations annulées / opérations rejetées : hors des totaux
     for c in df.columns:
@@ -1520,7 +1554,7 @@ def generate_dashboard(df, objective: str = "", job_id: str | None = None, llm=N
         if hors and (k.get("agregation") or "").lower() in ("somme", "sum", "dernier") and col is not None:
             src = df[~df[hors["colonne"]].astype(str).str.strip().str.lower().isin(hors["valeurs"])]
             k = dict(k, hors=hors, nom=f"{k.get('nom') or col}, hors « {_joli_min(hors['colonne'])} »")
-        v = (_agg(src[p_ser[src.index] == last_p], col, "somme") if (k.get("agregation") == "dernier")
+        v = (_agg(src[p_mois[src.index] == last_p], col, "somme") if (k.get("agregation") == "dernier")
              else _agg(src, col, k.get("agregation", "compte")))
         if v is None:  # incalculable sur ces données (ex. « taux » sur un texte) : pas de tuile « — » ni de courbe vide
             continue
@@ -1529,7 +1563,7 @@ def generate_dashboard(df, objective: str = "", job_id: str | None = None, llm=N
                "dimension": k.get("dimension"), "justification": k.get("justification", "")}
         dim = k.get("dimension")
         if dim and dim in cols and dim != col:
-            bd = (_agg_grouped(src[p_ser[src.index] == last_p], col, "somme", dim) if k.get("agregation") == "dernier"
+            bd = (_agg_grouped(src[p_mois[src.index] == last_p], col, "somme", dim) if k.get("agregation") == "dernier"
                   else _agg_grouped(src, col, k.get("agregation", "compte"), dim))
             if bd and bd.get("labels"):
                 kpi["breakdown"] = bd

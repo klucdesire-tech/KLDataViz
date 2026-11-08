@@ -108,10 +108,18 @@ function cpChaleur(rows,c){var X=cpMatrice(rows,c);if(!X)return cpVide('Choisiss
   D.forEach(function(d){o+='<div class="cp-tr" style="'+lg+'"><span class="cp-tl" title="'+esc(label(d))+'">'+esc(label(d))+'</span>'+P.map(function(p){var v=M[d+'|'+p],t=esc(label(d)+', '+plabel(p)+' : '+cpVal(v));if(v==null)return '<span class="cp-cl" title="'+t+'" aria-label="'+t+'" style="background:#F3F6F9;color:#52667A">'+(chiffres?'—':'')+'</span>';var n=Math.min(4,Math.floor(5*(v-mi)/et));return '<span class="cp-cl" title="'+t+'" aria-label="'+t+'" style="background:'+CP_TEINTES[n]+';color:'+(n>=2?'#fff':'#102A43')+'">'+(chiffres?esc(fmt(v)):'')+'</span>'}).join('')+'</div>'});
   return o+'</div><div class="cp-leg">'+esc(fmt(mi))+CP_TEINTES.map(function(t){return '<span style="background:'+t+'"></span>'}).join('')+esc(fmt(mx))+'</div>'+(chiffres?'':'<p class="cp-note">Survolez une case pour lire sa valeur.</p>')}
 function cpUnSeulMois(rows){var v={};rows.forEach(function(r){if(r.__p)v[r.__p.slice(5,7)]=1});return Object.keys(v).length===1}
-function cpPeriodes(rows,c){var m=c.mois_communs||[],a={};rows.forEach(function(r){if(r.__p&&m.indexOf(r.__p.slice(5,7))>=0)a[r.__p.slice(0,4)]=1});var y=Object.keys(a).sort();if(y.length<2)return null;
-  var n=y.length,de=function(an){return rows.filter(function(r){return r.__p&&r.__p.slice(0,4)===an&&m.indexOf(r.__p.slice(5,7))>=0})};return {a:y[n-2],b:y[n-1],A:de(y[n-2]),B:de(y[n-1]),mois:m.length,annuel:cpUnSeulMois(rows)}}
+// Mois déclarés les deux années, recalculés sur les lignes affichées : avec un filtre, ou si un groupe n'a pas encore
+// déclaré le dernier mois, comparer 5 mois d'une année à 4 de l'autre inventerait une baisse.
+function cpPeriodes(rows,c){var parAn={};rows.forEach(function(r){if(r.__p){var y=r.__p.slice(0,4);(parAn[y]=parAn[y]||{})[r.__p.slice(5,7)]=1}});var y=Object.keys(parAn).sort();if(y.length<2)return null;
+  var m=Object.keys(parAn[y[y.length-1]]).filter(function(k){return parAn[y[y.length-2]][k]}).sort();if(!m.length)return null;
+  var n=y.length,de=function(an){return rows.filter(function(r){return r.__p&&r.__p.slice(0,4)===an&&m.indexOf(r.__p.slice(5,7))>=0})};return {a:y[n-2],b:y[n-1],A:de(y[n-2]),B:de(y[n-1]),mois:m.length,communs:m,annuel:cpUnSeulMois(rows)}}
 function cpMoisTxt(p){return p.mois===12||p.annuel?p.a+' et '+p.b:'Même période, '+p.a+' et '+p.b+' ('+p.mois+' mois)'}
-function cpEcarts(p,c){var g0=groupBy(p.A,c.dimension),g1=groupBy(p.B,c.dimension),u={};Object.keys(g0).concat(Object.keys(g1)).forEach(function(k){u[k]=1});return Object.keys(u).map(function(k){return [k,g0[k]?agg(g0[k],c.mesure,c.agregation):null,g1[k]?agg(g1[k],c.mesure,c.agregation):null]})}
+// À périmètre constant : un groupe présent les deux années n'est comparé que sur les mois qu'il a déclarés les deux fois
+// (un mois manquant n'est pas une baisse). Un groupe présent une seule année (site ouvert ou fermé) compte tel quel.
+function cpEcarts(p,c){var g0=groupBy(p.A,c.dimension),g1=groupBy(p.B,c.dimension),u={};Object.keys(g0).concat(Object.keys(g1)).forEach(function(k){u[k]=1});
+  return Object.keys(u).map(function(k){var A=g0[k],B=g1[k];if(A&&B){var ma={},mb={};A.forEach(function(r){ma[r.__p.slice(5,7)]=1});B.forEach(function(r){mb[r.__p.slice(5,7)]=1});
+    var com=function(r){var x=r.__p.slice(5,7);return ma[x]&&mb[x]};A=A.filter(com);B=B.filter(com);if(!A.length){A=null;B=null}}
+    return [k,A?agg(A,c.mesure,c.agregation):null,B?agg(B,c.mesure,c.agregation):null]})}
 function cpEspacer(a,cle,ecart){var t=a.slice().sort(function(x,y){return x[cle]-y[cle]});for(var i=1;i<t.length;i++)if(t[i][cle]-t[i-1][cle]<ecart)t[i][cle]=t[i-1][cle]+ecart}
 function cpPente(rows,c){var p=cpPeriodes(rows,c);if(!p)return cpVide('Il faut deux années comparables.');var e=cpEcarts(p,c).filter(function(x){return x[1]!=null&&x[2]!=null});if(e.length<2)return cpVide();var W=cpW(c),H=Math.max(220,70+e.length*24),X1=54,X2=Math.round(W*.5),all=e.reduce(function(s,x){return s.concat([x[1],x[2]])},[]),mi=Math.min.apply(null,all),ma=Math.max.apply(null,all),et=ma-mi||1,uniq=all.filter(function(v,i){return all.indexOf(v)===i}),lab=cpEtiquettes(uniq,et/10),txt=function(v){return lab[uniq.indexOf(v)]};
   var y=function(v){return H-20-(v-mi)/et*(H-52)},L=e.map(function(x){return {nom:x[0],a:x[1],b:x[2],ya:y(x[1]),yb:y(x[2]),la:y(x[1])+4,lb:y(x[2])+4}});cpEspacer(L,'la',16);cpEspacer(L,'lb',16);
@@ -167,7 +175,12 @@ function cpHisto(rows,c){var t=cpTranches(rows,c);if(!t)return cpVide();var v=t.
   return '<div class="cp-hi">'+b.map(function(q,i){return '<i title="'+esc(fmt(mi+i*l)+' à '+fmt(mi+(i+1)*l)+' : '+q+' lignes')+'" style="height:'+(100*q/m).toFixed(1)+'%"></i>'}).join('')+'</div><div class="cp-hx"><span>'+esc(fmt(mi))+'</span><span>'+esc(fmt(ma))+'</span></div><p class="cp-note">Tranche la plus fournie : '+esc(fmt(mi+top*l))+' à '+esc(fmt(mi+(top+1)*l))+' ('+m+' lignes sur '+v.length+').</p>'}
 // ---- Titres-messages : les formules de `titres.py`, remplies à chaque rendu avec les variables calculées ici
 function cpRemplir(t,v){if(!t)return null;var ok=true,s=t.replace(/\{(\w+)\}/g,function(a,k){if(v[k]==null)ok=false;return String(v[k]).replace(/[{}]/g,'')});return ok?s.charAt(0).toUpperCase()+s.slice(1):null}
-function cpMessage(c,rows){try{var m=CP_MSG[c.type](c,rows);if(!m)return null;m.v.mesure=cpTete(c.mesure);return cpRemplir(c.formule,m.v)}catch(e){return null}}
+function cpMessage(c,rows){try{var m=CP_MSG[c.type](c,rows);if(!m)return null;m.v.mesure=cpTete(c.mesure);var t=cpRemplir(c.formule,m.v);return t&&m.note?t+'. '+m.note:t}catch(e){return null}}
+// Valeurs déclarées pour une mesure sur une période (cases résumées d'un gros fichier : leur effectif)
+function cpDeclarees(rows,c,k){return rows.reduce(function(s,r){if(!r.__p||pkey(r.__p)!==k)return s;if(META.cube){var v=num(r[c.mesure+'__v']);return s+(v||0)}return s+(num(r[c.mesure])!=null?1:0)},0)}
+// Une somme baisse aussi quand des lignes manquent : on le dit plutôt que d'annoncer une baisse qui n'en est peut-être pas une
+function cpNoteManques(c,rows,a,b,va,vb){if(!/^(somme|sum|compte|count|dernier)$/.test((c.agregation||'').toLowerCase()))return null;var na=cpDeclarees(rows,c,a),nb=cpDeclarees(rows,c,b);if(!na||nb>=na*.9)return null;
+  return 'Attention : moins de valeurs déclarées en '+plabel(b)+' ('+fmt(nb)+' contre '+fmt(na)+' en '+plabel(a)+')'+(vb<va?', la baisse peut venir des données manquantes':'')}
 function cpEvolution(a,b,c){var d=b-a;if(c.nature==='taux'&&Math.max(Math.abs(a),Math.abs(b))>2){var p=Math.round(Math.abs(d)*10)/10;return p?(d>0?'en hausse de ':'en baisse de ')+fmt(p)+' point'+(p>=2?'s':''):'sans changement'}
   if(a>0){var x=100*Math.abs(d)/a;return x>=.05?(d>0?'en hausse de ':'en baisse de ')+cpPct(x):'sans changement'}return d?(d>0?'en hausse de ':'en baisse de ')+fmt(Math.abs(d)):'sans changement'}
 function cpSigne(d){return (d>0?'+':d<0?'−':'')+cpVal(Math.abs(d))}
@@ -175,7 +188,7 @@ function cpComplet(rows,s){var n=s.length;if(n<2)return s;var d=s[n-1][0],L=gran
   return (META.partiel&&pkey(META.partiel)===d)||(gran!=='M'&&gran!=='D'&&compte(d)<compte(s[n-2][0]))?s.slice(0,n-1):s}
 function cpEcartMax(e){return e.reduce(function(m,x){return !m||Math.abs(x[1])>Math.abs(m[1])?x:m},null)}
 var CP_MSG={
-  courbe:function(c,r){var s=cpComplet(r,cpSerie(r,c)),n=s.length;if(n<2)return null;var a=s[n-2],b=s[n-1];return {v:{dernier:cpVal(b[1]),periode:plabel(b[0]),precedente:plabel(a[0]),evolution:cpEvolution(a[1],b[1],c)}}},
+  courbe:function(c,r){var s=cpComplet(r,cpSerie(r,c)),n=s.length;if(n<2)return null;var a=s[n-2],b=s[n-1];return {v:{dernier:cpVal(b[1]),periode:plabel(b[0]),precedente:plabel(a[0]),evolution:cpEvolution(a[1],b[1],c)},note:cpNoteManques(c,r,a[0],b[0],a[1],b[1])}},
   classement:function(c,r){var e=cpGroupes(r,c);if(e.length<2||e[0][1]===e[1][1])return null;return {v:{premier:label(e[0][0]),valeur:cpVal(e[0][1]),second:label(e[1][0]),valeur2:cpVal(e[1][1])}}},
   anneau:function(c,r){var e=cpGroupes(r,c,5).filter(function(x){return x[1]>0}),t=e.reduce(function(s,x){return s+x[1]},0);return e.length<2||!t?null:{v:{premier:label(e[0][0]),part:cpPct(100*e[0][1]/t)}}},
   treemap:function(c,r){var e=cpGroupes(r,c,40).filter(function(x){return x[1]>0}),t=e.reduce(function(s,x){return s+x[1]},0);return e.length<2||!t?null:{v:{premier:label(e[0][0]),part:cpPct(100*e[0][1]/t)}}},
@@ -221,7 +234,7 @@ function cpIndicateurs(el,o){var G=o.G,h=0,b=0,st=0,filtre=FCOLS.some(function(c
   [].forEach.call(el.querySelectorAll('.gaps-ctl .seg button'),function(b){b.onclick=function(){GAP.mode=b.dataset.m;cpIRendre('.gaps-ctl .seg button[data-m="'+b.dataset.m+'"]')}})}
 // Gros fichiers : les lignes de DATA sont des cases déjà résumées, et `agg` les additionne au lieu de compter des lignes
 if(META.cube){agg=function(rows,col,a){a=(a||'').toLowerCase();
-  if(a==='dernier'){var lp=null;rows.forEach(function(r){if(r.__p&&(lp==null||r.__p>lp))lp=r.__p});rows=rows.filter(function(r){return r.__p===lp});a='somme'}
+  if(a==='dernier'){var lp=null;rows.forEach(function(r){var m=r.__p?String(r.__p).slice(0,7):null;if(m&&(lp==null||m>lp))lp=m});rows=rows.filter(function(r){return r.__p&&String(r.__p).slice(0,7)===lp});a='somme'}
   var som=function(k){var s=null;rows.forEach(function(r){var v=num(r[k]);if(v!=null)s=(s||0)+v});return s},bout=function(k,f){var b=null;rows.forEach(function(r){var v=num(r[k]);if(v!=null)b=b==null?v:f(b,v)});return b};
   if(a==='compte'||a==='count'||!col)return col?som(col+'__n')||0:som('__n')||0;
   if(isRate(a)){var o=som(col+'__oui');if(o!=null){var t=som(col+'__n');return t?100*o/t:null}var e=som(col),q=som(col+'__v');if(e==null||!q)return null;return bout(col+'__ma',Math.max)<=1?100*e/q:e/q}
