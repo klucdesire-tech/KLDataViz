@@ -87,8 +87,9 @@ def test_detail_des_corrections(base, tmp_path):
     assert code == 200, c
     d = c["rapport"]["details"]
     assert d["doublons"]["groupes"][0]["lignes"] == [2, 4]  # n° de ligne du fichier, en-tête = 1
-    assert d["type:montant"]["non_convertibles"] == 1
-    assert d["type:montant"]["exemples_non_convertibles"][0] == {"ligne": 5, "valeur": "inconnu"}
+    # « 1 200,5 » est lu comme un nombre dès l'ouverture du fichier (lecture.py) : plus de correction de type à
+    # proposer ; « inconnu » (pas de donnée) est une case vide, que le nettoyage propose de compléter
+    assert "type:montant" not in d
     assert d["imput:montant"]["lignes"] == [5]
     os.remove(c["cleaned_path"])
 

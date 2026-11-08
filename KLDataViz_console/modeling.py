@@ -23,7 +23,8 @@ def to_dates(values):
     s = values if isinstance(values, pd.Series) else pd.Series(list(values))
     txt = s.astype(str).str.strip()
     iso = txt.str.match(_ISO_DATE)
-    out = pd.to_datetime(txt.where(~iso), errors="coerce", format="mixed", dayfirst=True)
+    import lecture  # « 04/23/2025 » prouve le mois en premier : tout le fichier est alors lu à l'anglaise
+    out = pd.to_datetime(txt.where(~iso), errors="coerce", format="mixed", dayfirst=lecture.ordre_dates(txt[~iso]) != "mois")
     if iso.any():
         out[iso] = pd.to_datetime(txt[iso], errors="coerce", format="mixed", dayfirst=False)
     return out

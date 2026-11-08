@@ -412,7 +412,29 @@ def _plabel(k: str, yearly: bool = False) -> str:
     return k[:4] if yearly else (f"{_MOIS_COURTS[int(k[5:7]) - 1]} {k[:4]}" if len(k) >= 7 else k)
 
 
+def _ordre_dates(textes):
+    """« jour » (03/04/2025 = 3 avril, usage français), « mois » si le fichier le prouve (04/23/2025), « melange »."""
+    m = textes.astype(str).str.extract(r"^\s*(\d{1,2})[/.-](\d{1,2})[/.-](\d{2,4})(?:\s|$)").dropna()
+    if m.empty:
+        return None
+    jour, mois = (m[0].astype(int) > 12).any(), (m[1].astype(int) > 12).any()
+    return "melange" if jour and mois else "mois" if mois else "jour"
+
+
 def _period(df):
+    """Période du fichier (voir _period_brute), sans les dates impossibles : une date de 2031 ou de 1899, erreur de
+    saisie déjà signalée par le bilan qualité, ne doit pas étirer la période affichée ni créer des mois vides. La
+    ligne reste dans les totaux ; elle n'est rattachée à aucune période."""
+    import datetime as _dt
+    col, ser = _period_brute(df)
+    if ser is None:
+        return col, ser
+    limite = (_dt.date.today() + _dt.timedelta(days=31)).strftime("%Y-%m")
+    garde = ser.map(lambda v: isinstance(v, str) and "1900-01" <= v[:7] <= limite)
+    return col, ser.where(garde, None)
+
+
+def _period_brute(df):
     """Première colonne de période (dates, « 2025-04 », « Avril 2025 ») → (nom, série « AAAA-MM ») ; (None, None) sinon."""
     import pandas as pd
     idlike = re.compile(r"(^|[\s_.])(n°|no|num(ero|éro)?|id|code|matricule|ref|référence|reference|labno|datim)($|[\s_.])", re.I)
@@ -446,12 +468,13 @@ def _period(df):
         # Dates ISO « 2025-08-01 » (fichiers nettoyés, exports) : jamais lues « jour en premier »
         # (sinon 2025-08-01 devient le 8 janvier et tous les mois s'écrasent sur janvier)
         iso = sample.str.match(r"^\d{4}-\d{2}-\d{2}").mean() >= 0.9
+        jour = not iso and _ordre_dates(s.dropna()) != "mois"  # « 04/23/2025 » prouve le mois en premier
         try:
-            dt = pd.to_datetime(sample, errors="coerce", format="mixed", dayfirst=not iso)
+            dt = pd.to_datetime(sample, errors="coerce", format="mixed", dayfirst=jour)
         except Exception:
             continue
         if dt.notna().mean() >= 0.9 and sample.str.contains(r"\d{4}|\d{1,2}[/-]\d{1,2}", regex=True).mean() >= 0.9:
-            full = pd.to_datetime(s.astype(str), errors="coerce", format="mixed", dayfirst=not iso)
+            full = pd.to_datetime(s.astype(str), errors="coerce", format="mixed", dayfirst=jour)
             return str(c), full.dt.strftime("%Y-%m-%d")
     return None, None
 

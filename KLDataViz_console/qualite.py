@@ -24,6 +24,8 @@ import re
 import numpy as np
 import pandas as pd
 
+import lecture
+
 VERSION = 1
 NORMES = "ISO/IEC 25012 et guide OMS de revue de la qualité des données"
 MAX_LIGNES = 20                      # numéros de ligne cités par constat
@@ -107,7 +109,8 @@ def _periode(df):
                 return str(c), pd.to_datetime(v.astype("Int64").astype(str) + "-01-01", errors="coerce")
             continue
         iso = t.str.match(r"^\d{4}-\d{2}(-\d{2})?").mean() >= 0.9
-        d = pd.to_datetime(s.astype(str).str.strip().where(s.notna()), errors="coerce", format="mixed", dayfirst=not iso)
+        jour = not iso and lecture.ordre_dates(t) != "mois"  # « 04/23/2025 » prouve le mois en premier
+        d = pd.to_datetime(s.astype(str).str.strip().where(s.notna()), errors="coerce", format="mixed", dayfirst=jour)
         if d.notna().sum() >= 0.8 * s.notna().sum():
             return str(c), d
     return None, None
@@ -130,11 +133,24 @@ def _note(constats):
 # ---------------------------------------------------------------- dimensions
 def _completude(df, nums):
     out, n = [], len(df)
+    # Valeurs écartées à la lecture (« trois cents » dans une colonne de nombres) : déjà signalées en validité, elles
+    # ne sont pas comptées une seconde fois comme cases vides
+    ecartees = {conv["colonne"]: conv for conv in df.attrs.get("lecture") or []}
     cellules = n * max(1, df.shape[1])
     vides_tot = 0
     for c in df.columns:
         s = df[c]
         vide, att = _vide(s), _attente(s)
+        if str(c) in ecartees:
+            conv = ecartees[str(c)]
+            lignes_ec = set(conv.get("positions_non_lues") or
+                            [ligne - 2 for ligne, _ in conv["exemples_ecartes"] + conv.get("exemples_attentes", [])])
+            vide = vide & ~pd.Series(range(n), index=df.index).isin(lignes_ec)
+            if conv.get("attentes"):
+                ex = ", ".join(sorted({v for _, v in conv["exemples_attentes"]})[:4])
+                out.append(_constat("attention", f"« {c} » : {conv['attentes']} valeur(s) qui veulent dire « pas de donnée »",
+                                    f"Valeurs : {ex}. Elles sont traitées comme des cases vides, jamais comptées comme des "
+                                    "nombres.", conv["attentes"], n, c, [l for l, _ in conv["exemples_attentes"]], "attente"))
         if vide.all():
             out.append(_constat("attention", f"Colonne « {c} » entièrement vide", "Elle ne sera pas analysée.",
                                 n, n, c, cle="colonne_vide"))
@@ -190,8 +206,24 @@ def _unicite(df, nums, dims, per_col, per=None):
     return out
 
 
+def _fr(x):
+    """1234.5 → « 1 234,5 » (espace fine, virgule décimale)."""
+    return f"{x:,.10g}".replace(",", "\u202f").replace(".", ",")
+
+
 def _validite(df, nums, per_col, per, aujourd_hui):
     out, n = [], len(df)
+    for conv in df.attrs.get("lecture") or []:  # nombres écrits en texte, convertis à la lecture (lecture.py)
+        c = conv["colonne"]
+        avant, apres = conv["exemple"]
+        out.append(_constat("info", f"« {c} » : {conv['convertis']} nombre(s) écrit(s) en texte, lu(s) comme des nombres",
+                            f"Ex. « {avant} » lu {_fr(apres)}. Ils comptent dans les totaux et les graphiques.",
+                            conv["convertis"], n, c, cle="nombre_converti"))
+        if conv["ecartees"]:
+            ex = conv["exemples_ecartes"]
+            out.append(_constat("grave", f"« {c} » : {conv['ecartees']} valeur(s) qui ne sont pas des nombres",
+                                f"Ex. « {ex[0][1]} ». Dans une colonne de nombres, elles sont écartées des calculs.",
+                                conv["ecartees"], n, c, [ligne for ligne, _ in ex], "texte_dans_nombres"))
     for c in df.columns:
         s = df[c]
         if c == per_col:
@@ -242,6 +274,17 @@ def _validite(df, nums, per_col, per, aujourd_hui):
                                     int(m.sum()), n, c, _lignes(m), "age"))
     if per_col is not None:
         brut = df[per_col]
+        if not pd.api.types.is_datetime64_any_dtype(brut):
+            ordre = lecture.ordre_dates(brut)
+            if ordre == "melange":
+                out.append(_constat("grave", f"« {per_col} » : dates écrites dans deux ordres",
+                                    "Certaines sont jour/mois (ex. 23/04/2025), d'autres mois/jour (ex. 04/23/2025) : une "
+                                    "date comme 03/04/2025 ne peut pas être lue sûrement. À uniformiser à la source.",
+                                    int(brut.notna().sum()), n, per_col, cle="dates_deux_ordres"))
+            elif ordre == "mois":
+                out.append(_constat("info", f"« {per_col} » : dates lues mois en premier",
+                                    "Le fichier écrit les dates à l'anglaise (ex. 04/23/2025 = 23 avril 2025) : elles sont "
+                                    "lues ainsi.", int(brut.notna().sum()), n, per_col, cle="dates_mois_premier"))
         illisible = per.isna() & ~_vide(brut)
         if illisible.any():
             out.append(_constat("attention", f"« {per_col} » : {int(illisible.sum())} date(s) illisible(s)",
