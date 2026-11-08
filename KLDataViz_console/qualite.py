@@ -34,7 +34,7 @@ ATTENTES = {"-", "--", "—", "n/a", "na", "nd", "n.d.", "?", ".", "néant", "ne
             "non renseigné", "non renseigne", "inconnu", "x"}
 ATTENTES_NUM = {-999, -9999, -99, 9999, 99999, 999999}
 OUI = {"oui", "non", "yes", "no", "o", "n", "vrai", "faux", "true", "false", "1", "0"}
-TOTAUX = re.compile(r"^(grand |sous[- ]?)?total(e?s?| général| general)?$|^ensemble$|^tous$|^toutes$|^global$", re.I)
+TOTAUX = re.compile(r"^(grand |sous[- ]?)?(total(e?s?| général| general)?|totaux)$|^ensemble$|^tous$|^toutes$|^global$", re.I)
 COMPTAGE = re.compile(r"(^|[_\s])(nombre|nb|effectif|cas|consultations?|visites?|naissances?|d[ée]c[eè]s|patients?|"
                       r"d[ée]pist[ée]s?|vaccin[ée]s?|accouchements?|[ée]l[eè]ves|quantit[ée]s?|stocks?|population|"
                       r"file_active|tx_\w+|hts_\w+|cpn\d?|tdr\w*|inscrits?|admis|clients?)($|[_\s])", re.I)

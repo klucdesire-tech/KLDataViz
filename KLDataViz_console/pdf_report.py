@@ -291,7 +291,7 @@ def interpret_chart(c):
     return " ".join(out)
 
 
-TOTAL_RE = re.compile(r"^\s*(sous[-\s]?)?total(e|s|aux)?(\s+g[ée]n[ée]ral)?\s*$|^\s*(ensemble|grand total|tous|all|global)\s*$", re.I)
+TOTAL_RE = re.compile(r"^\s*(sous[-\s]?)?tot(al(e|s)?|aux)(\s+g[ée]n[ée]ral)?\s*$|^\s*(ensemble|grand total|tous|all|global)\s*$", re.I)
 
 
 def drop_totals(charts):

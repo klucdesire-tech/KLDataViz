@@ -1468,7 +1468,7 @@ def _render_html(objective: str, data_json: str, kpi_defs: list, filter_cols: li
             .replace("__OBJECTIVE__", obj))
 
 
-TOTAL_LIGNE = re.compile(r"^\s*(sous[-\s]?|grand\s+)?total(e|s|aux)?(\s+g[ée]n[ée]ral)?\s*$|^\s*ensemble\s*$", re.I)
+TOTAL_LIGNE = re.compile(r"^\s*(sous[-\s]?|grand\s+)?tot(al(e|s)?|aux)(\s+g[ée]n[ée]ral)?\s*$|^\s*ensemble\s*$", re.I)
 
 
 def sans_lignes_de_total(df):
