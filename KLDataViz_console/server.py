@@ -54,6 +54,7 @@ import sources
 import shares
 import dhis2
 import formulaires
+import lecture
 import dictionnaire
 import journal
 import surveillance
@@ -312,8 +313,14 @@ def mark_agrege(path, on=True):
 
 
 def _read_df(file_path, sheet=None):
-    """Comme _read_df_raw, et réattache le drapeau « agrégé » d'un fichier dérivé (témoin .agrege)."""
+    """Comme _read_df_raw, avec les nombres écrits en texte lus comme des nombres (lecture.py), et réattache le drapeau
+    « agrégé » d'un fichier dérivé (témoin .agrege)."""
     df, err = _read_df_raw(file_path, sheet)
+    if df is not None:
+        try:
+            df = lecture.lire(df)  # « 1 234,5 », « 12 500 FCFA » : comptés partout, pas seulement après correction
+        except Exception as exc:  # noqa: BLE001 - la lecture d'origine reste utilisable
+            sys.stderr.write(f"[lecture] conversion des nombres impossible : {type(exc).__name__}\n")
     if df is not None and not file_path.startswith(("http://", "https://", "dhis2://", formulaires.KOBO, formulaires.ODK)) \
             and os.path.exists(file_path + AGREGE_SUFFIX):
         df.attrs["agrege"] = True
