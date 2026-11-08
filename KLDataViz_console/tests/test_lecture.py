@@ -52,6 +52,34 @@ def test_telephones_et_codes_jamais_convertis(L, colonne, valeurs):
     assert conv == [] and sortie[colonne].tolist() == valeurs          # zéro initial gardé, pas une mesure
 
 
+def test_premiere_valeur_non_numerique_garde_le_bilan(L):
+    """Relecture de la PR 198 : si la première valeur n'est pas un nombre, l'exemple de conversion ne doit pas être
+    vide (il faisait tomber tout le bilan qualité, précisément dans le cas à signaler)."""
+    df = L.lire(pd.DataFrame({"depenses": ["trois cents"] + ["1 %03d,5" % (100 + i) for i in range(29)]}))
+    conv = df.attrs["lecture"]
+    assert conv[0]["exemple"] == ["1 100,5", 1100.5] and conv[0]["exemples_ecartes"] == [(2, "trois cents")]
+    reset_app_modules()
+    import qualite  # noqa: PLC0415
+    b = qualite.bilan(df, aujourd_hui=dt.date(2025, 6, 15))
+    cles = {c["cle"] for d in b["dimensions"] for c in d["constats"]}
+    assert {"nombre_converti", "texte_dans_nombres"} <= cles
+
+
+def test_beaucoup_de_valeurs_ecartees_jamais_comptees_deux_fois(L):
+    """Plus de 20 valeurs écartées (au-delà des exemples gardés) : aucune n'est recomptée comme case vide."""
+    valeurs = ["1 %03d,5" % (100 + i % 900) for i in range(600)]
+    for i in range(0, 600, 24):                                 # 25 valeurs non numériques (4 %)
+        valeurs[i] = "à vérifier"
+    df = L.lire(pd.DataFrame({"depenses": valeurs}))
+    conv = df.attrs["lecture"]
+    assert conv[0]["ecartees"] == 25 and len(conv[0]["positions_non_lues"]) == 25
+    reset_app_modules()
+    import qualite  # noqa: PLC0415
+    b = qualite.bilan(df, aujourd_hui=dt.date(2025, 6, 15))
+    assert not any(c["cle"] == "vides" for d in b["dimensions"] for c in d["constats"])
+    assert next(c for d in b["dimensions"] for c in d["constats"] if c["cle"] == "texte_dans_nombres")["n"] == 25
+
+
 def test_zero_virgule_reste_un_nombre(L):
     df, conv = L.nombres(pd.DataFrame({"taux_moyen": ["0,5", "0,25", "1 200,5"]}))
     assert df["taux_moyen"].tolist() == [0.5, 0.25, 1200.5]

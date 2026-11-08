@@ -143,7 +143,8 @@ def _completude(df, nums):
         vide, att = _vide(s), _attente(s)
         if str(c) in ecartees:
             conv = ecartees[str(c)]
-            lignes_ec = {ligne - 2 for ligne, _ in conv["exemples_ecartes"] + conv.get("exemples_attentes", [])}
+            lignes_ec = set(conv.get("positions_non_lues") or
+                            [ligne - 2 for ligne, _ in conv["exemples_ecartes"] + conv.get("exemples_attentes", [])])
             vide = vide & ~pd.Series(range(n), index=df.index).isin(lignes_ec)
             if conv.get("attentes"):
                 ex = ", ".join(sorted({v for _, v in conv["exemples_attentes"]})[:4])

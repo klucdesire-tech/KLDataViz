@@ -82,14 +82,21 @@ def nombres(df):
         # notées (avec leur ligne) pour que le bilan qualité les signale comme telles
         attente = texte[texte.str.lower().isin(ATTENTES) & (texte != "")]
         attentes = [(int(df.index.get_loc(i)) + 2, str(attente[i])) for i in attente.index[:MAX_EXEMPLES]]
-        avant = next((str(v) for v in utile if str(v).strip() != str(_nombre(v, virgule))), str(utile.iloc[0]))
+        # Exemple de conversion pris parmi les valeurs CONVERTIES : une valeur écartée (« trois cents ») n'a pas de
+        # nombre à montrer (relecture de la PR 198 : un exemple vide faisait tomber tout le bilan qualité)
+        converties = [str(v) for v, x in zip(utile, valeurs) if pd.notna(x)]
+        avant = next((v for v in converties if v.strip() != str(_nombre(v, virgule))), converties[0])
         if sortie is None:
             sortie = df.copy()
             sortie.attrs = dict(df.attrs)
         sortie[c] = nouveau
         conversions.append({"colonne": str(c), "convertis": int(lus.sum()), "exemple": [avant, _nombre(avant, virgule)],
                             "ecartees": int((~lus).sum()), "exemples_ecartes": ecartees,
-                            "attentes": int(len(attente)), "exemples_attentes": attentes})
+                            "attentes": int(len(attente)), "exemples_attentes": attentes,
+                            # toutes les positions (pas seulement les exemples) : le bilan ne compte aucune d'elles
+                            # une seconde fois comme case vide
+                            "positions_non_lues": [int(df.index.get_loc(i)) for i in
+                                                   list(valeurs[~lus].index) + list(attente.index)]})
     return (df if sortie is None else sortie), conversions
 
 
