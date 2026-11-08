@@ -1198,7 +1198,7 @@ function renderDeclarations(D){const el=$('#qualDecl');el.hidden=!(D&&D.par_unit
   const tete=`<tr><th></th>${mois.map(m=>`<th>${court(m)}</th>`).join('')}<th></th></tr>`,pied=`<tr><th class="u">Reçus</th>${D.par_mois.slice(-mois.length).map(m=>`<td class="t" style="padding:0;text-align:center;font-size:10.5px">${Math.round(m.taux)}</td>`).join('')}<td class="t">${dec(D.taux)} %</td></tr>`;
   const vus=D.par_unite.slice(0,15),reste=D.par_unite.slice(15);
   el.innerHTML=`<h3 style="margin:18px 0 4px;font-size:15px">Déclarations reçues : ${dec(D.taux)} % (${nf(D.recues)} sur ${nf(D.attendues)})</h3>
-    <p class="sub" style="margin:0">${esc(D.methode)} ${D.dernier.manquants.length?`Au dernier mois (${esc(D.dernier.mois)}), pas encore de déclaration pour : ${esc(D.dernier.manquants.slice(0,8).join(', '))}${D.dernier.manquants.length>8?'…':''}.`:`Tous les ${esc(D.colonne)} ont déclaré le dernier mois (${esc(D.dernier.mois)}).`}</p>
+    <p class="sub" style="margin:0">${esc(D.methode)} ${D.dernier.manquants.length?`Au dernier mois (${esc(D.dernier.mois)}), pas encore de déclaration pour : ${esc(D.dernier.manquants.slice(0,8).join(', '))}${D.dernier.manquants.length>8?'…':''}.`:`Tous ont déclaré le dernier mois (${esc(D.dernier.mois)}).`}</p>
     <div class="qm"><table>${tete}${vus.map(ligne).join('')}${pied}</table></div>
     ${reste.length?`<details style="margin-top:6px"><summary class="sub" style="cursor:pointer">Voir les ${reste.length} autres ${esc(D.colonne)}</summary><div class="qm"><table>${tete}${reste.map(ligne).join('')}</table></div></details>`:''}
     ${D.unites_cachees?`<p class="sub">${D.unites_cachees} autres non affichés.</p>`:''}

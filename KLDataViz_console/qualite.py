@@ -311,12 +311,159 @@ def _coherence(df, dims, controles, nums=(), per=None):
     return out
 
 
-def _plausibilite(anomalies, n):
+def _plausibilite(anomalies, n, deja=()):
+    """Valeurs extrêmes de tout le fichier (IQR). Une colonne déjà lue site par site (`deja`) n'y passe plus : comparé à
+    tous les sites ensemble, un grand hôpital paraît « extrême » à chaque mois, sans aucune erreur."""
     out = []
     for a in anomalies or []:
+        if a["column"] in deja:
+            continue
         out.append(_constat("attention", f"« {a['column']} » : {a['count']} valeur(s) extrême(s)",
                             f"{a['detail']}. Erreur de saisie ou vrai pic : à vérifier à la source avant de conclure.",
                             a["count"], max(n, 1), a["column"], a.get("lignes"), "extremes"))
+    return out
+
+
+# ---------------------------------------------------------------- cohérence interne (guide OMS)
+ECARTS_TYPES = 3           # guide OMS : valeur extrême au-delà de 3 écarts-types de la moyenne du site
+ECART_MIN = 0.5            # et au moins 50 % d'écart à cette moyenne : un petit écart n'est pas une anomalie
+POINTS_MIN = 8             # mois nécessaires pour connaître l'habitude d'un site
+
+
+def _n(x):
+    return f"{x:,.0f}".replace(",", "\u202f")
+
+
+def _serie_extremes(v):
+    """Positions des valeurs d'une série (un site, une mesure) hors de son habitude (guide OMS) : à plus de 3 écarts-types
+    de la moyenne des AUTRES mois du site (la valeur testée n'élargit pas elle-même la plage), à au moins 50 % et 5 unités
+    de cette moyenne. Une saison qui revient (paludisme en saison des pluies) reste dans la plage des autres mois."""
+    x = v.dropna().astype(float)
+    if len(x) < POINTS_MIN:
+        return x.index[:0], None
+    tot, tot2, k = x.sum(), (x * x).sum(), len(x) - 1
+    moy = (tot - x) / k                                            # moyenne des autres mois
+    var = ((tot2 - x * x) - k * moy * moy) / max(k - 1, 1)         # leur variance
+    et = var.clip(lower=0) ** .5
+    if (x >= 0).all() and (x % 1 == 0).all():
+        # comptages (cas, consultations) : d'un mois à l'autre, ils varient au moins comme le hasard (loi de Poisson,
+        # écart-type = racine de la moyenne). Sans ce plancher, un petit centre serait « extrême » au moindre écart.
+        et = et.where(et >= moy.clip(lower=0) ** .5, moy.clip(lower=0) ** .5)
+    ecart = (x - moy).abs()
+    hors = (ecart > ECART_MIN * moy.abs().clip(lower=1)) & (ecart >= 5) & \
+        ((et > 0) & (ecart > ECARTS_TYPES * et) | (et == 0) & (ecart > moy.abs().clip(lower=1)))
+    q1, q3 = x.quantile(.25), x.quantile(.75)
+    return x.index[hors.values], (float(q1), float(q3), float(x.median()))
+
+
+def _extremes_temps(df, lieu, mois, nums, dims, index_complet):
+    """Valeurs hors de l'habitude de leur site (guide OMS, cohérence interne) : chaque site et chaque mesure ont leur
+    propre série dans le temps. Rend les constats et les colonnes lues ainsi."""
+    out, lues, n = [], set(), len(df)
+    # Une série = un site, plus les colonnes qui distinguent ses lignes d'un même mois (« indicateur » d'un export DHIS2).
+    # Une colonne qui change d'un mois à l'autre (rupture Oui/Non) ou qui suit le site (district) ne découpe rien.
+    groupe = [df[lieu].astype(str), mois.astype(str)]
+    cle = [lieu] + [d for d in dims if d != lieu and df[d].nunique() <= 60
+                    and not _texte(df[d].dropna()).isin(OUI).all()
+                    and (df.groupby(groupe, dropna=True)[d].nunique() > 1).any()]
+    for c in nums:
+        if IDENT.search(str(c)) or PERIODE.search(str(c)):
+            continue
+        v = pd.to_numeric(df[c], errors="coerce").where(~_attente(df[c]))
+        if v.nunique() <= 2:
+            continue
+        lues.add(str(c))
+        trouves, ex = [], None
+        for k, g in v.groupby([df[x].astype(str) for x in cle] + [mois], sort=False).sum(min_count=1).groupby(level=list(range(len(cle)))):
+            serie = g.droplevel(list(range(len(cle))))
+            hors, hab = _serie_extremes(serie)
+            for m in hors:
+                trouves.append((k if isinstance(k, tuple) else (k,), m, float(serie[m]), hab))
+        if not trouves:
+            continue
+        masque = pd.Series(False, index=df.index)
+        for k, m, _, _ in trouves:
+            sel = (mois == m)
+            for col, val in zip(cle, k):
+                sel &= df[col].astype(str) == val
+            masque |= sel
+        k, m, val, (q1, q3, med) = max(trouves, key=lambda t: abs(t[2] - t[3][2]) / max(abs(t[3][2]), 1))
+        fois = val / med if med else None
+        indice = (" (un zéro de trop ?)" if fois and 8 <= fois <= 12 else "")
+        out.append(_constat("attention", f"« {c} » : {len(trouves)} valeur(s) hors de l'habitude de leur {lieu}",
+                            f"Ex. {', '.join(k)}, {m.strftime('%m/%Y')} : {_n(val)} alors que la valeur habituelle est "
+                            f"de {_n(q1)} à {_n(q3)}{indice}. Erreur de saisie ou vrai pic : à vérifier à la source avant "
+                            "de conclure.", len(trouves), n, c,
+                            _lignes(index_complet.isin(masque[masque].index)), "extremes_site"))
+    return out, lues
+
+
+def _norme(c):
+    import unicodedata
+    t = unicodedata.normalize("NFKD", str(c)).encode("ascii", "ignore").decode().lower()
+    return re.sub(r"[^a-z0-9]+", "_", t).strip("_")
+
+
+# (nom, petit, grand, portée, gravité, pourquoi). Portée « ligne » : règle de définition, vraie sur chaque ligne.
+# Portée « site » : règle de cohorte (une femme fait sa CPN1 un mois, sa CPN4 plus tard) : vraie sur le total de la
+# période d'un site, pas forcément d'un mois à l'autre.
+REGLES = [
+    ("positifs ≤ testés", r"^(hts_tst_pos|positifs?|tests?_positifs?|depistes?_positifs?|cas_positifs?)$",
+     r"^(hts_tst|depistes?|testes?|tests?|tests?_realises?|personnes?_testees?)$", "ligne", "grave",
+     "on ne trouve pas plus de positifs que de personnes testées"),
+    ("TDR positifs ≤ TDR réalisés", r"^tdr_positifs?$", r"^tdr(_realises?)?$", "ligne", "grave",
+     "un test ne peut être positif que s'il a été réalisé"),
+    ("accouchements assistés ≤ accouchements", r"^accouchements?_assistes?$", r"^accouchements?(_total)?$", "ligne", "grave",
+     "les accouchements assistés font partie de tous les accouchements"),
+    ("marge ≤ chiffre d'affaires", r"^(marge|marge_brute|benefice)$", r"^(chiffre_(d_)?affaires?|ca|recettes?|ventes?)$", "ligne",
+     "grave", "une marge ne dépasse pas le chiffre d'affaires dont elle est tirée"),
+    ("cas confirmés ≤ tests réalisés", r"^cas_\w*confirmes?$", r"^(tdr_realises?|tests?_realises?)$", "ligne", "attention",
+     "sauf si d'autres examens (goutte épaisse) ont confirmé des cas"),
+    ("CPN4 ≤ CPN1", r"^cpn_?4$", r"^cpn_?1$", "site", "attention", "une femme ne fait sa 4e consultation qu'après la 1re"),
+    ("CPN3 ≤ CPN1", r"^cpn_?3$", r"^cpn_?1$", "site", "attention", "une femme ne fait sa 3e consultation qu'après la 1re"),
+    ("CPN2 ≤ CPN1", r"^cpn_?2$", r"^cpn_?1$", "site", "attention", "une femme ne fait sa 2e consultation qu'après la 1re"),
+    ("Penta3 ≤ Penta1", r"^(enfants_vaccines_)?penta_?3$", r"^(enfants_vaccines_)?penta_?1$", "site", "attention",
+     "un enfant ne reçoit la 3e dose qu'après la 1re"),
+    ("VPO3 ≤ VPO1", r"^(enfants_vaccines_)?vpo_?3$", r"^(enfants_vaccines_)?vpo_?1$", "site", "attention",
+     "un enfant ne reçoit la 3e dose qu'après la 1re"),
+    ("mis sous traitement ≤ positifs", r"^tx_new$", r"^hts_tst_pos$", "site", "attention",
+     "au-delà, des patients dépistés ailleurs ont été mis sous traitement ici : à vérifier"),
+]
+
+
+def _regles(df, nums, lieu, index_complet):
+    """Règles entre indicateurs liés, reconnues aux noms de colonnes. Une règle ne s'applique que si chaque côté
+    désigne une seule colonne (sinon on ne sait pas laquelle comparer)."""
+    out, n = [], len(df)
+    noms = {_norme(c): c for c in nums}
+    for nom, petit, grand, portee, gravite, pourquoi in REGLES:
+        a = [c for k, c in noms.items() if re.match(petit, k)]
+        b = [c for k, c in noms.items() if re.match(grand, k)]
+        if len(a) != 1 or len(b) != 1 or a[0] == b[0]:
+            continue
+        a, b = a[0], b[0]
+        va, vb = pd.to_numeric(df[a], errors="coerce"), pd.to_numeric(df[b], errors="coerce")
+        if portee == "ligne":
+            m = (va > vb) & va.notna() & vb.notna()
+            if m.any():
+                i = m.idxmax()
+                out.append(_constat(gravite, f"{int(m.sum())} ligne(s) ne respectent pas « {nom} »",
+                    f"Ex. « {a} » ({_n(va[i])}) plus grand que « {b} » ({_n(vb[i])}) : {pourquoi}.",
+                    int(m.sum()), n, a, _lignes(index_complet.isin(m[m].index)), "regle"))
+        else:
+            if lieu is not None:
+                sa = va.groupby(df[lieu].astype(str)).sum(min_count=1)
+                sb = vb.groupby(df[lieu].astype(str)).sum(min_count=1)
+            else:
+                sa, sb = pd.Series({"Ensemble": va.sum()}), pd.Series({"Ensemble": vb.sum()})
+            hors = (sa > sb) & sa.notna() & sb.notna()
+            if hors.any():
+                ex = hors[hors].index[0]
+                touches = df[lieu].astype(str).isin(hors[hors].index) if lieu is not None else pd.Series(True, index=df.index)
+                qui = f"{int(hors.sum())} {lieu}" if lieu is not None else "le fichier"
+                out.append(_constat(gravite, f"{nom} non respecté sur la période pour {qui}",
+                                    f"Ex. {ex} : {a} = {_n(sa[ex])}, {b} = {_n(sb[ex])} sur toute la période ; "
+                                    f"{pourquoi}.", int(touches.sum()), n, a, cle="regle"))
     return out
 
 
@@ -429,10 +576,18 @@ def bilan(df, anomalies=None, controles=None, aujourd_hui=None):
             and 1 < df[c].nunique(dropna=True) <= max(60, int(.5 * n))]
     comp, taux_rempli = _completude(df, nums)
     actu, suivi = _actualite(df, per_col, per, dims, aujourd_hui)
+    lieu = suivi["colonne"] if suivi else None
+    temps, lues = [], set()
+    if lieu is not None:  # fichier de rapport : chaque site a sa propre habitude dans le temps
+        mois_ok = per.where((per <= pd.Timestamp(aujourd_hui) + pd.Timedelta(days=31)) & (per >= pd.Timestamp("1900-01-01")))
+        reel = ~df[lieu].astype(str).str.strip().str.match(TOTAUX)
+        temps, lues = _extremes_temps(df[reel], lieu, mois_ok[reel].dt.to_period("M"), nums, dims, df.index)
+    regles = _regles(df[~df[lieu].astype(str).str.strip().str.match(TOTAUX)] if lieu is not None else df, nums, lieu,
+                     df.index)
     par_dim = {"completude": comp, "unicite": _unicite(df, nums, dims, per_col, per),
                "validite": _validite(df, nums, per_col, per, aujourd_hui),
-               "coherence": _coherence(df, dims, controles, nums, per),
-               "plausibilite": _plausibilite(anomalies, n), "actualite": actu}
+               "coherence": _coherence(df, dims, controles, nums, per) + regles,
+               "plausibilite": temps + _plausibilite(anomalies, n, lues), "actualite": actu}
     ordre = {"grave": 0, "attention": 1, "info": 2}
     dimensions = []
     for cle, nom in DIMENSIONS:
