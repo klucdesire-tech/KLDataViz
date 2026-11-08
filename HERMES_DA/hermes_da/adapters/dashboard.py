@@ -1102,7 +1102,9 @@ function grosNote(){var E=META.gros,k=document.getElementById('kpis');if(!E||doc
 function qualiteNote(){var Q=META.qualite,k=document.getElementById('kpis');if(!Q||document.getElementById('qualite-note'))return;
   var t=Q.graves?['#FDECEA','#E0533D']:Q.attentions?['#FFF4E0','#E8A33D']:['#E8F5EE','#1D7A4C'],d=document.createElement('div');d.id='qualite-note';
   d.style.cssText='background:'+t[0]+';border-left:4px solid '+t[1]+';border-radius:10px;padding:10px 14px;margin:0 0 14px;font-size:13.5px;line-height:1.45';
-  d.innerHTML='<b>Qualité des données : '+esc(Q.note)+' / 100</b> · '+esc(Q.resume)+((Q.principaux||[]).length?'<ul style="margin:6px 0 0;padding-left:18px">'+Q.principaux.map(function(c){return '<li>'+esc(c.titre)+' <span style="color:var(--muted)">('+esc(c.dimension)+')</span></li>'}).join('')+'</ul>':'')
+  var R=Q.declarations,dl=R?'<div style="margin-top:4px">Déclarations reçues : <b>'+fmt(R.taux)+' %</b> ('+fmt(R.recues)+' sur '+fmt(R.attendues)+')'
+    +(R.dernier&&R.dernier.manquants.length?' · '+esc(R.dernier.mois)+' : pas encore de déclaration pour '+esc(R.dernier.manquants.slice(0,5).join(', '))+(R.dernier.manquants.length>5?'…':''):'')+'</div>':'';
+  d.innerHTML='<b>Qualité des données : '+esc(Q.note)+' / 100</b> · '+esc(Q.resume)+dl+((Q.principaux||[]).length?'<ul style="margin:6px 0 0;padding-left:18px">'+Q.principaux.map(function(c){return '<li>'+esc(c.titre)+' <span style="color:var(--muted)">('+esc(c.dimension)+')</span></li>'}).join('')+'</ul>':'')
     +'<div style="color:var(--muted);font-size:12px;margin-top:4px">Sur tout le fichier, selon '+esc(Q.normes)+'. Détail dans l’écran « Vérifier ».</div>';
   k.parentNode.insertBefore(d,k)}
 function renderKpis(all){qualiteNote();grosNote();document.getElementById('kpis').innerHTML=KPIDEFS.slice(0,5).map(function(k,i){

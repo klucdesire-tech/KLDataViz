@@ -1070,7 +1070,10 @@ def _qualite_tableau(df):
     import qualite
     return {"note": b["note"], "resume": b["resume"], "graves": b["graves"], "attentions": b["attentions"],
             "normes": b["normes"], "principaux": [{"titre": c["titre"], "gravite": c["gravite"], "dimension": c["dimension"]}
-                                                  for c in qualite.principaux(b)]}
+                                                  for c in qualite.principaux(b, 4)
+                                                  if not (b.get("declarations") and c["cle"] == "declarations")][:3],
+            "declarations": {k: b["declarations"][k] for k in ("colonne", "taux", "recues", "attendues", "dernier")}
+            if b.get("declarations") else None}
 
 
 def _inference(df):

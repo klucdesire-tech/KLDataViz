@@ -156,6 +156,10 @@ td.r,th.r{text-align:right}
 .qdims{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin:10px 0 14px}
 .qd-h{display:flex;justify-content:space-between;gap:6px;font-size:13px}.qd-h span{color:var(--muted)}
 .qd-b{height:8px;border-radius:999px;background:var(--surface-2);margin-top:6px;overflow:hidden}.qd-b i{display:block;height:100%;border-radius:999px}
+.qm{overflow-x:auto;margin-top:10px}.qm table{border-collapse:separate;border-spacing:2px;font-size:12px}.qm th{font-weight:500;color:var(--muted);white-space:nowrap;padding:0 2px;text-transform:none;letter-spacing:0;font-size:12px}
+.qm th.u{text-align:left;max-width:180px;overflow:hidden;text-overflow:ellipsis;color:var(--fg)}.qm td{width:18px;height:18px;border-radius:4px;padding:0}
+.qm td.r{background:var(--brand)}.qm td.m{background:var(--red)}.qm td.n{background:var(--surface-2)}.qm td.t{width:auto;background:none;padding:0 6px;white-space:nowrap;font-variant-numeric:tabular-nums}
+.qm-l{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--muted);margin-top:8px}.qm-l span{display:inline-flex;align-items:center;gap:5px}.qm-l i{width:11px;height:11px;border-radius:3px;display:inline-block}
 .issue b{font-size:14px;display:block}.issue span{font-size:13px;color:var(--muted);overflow-wrap:anywhere}
 .fill{display:flex;align-items:center;gap:8px;min-width:130px}.fill .meter{flex:1}
 
@@ -508,6 +512,7 @@ tr.versions td{background:var(--surface-2);font-size:13px}
           <p class="sub" id="qualResume"></p>
           <div class="qdims" id="qualDims"></div>
           <div id="qualConstats"></div>
+          <div id="qualDecl" hidden></div>
         </div>
         <div class="card">
           <div class="toolbar"><h2>Corrections proposées</h2><span class="spacer"></span><button class="btn ghost sm" id="toggleAll"></button></div>
@@ -1184,7 +1189,20 @@ function renderQualite(Q){const c=$('#qualCard');if(!c)return;c.hidden=!Q;if(!Q)
   $('#qualDims').innerHTML=Q.dimensions.map(d=>`<div class="qd"><div class="qd-h"><b>${esc(d.nom)}</b><span class="num">${d.note==null?'non mesurée':d.note+' / 100'}</span></div><div class="qd-b"><i style="width:${d.note==null?0:d.note}%;background:${coul(d.statut)}"></i></div></div>`).join('');
   const ordre={grave:0,attention:1,info:2},tous=Q.dimensions.flatMap(d=>d.constats.map(x=>Object.assign({dim:d.nom},x))).sort((x,y)=>ordre[x.gravite]-ordre[y.gravite]);
   $('#qualConstats').innerHTML=tous.length?tous.map(x=>`<div class="issue"><span class="sev ${x.gravite==='info'?'info':''}" style="${x.gravite==='grave'?'background:var(--red)':''}"></span><div><b>${esc(x.titre)}</b><span>${esc(x.dim)} · ${esc(x.detail)}${(x.lignes||[]).length?` Ligne${x.lignes.length>1?'s':''} ${x.lignes.join(', ')}${x.n>x.lignes.length?'…':''}.`:''}</span></div></div>`).join('')
-    :`<div class="empty">${IC.check} Aucun problème relevé selon ces normes.</div>`}
+    :`<div class="empty">${IC.check} Aucun problème relevé selon ces normes.</div>`;
+  renderDeclarations(Q.declarations)}
+// Complétude des rapports (guide OMS) : un site par ligne, un mois par colonne, les moins complets d'abord
+function renderDeclarations(D){const el=$('#qualDecl');el.hidden=!(D&&D.par_unite);if(el.hidden)return;
+  const mois=D.mois,court=m=>m.slice(0,2)+'/'+m.slice(5),case_=c=>c==='1'?'r':c==='0'?'m':'n',titre=c=>c==='1'?'reçu':c==='0'?'manquant':'pas encore attendu';
+  const ligne=u=>`<tr><th class="u" title="${esc(u.unite)}">${esc(u.unite)}</th>${[...u.cases].map((c,i)=>`<td class="${case_(c)}" title="${esc(u.unite)}, ${mois[i]} : ${titre(c)}"></td>`).join('')}<td class="t">${dec(u.taux)} %</td></tr>`;
+  const tete=`<tr><th></th>${mois.map(m=>`<th>${court(m)}</th>`).join('')}<th></th></tr>`,pied=`<tr><th class="u">Reçus</th>${D.par_mois.slice(-mois.length).map(m=>`<td class="t" style="padding:0;text-align:center;font-size:10.5px">${Math.round(m.taux)}</td>`).join('')}<td class="t">${dec(D.taux)} %</td></tr>`;
+  const vus=D.par_unite.slice(0,15),reste=D.par_unite.slice(15);
+  el.innerHTML=`<h3 style="margin:18px 0 4px;font-size:15px">Déclarations reçues : ${dec(D.taux)} % (${nf(D.recues)} sur ${nf(D.attendues)})</h3>
+    <p class="sub" style="margin:0">${esc(D.methode)} ${D.dernier.manquants.length?`Au dernier mois (${esc(D.dernier.mois)}), pas encore de déclaration pour : ${esc(D.dernier.manquants.slice(0,8).join(', '))}${D.dernier.manquants.length>8?'…':''}.`:`Tous les ${esc(D.colonne)} ont déclaré le dernier mois (${esc(D.dernier.mois)}).`}</p>
+    <div class="qm"><table>${tete}${vus.map(ligne).join('')}${pied}</table></div>
+    ${reste.length?`<details style="margin-top:6px"><summary class="sub" style="cursor:pointer">Voir les ${reste.length} autres ${esc(D.colonne)}</summary><div class="qm"><table>${tete}${reste.map(ligne).join('')}</table></div></details>`:''}
+    ${D.unites_cachees?`<p class="sub">${D.unites_cachees} autres non affichés.</p>`:''}
+    <div class="qm-l"><span><i style="background:var(--brand)"></i>reçu</span><span><i style="background:var(--red)"></i>manquant</span><span><i style="background:var(--surface-2)"></i>pas encore attendu</span><span>Dernière ligne : % de rapports reçus chaque mois</span></div>`}
 function renderVerify(){
   const a=state.original;if(!a)return;
   const before=quality(new Set()),after=quality(state.accept);

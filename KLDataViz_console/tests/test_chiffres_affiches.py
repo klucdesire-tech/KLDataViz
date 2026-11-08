@@ -159,6 +159,23 @@ def test_ligne_total_jamais_additionnee():
     assert tuile["valeur"] == df[df["district"] != "Total"]["depistes"].sum()
 
 
+def test_phrase_nomme_le_site_qui_n_a_pas_declare(tmp_path):
+    """Avec le bilan qualité (colonne des sites connue), la phrase nomme la zone qui manque, filtre compris."""
+    reset_app_modules()
+    sys.path.insert(0, os.path.join(APP, "..", "HERMES_DA"))
+    from hermes_da.adapters.dashboard import generate_dashboard  # noqa: PLC0415
+    q = {"note": 95, "resume": "", "graves": 0, "attentions": 1, "normes": "", "principaux": [],
+         "declarations": {"colonne": "zone", "taux": 99.0, "recues": 101, "attendues": 102,
+                          "dernier": {"mois": "05/2025", "manquants": ["Zone C"]}}}
+    html = generate_dashboard(P.trous(), "", llm=False, dictionnaire=[], composition=True, qualite=q)["html"]
+    sans, avec = _releves(tmp_path, html, [{}, {"filtres": {"zone": "Zone A"}}])
+    courbe = next(c for c in sans["cartes"] if c["type"] == "courbe")
+    assert "Zone C : pas de déclaration en mai 25 (5 sur 6)" in courbe["texte"]
+    assert "la baisse peut venir de ce manque" in courbe["texte"]
+    courbe_a = next(c for c in avec["cartes"] if c["type"] == "courbe")
+    assert "pas de déclaration" not in (courbe_a["texte"] or "")          # Zone A a bien déclaré : rien à signaler
+
+
 def test_baisse_due_a_un_manque_le_dit(tmp_path):
     rel = _releves(tmp_path, _page(P.trous()), [{}])[0]
     courbe = next(c for c in rel["cartes"] if c["type"] == "courbe")
