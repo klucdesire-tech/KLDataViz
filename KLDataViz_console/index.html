@@ -530,8 +530,12 @@ tr.versions td{background:var(--surface-2);font-size:13px}
           <div class="rc-add" id="recAjout"></div>
           <p id="recMsg" class="sub" style="margin:10px 0 0"></p>
           <details style="margin-top:8px"><summary class="sub" style="cursor:pointer">Aperçu du tableau obtenu</summary><div class="rc-tab" id="recApercu"></div></details>
+          <div id="recM" hidden style="margin-top:10px"><p class="sub" style="margin:0 0 6px">Requête Power Query : dans Excel, <b>Données → Obtenir des données → Autres sources → Requête vide → Éditeur avancé</b>, collez-la, puis ajustez le chemin du fichier en tête.</p>
+            <textarea id="recMTexte" readonly spellcheck="false" wrap="off" style="width:100%;min-height:220px;font:12px/1.45 ui-monospace,Consolas,monospace;border:1px solid var(--line);border-radius:10px;padding:10px;background:var(--surface-2);color:var(--fg)"></textarea>
+            <div class="toolbar" style="gap:8px;margin-top:6px"><span class="spacer"></span><button class="btn ghost sm" id="recMCopier">Copier</button><button class="btn sm" id="recMTelecharger">Télécharger (.pq)</button></div></div>
           <div class="toolbar" style="margin-top:12px;gap:8px"><span class="spacer"></span>
             <button class="btn ghost sm" id="recSuppr" hidden>Supprimer la recette</button>
+            <button class="btn ghost sm" id="recExportM" title="Requête Power Query (M) pour Excel ou Power BI">Exporter en Power Query</button>
             <button class="btn primary sm" id="recEnreg">Enregistrer la recette et réanalyser</button></div>
         </div>
         <div class="card">
@@ -1296,6 +1300,13 @@ $('#recEnreg').onclick=async()=>{const R=state.recette;if(!R)return;const b=$('#
   const d=await api('/api/recette/enregistrer',{file_path:R.path,etapes:R.etapes});b.disabled=false;
   if(d.error){toast(d.error);return}
   toast('Recette enregistrée : elle sera rejouée sur les prochains fichiers de même forme.');startRun(R.path,R.name)};
+$('#recExportM').onclick=async()=>{const R=state.recette;if(!R)return;
+  const d=await api('/api/recette/export_m',{file_path:R.path,etapes:R.etapes});
+  if(d.error){toast(d.error);return}
+  R.m=d;$('#recM').hidden=false;$('#recMTexte').value=d.m;$('#recMTexte').scrollIntoView({block:'nearest'})};
+$('#recMCopier').onclick=async()=>{try{await navigator.clipboard.writeText($('#recMTexte').value);toast('Requête copiée.')}catch(e){$('#recMTexte').select();toast('Sélectionnée : copiez avec Ctrl+C.')}};
+$('#recMTelecharger').onclick=()=>{const R=state.recette;if(!R?.m)return;const a=document.createElement('a');
+  a.href=URL.createObjectURL(new Blob([R.m.m],{type:'text/plain;charset=utf-8'}));a.download=R.m.nom;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000)};
 $('#recSuppr').onclick=async()=>{const R=state.recette;if(!R||!confirm('Supprimer la recette ? Les prochains fichiers de cette forme seront lus tels qu’ils arrivent.'))return;
   const d=await api('/api/recette/supprimer',{file_path:R.path});if(d.error){toast(d.error);return}
   toast('Recette supprimée.');startRun(R.path,R.name)};

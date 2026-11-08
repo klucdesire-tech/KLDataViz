@@ -27,7 +27,7 @@ MOIS_PAR = {"Q": 3, "Y": 12}
 
 
 # ---------------------------------------------------------------- calculs de base
-TOTAL = re.compile(r"^\s*(sous[-\s]?|grand\s+)?total(e|s|aux)?(\s+g[ée]n[ée]ral)?\s*$|^\s*ensemble\s*$", re.I)
+TOTAL = re.compile(r"^\s*(sous[-\s]?|grand\s+)?tot(al(e|s)?|aux)(\s+g[ée]n[ée]ral)?\s*$|^\s*ensemble\s*$", re.I)
 
 
 def preparer(df):

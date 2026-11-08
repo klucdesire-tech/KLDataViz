@@ -24,7 +24,7 @@ import pandas as pd
 VERSION = 1
 MAX_ETAPES = 40
 _verrou = threading.Lock()
-TOTAL = re.compile(r"^\s*(sous[-\s]?|grand\s+)?total(e|s|aux)?(\s+g[ée]n[ée]ral)?\b|^\s*ensemble\s*$", re.I)
+TOTAL = re.compile(r"^\s*(sous[-\s]?|grand\s+)?tot(al(e|s)?|aux)(\s+g[ée]n[ée]ral)?\b|^\s*ensemble\s*$", re.I)
 MOIS = ["janv", "fev", "mars", "avr", "mai", "juin", "juil", "aout", "sept", "oct", "nov", "dec",
         "jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep"]
 _MOIS_RE = re.compile(r"^(" + "|".join(sorted(MOIS, key=len, reverse=True)) + r")[a-z]*\.?(\s*[-/ ]?\s*(\d{2}|\d{4}))?$")

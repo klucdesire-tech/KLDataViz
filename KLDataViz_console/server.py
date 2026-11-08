@@ -523,7 +523,7 @@ def report_checks(df):
     return out
 
 
-TOTAL_LABEL = re.compile(r"^\s*(sous[-\s]?)?total(e|s|aux)?(\s+g[ée]n[ée]ral)?\s*$|^\s*(ensemble|grand total)\s*$", re.I)
+TOTAL_LABEL = re.compile(r"^\s*(sous[-\s]?)?tot(al(e|s)?|aux)(\s+g[ée]n[ée]ral)?\s*$|^\s*(ensemble|grand total)\s*$", re.I)
 _MOIS = {"janv": 1, "jan": 1, "fev": 2, "fevr": 2, "feb": 2, "mars": 3, "mar": 3, "avr": 4, "apr": 4, "mai": 5, "may": 5,
          "juin": 6, "jun": 6, "juil": 7, "jul": 7, "aout": 8, "aug": 8, "sept": 9, "sep": 9, "oct": 10, "nov": 11,
          "dec": 12}
@@ -1512,6 +1512,26 @@ def _apercu(df):
                                                               for r in t.itertuples(index=False)], "total": int(len(df))}
 
 
+def _source_m(file_path, df, sheet=None):
+    """La source telle que KLDataViz l'a lue, pour la requête Power Query : feuille, lignes de titre sautées, séparateur
+    et encodage d'un CSV. Le chemin est le nom du fichier : à ajuster dans Excel (le chemin du serveur n'a pas de sens
+    sur le poste de l'utilisateur)."""
+    nom = source_label(file_path)
+    ext = os.path.splitext(str(file_path).split("?")[0])[1].lower()
+    if ext in (".xlsx", ".xls", ".xlsm") and os.path.exists(file_path):
+        feuille = sheet or df.attrs.get("feuille") or data_architect.best_sheet(file_path)
+        if isinstance(feuille, int):
+            feuille = pd.ExcelFile(file_path).sheet_names[feuille]
+        h = _header_row(pd.read_excel(file_path, sheet_name=feuille, header=None, nrows=20, dtype=str))
+        return {"type": "excel", "feuille": feuille, "entete": int(h or 0), "chemin": nom + ext}
+    if ext == ".csv" and os.path.exists(file_path):
+        opts = _csv_options(file_path)
+        h = _header_row(pd.read_csv(file_path, header=None, nrows=20, dtype=str, on_bad_lines="skip", **opts))
+        return {"type": "csv", "separateur": opts.get("sep") or ",", "encodage": opts.get("encoding") or "utf-8",
+                "entete": int(h or 0), "chemin": nom + ext}
+    return {"type": "csv", "separateur": ",", "encodage": "utf-8", "entete": 0, "chemin": nom}
+
+
 def recette_action(action, p):
     """Recettes de transformation : proposer, essayer, enregistrer, supprimer (voir recettes.py). Le fichier est lu
     AVANT toute recette mémorisée : on compose la recette sur le fichier tel qu'il arrive."""
@@ -1526,6 +1546,17 @@ def recette_action(action, p):
     dossier = _dossier_recettes()
     if action == "supprimer":
         return {"supprimee": recettes.supprimer(dossier, brut)}
+    if action == "export_m":
+        import recettes_m
+        etapes = p.get("etapes") or (recettes.trouver(dossier, brut) or {}).get("etapes") or []
+        try:
+            recettes.appliquer(brut, etapes)          # une recette qui ne s'applique pas ne s'exporte pas
+            texte = recettes_m.vers_m(etapes, _source_m(file_path, brut, p.get("sheet")), source_label(file_path))
+        except recettes.Erreur as exc:
+            return {"error": str(exc)}
+        base_nom = os.path.splitext(os.path.basename(source_label(file_path)))[0] or "fichier"
+        propre = re.sub(r"[^\w-]+", "_", base_nom)
+        return {"m": texte, "nom": f"recette_{propre}.pq"}
     memo = recettes.trouver(dossier, brut) if dossier else None
     etapes = p.get("etapes") if action != "proposer" else (memo or {}).get("etapes") or recettes.proposer(brut)
     if not isinstance(etapes, list):
@@ -4266,7 +4297,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             res = dictionnaire.importer(data, str(p.get("name") or ""))
             journal.ajouter("dictionnaire d'indicateurs importé", details={"nom": res.get("nom")})
             return self._send(200, res)
-        if path.startswith("/api/recette/") and path.rsplit("/", 1)[1] in ("proposer", "essayer", "enregistrer", "supprimer"):
+        if path.startswith("/api/recette/") and path.rsplit("/", 1)[1] in ("proposer", "essayer", "enregistrer", "supprimer",
+                                                                           "export_m"):
             action = path.rsplit("/", 1)[1]
             res = recette_action(action, p)
             if action in ("enregistrer", "supprimer") and not res.get("error"):
