@@ -1041,7 +1041,8 @@ def analyze(file_path):
         "columns_detail": columns,
         "numeric_stats": num_stats,
         "categorical_top": cat_top,
-        "correlations": [{"a": a, "b": b, "r": round(r, 3)} for a, b, r in corr_pairs],
+        # r gardé à 6 décimales : arrondi à 3 puis affiché à 2, 0,9654 devenait 0,965 puis « 0,96 » au lieu de « 0,97 »
+        "correlations": [{"a": a, "b": b, "r": round(r, 6)} for a, b, r in corr_pairs],
         "anomalies": anomalies,
         "bivariate": bivariate_stats(df),
         **_inference(df),

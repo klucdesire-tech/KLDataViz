@@ -336,7 +336,7 @@ def bivariate_stats(df: pd.DataFrame):
                 if pd.notna(r):
                     out["correlations"].append({
                         "a": str(cm.columns[i]), "b": str(cm.columns[j]),
-                        "r": round(r, 3),
+                        "r": round(r, 6),  # affiché à 2 décimales : arrondir à 3 avant faussait 0,9654 en « 0,96 »
                         "force": ("forte" if abs(r) >= 0.7 else
                                   "modérée" if abs(r) >= 0.4 else "faible"),
                     })
