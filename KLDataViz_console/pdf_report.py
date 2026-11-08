@@ -176,9 +176,11 @@ def file_type(name):
 # --------------------------------------------------------------------------- #
 # Interprétations (règles, uniquement à partir des chiffres de l'analyse)
 # --------------------------------------------------------------------------- #
-def _vals(chart, i=0):
+def _vals(chart, i=0, vides=False):
+    """Valeurs d'une série. Un trou (période sans valeur) vaut 0 pour les sommes de parts, mais `vides=True` le garde
+    vide : une évolution ne doit pas lire « niveau le plus bas : 0 » pour un mois non déclaré."""
     try:
-        return [float(x) if x is not None else 0.0 for x in chart["values"][i]]
+        return [float(x) if x is not None else (None if vides else 0.0) for x in chart["values"][i]]
     except (KeyError, IndexError, TypeError, ValueError):
         return []
 
@@ -189,11 +191,15 @@ def interpret_chart(c):
     names = c.get("seriesNames") or []
     out = []
     if kind == "trend" and typ == "line":
+        labels_tous = labels
         for i, name in enumerate(names[:3]):
-            v = _vals(c, i)
+            brut = _vals(c, i, vides=True)
+            garde = [j for j, x in enumerate(brut) if x is not None]
+            v = [brut[j] for j in garde]
             if len(v) < 2:
                 continue
-            raw = [str(x) for x in (c.get("labels") or [])]
+            labels = [labels_tous[j] for j in garde if j < len(labels_tous)]
+            raw = [str((c.get("labels") or [])[j]) for j in garde if j < len(c.get("labels") or [])]
             monthly = len(v) >= 13 and len(raw) == len(v) and all(re.fullmatch(r"\d{4}-\d{2}", x) for x in raw)
             # Données mensuelles sur plus d'un an : comparer au même mois de l'année précédente (une récolte, une
             # saison des pluies ne sont pas une « baisse » quand on compare octobre à septembre)

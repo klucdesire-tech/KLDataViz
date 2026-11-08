@@ -587,6 +587,60 @@ def _with_rule_readings(charts):
     return out
 
 
+# Remise à plat de l'analyse : noms EXACTS seulement. Les listes larges du tableau de bord (« code », « libellé »,
+# « montant », « total ») pivotaient à tort un fichier « code + libellé + mois + montant » et effaçaient la mesure
+# (relecture de Hermes, PR 200).
+_IND_STRICT = {"indicateur", "indicateurs", "indicator", "indicators", "dataelement", "data_element", "element",
+               "element_de_donnees", "indicateur_dhis2"}
+_VAL_STRICT = {"valeur", "valeurs", "value", "values"}
+_PAS_UNE_MESURE = re.compile(r"(^|[_\s])(id|code|key|ref|numero|num|uid|annee|année|year|an|mois|month|periode|période|"
+                             r"trimestre|quarter|semaine|week|date|jour|day)($|[_\s])", re.I)
+
+
+def _nom_simple(c):
+    import unicodedata
+    t = unicodedata.normalize("NFKD", str(c)).encode("ascii", "ignore").decode().lower().strip()
+    return re.sub(r"[^a-z0-9]+", "_", t).strip("_")
+
+
+def _pivot_indicateurs(d, ic, vc):
+    """Une colonne par indicateur ; une valeur absente reste vide (jamais 0)."""
+    dims = [c for c in d.columns if c not in (ic, vc)]
+    d = d.assign(**{vc: pd.to_numeric(d[vc], errors="coerce"), ic: d[ic].astype(str).str.strip()})
+    if not dims:
+        wide = d.groupby(ic)[vc].sum(min_count=1).to_frame().T.reset_index(drop=True)
+    else:
+        d[dims] = d[dims].fillna("")
+        wide = d.pivot_table(index=dims, columns=ic, values=vc, aggfunc=lambda x: x.sum(min_count=1),
+                             dropna=False).reset_index()
+        wide = wide.dropna(how="all", subset=[c for c in wide.columns if c not in dims])
+    wide.columns.name = None
+    return wide
+
+
+def _remise_a_plat(df):
+    """Indicateurs mêlés dans une même colonne de nombres : une colonne par indicateur, avant les graphiques.
+    - export DHIS2 long (« indicateur » + « valeur ») ;
+    - « indicateur » en lignes et une colonne par site (« Site A », « Site B ») : les sites deviennent une dimension.
+    Les colonnes qui ne sont pas des mesures (année, identifiant, période) ne sont jamais remises à plat ; sans préfixe
+    commun aux colonnes de mesure, rien n'est fait (pas de dimension « colonne » qui mélangerait des mesures)."""
+    ic = next((c for c in df.columns if _nom_simple(c) in _IND_STRICT and 2 <= df[c].nunique(dropna=True) <= 80), None)
+    if ic is None:
+        return df
+    vc = next((c for c in df.columns if c != ic and _nom_simple(c) in _VAL_STRICT and pd.api.types.is_numeric_dtype(df[c])),
+              None)
+    if vc is not None:
+        return _pivot_indicateurs(df, ic, vc)
+    mesures = [c for c in df.columns if c != ic and pd.api.types.is_numeric_dtype(df[c]) and not pd.api.types.is_bool_dtype(df[c])
+               and not _PAS_UNE_MESURE.search(str(c))]
+    prefixe = os.path.commonprefix([str(c) for c in mesures]).strip(" _-") if len(mesures) >= 2 else ""
+    if len(prefixe) < 3 or prefixe in df.columns:
+        return df
+    long = df.melt(id_vars=[c for c in df.columns if c not in mesures], value_vars=mesures, var_name=prefixe,
+                   value_name="__valeur__")
+    return _pivot_indicateurs(long, ic, "__valeur__")
+
+
 def _smart_charts(df, max_charts=6):
     """Graphiques « décisionnels » choisis automatiquement : évolution dans le temps, classement par
     groupe (avec ligne de moyenne), répartition, distribution et relation. Chaque graphique porte
@@ -595,23 +649,8 @@ def _smart_charts(df, max_charts=6):
     # Export « long » (DHIS2 : indicateur + valeur) : une colonne par indicateur, comme le tableau de bord. Sinon
     # « Valeur par unité d'organisation » additionnait des indicateurs différents (testés + positifs + file active).
     try:
-        hermes_da_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "HERMES_DA")
-        if hermes_da_dir not in sys.path:
-            sys.path.insert(0, hermes_da_dir)
-        from hermes_da.adapters.dashboard import _IND_COLS, _col, _long_to_wide
-        df, pivote = _long_to_wide(df)
-        ic = None if pivote else _col(df, _IND_COLS)
-        mesures = [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c])]
-        if ic is not None and 2 <= df[ic].nunique() <= 80 and len(mesures) >= 2:
-            # Une colonne « indicateur » et une colonne par site (« Site A », « Site B ») : chaque colonne mêle
-            # plusieurs indicateurs (dépistés + positifs). Les colonnes deviennent une dimension, chaque indicateur
-            # une mesure.
-            prefixe = os.path.commonprefix([str(c) for c in mesures]).strip(" _-")
-            dim = prefixe if len(prefixe) >= 3 and prefixe not in df.columns else "colonne"
-            long = df.melt(id_vars=[c for c in df.columns if c not in mesures], value_vars=mesures, var_name=dim,
-                           value_name="valeur")
-            df, _ = _long_to_wide(long)
-    except Exception as exc:  # noqa: BLE001 - la lecture d'origine reste utilisable
+        df = _remise_a_plat(df)
+    except Exception as exc:  # noqa: BLE001 - df n'est remplacé qu'en cas de succès : la lecture d'origine reste
         sys.stderr.write(f"[analyse] remise à plat impossible : {type(exc).__name__}\n")
     # Les lignes de cumul (« Total », « Ensemble ») ne sont pas des catégories : elles doubleraient les sommes.
     txt = [c for c in df.columns if not pd.api.types.is_numeric_dtype(df[c])]
@@ -645,8 +684,9 @@ def _smart_charts(df, max_charts=6):
     num = [c for c in numeric_all if not id_hint.search(str(c)) and df[c].nunique() > 1 and not is_year(df[c])]
     # Une cible, un budget, une prévision ou une population de référence servent à juger une réalisation : jamais la
     # mesure principale. Classées au total, elles passaient devant (ventes : « objectif » avant le chiffre d'affaires).
-    reference = re.compile(r"objectif|cible|target|budget|pr[ée]vision|pr[ée]visionnel|quota|attendu|planifi|(^|_)plan($|_)|"
-                           r"seuil|norme|(^|_)ref($|_)|r[ée]f[ée]rence|population|denominateur|d[ée]nominateur|estim", re.I)
+    reference = re.compile(r"objectif|(^|_)cibles?($|_)|population_?cible|target|budget(?!_?(execut|consomm|realis|depens))|"
+                           r"pr[ée]vision|quota|attendu|planifi|(^|_)plan($|_)|seuil|norme|r[ée]f[ée]rence|"
+                           r"population_?(desservie|totale|de_reference|attendue)|d[ée]nominateur", re.I)
     num.sort(key=lambda c: (bool(reference.search(str(c))), -round(df[c].notna().mean(), 1), -float(df[c].abs().sum())))
 
     # Grandeurs « par unité » ou individuelles : un prix, un âge, une note, un délai, une charge virale ne
@@ -763,7 +803,7 @@ def _smart_charts(df, max_charts=6):
             aggs.append("count")
         for m in metrics:
             a = agg_of(m)
-            vals.append(series(getattr(g[m], a)()))
+            vals.append(series(g[m].sum(min_count=1) if a == "sum" else getattr(g[m], a)()))
             names.append(_pretty(m))
             aggs.append(a)
         labels = [str(k) for k in g.size().index]
@@ -824,7 +864,8 @@ def _smart_charts(df, max_charts=6):
             break
         a = agg_of(m)
         src, pre = frame_for(m)
-        g = getattr(src.groupby(cat)[m], a)().dropna().sort_values(ascending=False)
+        g = (src.groupby(cat)[m].sum(min_count=1) if a == "sum" else getattr(src.groupby(cat)[m], a)()).dropna() \
+            .sort_values(ascending=False)
         if len(g) < 2 or (g != 0).sum() < 2:  # une seule catégorie non nulle : rien à comparer
             continue
         if a != "sum" and float(g.max() - g.min()) <= 0.02 * abs(float(g.mean())):
@@ -859,7 +900,7 @@ def _smart_charts(df, max_charts=6):
         c = small[0]
         src, pre = frame_for(num[0]) if num else (df, "")
         if num and agg_of(num[0]) == "sum":
-            g = src.groupby(c)[num[0]].sum().sort_values(ascending=False)
+            g = src.groupby(c)[num[0]].sum(min_count=1).dropna().sort_values(ascending=False)
             title = f"Répartition de {_pretty_min(num[0])} par {_pretty_min(c)}"
         else:
             g = df[c].value_counts()
