@@ -67,6 +67,8 @@ def test_recette_proposee_donne_la_table_attendue(R, tmp_path):
     brut, _ = server._read_df_raw(_classeur(str(tmp_path / "mars.xlsx")))
     etapes = recettes.proposer(brut)
     assert [e["op"] for e in etapes] == ["recopier_bas", "retirer_lignes", "depivoter"], etapes
+    assert etapes[0]["colonnes"] == ["District"]                          # « Centre » n'a qu'une case vide : pas fusionnée
+    assert recettes.libelle(etapes[1]) == "Retirer les lignes de total et de sous-total"
     df, journal = recettes.appliquer(brut, etapes)
     _comme_attendu(df, _attendu())
     assert journal[0]["libelle"].startswith("Recopier vers le bas « District »")

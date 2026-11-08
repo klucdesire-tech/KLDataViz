@@ -40,6 +40,12 @@ def _norme(t):
     return re.sub(r"\s+", " ", t)
 
 
+def _txt(x):
+    """Texte sûr d'une colonne ou d'un tableau : une case vide devient « », jamais NaN (pandas 3 garde NaN dans une
+    colonne de texte, même après astype(str))."""
+    return x.astype(object).where(x.notna(), "").astype(str)
+
+
 def _colonnes(df, noms, etape):
     absentes = [c for c in noms if c not in df.columns]
     if absentes:
@@ -50,7 +56,7 @@ def _colonnes(df, noms, etape):
 # ---------------------------------------------------------------- opérations
 def _recopier_bas(df, e):
     cols = _colonnes(df, e["colonnes"], e)
-    vide = df[cols].isna() | df[cols].astype(str).apply(lambda s: s.str.strip() == "")
+    vide = df[cols].isna() | _txt(df[cols]).apply(lambda s: s.str.strip() == "")
     out = df.copy()
     out[cols] = df[cols].mask(vide).ffill()
     return out, int((vide & out[cols].notna()).sum().sum())
@@ -68,13 +74,13 @@ def _depivoter(df, e):
     nom, val = e.get("nom") or "attribut", e.get("valeur") or "valeur"
     long = df.melt(id_vars=ident, value_vars=valeurs, var_name=nom, value_name=val)
     if not e.get("garder_vides", False):
-        long = long[long[val].notna() & (long[val].astype(str).str.strip() != "")]
+        long = long[long[val].notna() & (_txt(long[val]).str.strip() != "")]
     return long.reset_index(drop=True), len(valeurs)
 
 
 def _masque(df, e):
     if e.get("vides"):
-        return df.isna().all(axis=1) | df.astype(str).apply(lambda s: s.str.strip().isin(["", "nan", "None"])).all(axis=1)
+        return df.isna().all(axis=1) | _txt(df).apply(lambda s: s.str.strip().isin(["", "nan", "None"])).all(axis=1)
     rx = re.compile(e.get("motif") or "", re.I) if e.get("motif") else None
     cols = _colonnes(df, [e["colonne"]], e) if e.get("colonne") else [c for c in df.columns if df[c].dtype == object
                                                                          or pd.api.types.is_string_dtype(df[c])]
@@ -82,10 +88,10 @@ def _masque(df, e):
         return pd.Series(False, index=df.index)
     if e.get("valeurs") is not None:
         cibles = {_norme(v) for v in e["valeurs"]}
-        return df[cols].astype(str).apply(lambda s: s.map(_norme).isin(cibles)).any(axis=1)
+        return _txt(df[cols]).apply(lambda s: s.map(_norme).isin(cibles)).any(axis=1)
     if rx is None:
         raise Erreur(f"Étape « {libelle(e)} » : ni motif ni valeurs.")
-    return df[cols].astype(str).apply(lambda s: s.map(lambda v: bool(rx.search(v)))).any(axis=1)
+    return _txt(df[cols]).apply(lambda s: s.map(lambda v: bool(rx.search(v)))).any(axis=1)
 
 
 def _retirer_lignes(df, e):
@@ -101,7 +107,7 @@ def _garder_lignes(df, e):
 def _fractionner(df, e):
     col = _colonnes(df, [e["colonne"]], e)[0]
     noms = e.get("noms") or [f"{col}_1", f"{col}_2"]
-    parts = df[col].astype(str).where(df[col].notna()).str.split(e.get("separateur", " - "), n=len(noms) - 1, regex=False,
+    parts = _txt(df[col]).where(df[col].notna()).str.split(e.get("separateur", " - "), n=len(noms) - 1, regex=False,
                                                                   expand=True)
     out = df.copy()
     pos = list(out.columns).index(col)
@@ -126,7 +132,7 @@ def _retirer_colonnes(df, e):
 def _remplacer(df, e):
     col = _colonnes(df, [e["colonne"]], e)[0]
     rempl = {str(k): v for k, v in e["remplacements"].items()}
-    avant = df[col].astype(str).str.strip()
+    avant = _txt(df[col]).str.strip()
     out = df.copy()
     touche = avant.isin(rempl)
     out.loc[touche, col] = avant[touche].map(rempl)
@@ -184,6 +190,8 @@ def libelle(e):
         verbe = "Retirer" if op == "retirer_lignes" else "Garder"
         if e.get("vides"):
             return f"{verbe} les lignes vides"
+        if e.get("motif") == TOTAL.pattern:
+            return f"{verbe} les lignes de total et de sous-total"
         cond = (f"valant {liste(e['valeurs'])}" if e.get("valeurs") is not None else f"contenant « {e.get('motif')} »")
         return f"{verbe} les lignes {cond}" + (f" dans « {e['colonne']} »" if e.get("colonne") else "")
     if op == "fractionner":
@@ -244,20 +252,21 @@ def proposer(df):
     fusionnees = []
     for c in textes[:4]:
         s = df[c]
-        vide = s.isna() | (s.astype(str).str.strip() == "")
-        courts = s[~vide].astype(str).str.len().mean() <= 40          # des libellés, pas des commentaires
-        if 0.1 <= vide.mean() <= 0.9 and not vide.iloc[0] and courts:
+        vide = s.isna() | (_txt(s).str.strip() == "")
+        courts = _txt(s[~vide]).str.len().mean() <= 40          # des libellés, pas des commentaires
+        # une colonne fusionnée est vide sur une bonne part de ses lignes (une case vide isolée n'en fait pas une)
+        if 0.2 <= vide.mean() <= 0.9 and not vide.iloc[0] and courts:
             autres = df.drop(columns=[c])
             if autres[vide].notna().any(axis=1).mean() > 0.8:      # les lignes vides ici sont remplies ailleurs
                 fusionnees.append(c)
     if fusionnees:
         etapes.append({"op": "recopier_bas", "colonnes": fusionnees})
     # 2. Sous-totaux et totaux mêlés aux détails
-    if textes and df[textes].astype(str).apply(lambda s: s.str.match(TOTAL)).any(axis=1).any():
+    if textes and _txt(df[textes]).apply(lambda s: s.str.match(TOTAL)).any(axis=1).any():
         etapes.append({"op": "retirer_lignes", "motif": TOTAL.pattern})
     # 3. Fractionner « District - Centre »
     for c in textes:
-        s = df[c].dropna().astype(str)
+        s = _txt(df[c].dropna())
         if len(s) >= 3 and s.str.count(" - ").eq(1).mean() >= 0.9:
             noms = [p.strip() for p in str(c).split(" - ")] if str(c).count(" - ") == 1 else [f"{c}_1", f"{c}_2"]
             etapes.append({"op": "fractionner", "colonne": str(c), "separateur": " - ", "noms": noms})
