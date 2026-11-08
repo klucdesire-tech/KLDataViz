@@ -128,3 +128,14 @@ def test_pdf_courbe_coupee_aux_trous_jamais_a_zero():
     points = [x for x in d.contents if isinstance(x, Circle) and x.r == 2]
     assert len(points) == 1                                    # le dernier mois, seul, est un point ; aucun tracé vers 0
     assert pdf_report._vals(c, 0, vides=True)[2] is None and pdf_report._vals(c, 0)[2] == 0.0
+
+
+def test_population_vaccinee_est_une_activite(S):
+    """« population desservie » est un stock (contexte) ; « population vaccinée » est une activité, lue en premier."""
+    import pandas as pd
+    df = pd.DataFrame({"mois": [f"2025-{m:02d}" for m in range(1, 7)] * 2, "district": ["A"] * 6 + ["B"] * 6,
+                       "population_desservie": [50000] * 12, "population_vaccinee": range(1000, 1012),
+                       "consultations": range(100, 112)})
+    titres = [c["title"] for c in S._smart_charts(df)]
+    assert titres[0].startswith("Évolution de population vaccinee"), titres
+    assert not any("desservie" in t for t in titres[:3]), titres

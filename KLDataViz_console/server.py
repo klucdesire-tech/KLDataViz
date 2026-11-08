@@ -730,7 +730,8 @@ def _smart_charts(df, max_charts=6):
 
     # Volumes d'activité d'abord (consultations, ventes), puis les stocks (population desservie : un contexte, pas
     # l'activité suivie), puis les grandeurs individuelles — jamais choisis pour leur seule ampleur
-    stock_words = re.compile(r"population|habitants|superficie|cheptel|capacite|solde|encours|file_?active|tx_?curr", re.I)
+    # « population » seule est un stock (population desservie) ; « population vaccinée, dépistée… » est une activité
+    stock_words = re.compile(r"population(?!_?(vaccin|d[ée]pist|sensibilis|trait|touch|atteint|b[ée]n[ée]fici|form|enr[ôo]l|enregistr|prise))|habitants|superficie|cheptel|capacite|solde|encours|file_?active|tx_?curr", re.I)
     num.sort(key=lambda c: 2 if agg_of(c) != "sum" else 1 if stock_words.search(str(c)) else 0)
 
     def unit_of(c):
@@ -848,7 +849,7 @@ def _smart_charts(df, max_charts=6):
     # Indicateurs de stock (file active, TX_CURR…) : jamais additionnés d'une période à l'autre ; les classements
     # et répartitions portent alors sur la dernière période.
     stock_hint = re.compile(r"(file_?active|tx_?curr|actifs?|sous_?(arv|traitement)|stock|effectif_?present|patients?_?suivis?|"
-                            r"population|habitants|superficie|cheptel|parc_|capacite|solde|encours|charge_?virale|"
+                            r"population(?!_?(vaccin|d[ée]pist|sensibilis|trait|touch|atteint|b[ée]n[ée]fici|form|enr[ôo]l|enregistr|prise))|habitants|superficie|cheptel|parc_|capacite|solde|encours|charge_?virale|"
                             r"cv_?supprim|tx_?pvls|actuellement)", re.I)
     flux_hint = re.compile(r"nouve|initi|d[ée]c[èe]s|d[ée]pist", re.I)  # « nouvellement initiés sous TARV » : un flux
     last, last_txt = None, ""
