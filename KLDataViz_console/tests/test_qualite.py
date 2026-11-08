@@ -103,6 +103,24 @@ def test_note_et_resume_disent_la_gravite(Q):
     assert actu["note"] >= 90 and not any(c["cle"] == "mois_absents" for c in actu["constats"])
 
 
+def test_saisie_en_double_dans_un_petit_rapport(Q):
+    """11 lignes, une clé saisie deux fois : signalée, même si elle touche 18 % des lignes (relecture de la PR 195)."""
+    df = pd.DataFrame([{"mois": f"2025-0{m}", "centre": c, "consultations": 100 + m}
+                       for m in range(1, 6) for c in ("CS A", "CS B")])
+    df = pd.concat([df, pd.DataFrame([{"mois": "2025-03", "centre": "CS A", "consultations": 999}])], ignore_index=True)
+    c = _constats(Q.bilan(df, aujourd_hui=AUJOURD_HUI))["cle_double"]
+    assert c["gravite"] == "grave" and c["n"] == 2 and c["lignes"] == [6, 12]
+
+
+@pytest.mark.parametrize("densite", [400, 60])
+def test_registre_jamais_pris_pour_des_doublons(Q, densite):
+    """Registre daté au jour : plusieurs lignes pour un même centre et un même jour sont normales, même quand elles
+    sont rares (registre peu dense : 60 consultations sur 150 jours)."""
+    df = _registre().head(densite)
+    cles = {c["cle"] for d in Q.bilan(df, aujourd_hui=AUJOURD_HUI)["dimensions"] for c in d["constats"]}
+    assert "cle_double" not in cles
+
+
 def test_declarations_manquantes(Q):
     df = _sain()
     df = df[~((df["centre"] == "CS C") & df["mois"].isin(["2025-04", "2025-05"]))]

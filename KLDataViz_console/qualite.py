@@ -42,7 +42,10 @@ PERIODE = re.compile(r"date|p[ée]riode|mois|ann[ée]e|month|year|trimestre|sema
 LIEU = re.compile(r"site|centre|district|r[ée]gion|zone|commune|ville|unite_organisation|unit[ée]|structure|"
                   r"[ée]tablissement|agence|[ée]cole|pays|d[ée]partement|localit[ée]|village|quartier|boutique|magasin|"
                   r"province|formation_sanitaire|fosa|h[ôo]pital|csps?|csu|antenne|bureau|entrep[ôo]t|d[ée]p[ôo]t", re.I)
-SEUIL_DOUBLE = 0.05                  # au-delà, des lignes de même clé sont la norme (registre), pas une erreur
+# Part des clés (site + période…) qui se répètent : au-delà, c'est un registre (une ligne par patient, par vente), où
+# plusieurs lignes par clé sont la norme. Mesurée sur les clés et non sur les lignes, elle ne dépend pas de la taille
+# du fichier : une saisie en double dans un rapport de 12 lignes est signalée comme dans un de 50 000.
+SEUIL_DOUBLE = 0.10
 IDENT = re.compile(r"(^|[_\s])(id|code|n°|no|num(ero|éro)?|matricule|ref|identifiant)($|[_\s])", re.I)
 NOMBRE_TEXTE = re.compile(r"^[+-]?\d{1,3}([   .]\d{3})+(,\d+)?$|^[+-]?\d+,\d+$")
 GRAVITES = {"grave": (3.0, 60), "attention": (1.5, 30), "info": (0.5, 10)}
@@ -159,7 +162,7 @@ def _completude(df, nums):
     return out, round(taux, 2)
 
 
-def _unicite(df, nums, dims, per_col):
+def _unicite(df, nums, dims, per_col, per=None):
     out, n = [], len(df)
     if not n:
         return out
@@ -169,13 +172,15 @@ def _unicite(df, nums, dims, per_col):
                             "gardées, elles compteraient deux fois dans les totaux.", int(dup.sum()), n,
                             lignes=_lignes(dup), cle="doublons"))
     cle = ([per_col] if per_col else []) + dims
-    if per_col and dims and nums:
-        # même site, même période (et mêmes autres libellés) saisis deux fois avec des valeurs différentes. Seulement
-        # dans un fichier de rapport (une ligne par clé) : dans un registre, plusieurs lignes par lieu et par mois sont
-        # la norme (une par patient, par vente).
+    # Fichier de rapport : daté au mois ou à l'année (un seul jour par mois). Un registre est daté au jour, avec des
+    # jours variables : plusieurs lignes par lieu et par date y sont la norme (une par patient, par vente).
+    rapport = per is not None and per.notna().any() and per.dropna().dt.day.nunique() <= 1
+    if per_col and dims and nums and rapport:
+        # même site, même période (et mêmes autres libellés) saisis deux fois avec des valeurs différentes
         base = df[~dup]
         k = base.duplicated(subset=cle, keep=False) & ~base.duplicated(keep=False)
-        if k.any() and k.mean() <= SEUIL_DOUBLE:
+        repetees = base[k].groupby(cle, dropna=False).ngroups if k.any() else 0
+        if k.any() and repetees <= max(1, SEUIL_DOUBLE * base.groupby(cle, dropna=False).ngroups):
             ex = base[k].iloc[0]
             lib = ", ".join(f"{c} = {ex[c]}" for c in cle[:3])
             out.append(_constat("grave", f"{int(k.sum())} ligne(s) déclarent deux fois la même chose avec des valeurs différentes",
@@ -382,7 +387,7 @@ def bilan(df, anomalies=None, controles=None, aujourd_hui=None):
             and 1 < df[c].nunique(dropna=True) <= max(60, int(.5 * n))]
     comp, taux_rempli = _completude(df, nums)
     actu, suivi = _actualite(df, per_col, per, dims, aujourd_hui)
-    par_dim = {"completude": comp, "unicite": _unicite(df, nums, dims, per_col),
+    par_dim = {"completude": comp, "unicite": _unicite(df, nums, dims, per_col, per),
                "validite": _validite(df, nums, per_col, per, aujourd_hui),
                "coherence": _coherence(df, dims, controles, nums, per),
                "plausibilite": _plausibilite(anomalies, n), "actualite": actu}
