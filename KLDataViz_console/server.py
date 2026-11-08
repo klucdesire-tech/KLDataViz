@@ -55,6 +55,7 @@ import shares
 import dhis2
 import formulaires
 import lecture
+import recettes
 import dictionnaire
 import journal
 import surveillance
@@ -312,15 +313,29 @@ def mark_agrege(path, on=True):
         os.remove(side)
 
 
-def _read_df(file_path, sheet=None):
-    """Comme _read_df_raw, avec les nombres écrits en texte lus comme des nombres (lecture.py), et réattache le drapeau
-    « agrégé » d'un fichier dérivé (témoin .agrege)."""
+def _dossier_recettes():
+    """Dossier des recettes de transformation de l'espace courant (None hors espace : aucune recette rejouée)."""
+    try:
+        return T.current().dir("storage")
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _read_df(file_path, sheet=None, recette=True):
+    """Comme _read_df_raw, avec les nombres écrits en texte lus comme des nombres (lecture.py), la recette de
+    transformation mémorisée pour cette forme de fichier (recettes.py ; `recette=False` : le fichier avant recette,
+    pour en composer une), et réattache le drapeau « agrégé » d'un fichier dérivé (témoin .agrege)."""
     df, err = _read_df_raw(file_path, sheet)
     if df is not None:
         try:
             df = lecture.lire(df)  # « 1 234,5 », « 12 500 FCFA » : comptés partout, pas seulement après correction
         except Exception as exc:  # noqa: BLE001 - la lecture d'origine reste utilisable
             sys.stderr.write(f"[lecture] conversion des nombres impossible : {type(exc).__name__}\n")
+        try:
+            if recette:
+                df = recettes.rejouer(_dossier_recettes(), df)  # recette mémorisée pour cette forme de fichier
+        except Exception as exc:  # noqa: BLE001 - jamais bloquant : le fichier reste lisible tel quel
+            sys.stderr.write(f"[recettes] rejeu impossible : {type(exc).__name__}\n")
     if df is not None and not file_path.startswith(("http://", "https://", "dhis2://", formulaires.KOBO, formulaires.ODK)) \
             and os.path.exists(file_path + AGREGE_SUFFIX):
         df.attrs["agrege"] = True
@@ -1484,6 +1499,45 @@ def dhis2_connect(p):
     dhis2.save_credentials(instance, user, pwd)
     return {"uri": uri, "instance": instance, "name": f"DHIS2 {instance.split('/')[0]}", "rows": int(len(df)),
             "indicateurs": int(df["indicateur"].nunique()), "periodes": sorted(df["periode"].dropna().astype(str).unique())[-3:]}
+
+
+APERCU_LIGNES = 15
+
+
+def _apercu(df):
+    """Les premières lignes d'un tableau, prêtes pour l'écran (valeurs en texte, vides en « »)."""
+    t = df.head(APERCU_LIGNES)
+    return {"colonnes": [str(c) for c in t.columns], "lignes": [["" if pd.isna(v) else str(v) for v in r]
+                                                              for r in t.itertuples(index=False)], "total": int(len(df))}
+
+
+def recette_action(action, p):
+    """Recettes de transformation : proposer, essayer, enregistrer, supprimer (voir recettes.py). Le fichier est lu
+    AVANT toute recette mémorisée : on compose la recette sur le fichier tel qu'il arrive."""
+    file_path = str(p.get("file_path") or "")
+    if T.CLOUD and not file_path.startswith(("http://", "https://")) and not T.current().owns(file_path):
+        return {"error": "Fichier introuvable."}
+    if T.CLOUD and action in ("enregistrer", "supprimer"):
+        cloud.require(T.current(), "owner", "analyst")
+    brut, err = _read_df(file_path, p.get("sheet"), recette=False)
+    if err or brut is None:
+        return {"error": err or "Fichier illisible."}
+    dossier = _dossier_recettes()
+    if action == "supprimer":
+        return {"supprimee": recettes.supprimer(dossier, brut)}
+    memo = recettes.trouver(dossier, brut) if dossier else None
+    etapes = p.get("etapes") if action != "proposer" else (memo or {}).get("etapes") or recettes.proposer(brut)
+    if not isinstance(etapes, list):
+        return {"error": "Recette illisible."}
+    try:
+        if action == "enregistrer":
+            recettes.enregistrer(dossier, brut, etapes, source_label(file_path))
+        df, journal = recettes.appliquer(brut, etapes)
+    except recettes.Erreur as exc:
+        return {"error": str(exc), "etapes": etapes, "avant": _apercu(brut)}
+    return {"etapes": etapes, "journal": journal, "avant": _apercu(brut), "apres": _apercu(df),
+            "memorisee": bool(memo) or action == "enregistrer", "operations": sorted(recettes.OPERATIONS),
+            "qualite": _bilan_qualite(df)}
 
 
 def formulaire_connect(p):
@@ -4210,6 +4264,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 raise ValueError("Fichier vide.")
             res = dictionnaire.importer(data, str(p.get("name") or ""))
             journal.ajouter("dictionnaire d'indicateurs importé", details={"nom": res.get("nom")})
+            return self._send(200, res)
+        if path.startswith("/api/recette/") and path.rsplit("/", 1)[1] in ("proposer", "essayer", "enregistrer", "supprimer"):
+            action = path.rsplit("/", 1)[1]
+            res = recette_action(action, p)
+            if action in ("enregistrer", "supprimer") and not res.get("error"):
+                journal.ajouter(f"recette de transformation {'enregistrée' if action == 'enregistrer' else 'supprimée'}",
+                                details={"source": source_label(str(p.get("file_path") or ""))})
             return self._send(200, res)
         if path == "/api/formulaires/connect":  # KoboToolbox / ODK Central : accès chiffrés, puis lecture d'essai
             res = formulaire_connect(p)
