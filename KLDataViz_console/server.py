@@ -592,6 +592,27 @@ def _smart_charts(df, max_charts=6):
     groupe (avec ligne de moyenne), répartition, distribution et relation. Chaque graphique porte
     son agrégation (somme ou moyenne) pour que l'interface puisse l'expliquer."""
     import re
+    # Export « long » (DHIS2 : indicateur + valeur) : une colonne par indicateur, comme le tableau de bord. Sinon
+    # « Valeur par unité d'organisation » additionnait des indicateurs différents (testés + positifs + file active).
+    try:
+        hermes_da_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "HERMES_DA")
+        if hermes_da_dir not in sys.path:
+            sys.path.insert(0, hermes_da_dir)
+        from hermes_da.adapters.dashboard import _IND_COLS, _col, _long_to_wide
+        df, pivote = _long_to_wide(df)
+        ic = None if pivote else _col(df, _IND_COLS)
+        mesures = [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c])]
+        if ic is not None and 2 <= df[ic].nunique() <= 80 and len(mesures) >= 2:
+            # Une colonne « indicateur » et une colonne par site (« Site A », « Site B ») : chaque colonne mêle
+            # plusieurs indicateurs (dépistés + positifs). Les colonnes deviennent une dimension, chaque indicateur
+            # une mesure.
+            prefixe = os.path.commonprefix([str(c) for c in mesures]).strip(" _-")
+            dim = prefixe if len(prefixe) >= 3 and prefixe not in df.columns else "colonne"
+            long = df.melt(id_vars=[c for c in df.columns if c not in mesures], value_vars=mesures, var_name=dim,
+                           value_name="valeur")
+            df, _ = _long_to_wide(long)
+    except Exception as exc:  # noqa: BLE001 - la lecture d'origine reste utilisable
+        sys.stderr.write(f"[analyse] remise à plat impossible : {type(exc).__name__}\n")
     # Les lignes de cumul (« Total », « Ensemble ») ne sont pas des catégories : elles doubleraient les sommes.
     txt = [c for c in df.columns if not pd.api.types.is_numeric_dtype(df[c])]
     if txt:
@@ -622,7 +643,11 @@ def _smart_charts(df, max_charts=6):
         return len(v) > 0 and v.between(1900, 2100).all() and (v % 1 == 0).all() and v.nunique() <= 60
 
     num = [c for c in numeric_all if not id_hint.search(str(c)) and df[c].nunique() > 1 and not is_year(df[c])]
-    num.sort(key=lambda c: (-round(df[c].notna().mean(), 1), -float(df[c].abs().sum())))
+    # Une cible, un budget, une prévision ou une population de référence servent à juger une réalisation : jamais la
+    # mesure principale. Classées au total, elles passaient devant (ventes : « objectif » avant le chiffre d'affaires).
+    reference = re.compile(r"objectif|cible|target|budget|pr[ée]vision|pr[ée]visionnel|quota|attendu|planifi|(^|_)plan($|_)|"
+                           r"seuil|norme|(^|_)ref($|_)|r[ée]f[ée]rence|population|denominateur|d[ée]nominateur|estim", re.I)
+    num.sort(key=lambda c: (bool(reference.search(str(c))), -round(df[c].notna().mean(), 1), -float(df[c].abs().sum())))
 
     # Grandeurs « par unité » ou individuelles : un prix, un âge, une note, un délai, une charge virale ne
     # s'additionnent JAMAIS (la somme des prix unitaires ou des âges n'a pas de sens).
