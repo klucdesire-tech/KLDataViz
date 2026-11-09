@@ -163,7 +163,7 @@ td.r,th.r{text-align:right}
 .rc-et .n{width:22px;height:22px;border-radius:50%;display:grid;place-items:center;font-size:12px;font-weight:700;color:#fff;background:linear-gradient(135deg,var(--brand),var(--blue));flex:none}
 .rc-et .t{flex:1;min-width:0}.rc-et .t b{display:block;font-size:13.5px;font-weight:600}.rc-et .t span{font-size:12px;color:var(--muted)}
 .rc-et button{border:0;background:none;cursor:pointer;color:var(--muted);font-size:15px;padding:2px 5px;border-radius:6px}.rc-et button:hover{background:var(--surface-2);color:var(--fg)}
-.rc-avance{margin-top:12px}.rc-avance>summary{cursor:pointer;font-size:13px;font-weight:600;color:var(--fg);padding:4px 0}.rc-avance>summary .sub{font-weight:400}
+.rc-avance{margin-top:12px}.rc-avance>summary{cursor:pointer;font-size:13px;font-weight:600;color:var(--fg);padding:10px 0;min-height:44px;box-sizing:border-box}.rc-avance>.rc-add{margin-top:4px}.rc-avance>summary .sub{font-weight:400}
 #recCard:not(.expert) .rc-et [data-rc="haut"],#recCard:not(.expert) .rc-et [data-rc="bas"]{display:none}
 .rc-add{display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end;margin-top:12px;padding:12px;border:1px dashed var(--line);border-radius:10px}
 .rc-add label{display:flex;flex-direction:column;font-size:12px;color:var(--muted);gap:4px}.rc-cols{display:flex;flex-wrap:wrap;gap:6px;max-width:100%}
@@ -1260,10 +1260,10 @@ function renderRecette(){const R=state.recette,card=$('#recCard');if(!card)retur
   const t=R.apres||R.avant;
   $('#recApercu').innerHTML=t?`<table><thead><tr>${t.colonnes.map(c=>`<th>${esc(c)}</th>`).join('')}</tr></thead><tbody>${t.lignes.map(l=>`<tr>${l.map(v=>`<td>${esc(v)}</td>`).join('')}</tr>`).join('')}</tbody></table>`:'';
   $('#recSuppr').hidden=!R.memorisee;$('#recEnreg').disabled=!!R.erreur;
-  const av=$('#recAvance');if(!av.dataset.lu){av.dataset.lu='1';let o=null;try{o=localStorage.getItem('kldv-recette-avance')}catch(e){}
+  const av=$('#recAvance');if(av&&!av.dataset.lu){av.dataset.lu='1';let o=null;try{o=localStorage.getItem('kldv-recette-avance')}catch(e){}
     av.open=o==='1';av.ontoggle=()=>{card.classList.toggle('expert',av.open);try{localStorage.setItem('kldv-recette-avance',av.open?'1':'0')}catch(e){}}}
-  card.classList.toggle('expert',av.open);
-  recFormulaire($('#recAjout').dataset.op||'recopier_bas')}
+  card.classList.toggle('expert',!!av?.open);
+  const ra=$('#recAjout');if(ra)recFormulaire(ra.dataset.op||'recopier_bas')}
 function recFormulaire(op){const box=$('#recAjout'),cols=recColonnes();box.dataset.op=op;
   const coches=(n)=>`<div class="rc-cols">${cols.map(c=>`<label><input type="checkbox" name="${n}" value="${esc(c)}">${esc(c)}</label>`).join('')}</div>`;
   const une=(n,lab)=>`<label>${lab}<select name="${n}">${cols.map(c=>`<option value="${esc(c)}">${esc(c)}</option>`).join('')}</select></label>`;
