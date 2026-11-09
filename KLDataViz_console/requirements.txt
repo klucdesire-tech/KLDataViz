@@ -1,15 +1,15 @@
 # Dépendances de KLDataViz (versions testées). Installation : pip install -r requirements.txt
-pandas==3.1.0
+pandas==3.1.1
 numpy==2.5.4
 openpyxl==3.1.5
 xlrd==2.0.2
 scipy==1.18.1
-pyarrow==26.0.0
-psycopg[binary]==3.3.6
+pyarrow==26.0.1
+psycopg[binary]==3.3.8
 charset-normalizer==3.5.2
 chardet==7.7.0
 reportlab==5.1.0
-anthropic==2.3.0
-sentry-sdk==2.72.0
+anthropic==2.6.0
+sentry-sdk==2.74.0
 cryptography==50.0.2
-boto3==1.43.118
+boto3==1.43.125
