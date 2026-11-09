@@ -1230,7 +1230,9 @@ function renderDeclarations(D){const el=$('#qualDecl');el.hidden=!(D&&D.par_unit
 /* ---- recettes de transformation (recettes.py) : étapes visibles, modifiables, rejouées ---- */
 const REC_OPS={recopier_bas:'Recopier vers le bas (cellules fusionnées)',depivoter:'Dépivoter des colonnes',retirer_lignes:'Retirer des lignes',
   garder_lignes:'Garder des lignes',fractionner:'Fractionner une colonne',renommer:'Renommer une colonne',retirer_colonnes:'Retirer des colonnes',
-  remplacer:'Remplacer des valeurs',convertir:'Convertir le type',regrouper:'Regrouper'};
+  remplacer:'Remplacer des valeurs',convertir:'Convertir le type',regrouper:'Regrouper',
+  decomposer:'Séparer les informations collées dans les titres',extraire:'Séparer les informations collées dans une colonne',
+  nettoyer_texte:'Retirer les espaces en trop'};
 async function loadRecette(path,name){
   state.recette={path,name,etapes:[],chargement:true};
   const d=await api('/api/recette/proposer',{file_path:path});
@@ -1244,7 +1246,7 @@ function renderRecette(){const R=state.recette,card=$('#recCard');if(!card)retur
   $('#recBadge').textContent=R.memorisee?'Recette mémorisée pour ce type de fichier':(R.etapes||[]).length?'✦ Proposée par Adifa’, à valider':'';
   const j=R.journal||[];
   $('#recEtapes').innerHTML=(R.etapes||[]).map((e,i)=>{const x=j[i];return `<div class="rc-et"><span class="n">${i+1}</span><div class="t"><b>${esc(x?.libelle||REC_OPS[e.op]||e.op)}</b>
-    <span>${x?`${nf(x.lignes_avant)} → ${nf(x.lignes_apres)} lignes${x.touches?` · ${nf(x.touches)} élément(s) touché(s)`:''}${x.avertissement?` · ⚠ ${esc(x.avertissement)}`:''}`:'non appliquée'}</span></div>
+    <span>${x?`${nf(x.lignes_avant)} → ${nf(x.lignes_apres)} lignes${x.touches?` · ${nf(x.touches)} élément(s) touché(s)`:''}${x.info?` · ${esc(x.info)}`:''}${x.avertissement?` · ⚠ ${esc(x.avertissement)}`:''}`:'non appliquée'}</span></div>
     <button title="Monter" aria-label="Monter l'étape ${i+1}" data-rc="haut" data-i="${i}" ${i?'':'disabled'}>↑</button>
     <button title="Descendre" aria-label="Descendre l'étape ${i+1}" data-rc="bas" data-i="${i}" ${i<R.etapes.length-1?'':'disabled'}>↓</button>
     <button title="Retirer" aria-label="Retirer l'étape ${i+1}" data-rc="suppr" data-i="${i}">✕</button></div>`}).join('')
@@ -1268,6 +1270,9 @@ function recFormulaire(op){const box=$('#recAjout'),cols=recColonnes();box.datas
     renommer:`${une('colonne','Colonne')}${txt('nouveau','Nouveau nom','')}`,
     retirer_colonnes:`<label style="flex-basis:100%">Colonnes${coches('colonnes')}</label>`,
     remplacer:`${une('colonne','Colonne')}${txt('avant','Remplacer','')}${txt('apres','par','')}`,
+    decomposer:`<label style="flex-basis:100%">Colonnes de chiffres dont le titre mêle indicateur, période, sexe ou âge${coches('colonnes')}</label>`,
+    extraire:`${une('colonne','Colonne qui mêle indicateur, période, sexe ou âge')}`,
+    nettoyer_texte:`<span class="sub" style="align-self:center">Toutes les colonnes de texte</span>`,
     convertir:`${une('colonne','Colonne')}<label>En<select name="type"><option value="nombre">nombre</option><option value="date">date</option><option value="texte">texte</option></select></label>`,
     regrouper:`<label style="flex-basis:100%">Regrouper par${coches('par')}</label>${une('mesure','Mesure')}<label>Calcul<select name="agg"><option value="somme">somme</option><option value="moyenne">moyenne</option><option value="compte">compte</option><option value="min">min</option><option value="max">max</option></select></label>`};
   box.innerHTML=`<label>Ajouter une étape<select id="recOp">${Object.entries(REC_OPS).map(([k,v])=>`<option value="${k}" ${k===op?'selected':''}>${v}</option>`).join('')}</select></label>${champs[op]}<button class="btn sm" id="recAjouter" type="button">Ajouter</button>`;
@@ -1284,6 +1289,9 @@ function recEtape(op,box){const v=n=>box.querySelector(`[name="${n}"]`)?.value?.
     case 'renommer':return v('nouveau')?{op,colonnes:{[v('colonne')]:v('nouveau')}}:manque('Indiquez le nouveau nom.')
     case 'remplacer':return v('avant')?{op,colonne:v('colonne'),remplacements:{[v('avant')]:v('apres')}}:manque('Indiquez la valeur à remplacer.')
     case 'convertir':return {op,colonne:v('colonne'),type:v('type')}
+    case 'decomposer':{const c=coch('colonnes');return c.length>1?{op,colonnes:c,valeur:'Valeur'}:manque('Cochez au moins deux colonnes.')}
+    case 'extraire':return {op,colonne:v('colonne')}
+    case 'nettoyer_texte':return {op}
     case 'regrouper':{const p=coch('par');return p.length?{op,par:p,mesures:{[v('mesure')]:v('agg')}}:manque('Cochez au moins une colonne de regroupement.')}
   }return null}
 async function recEssayer(){const R=state.recette;if(!R)return;$('#recMsg').innerHTML='<span class="spin"></span> Essai de la recette…';

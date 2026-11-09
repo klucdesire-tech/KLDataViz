@@ -8,8 +8,10 @@ forme de fichier (ses colonnes) : le fichier du mois suivant, une source connect
 à moitié transformé présenté comme juste.
 
 Opérations : recopier_bas, depivoter, retirer_lignes, garder_lignes, fractionner, renommer, retirer_colonnes,
-remplacer, convertir, regrouper. `proposer` en suggère une recette par règles, à partir des défauts typiques des
-classeurs Excel (cellules fusionnées, mois en colonnes, sous-totaux, « District - Centre » dans une seule colonne)."""
+remplacer, convertir, regrouper, decomposer, extraire, nettoyer_texte. `proposer` en suggère une recette par règles, à
+partir des défauts typiques des classeurs Excel (cellules fusionnées, mois en colonnes, sous-totaux, « District -
+Centre » dans une seule colonne) et des exports de plateformes (DHIS2 : indicateur, période, sexe et âge collés dans
+les titres ou les catégories ; niveaux orgunitlevel ; colonne recopiée)."""
 import datetime as dt
 import hashlib
 import json
@@ -20,6 +22,8 @@ import unicodedata
 
 import numpy as np
 import pandas as pd
+
+import dimensions
 
 VERSION = 1
 MAX_ETAPES = 40
@@ -171,10 +175,183 @@ def _regrouper(df, e):
     return out, len(df)
 
 
+# ---------------------------------------------------------------- informations collées (période, sexe, âge)
+NON_VENTILE = "Non ventilé"
+
+
+def _nombres(s):
+    """Valeurs d'une colonne de chiffres ; une case vide ou du texte devient NaN (jamais 0)."""
+    return pd.to_numeric(s, errors="coerce")
+
+
+def _nom_libre(df, nom):
+    return nom if nom not in df.columns else f"{nom} (extrait)"
+
+
+def _niveaux(entrees):
+    """Les entrées (titre ou valeur → (reste, dimensions)) d'un même indicateur, regroupées par jeu de dimensions.
+
+    Rend (garder, agregats, variantes) :
+    - un jeu qui contient tous les autres (le plus détaillé) : on le garde, les autres sont des sous-totaux recalculables ;
+    - sinon (« par sexe » et « par âge » non croisés) : chaque jeu devient une variante de l'indicateur, jamais additionnée
+      aux autres."""
+    jeux = {}
+    for cle, (reste, dims) in entrees.items():
+        jeux.setdefault(frozenset(dims), []).append(cle)
+    if len(jeux) == 1:
+        return list(entrees), [], {}
+    plus_grand = max(jeux, key=len)
+    if all(j <= plus_grand for j in jeux):
+        return jeux[plus_grand], [c for j, cs in jeux.items() if j != plus_grand for c in cs], {}
+    noms = {"sexe": "sexe", "tranche_age": "âge", "periode": "période"}
+    variantes = {}
+    for j, cs in jeux.items():
+        quoi = " et ".join(noms[d] for d in dimensions.DIMENSIONS if d in j and d != "periode")
+        for c in cs:
+            variantes[c] = f"par {quoi}" if quoi else "ensemble"
+    return list(entrees), [], variantes
+
+
+def _ecarts_sous_totaux(df, ident, details, agregats, parts):
+    """Sous-totaux écartés comparés à la somme de leurs détails, ligne par ligne : nombre de cases en écart."""
+    ecarts = 0
+    for a in agregats:
+        dims_a = parts[a][1]
+        enfants = [d for d in details if parts[d][0] == parts[a][0]
+                   and all(parts[d][1].get(k) == v for k, v in dims_a.items())]
+        if not enfants:
+            continue
+        somme = _nombres(df[enfants].stack()).groupby(level=0).sum(min_count=1).reindex(df.index)
+        agg = _nombres(df[a])
+        diff = (agg - somme).abs() > 1e-9
+        ecarts += int((diff & agg.notna() & somme.notna()).sum())
+    return ecarts
+
+
+def plan_decomposer(df, e):
+    """Ce que fait l'étape « decomposer » sur ce tableau, sans l'appliquer (partagé avec l'export Power Query) :
+    (colonnes gardées, sous-totaux écartés, correspondance titre → {colonne: valeur}, titres découpés, nom de la
+    colonne des chiffres). Un seul indicateur : la colonne des chiffres porte son nom (« Dépistés par district »,
+    pas « Valeur par district ») et il n'y a pas de colonne Indicateur."""
+    cols = _colonnes(df, e["colonnes"], e)
+    val = e.get("valeur") or "Valeur"
+    parts = {c: dimensions.decouper(c) for c in cols}
+    if not any(d for _, d in parts.values()):
+        raise Erreur(f"Étape « {libelle(e)} » : aucun titre ne contient de période, de sexe ou de tranche d'âge.")
+    garder, ecartees, variantes = [], [], {}
+    par_indicateur = {}
+    for c, p in parts.items():
+        par_indicateur.setdefault(p[0], {})[c] = p
+    for entrees in par_indicateur.values():
+        g, a, v = _niveaux(entrees)
+        garder += g
+        ecartees += a
+        variantes.update(v)
+    garder = [c for c in cols if c in garder]
+    presentes = [d for d in dimensions.DIMENSIONS if any(d in parts[c][1] for c in garder)]
+    noms = {d: _nom_libre(df, dimensions.NOMS[d]) for d in presentes}
+    nom_ind = _nom_libre(df, dimensions.NOMS["indicateur"])
+    avec_ind = any(parts[c][0] for c in garder) or variantes
+    carte = {}
+    for c in garder:
+        reste, dims = parts[c]
+        ind = reste or e.get("indicateur") or val
+        if c in variantes:
+            ind = f"{ind} ({variantes[c]})"
+        carte[c] = {**({nom_ind: ind} if avec_ind else {}), **{noms[d]: dims.get(d, NON_VENTILE) for d in presentes}}
+    indicateurs = {v[nom_ind] for v in carte.values()} if avec_ind else set()
+    if len(indicateurs) == 1 and not variantes:
+        val = _nom_libre(df.drop(columns=cols), next(iter(indicateurs)))
+        for v in carte.values():
+            del v[nom_ind]
+    return garder, ecartees, carte, parts, val
+
+
+def _decomposer(df, e):
+    """Colonnes dont le titre colle indicateur, période, sexe, âge → une ligne par combinaison, une colonne par
+    information. Le total des valeurs gardées est vérifié avant et après."""
+    garder, ecartees, correspondance, parts, val = plan_decomposer(df, e)
+    ident = [c for c in df.columns if c not in e["colonnes"]]
+    carte = pd.DataFrame([{"_col": c, **v} for c, v in correspondance.items()])
+    # nom provisoire : le nom de l'indicateur peut être le titre d'une colonne dépliée (« Dépistés », son total)
+    long = df[ident + garder].melt(id_vars=ident, value_vars=garder, var_name="_col", value_name="_valeur_")
+    long = long.merge(carte, on="_col", how="left").drop(columns="_col").rename(columns={"_valeur_": val})
+    if not e.get("garder_vides", False):
+        long = long[long[val].notna() & (_txt(long[val]).str.strip() != "")]
+    sorties = [c for c in carte.columns if c != "_col"]
+    long = long[ident + sorties + [val]].reset_index(drop=True)
+    avant, apres = _nombres(df[garder].stack()).sum(), _nombres(long[val]).sum()
+    if abs(avant - apres) > 1e-6 * max(1.0, abs(avant)):
+        raise Erreur(f"Étape « {libelle(e)} » : le total change ({avant:g} avant, {apres:g} après). Étape refusée.")
+    if ecartees:
+        e["_sous_totaux"] = len(ecartees)
+        e["_ecarts"] = _ecarts_sous_totaux(df, ident, garder, ecartees, parts)
+    return long, len(garder)
+
+
+def _extraire(df, e):
+    """Une colonne de texte qui colle plusieurs informations (« VIH - Dépistés Masculin, 15-24 ans ») → une colonne
+    par information, à la place de l'ancienne."""
+    import dimensions
+    col = _colonnes(df, [e["colonne"]], e)[0]
+    vals = _txt(df[col]).str.strip()
+    # « default » : la catégorie DHIS2 d'un élément sans ventilation, ni indicateur ni sous-total.
+    parts = {v: ("", {}) if v.lower() == "default" else dimensions.decouper(v) for v in vals.unique() if v}
+    if not any(d for _, d in parts.values()):
+        raise Erreur(f"Étape « {libelle(e)} » : aucune période, aucun sexe ni aucune tranche d'âge dans « {col} ».")
+    par_indicateur = {}
+    for v, p in parts.items():
+        if v.lower() != "default":
+            par_indicateur.setdefault(p[0], {})[v] = p
+    variantes = {}
+    for reste, entrees in par_indicateur.items():
+        g, a, v = _niveaux(entrees)
+        if a:
+            raise Erreur(f"Étape « {libelle(e)} » : « {col} » mêle des détails et des sous-totaux "
+                         f"(ex. « {a[0]} »). Retirez d'abord ces lignes de sous-total.")
+        if v and not reste:
+            raise Erreur(f"Étape « {libelle(e)} » : « {col} » mêle des ventilations différentes sans indicateur.")
+        variantes.update(v)
+    presentes = [d for d in dimensions.DIMENSIONS if any(d in p[1] for p in parts.values())]
+    avec_ind = any(p[0] for p in parts.values())
+    out = df.copy()
+    pos = list(out.columns).index(col)
+    nouvelles = []
+    if avec_ind:
+        nom = _nom_libre(df.drop(columns=[col]), e.get("nom") or dimensions.NOMS["indicateur"])
+        ind = vals.map(lambda v: (parts[v][0] + (f" ({variantes[v]})" if v in variantes else "")) if parts.get(v, ("",))[0]
+                       else np.nan)
+        nouvelles.append((nom, ind))
+    for d in presentes:
+        nom = _nom_libre(df.drop(columns=[col]), dimensions.NOMS[d])
+        nouvelles.append((nom, vals.map(lambda v, d=d: parts[v][1].get(d, NON_VENTILE) if v else np.nan)))
+    out = out.drop(columns=[col])
+    for i, (nom, serie) in enumerate(nouvelles):
+        out.insert(pos + i, nom, serie)
+    return out, int((vals != "").sum())
+
+
+def _nettoyer_texte(df, e):
+    """Espaces en trop dans les libellés (« ␣CS Alpha », « Nord␣␣Est ») : sans cela, deux écritures du même
+    lieu comptent comme deux lieux."""
+    out, touches = df.copy(), 0
+    for c in df.columns:
+        s = df[c]
+        if not (s.dtype == object or pd.api.types.is_string_dtype(s)):
+            continue
+        propre = s.map(lambda v: " ".join(v.split()) if isinstance(v, str) else v)
+        change = s.notna() & (_txt(s) != _txt(propre))
+        if change.any():
+            out[c] = propre
+            touches += int(change.sum())
+    return out, touches
+
+
 OPERATIONS = {"recopier_bas": _recopier_bas, "depivoter": _depivoter, "retirer_lignes": _retirer_lignes,
               "garder_lignes": _garder_lignes, "fractionner": _fractionner, "renommer": _renommer,
               "retirer_colonnes": _retirer_colonnes, "remplacer": _remplacer, "convertir": _convertir,
-              "regrouper": _regrouper}
+              "regrouper": _regrouper, "decomposer": _decomposer, "extraire": _extraire,
+              "nettoyer_texte": _nettoyer_texte}
 
 
 def libelle(e):
@@ -204,6 +381,13 @@ def libelle(e):
         return f"Remplacer dans « {e.get('colonne')} » " + ", ".join(f"« {a} » par « {b} »" for a, b in (e.get("remplacements") or {}).items())
     if op == "convertir":
         return f"Convertir « {e.get('colonne')} » en {e.get('type')}"
+    if op == "decomposer":
+        n = len(e.get("colonnes") or [])
+        return f"Séparer les informations collées dans les titres de {n} colonne(s) (indicateur, période, sexe, âge)"
+    if op == "extraire":
+        return f"Séparer les informations collées dans « {e.get('colonne')} » (indicateur, période, sexe, âge)"
+    if op == "nettoyer_texte":
+        return "Retirer les espaces en trop dans les libellés"
     if op == "regrouper":
         return f"Regrouper par {liste(e.get('par', []))}" + (
             " : " + ", ".join(f"{a} de « {c} »" for c, a in (e.get("mesures") or {}).items()) if e.get("mesures") else "")
@@ -232,6 +416,12 @@ def appliquer(df, etapes):
                   "lignes_apres": int(df.shape[0]), "colonnes_apres": [str(c) for c in df.columns], "touches": touches}
         if e.get("_perdus"):
             entree["avertissement"] = f"{e['_perdus']} valeur(s) illisible(s) devenue(s) vide(s)"
+        if e.get("_sous_totaux"):
+            entree["info"] = (f"{e['_sous_totaux']} colonne(s) de sous-total écartée(s) : recalculables à partir du détail, "
+                              "elles feraient compter deux fois")
+            if e.get("_ecarts"):
+                entree["avertissement"] = (f"{e['_ecarts']} sous-total(aux) du fichier différent(s) de la somme de leur "
+                                           "détail : à vérifier à la source")
         journal.append(entree)
     return df, journal
 
@@ -246,7 +436,10 @@ def _entete_periode(nom):
 
 def proposer(df):
     """Recette suggérée pour les défauts typiques d'un classeur Excel. Rien n'est appliqué : c'est une proposition."""
-    etapes = []
+    etapes = _propose_nettoyage(df) + _propose_doublons(df)
+    retirees = set(etapes[-1]["colonnes"]) if etapes and etapes[-1]["op"] == "retirer_colonnes" else set()
+    extraites = _propose_extraire(df.drop(columns=list(retirees)))
+    decomposition = _propose_decomposer(df)
     textes = [c for c in df.columns if df[c].dtype == object or pd.api.types.is_string_dtype(df[c])]
     # 1. Cellules fusionnées : une colonne de libellés vide sous chaque libellé, à gauche des chiffres
     fusionnees = []
@@ -267,13 +460,125 @@ def proposer(df):
     # 3. Fractionner « District - Centre »
     for c in textes:
         s = _txt(df[c].dropna())
-        if len(s) >= 3 and s.str.count(" - ").eq(1).mean() >= 0.9:
+        if str(c) in {x["colonne"] for x in extraites} or str(c) in retirees:
+            continue
+        # « District - Centre » : la partie gauche varie (sinon « VIH - Dépistés » se couperait en un « VIH » constant)
+        if len(s) >= 3 and s.str.count(" - ").eq(1).mean() >= 0.9 and s.str.split(" - ").str[0].nunique() >= 2:
             noms = [p.strip() for p in str(c).split(" - ")] if str(c).count(" - ") == 1 else [f"{c}_1", f"{c}_2"]
             etapes.append({"op": "fractionner", "colonne": str(c), "separateur": " - ", "noms": noms})
     # 4. Périodes en colonnes (janv., févr. … ou 2023, 2024 …) : une colonne Période, une colonne Valeur
+    etapes += extraites
     periodes = [c for c in df.columns if _entete_periode(c)]
-    if len(periodes) >= 3:
+    if decomposition:
+        etapes += decomposition
+    elif len(periodes) >= 3:
         etapes.append({"op": "depivoter", "colonnes": [str(c) for c in periodes], "nom": "periode", "valeur": "valeur"})
+    renommage = _propose_niveaux_dhis2([c for c in df.columns if str(c) not in retirees])
+    return etapes + renommage
+
+
+# ---------------------------------------------------------------- propositions : informations collées, sources connues
+_NIVEAU_DHIS2 = re.compile(r"^orgunitlevel(\d+)$", re.I)
+
+
+def _chiffres(s):
+    """Colonne de chiffres (ou vide) : ce que l'on peut déplier en lignes."""
+    if pd.api.types.is_numeric_dtype(s) and not pd.api.types.is_bool_dtype(s):
+        return True
+    t = _txt(s).str.strip()
+    t = t[t != ""]
+    return t.empty or pd.to_numeric(t.str.replace(",", ".", regex=False), errors="coerce").notna().mean() >= 0.95
+
+
+def _propose_nettoyage(df):
+    for c in df.columns:
+        s = df[c]
+        if s.dtype == object or pd.api.types.is_string_dtype(s):
+            t = s.dropna()
+            t = t[t.map(lambda v: isinstance(v, str))]
+            if (t != t.map(lambda v: " ".join(v.split()))).any():
+                return [{"op": "nettoyer_texte"}]
+    return []
+
+
+def _propose_doublons(df):
+    """Colonne de libellés recopiée à l'identique d'une autre (DHIS2 : organisationunitname = dernier orgunitlevel).
+    Jamais des colonnes de chiffres : deux mesures peuvent avoir les mêmes valeurs sans être la même mesure."""
+    doublons = []
+    cols = [c for c in df.columns if df[c].dtype == object or pd.api.types.is_string_dtype(df[c])]
+    for i, a in enumerate(cols):
+        if a in doublons or df[a].notna().sum() < 2:
+            continue
+        sa = _txt(df[a]).str.strip()
+        for b in cols[i + 1:]:
+            if b not in doublons and sa.equals(_txt(df[b]).str.strip()):
+                doublons.append(b)
+    return [{"op": "retirer_colonnes", "colonnes": [str(c) for c in doublons]}] if doublons else []
+
+
+def _propose_niveaux_dhis2(colonnes):
+    """orgunitlevel1…n d'un export DHIS2 : le dernier niveau est l'établissement, puis le district, puis la région
+    (pyramide sanitaire). Le nom reste modifiable : c'est une étape « Renommer » comme une autre."""
+    niveaux = sorted((int(m.group(1)), c) for c in colonnes if (m := _NIVEAU_DHIS2.match(str(c))))
+    if not niveaux:
+        return []
+    noms = ["Établissement", "District", "Région"]
+    pris = {str(c) for c in colonnes}
+    carte = {}
+    for rang, (_, c) in enumerate(reversed(niveaux)):
+        nom = noms[rang] if rang < len(noms) else f"Niveau {niveaux[len(niveaux) - 1 - rang][0]}"
+        if nom not in pris:
+            carte[str(c)] = nom
+    return [{"op": "renommer", "colonnes": carte}] if carte else []
+
+
+def _propose_decomposer(df):
+    """Titres de colonnes qui collent plusieurs informations (indicateur, période, sexe, âge) sur des colonnes de
+    chiffres. Des titres qui ne sont qu'une période (« Janv. », « 2024 ») relèvent de « dépivoter »."""
+    import dimensions
+    cand = []
+    for c in df.columns:
+        reste, dims = dimensions.decouper(c)
+        if dims and _chiffres(df[c]) and not _entete_periode(c):
+            cand.append((str(c), reste, dims))
+    if len(cand) < 2:
+        return []
+    infos = {d for _, _, dims in cand for d in dims} | ({"indicateur"} if any(r for _, r, _ in cand) else set())
+    if len(infos) < 2:
+        return []
+    # Le total d'un indicateur, sans ventilation (« Dépistés » à côté de « Dépistés Masculin 15-24 ans ») : laissé à
+    # part, il serait répété sur chaque ligne et compterait plusieurs fois. Rattaché, il devient un sous-total écarté.
+    indicateurs = {_norme(r) for _, r, _ in cand if r}
+    pris = {c for c, _, _ in cand}
+    totaux = [str(c) for c in df.columns if str(c) not in pris and _norme(c) in indicateurs and _chiffres(df[c])]
+    return [{"op": "decomposer", "colonnes": [str(c) for c in df.columns if str(c) in pris or str(c) in totaux],
+             "valeur": "Valeur"}]
+
+
+def _propose_extraire(df):
+    """Colonne de texte qui colle au moins deux informations (« VIH - Dépistés Masculin, 15-24 ans »,
+    « Masculin, 15-24 ans »). Une colonne qui n'en porte qu'une (« Janvier 2026 », « Masculin ») est déjà propre."""
+    import dimensions
+    etapes = []
+    for c in df.columns:
+        s = df[c]
+        if not (s.dtype == object or pd.api.types.is_string_dtype(s)):
+            continue
+        vals = [v for v in _txt(s).str.strip().unique() if v and v.lower() != "default"]
+        if len(vals) < 2:
+            continue
+        parts = [dimensions.decouper(v) for v in vals]
+        reconnus = [p for p in parts if p[1]]
+        if len(reconnus) < 0.8 * len(parts):
+            continue
+        infos = {d for _, dims in reconnus for d in dims} | ({"indicateur"} if any(r for r, _ in reconnus) else set())
+        if len(infos) >= 2:
+            etape = {"op": "extraire", "colonne": str(c)}
+            try:
+                _extraire(df, dict(etape))                    # proposée seulement si elle s'applique telle quelle
+            except Erreur:
+                continue
+            etapes.append(etape)
     return etapes
 
 

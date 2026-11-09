@@ -1551,7 +1551,7 @@ def recette_action(action, p):
         etapes = p.get("etapes") or (recettes.trouver(dossier, brut) or {}).get("etapes") or []
         try:
             recettes.appliquer(brut, etapes)          # une recette qui ne s'applique pas ne s'exporte pas
-            texte = recettes_m.vers_m(etapes, _source_m(file_path, brut, p.get("sheet")), source_label(file_path))
+            texte = recettes_m.vers_m(etapes, _source_m(file_path, brut, p.get("sheet")), source_label(file_path), df=brut)
         except recettes.Erreur as exc:
             return {"error": str(exc)}
         base_nom = os.path.splitext(os.path.basename(source_label(file_path)))[0] or "fichier"
