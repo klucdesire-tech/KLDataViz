@@ -162,6 +162,24 @@ def test_proposition_complete_export_dhis2(R):
         assert out[out["Période"] == f"Janvier - Juin {an}"][ind].sum() == attendu
 
 
+def test_niveaux_dhis2_quand_le_nom_est_l_etablissement(R):
+    """Deux niveaux seulement (région, district) et l'établissement dans organisationunitname : le district ne doit
+    pas être appelé « Établissement »."""
+    recettes, _ = R
+    df = pd.DataFrame({"orgunitlevel1": ["REGION X"] * 3, "orgunitlevel2": ["NORD", "SUD", "SUD"],
+                       "organisationunitname": SITES, "Dépistés 15-24 ans": [1, 2, 3], "Dépistés 25-49 ans": [4, 5, 6]})
+    renommer = [e for e in recettes.proposer(df) if e["op"] == "renommer"]
+    assert renommer == [{"op": "renommer", "colonnes": {"organisationunitname": "Établissement",
+                                                       "orgunitlevel2": "District", "orgunitlevel1": "Région"}}]
+    # quatre niveaux, nom recopié : le niveau le plus haut garde un nom neutre
+    df4 = pd.DataFrame({"orgunitlevel1": ["PAYS"] * 3, "orgunitlevel2": ["R1"] * 3, "orgunitlevel3": ["NORD", "SUD", "SUD"],
+                        "orgunitlevel4": SITES, "organisationunitname": SITES, "Dépistés 15-24 ans": [1, 2, 3],
+                        "Dépistés 25-49 ans": [4, 5, 6]})
+    renommer = [e for e in recettes.proposer(df4) if e["op"] == "renommer"]
+    assert renommer[0]["colonnes"] == {"orgunitlevel4": "Établissement", "orgunitlevel3": "District",
+                                       "orgunitlevel2": "Région", "orgunitlevel1": "Niveau 1"}
+
+
 def test_colonnes_de_chiffres_identiques_jamais_retirees(R):
     recettes, _ = R
     df = pd.DataFrame({"Centre": SITES, "Dépistés": [1, 2, 3], "Positifs": [1, 2, 3]})
