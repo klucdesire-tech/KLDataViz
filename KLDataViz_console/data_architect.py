@@ -206,21 +206,29 @@ def excel_sheets(path: str | Path) -> list[dict]:
             # sites ou périodes en colonnes, beaucoup de cases vides (non rapportées).
             hdr = s.loc[s.index[h]] if len(s) else pd.Series(dtype=object)
             entetes_tous = [str(v).strip() for v in hdr if _is_label(v)]
-            lib_lignes, dims = 0, 0
+            lib_lignes, dims, labs_lignes = 0, 0, []
             for c in body.columns[:3] if len(body) else []:
                 labs = [" ".join(str(v).split()) for v in body[c] if _is_label(v)]
                 if len(labs) > lib_lignes:  # colonne des libellés : désagrégations sexe / âge ?
-                    lib_lignes, dims = len(labs), sum(1 for x in labs if _SEXE.match(x) or _is_age(x))
+                    lib_lignes, dims, labs_lignes = len(labs), sum(1 for x in labs if _SEXE.match(x) or _is_age(x)), labs
             classique = remplies >= 2 and len(entetes) >= 2
             # Rapport : libellés en 1re colonne et noms (sites, périodes) en en-tête ; reconnu même bien rempli
-            # quand la colonne des libellés porte des désagrégations (Masculin, 1-4 ans…).
+            # quand la colonne des libellés porte des désagrégations (Masculin, 1-4 ans…), ou quand les sites ont leur
+            # région / district empilés au-dessus (rapport transposé, même sans ventilation : PTME…).
             libelles = len(entetes_tous) >= 3 and lib_lignes >= 3
-            rapport = libelles and dims >= 2  # désagrégé : remis à plat à la lecture (indicateur × sexe × âge × site)
+            ctx = entete_rapport(s) if lib_lignes >= 3 and len(s) else None
+            transpose = bool(ctx) and any(n in ("region", "district", "province", "departement") for n in ctx["niveaux"])
+            # désagrégé ou transposé : remis à plat à la lecture (indicateur × sexe × âge × site, avec leur contexte)
+            rapport = (libelles and dims >= 2) or transpose
             peu_rempli = libelles and not classique and not rapport
             exploitable = len(body) >= 2 and (classique or rapport or peu_rempli)
             if rapport or peu_rempli:
                 score = math.log10(len(body) + 1) * min(len(entetes_tous), 60) * (0.5 + densite) * 0.5
-                notes.append("tableau de rapport : indicateurs par sexe et âge en lignes, sites ou périodes en colonnes"
+                notes.append(("rapport : indicateurs en lignes, établissements en colonnes avec leur "
+                              + " et ".join({"region": "région", "departement": "département"}.get(n, n)
+                                            for n in ctx["niveaux"] if not n.startswith("niveau_")) + " au-dessus")
+                             if transpose else
+                             "tableau de rapport : indicateurs par sexe et âge en lignes, sites ou périodes en colonnes"
                              if rapport else "tableau peu rempli (libellés en lignes, nombreuses cases vides)")
             elif not exploitable:
                 score *= 0.1
@@ -239,7 +247,9 @@ def excel_sheets(path: str | Path) -> list[dict]:
                  "vide": bool(s.empty), "rapport": bool(rapport),
                  "score": round(score, 2), "notes": notes, "recommandee": False}
             if exploitable:  # même structure = au moins 80 % d'en-têtes communs (Jaccard)
-                sig = {e.lower() for e in (entetes_tous if rapport else entetes)}
+                # un rapport se reconnaît à ses indicateurs (lignes), pas à ses établissements (colonnes), qui changent
+                # d'un trimestre à l'autre (un établissement de plus, un renommé)
+                sig = {e.lower() for e in (labs_lignes if rapport else entetes)}
                 g = next((g for g in groupes if len(sig & g[0]) >= 0.8 * len(sig | g[0])), None)
                 if g:
                     g[1].append(f)
@@ -345,12 +355,18 @@ def age_order(label: str) -> float:
     return (float(m.group()) - (0.5 if "<" in str(label) or "moins" in str(label).lower() else 0)) if m else 1e9
 
 
-def tidy_report(df: pd.DataFrame) -> pd.DataFrame:
+_INDICATEUR = re.compile(r"(?i)^(nombre|nbre|nb|taux|proportion|pourcentage|%|effectif|total)\b")
+
+
+def tidy_report(df: pd.DataFrame, contexte: dict | None = None, periode: str | None = None) -> pd.DataFrame:
     """Formulaire de rapport (indicateur → sexe → tranches d'âge en lignes, un site par colonne) remis à plat :
     une ligne = indicateur × niveau × sexe × tranche d'âge × site, avec sa valeur.
 
     `niveau` vaut total, sexe ou age : on ne somme jamais deux niveaux ensemble (double comptage).
-    Les cases vides (non rapportées) sont écartées."""
+    Les cases vides (non rapportées) sont écartées. Un libellé sans aucune valeur, qui n'est pas formulé comme un
+    indicateur (« Nombre de… », « Taux… ») et n'annonce pas de ventilation juste en dessous, est un intertitre
+    (« Dépistage en CPN ») : colonne `section`. `contexte` : {« region » : {site: valeur}, « district » : {…}} lu
+    au-dessus des sites ; `periode` : la période de la feuille."""
     labels = {c: int(df[c].map(_is_label).sum()) for c in list(df.columns)[:3]}
     lab = max(labels, key=labels.get)
     sites = list(df.columns[list(df.columns).index(lab) + 1:])
@@ -358,12 +374,18 @@ def tidy_report(df: pd.DataFrame) -> pd.DataFrame:
     sites = nommes or sites  # colonnes sans nom de site (« 0 », vides) écartées quand il y a de vrais noms
     values = df[sites].apply(pd.to_numeric, errors="coerce")
     head = str(lab).strip()
-    periode = head if _PERIODE.search(head) and not head.startswith(("Unnamed", "colonne_")) else None
-    rows, indicateur, sexe = [], None, None
-    for i, raw in df[lab].items():
-        label = " ".join(str(raw).split()) if pd.notna(raw) else ""
-        if not label:
-            continue
+    if periode is None:
+        periode = head if _PERIODE.search(head) and not head.startswith(("Unnamed", "colonne_", "libelle")) else None
+    libelles = [(i, " ".join(str(raw).split()) if pd.notna(raw) else "") for i, raw in df[lab].items()]
+    libelles = [(i, t) for i, t in libelles if t]
+    rows, indicateur, sexe, section, sections = [], None, None, "", False
+    for k, (i, label) in enumerate(libelles):
+        if (not _SEXE.match(label) and not _is_age(label) and not _INDICATEUR.match(label)
+                and values.loc[i].isna().all()):
+            suivant = libelles[k + 1][1] if k + 1 < len(libelles) else ""
+            if not (_SEXE.match(suivant) or _is_age(suivant)):    # intertitre, pas un indicateur sans total
+                section, sections, indicateur = label, True, None
+                continue
         if _SEXE.match(label):
             niveau, sexe, age = "sexe", label, "Total"
         elif _is_age(label):
@@ -375,11 +397,138 @@ def tidy_report(df: pd.DataFrame) -> pd.DataFrame:
         for site in sites:
             v = values.at[i, site]
             if pd.notna(v):
-                rows.append((indicateur, niveau, sexe or "Total", age, str(site), float(v)))
-    out = pd.DataFrame(rows, columns=["indicateur", "niveau", "sexe", "tranche_age", "site", "valeur"])
+                rows.append((section, indicateur, niveau, sexe or "Total", age, str(site), float(v)))
+    out = pd.DataFrame(rows, columns=["section", "indicateur", "niveau", "sexe", "tranche_age", "site", "valeur"])
+    if not sections:
+        out = out.drop(columns="section")
+    for j, (nom, par_site) in enumerate((contexte or {}).items()):
+        out.insert(j, nom, out["site"].map(lambda s, p=par_site: p.get(s, "")))
     if periode:
         out.insert(0, "periode", periode)
     return out
+
+
+# --------------------------------------------------------------------------- #
+# Rapport transposé : en-têtes empilés (région → district → établissement), période en haut de feuille
+# --------------------------------------------------------------------------- #
+
+_NIVEAU_NOMS = ((re.compile(r"(?i)r[ée]gion"), "region"), (re.compile(r"(?i)district"), "district"),
+                (re.compile(r"(?i)province"), "province"), (re.compile(r"(?i)d[ée]partement"), "departement"))
+_PERIODE_LIBELLE = re.compile(r"(?i)p[ée]riode")
+# Bornes sans « \b » : dans un nom de feuille « Traitement_fy26q3 », le « _ » est une lettre pour \b.
+_D, _F = r"(?<![a-z0-9])", r"(?![a-z0-9])"
+_PERIODE_VALEUR = re.compile(rf"(?i){_D}fy\s*\d{{2}}\s*q\s*[1-4]{_F}|{_D}(?:19|20)\d{{2}}\s*[-/ ]?\s*(?:q|t|s)\s*[1-4]{_F}"
+                             rf"|{_D}(?:q|t|s)\s*[1-4]\s*[-/ ]?\s*(?:19|20)\d{{2}}{_F}|{_D}(?:19|20)\d{{2}}-(?:0[1-9]|1[0-2]){_F}"
+                             rf"|{_D}(?:janv\w*|f[ée]vr\w*|mars|avr\w*|mai|juin|juil\w*|ao[uû]t|sept\w*|oct\w*|nov\w*|d[ée]c\w*)"
+                             rf"\.?\s+(?:19|20)\d{{2}}{_F}")
+
+
+def _texte(v) -> str:
+    return " ".join(str(v).split()) if v is not None and not (isinstance(v, float) and v != v) else ""
+
+
+def periode_normalisee(texte) -> str | None:
+    """« fy26q3 », « FY26 Q3 », « Période de rapportage: FY26Q3 » → « FY26Q3 » ; autre période reconnue telle quelle."""
+    m = _PERIODE_VALEUR.search(str(texte or ""))
+    if not m:
+        return None
+    p = " ".join(m.group(0).split())
+    return re.sub(r"\s+", "", p).upper() if re.match(r"(?i)fy", p) else p
+
+
+def entete_rapport(raw: pd.DataFrame) -> dict | None:
+    """Bloc d'en-têtes d'un rapport transposé lu sans en-tête (`raw`, colonnes vides retirées) : les lignes de texte
+    empilées au-dessus des chiffres (région, district, établissement), la colonne des libellés et la période écrite
+    en haut. Rend None si la feuille n'a pas cette forme (au moins 2 colonnes de valeurs nommées)."""
+    if raw.shape[1] < 3:
+        return None
+    lab = max(list(raw.columns)[:3], key=lambda c: int(raw[c].map(_is_label).sum()))
+    vals = list(raw.columns[list(raw.columns).index(lab) + 1:])
+
+    def textuelle(i):
+        cells = [raw.at[i, c] for c in vals if _texte(raw.at[i, c])]
+        return len(cells) >= 2 and sum(map(_is_label, cells)) >= 0.6 * len(cells) and len(cells) >= 0.3 * len(vals)
+
+    lignes = list(raw.index[:40])
+    debut = next((i for i in lignes if textuelle(i)), None)
+    if debut is None:
+        return None
+    fin = debut
+    while lignes.index(fin) + 1 < len(lignes) and textuelle(lignes[lignes.index(fin) + 1]):
+        fin = lignes[lignes.index(fin) + 1]
+    niveaux, k, precedent = {}, 0, None
+    pyramide = ["region", "district"]  # une ligne sans intitulé sous « Région » est le district (même nom d'une feuille à l'autre)
+    for i in lignes[lignes.index(debut):lignes.index(fin)]:
+        libelle = _texte(raw.at[i, lab])
+        nom = next((n for rx, n in _NIVEAU_NOMS if rx.search(libelle)), None)
+        if nom is None and not libelle and precedent in pyramide[:-1]:
+            nom = pyramide[pyramide.index(precedent) + 1]
+        if nom is None or nom in niveaux:
+            k += 1
+            nom = f"niveau_{k}"
+        niveaux[nom] = {c: _texte(raw.at[i, c]) for c in vals}
+        precedent = nom
+    periode, texte_periode = None, ""
+    for i in lignes[:lignes.index(debut)]:
+        ligne = " ".join(_texte(v) for v in raw.loc[i] if _texte(v))
+        if _PERIODE_LIBELLE.search(ligne) or periode_normalisee(ligne):
+            p = periode_normalisee(ligne)
+            if p:
+                periode, texte_periode = p, ligne
+                break
+    return {"ligne_sites": fin, "colonne_libelles": lab, "colonnes": vals, "niveaux": niveaux,
+            "periode": periode, "texte_periode": texte_periode}
+
+
+def lire_rapport(path: str | Path, sheet: str | int) -> pd.DataFrame | None:
+    """Rapport transposé (indicateurs en lignes, un établissement par colonne, région et district au-dessus) remis à
+    plat avec tout son contexte : region, district, site, periode (du nom de la feuille, sinon de la cellule « Période »),
+    section (intertitres), indicateur, niveau, sexe, tranche_age, valeur. None si la feuille n'a pas cette forme.
+
+    Les constats de lecture (période écrite contraire au nom de la feuille, colonne sans district) vont dans
+    attrs["rapport"], repris par le bilan qualité."""
+    raw = pd.read_excel(path, sheet_name=sheet, header=None, dtype=object)
+    raw = raw.dropna(how="all").dropna(axis=1, how="all")
+    ctx = entete_rapport(raw)
+    if ctx is None:
+        return None
+    noms = {c: _texte(raw.at[ctx["ligne_sites"], c]) for c in ctx["colonnes"]}
+    corps = raw.loc[raw.index > ctx["ligne_sites"], [ctx["colonne_libelles"]] + ctx["colonnes"]]
+    vus, cols = {}, []
+    for c in ctx["colonnes"]:  # deux établissements de même nom : suffixe, comme à la lecture habituelle
+        n = noms[c] or f"colonne_{len(cols) + 1}"
+        vus[n] = vus.get(n, 0) + 1
+        cols.append(n if vus[n] == 1 else f"{n}_{vus[n]}")
+    corps.columns = ["libelle"] + cols
+    contexte = {nom: {cols[j]: v[c] for j, c in enumerate(ctx["colonnes"])} for nom, v in ctx["niveaux"].items()}
+    nom_feuille = sheet if isinstance(sheet, str) else ""
+    p_nom = periode_normalisee(nom_feuille)
+    periode = p_nom or ctx["periode"]
+    notes = []
+    if p_nom and ctx["periode"] and p_nom != ctx["periode"]:
+        notes.append({"cle": "periode_contradictoire", "feuille": nom_feuille, "periode": p_nom,
+                      "ecrite": ctx["periode"]})
+    out = tidy_report(corps, contexte=contexte, periode=periode)
+    niveaux = [n for n in contexte if n in out.columns]
+    if niveaux:  # un établissement sans district (ni région) : une seule note, au niveau le plus fin
+        nom = niveaux[-1]
+        sans = sorted({s for s in out.loc[out[nom].eq(""), "site"]})
+        if sans and len(sans) < 0.5 * out["site"].nunique():
+            notes.append({"cle": "colonne_sans_niveau", "feuille": nom_feuille, "niveau": nom, "sites": sans[:10],
+                          "n": len(sans)})
+    out.attrs["rapport"] = notes
+    return out
+
+
+def notes_empilement(df: pd.DataFrame) -> list[dict]:
+    """Rapports de plusieurs périodes empilés : une période qui couvre nettement moins d'établissements que les
+    autres (une hausse apparente peut n'être qu'un trimestre mieux couvert)."""
+    if "periode" not in df.columns or "site" not in df.columns or df["periode"].nunique() < 2:
+        return []
+    par = df.groupby("periode")["site"].nunique()
+    reference = int(par.max())
+    return [{"cle": "couverture_variable", "periode": str(p), "sites": int(n), "reference": reference}
+            for p, n in par.items() if n < 0.8 * reference]
 
 
 def read_sheet(path: str | Path, sheet: str | int | None = None) -> tuple[pd.DataFrame, str | int]:

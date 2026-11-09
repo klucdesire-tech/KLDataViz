@@ -327,10 +327,13 @@ def _coherence(df, dims, controles, nums=(), per=None):
         r = df.attrs["recette"]
         out.append(_constat("info", f"Recette de transformation appliquée ({len(r['etapes'])} étape(s))",
                             " ; ".join(e["libelle"] for e in r["etapes"][:5]) + ".", 0, max(n, 1), cle="recette"))
+    # Rapport remis à plat (colonne « niveau ») : « Total » y est un niveau de ventilation, pas une ligne de cumul ;
+    # ses totaux sont contrôlés contre leurs désagrégations par `controles` (report_checks), niveau par niveau.
+    rapport = "niveau" in {str(x).lower() for x in df.columns}
     for c in dims:
         t = df[c].astype(str).str.strip()
         m = t.str.match(TOTAUX) & df[c].notna()
-        if m.any():
+        if m.any() and not rapport:
             ecart = _total_juste(df, m, nums, per)
             if ecart:
                 col, p, tot, somme = ecart
@@ -616,6 +619,34 @@ def matrice_declarations(unites, mois, colonne):
 
 
 # ---------------------------------------------------------------- point d'entrée
+def _notes_rapport(df):
+    """Constats de lecture d'un rapport (data_architect.lire_rapport, empilement) : par dimension de qualité."""
+    notes = df.attrs.get("rapport") or []
+    coherence, completude, n = [], [], len(df)
+    contra = [x for x in notes if x.get("cle") == "periode_contradictoire"]
+    if contra:
+        ex = contra[0]
+        coherence.append(_constat(
+            "attention", f"{len(contra)} feuille(s) : la période écrite ne correspond pas au nom de la feuille",
+            f"Ex. « {ex['feuille']} » indique {ex['ecrite']} : la période du nom de la feuille ({ex['periode']}) est "
+            "retenue. Corrigez la cellule « Période » à la source, elle a sans doute été recopiée d'un autre trimestre.",
+            len(contra), max(len(contra), 1), cle="periode_contradictoire"))
+    for x in notes:
+        if x.get("cle") == "colonne_sans_niveau":
+            noms = ", ".join(f"« {s} »" for s in x["sites"][:3])
+            coherence.append(_constat(
+                "attention", f"{x['n']} colonne(s) sans {x['niveau']} : {noms}" + (f" (feuille {x['feuille']})" if x.get("feuille") else ""),
+                "Probablement une colonne de sous-total laissée dans le rapport : additionnée aux établissements, elle "
+                "compterait deux fois. À vérifier, puis à retirer si c'est un total.", x["n"], max(n, 1),
+                cle="colonne_sans_niveau"))
+        if x.get("cle") == "couverture_variable":
+            completude.append(_constat(
+                "attention", f"{x['periode']} : {x['sites']} site(s) déclarant(s), contre {x['reference']} au mieux",
+                "Une hausse ou une baisse entre périodes peut venir du nombre de sites qui ont déclaré, pas de "
+                "l'activité : comparez à sites constants.", x["sites"], x["reference"], cle="couverture_variable"))
+    return coherence, completude
+
+
 def bilan(df, anomalies=None, controles=None, aujourd_hui=None):
     """Bilan qualité du fichier : note globale, note et constats par dimension, méthode."""
     aujourd_hui = aujourd_hui or dt.date.today()
@@ -635,9 +666,10 @@ def bilan(df, anomalies=None, controles=None, aujourd_hui=None):
         temps, lues = _extremes_temps(df[reel], lieu, mois_ok[reel].dt.to_period("M"), nums, dims, df.index)
     regles = _regles(df[~df[lieu].astype(str).str.strip().str.match(TOTAUX)] if lieu is not None else df, nums, lieu,
                      df.index)
-    par_dim = {"completude": comp, "unicite": _unicite(df, nums, dims, per_col, per),
+    rap_coherence, rap_completude = _notes_rapport(df)
+    par_dim = {"completude": comp + rap_completude, "unicite": _unicite(df, nums, dims, per_col, per),
                "validite": _validite(df, nums, per_col, per, aujourd_hui),
-               "coherence": _coherence(df, dims, controles, nums, per) + regles,
+               "coherence": _coherence(df, dims, controles, nums, per) + regles + rap_coherence,
                "plausibilite": temps + _plausibilite(anomalies, n, lues), "actualite": actu}
     ordre = {"grave": 0, "attention": 1, "info": 2}
     dimensions = []

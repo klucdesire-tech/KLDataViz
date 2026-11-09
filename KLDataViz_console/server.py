@@ -302,6 +302,7 @@ def _tidy(df):
 
 
 AGREGE_SUFFIX = ".agrege"  # fichier témoin : « ces valeurs sont déjà agrégées » (ex. copie d'une source DHIS2)
+NOTES_RAPPORT_SUFFIX = ".lecture.json"  # constats de lecture de rapports empilés (périodes contradictoires…)
 
 
 def mark_agrege(path, on=True):
@@ -339,6 +340,12 @@ def _read_df(file_path, sheet=None, recette=True):
     if df is not None and not file_path.startswith(("http://", "https://", "dhis2://", formulaires.KOBO, formulaires.ODK)) \
             and os.path.exists(file_path + AGREGE_SUFFIX):
         df.attrs["agrege"] = True
+    if df is not None and os.path.exists(str(file_path) + NOTES_RAPPORT_SUFFIX):  # constats de lecture d'un empilement
+        try:
+            with open(str(file_path) + NOTES_RAPPORT_SUFFIX, encoding="utf-8") as f:
+                df.attrs["rapport"] = json.load(f)
+        except (OSError, ValueError):
+            pass
     confidentialite.enregistrer(df)  # ses identifiants ne partiront jamais en clair vers l'IA
     return df, err
 
@@ -403,7 +410,9 @@ def _read_df_raw(file_path, sheet=None):
             except Exception:
                 meta = {}
             if meta.get(lue, {}).get("rapport"):
-                df = data_architect.tidy_report(df)
+                # rapport transposé : région, district, période et intertitres gardés ; sinon remise à plat simple
+                complet = data_architect.lire_rapport(file_path, lue)
+                df = complet if complet is not None and len(complet) else data_architect.tidy_report(df)
             names = pd.ExcelFile(file_path).sheet_names
             if len(names) > 1:
                 df.attrs.update(feuille=lue if isinstance(lue, str) else names[lue], feuilles=names)
@@ -463,14 +472,63 @@ def _short(label, n=60):
     return label if len(label) <= n else label[:n - 1] + "…"
 
 
+TAUX_INDICATEUR = re.compile(r"(?i)^\s*(taux|proportion|pourcentage|%|ratio|moyenne|m[ée]diane)\b")
+_MOIS_COURTS = ["jan", "f", "mar", "avr", "mai", "juin", "juil", "ao", "sep", "oct", "nov", "d"]
+
+
+def cle_periode(p):
+    """Clé de tri d'une période de rapport : FY26Q3, 2026Q1, T2 2026, 2026-03, Mars 2026 → (année, rang)."""
+    t = str(p).lower()
+    m = re.search(r"fy\s*(\d{2})\s*q\s*([1-4])", t)
+    if m:
+        return (2000 + int(m.group(1)), 3 * int(m.group(2)), t)
+    an = re.search(r"(?:19|20)\d{2}", t)
+    rang = 0
+    if q := re.search(r"(?<![a-z])[qts]\s*([1-4])(?!\d)", t):
+        rang = 3 * int(q.group(1))
+    elif mm := re.search(r"(?:19|20)\d{2}-(0[1-9]|1[0-2])", t):
+        rang = int(mm.group(1))
+    else:
+        mot = re.search(r"[a-zéû]+", t.replace("fy", ""))
+        if mot:
+            w = mot.group(0)
+            rang = 5 if w.startswith("mai") else 6 if w.startswith("juin") else 7 if w.startswith("juil") else next(
+                (k + 1 for k, o in enumerate(_MOIS_COURTS) if w.startswith(o)), 0)
+    return (int(an.group(0)) if an else 0, rang, t)
+
+
 def _report_charts(df):
-    """Rapport remis à plat : chaque graphique reste à un seul niveau (total, sexe ou âge), jamais additionnés."""
+    """Rapport remis à plat : chaque graphique reste à un seul niveau (total, sexe ou âge), jamais additionnés.
+
+    Les taux (« Taux de suppression… ») ne s'additionnent pas : écartés des sommes. Plusieurs périodes empilées : une
+    courbe d'évolution par période, puis les autres graphiques sur la dernière période seulement (additionner des
+    trimestres compterait plusieurs fois un effectif comme la file active)."""
     charts = []
-    rnd = lambda xs: [round(float(x), 4) for x in xs]
+    rnd = lambda xs: [None if pd.isna(x) else round(float(x), 4) for x in xs]
+    df = df[~df["indicateur"].astype(str).str.match(TAUX_INDICATEUR)]
+    if df.empty:
+        return charts
+    if "periode" in df.columns and df["periode"].nunique() > 1:
+        ordre = sorted(df["periode"].dropna().unique(), key=cle_periode)
+        derniere = ordre[-1]
+        tot_p = df[df["niveau"] == "total"].groupby(["indicateur", "periode"])["valeur"].sum()
+        recent = df[(df["niveau"] == "total") & (df["periode"] == derniere)].groupby("indicateur")["valeur"].sum()
+        if len(recent):
+            ind = recent.idxmax()
+            serie = tot_p[ind].reindex(ordre)
+            sites = df[df["indicateur"] == ind].groupby("periode")["site"].nunique().reindex(ordre)
+            charts.append({"kind": "trend", "type": "line", "title": f"{_short(ind, 45)} — par période",
+                           "subtitle": "Somme des sites déclarants · sites : " + ", ".join(
+                               f"{p} {int(n)}" for p, n in sites.dropna().items()),
+                           "labels": [str(p) for p in ordre], "values": [rnd(serie.values)], "seriesNames": [_short(ind, 30)]})
+        df = df[df["periode"] == derniere]
+        suffixe = f" · {derniere}"
+    else:
+        suffixe = ""
     tot = df[df["niveau"] == "total"].groupby("indicateur", sort=False)["valeur"].sum()
     if len(tot) > 1:
         charts.append({"kind": "ranking", "type": "bar", "title": "Total par indicateur",
-                       "subtitle": "Somme sur tous les sites", "labels": [_short(i) for i in tot.index],
+                       "subtitle": "Somme sur tous les sites" + suffixe, "labels": [_short(i) for i in tot.index],
                        "values": [rnd(tot.values)], "seriesNames": ["Total"], "horizontal": True})
     detail = [i for i in tot.sort_values(ascending=False).index
               if (df[(df["indicateur"] == i) & (df["niveau"] != "total")]["valeur"].sum() > 0)]
@@ -479,21 +537,29 @@ def _report_charts(df):
         sx = g[g["niveau"] == "sexe"].groupby("sexe")["valeur"].sum()
         if len(sx) >= 2:
             charts.append({"kind": "report", "type": "bar", "title": f"{_short(ind, 45)} — par sexe",
-                           "subtitle": f"Somme sur {g['site'].nunique()} site(s)", "labels": [str(x) for x in sx.index],
+                           "subtitle": f"Somme sur {g['site'].nunique()} site(s){suffixe}", "labels": [str(x) for x in sx.index],
                            "values": [rnd(sx.values)], "seriesNames": ["Valeur"]})
         ag = g[g["niveau"] == "age"].pivot_table(index="tranche_age", columns="sexe", values="valeur", aggfunc="sum").fillna(0)
         if len(ag) >= 2:
             ag = ag.loc[sorted(ag.index, key=data_architect.age_order)]
             charts.append({"kind": "trend", "type": "bar", "title": f"{_short(ind, 45)} — par âge et sexe",
-                           "subtitle": "Somme sur tous les sites", "labels": [str(x) for x in ag.index],
+                           "subtitle": "Somme sur tous les sites" + suffixe, "labels": [str(x) for x in ag.index],
                            "values": [rnd(ag[c].values) for c in ag.columns], "seriesNames": [str(c) for c in ag.columns]})
+    if len(tot) and "district" in df.columns and df["district"].nunique() >= 2:
+        ind = tot.idxmax()
+        dis = df[(df["indicateur"] == ind) & (df["niveau"] == "total")].groupby("district")["valeur"].sum()
+        dis = dis[dis.index != ""].sort_values(ascending=False)
+        if len(dis) >= 2:
+            charts.append({"kind": "ranking", "type": "bar", "title": f"{_short(ind, 45)} — par district",
+                           "subtitle": f"Somme des sites de chaque district{suffixe}", "labels": [str(x) for x in dis.index],
+                           "values": [rnd(dis.values)], "seriesNames": ["Valeur"], "horizontal": True})
     if len(tot):
         ind = tot.idxmax()
         st = df[(df["indicateur"] == ind) & (df["niveau"] == "total")].groupby("site")["valeur"].sum().sort_values(ascending=False)
         if len(st) >= 2:
             top = st.head(15)
             charts.append({"kind": "ranking", "type": "bar", "title": f"{_short(ind, 45)} — par site",
-                           "subtitle": f"{len(top)} premiers sites sur {len(st)} · ligne : moyenne",
+                           "subtitle": f"{len(top)} premiers sites sur {len(st)} · ligne : moyenne{suffixe}",
                            "labels": [str(x) for x in top.index], "values": [rnd(top.values)], "seriesNames": ["Valeur"],
                            "ref": {"value": round(float(st.mean()), 4), "label": "Moyenne"}, "horizontal": True})
     return charts
@@ -501,25 +567,28 @@ def _report_charts(df):
 
 def report_checks(df):
     """Contrôle qualité d'un rapport : le total d'un indicateur doit égaler la somme par sexe et par âge,
-    site par site. Renvoie les écarts trouvés."""
+    site par site (et période par période quand plusieurs sont empilées). Renvoie les écarts trouvés."""
+    # Calcul groupé (un passage par niveau) : un classeur de 6 trimestres × 300 sites × 9 indicateurs fait ~15 000
+    # groupes, trop lents à parcourir un par un. Même résultat et même ordre que le parcours groupe par groupe.
+    cles = ["indicateur", "site"] + (["periode"] if "periode" in df.columns else [])
+    d = df[cles + ["niveau", "sexe", "valeur"]]
+    rang = {k: i for i, k in enumerate(d[cles].drop_duplicates().itertuples(index=False, name=None))}
+    trouves = []
+    tot = d[d["niveau"] == "total"].groupby(cles, sort=False)["valeur"].sum()
+    sx = d[d["niveau"] == "sexe"].groupby(cles, sort=False)["valeur"].sum()
+    for k, s in sx.items():  # le total d'un indicateur = la somme de ses sexes (0 si aucun total déclaré)
+        t = float(tot.get(k, 0.0))
+        if abs(t - s) > 1e-9:
+            trouves.append((rang[k], 0, "", k, "Total = somme par sexe", t, float(s)))
+    par_sexe = d[d["niveau"] == "sexe"].groupby(cles + ["sexe"], sort=True)["valeur"].sum()
+    ages = d[d["niveau"] == "age"].groupby(cles + ["sexe"], sort=True)["valeur"].sum()
+    for k, a in ages.items():  # chaque sexe = la somme de ses tranches d'âge
+        if k in par_sexe.index and abs(par_sexe[k] - a) > 1e-9:
+            trouves.append((rang[k[:-1]], 1, str(k[-1]), k[:-1], f"{k[-1]} = somme des âges", float(par_sexe[k]), float(a)))
     out = []
-    for (ind, site), g in df.groupby(["indicateur", "site"], sort=False):
-        tot = g[g["niveau"] == "total"]["valeur"].sum()
-        for niveau, nom in (("sexe", "par sexe"), ("age", "par âge")):
-            part = g[g["niveau"] == niveau]
-            if part.empty:
-                continue
-            if niveau == "age":  # chaque sexe doit égaler la somme de ses tranches d'âge
-                sx = g[g["niveau"] == "sexe"].groupby("sexe")["valeur"].sum()
-                ages = part.groupby("sexe")["valeur"].sum()
-                for sexe in sx.index.intersection(ages.index):
-                    if abs(sx[sexe] - ages[sexe]) > 1e-9:
-                        out.append({"indicateur": ind, "site": site, "controle": f"{sexe} = somme des âges",
-                                    "attendu": float(sx[sexe]), "trouve": float(ages[sexe])})
-                continue
-            if abs(tot - part["valeur"].sum()) > 1e-9:
-                out.append({"indicateur": ind, "site": site, "controle": f"Total = somme {nom}",
-                            "attendu": float(tot), "trouve": float(part["valeur"].sum())})
+    for _, _, _, k, controle, attendu, trouve in sorted(trouves, key=lambda x: x[:3]):
+        out.append({"indicateur": k[0], "site": k[1] if len(k) == 2 else f"{k[1]} ({k[2]})", "controle": controle,
+                    "attendu": attendu, "trouve": trouve})
     return out
 
 
@@ -3103,7 +3172,11 @@ def _llm_chat(question, ui_context, history, progress, linked, temporaires, file
             context[0]["regle_rapport"] = (
                 "Rapport remis à plat : une ligne = indicateur × niveau × sexe × tranche_age × site. La colonne niveau "
                 "vaut total, sexe ou age. Ne JAMAIS additionner deux niveaux : total d'un indicateur → niveau == 'total' ; "
-                "par sexe → niveau == 'sexe' ; par âge (et sexe) → niveau == 'age'. Ne pas additionner des indicateurs différents.")
+                "par sexe → niveau == 'sexe' ; par âge (et sexe) → niveau == 'age'. Ne pas additionner des indicateurs différents. "
+                "Colonnes possibles en plus : region, district (au-dessus de chaque site), periode, section. Plusieurs périodes : "
+                "ne jamais additionner des périodes pour un effectif présent (file active, patients sous traitement) ; "
+                "comparer période par période. Un indicateur « Taux… », « Proportion… » ne s'additionne jamais : le "
+                "recalculer à partir de son numérateur et de son dénominateur, ou le présenter site par site.")
     linked_paths = {}
     for item in (linked or [])[:MAX_ARCHITECT_FILES]:  # autres feuilles / fichiers croisés, aussi calculables
         lp = str((item or {}).get("path") or "")
@@ -3339,21 +3412,30 @@ def sheets_extract(file_path, sheets, stack=False):
     if stack:
         try:
             meta = {f["nom"]: f for f in data_architect.excel_sheets(file_path)}
+            notes = []
             if all(meta.get(n, {}).get("rapport") for n in wanted):  # rapports : chacun remis à plat, puis empilés
                 frames = []
                 for n in wanted:
                     one, err = _read_df(file_path, sheet=n)
                     if err:
                         return {"error": f"Feuille « {n} » : {err}"}
+                    notes += one.attrs.get("rapport") or []
                     frames.append(one.assign(feuille=n)[["feuille"] + list(one.columns)])
                 df = pd.concat(frames, ignore_index=True)
+                notes += data_architect.notes_empilement(df)   # période nettement moins couverte que les autres
             else:
                 df = _tidy(data_architect.stack_sheets(file_path, wanted))
         except Exception as e:
             return {"error": f"Empilement impossible : {e}"}
-        dest = os.path.join(T.uploads_dir(), _safe_name(f"{stem} - {len(wanted)} feuilles empilees.parquet"))
+        # le nom porte la 1re feuille : deux empilements du même classeur (Dépistage, Traitement…) ne s'écrasent pas
+        dest = os.path.join(T.uploads_dir(), _safe_name(f"{stem} - {wanted[0]} + {len(wanted) - 1} feuilles empilees.parquet"))
         _save_table(df, dest)
-        return {"fichiers": [{"path": dest, "name": f"{stem} — {len(wanted)} feuilles empilées", "feuille": None,
+        if notes:
+            with open(dest + NOTES_RAPPORT_SUFFIX, "w", encoding="utf-8") as f:
+                json.dump(notes, f, ensure_ascii=False)
+        elif os.path.exists(dest + NOTES_RAPPORT_SUFFIX):  # constats d'un empilement précédent du même nom
+            os.remove(dest + NOTES_RAPPORT_SUFFIX)
+        return {"fichiers": [{"path": dest, "name": f"{stem} — {wanted[0]} et {len(wanted) - 1} autres feuilles empilées", "feuille": None,
                               "feuilles": wanted, "lignes": int(len(df)), "colonnes": int(df.shape[1])}]}
     out = []
     for name in wanted:

@@ -1015,8 +1015,8 @@ async function openSource(path,name,size){
   const d=await api('/api/sheets',{file_path:path});
   const fs=d.feuilles||[],ok=fs.filter(f=>f.exploitable);
   if(d.error||fs.filter(f=>!f.vide).length<2||!ok.length){importMsg('');return startRun(path,name,size)}  // une seule feuille non vide : lue automatiquement
-  // Groupes de feuilles à empiler, du plus grand au plus petit (2 au plus affichés)
-  const groups=Object.values(fs.reduce((m,f)=>(f.groupe&&(m[f.groupe]=m[f.groupe]||[]).push(f),m),{})).sort((a,b)=>b.length-a.length).slice(0,2);
+  // Groupes de feuilles à empiler, du plus grand au plus petit (6 au plus : un classeur de collecte a un groupe par volet)
+  const groups=Object.values(fs.reduce((m,f)=>(f.groupe&&(m[f.groupe]=m[f.groupe]||[]).push(f),m),{})).sort((a,b)=>b.length-a.length).slice(0,6);
   const rec=fs.find(f=>f.recommandee)||ok[0],dim=f=>`${f.lignes_approx?'plus de ':''}${nf(f.lignes)} ligne${f.lignes>1?'s':''} × ${f.colonnes} colonne${f.colonnes>1?'s':''}`;
   const MAXC=6;  // croisement par l'architecte : 6 tables au plus ; l'empilement n'a pas cette limite
   importMsg(`<div class="card"><h2 style="margin:0">Ce classeur contient ${fs.length} feuilles</h2>
