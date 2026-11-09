@@ -517,18 +517,21 @@ def _propose_doublons(df):
 
 
 def _propose_niveaux_dhis2(colonnes):
-    """orgunitlevel1…n d'un export DHIS2 : le dernier niveau est l'établissement, puis le district, puis la région
-    (pyramide sanitaire). Le nom reste modifiable : c'est une étape « Renommer » comme une autre."""
-    niveaux = sorted((int(m.group(1)), c) for c in colonnes if (m := _NIVEAU_DHIS2.match(str(c))))
+    """orgunitlevel1…n d'un export DHIS2 : l'unité la plus fine est l'établissement, puis le district, puis la région
+    (pyramide sanitaire). L'unité la plus fine est « organisationunitname » s'il reste (il n'est pas la copie du dernier
+    niveau, retirée avant) ; sinon le dernier orgunitlevel. Le nom reste modifiable : c'est une étape « Renommer »."""
+    niveaux = sorted((int(m.group(1)), str(c)) for c in colonnes if (m := _NIVEAU_DHIS2.match(str(c))))
     if not niveaux:
         return []
+    chaine = [(f"Niveau {n}", c) for n, c in niveaux]
+    chaine += [("Unité", str(c)) for c in colonnes if str(c).lower() == "organisationunitname"]
     noms = ["Établissement", "District", "Région"]
     pris = {str(c) for c in colonnes}
     carte = {}
-    for rang, (_, c) in enumerate(reversed(niveaux)):
-        nom = noms[rang] if rang < len(noms) else f"Niveau {niveaux[len(niveaux) - 1 - rang][0]}"
+    for rang, (defaut, c) in enumerate(reversed(chaine)):
+        nom = noms[rang] if rang < len(noms) else defaut
         if nom not in pris:
-            carte[str(c)] = nom
+            carte[c] = nom
     return [{"op": "renommer", "colonnes": carte}] if carte else []
 
 
