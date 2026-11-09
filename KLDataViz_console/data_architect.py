@@ -44,11 +44,40 @@ def _sniff_text(path: Path) -> tuple[str, str]:
             continue
     else:
         enc, text = "latin-1", raw.decode("latin-1", errors="replace")
-    try:
-        sep = csv.Sniffer().sniff(text.splitlines()[0] if text else ",", delimiters=";,\t|").delimiter
-    except csv.Error:
-        sep = max(";,\t|", key=lambda d: text.split("\n", 1)[0].count(d))
+    sep = _separateur(text, tronque=len(raw) >= 200_000)
+    if sep is None:
+        try:
+            sep = csv.Sniffer().sniff(text.splitlines()[0] if text else ",", delimiters=";,\t|").delimiter
+        except csv.Error:
+            sep = max(";,\t|", key=lambda d: text.split("\n", 1)[0].count(d))
     return enc, sep
+
+
+def _separateur(text: str, tronque: bool = False) -> str | None:
+    """Le séparateur qui donne le MÊME nombre de colonnes sur les premières lignes (guillemets respectés).
+
+    Compter les signes de la seule ligne d'en-têtes ne suffit pas : un export DHIS2 séparé par « ; » a des titres
+    « Masculin, 15-24 ans » qui contiennent autant de virgules que de points-virgules. None si rien n'est net."""
+    lignes = [ln for ln in text.splitlines() if ln.strip()]
+    if tronque and len(lignes) > 1:
+        lignes = lignes[:-1]                                   # dernière ligne coupée par l'échantillon
+    lignes = lignes[:30]
+    if not lignes:
+        return None
+    notes = {}
+    for d in ";,\t|":
+        try:
+            larg = [len(r) for r in csv.reader(lignes, delimiter=d)]
+        except csv.Error:
+            continue
+        if larg[0] < 2:
+            continue
+        constance = sum(n == larg[0] for n in larg) / len(larg)
+        notes[d] = (constance, larg[0])
+    if not notes:
+        return None
+    d, (constance, _) = max(notes.items(), key=lambda kv: kv[1])
+    return d if constance >= 0.8 else None
 
 
 def header_row(sample: pd.DataFrame) -> int:
