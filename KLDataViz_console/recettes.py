@@ -454,9 +454,13 @@ def proposer(df):
                 fusionnees.append(c)
     if fusionnees:
         etapes.append({"op": "recopier_bas", "colonnes": fusionnees})
-    # 2. Sous-totaux et totaux mêlés aux détails
-    if textes and _txt(df[textes]).apply(lambda s: s.str.match(TOTAL)).any(axis=1).any():
-        etapes.append({"op": "retirer_lignes", "motif": TOTAL.pattern})
+    # 2. Sous-totaux et totaux mêlés aux détails. Pas dans un rapport remis à plat (colonne « niveau ») : « Total » y
+    # est un niveau de ventilation, et un indicateur déclaré seulement au total disparaîtrait. Au moins deux lignes de
+    # détail doivent rester (un sous-total par district est courant : pas de plafond de proportion).
+    if textes and "niveau" not in {str(c).lower() for c in df.columns}:
+        cumul = _txt(df[textes]).apply(lambda s: s.str.match(TOTAL)).any(axis=1)
+        if cumul.any() and (~cumul).sum() >= 2:
+            etapes.append({"op": "retirer_lignes", "motif": TOTAL.pattern})
     # 3. Fractionner « District - Centre »
     for c in textes:
         s = _txt(df[c].dropna())

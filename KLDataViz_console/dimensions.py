@@ -30,6 +30,7 @@ PERIODE = re.compile(
 TRANCHE_AGE = re.compile(
     r"(?:<|≤|moins\s+de)\s*\d{1,3}\s*(?:ans?|mois|years?|y)\b"                     # <1 an, moins de 5 ans, <15y
     r"|\b\d{1,3}\s*(?:[-–]|à)\s*\d{1,3}\s*(?:ans?|mois|years?|y)\b"                # 15-19 ans, 0-11 mois, 15-24y
+    r"|\b\d{1,3}\s*\+\s*(?:ans?|years?|y)\b"                                    # 50+ ans (avant « 50+ » seul)
     r"|\b\d{1,3}\s*(?:ans?|years?|y)?\s*(?:et\s+plus|\+|and\s+over|ou\s+plus)"     # 50 ans et plus, 50+
     r"|\b(?:plus\s+de|>|≥)\s*\d{1,3}\s*(?:ans?|years?|y)\b",                       # plus de 49 ans
     re.I)
