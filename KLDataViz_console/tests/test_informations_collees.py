@@ -34,6 +34,9 @@ def R():
     ("PVVIH sous ARV Hommes 50 ans et plus T2 2026", "PVVIH sous ARV",
      {"sexe": "Hommes", "tranche_age": "50 ans et plus", "periode": "T2 2026"}),
     ("Nouveaux cas 0-11 mois Mars 2026", "Nouveaux cas", {"tranche_age": "0-11 mois", "periode": "Mars 2026"}),
+    ("50+ ans", "", {"tranche_age": "50+ ans"}),                         # « ans » ne devient pas un indicateur
+    ("Positifs 50 + ans", "Positifs", {"tranche_age": "50 + ans"}),
+    ("Positifs 50+", "Positifs", {"tranche_age": "50+"}),
     ("Taux de couverture (%) 2024", "Taux de couverture (%)", {"periode": "2024"}),
     ("Semaine 2026W05 cas de paludisme", "cas de paludisme", {"periode": "Semaine 2026W05"}),
     # une population, pas un sexe ; des libellés sans information : laissés tels quels
@@ -178,6 +181,32 @@ def test_niveaux_dhis2_quand_le_nom_est_l_etablissement(R):
     renommer = [e for e in recettes.proposer(df4) if e["op"] == "renommer"]
     assert renommer[0]["colonnes"] == {"orgunitlevel4": "Établissement", "orgunitlevel3": "District",
                                        "orgunitlevel2": "Région", "orgunitlevel1": "Niveau 1"}
+
+
+def test_rapport_remis_a_plat_rien_a_retirer(R):
+    """Rapport (indicateur → sexe → âges en lignes, un site par colonne) déjà remis à plat : « Total » y est un niveau.
+    Retirer ces lignes effacerait un indicateur déclaré seulement au total (« éligibles ») ; « 50+ ans » n'est pas une
+    information collée. Aucune étape proposée."""
+    recettes, _ = R
+    lignes = []
+    for site in SITES:
+        lignes.append(("Éligibles au dépistage", "total", "Total", "Total", site, 7))
+        lignes.append(("Dépistés", "total", "Total", "Total", site, 12))
+        for s in SEXES:
+            lignes.append(("Dépistés", "sexe", s, "Total", site, 6))
+            for a in ["<1 an", "15-19 ans", "50+ ans"]:
+                lignes.append(("Dépistés", "age", s, a, site, 2))
+    df = pd.DataFrame(lignes, columns=["indicateur", "niveau", "sexe", "tranche_age", "site", "valeur"])
+    assert recettes.proposer(df) == []
+
+
+def test_totaux_retires_seulement_s_il_reste_du_detail(R):
+    """Des lignes de cumul parmi des détails : proposées au retrait. Presque rien d'autre que des « Total » : rien."""
+    recettes, _ = R
+    peu = pd.DataFrame({"Centre": ["A", "B", "C", "D", "E", "Total"], "Dépistés": [1, 2, 3, 4, 5, 15]})
+    assert {"op": "retirer_lignes", "motif": recettes.TOTAL.pattern} in recettes.proposer(peu)
+    trop = pd.DataFrame({"Catégorie": ["Total", "Total", "Sous-total", "A"], "Dépistés": [1, 2, 3, 4]})
+    assert not [e for e in recettes.proposer(trop) if e["op"] == "retirer_lignes"]
 
 
 def test_colonnes_de_chiffres_identiques_jamais_retirees(R):
