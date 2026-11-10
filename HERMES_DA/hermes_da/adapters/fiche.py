@@ -7,7 +7,8 @@ import re
 
 import pandas as pd
 
-from .dashboard import _ID_RE, _MESURE_RE, _NO, _TEMPS_RE, _VOLUME_RE, _YES, _is_stock, _long_to_wide, _norm, _period
+from .dashboard import (_ID_RE, _MESURE_RE, _NO, _TEMPS_RE, _VOLUME_RE, _YES, _genre_trimestre, _is_stock, _long_to_wide,
+                        _norm, _period)
 
 LIEU_RE = re.compile(r"(^|\s)(pays|region|district|departement|prefecture|province|commune|ville|localite|quartier|zone|"
                      r"secteur geographique|site|centre|structure|etablissement|formation sanitaire|fosa|agence|magasin|"
@@ -51,10 +52,14 @@ def _nature_mesure(c, s, periodique):
     return "moyenne"
 
 
-def _fiche_periode(col, serie):
+def _fiche_periode(col, serie, trimestre=None):
     cles = sorted(k for k in serie.dropna().unique() if isinstance(k, str) and len(k) in (7, 10))
     if len(cles) < 2:
         return None
+    if trimestre:  # FY26Q3… : comparer « même trimestre, année civile précédente » mélangerait deux exercices
+        return {"colonne": col, "debut": cles[0], "fin": cles[-1], "valeurs": len(cles), "mois": len(cles),
+                "annees": len({k[:4] for k in cles}), "unite": "trimestre", "trimestre": trimestre,
+                "comparable_n1": False, "mois_communs": []}
     mois = sorted({k[:7] for k in cles})
     annees = sorted({k[:4] for k in cles})
     repetes = {m[5:] for m in mois if m[:4] == annees[-1]} & {m[5:] for m in mois if m[:4] == annees[-2]} if len(annees) > 1 else set()
@@ -85,7 +90,7 @@ def lire_fiche(df):
         fiche["capacites"] = capacites(fiche)
         return fiche
     col_p, serie = _period(df)
-    fiche["periode"] = _fiche_periode(col_p, serie) if col_p else None
+    fiche["periode"] = _fiche_periode(col_p, serie, _genre_trimestre(df, col_p)) if col_p else None
     colonne_periode = fiche["periode"]["colonne"] if fiche["periode"] else None
     periodique = colonne_periode is not None
     for c in df.columns:
