@@ -111,3 +111,64 @@ def test_bilan_qualite_lit_le_fichier_d_origine(monkeypatch):
     assert "désagrégations" in out["html"]
     tuiles = {k["colonne"]: k["valeur"] for k in out["kpis"] if k["agregation"] == "somme"}
     assert tuiles.get("Nombre de clients dépistés") == _oracle(_rapport())["Nombre de clients dépistés"]
+
+
+def _case(lignes, **base):
+    return pd.DataFrame([dict(dict(periode="FY26Q1", region="R", district="D", site="Centre Delta",
+                                   indicateur="Nombre de clients dépistés"), **base, **l) for l in lignes])
+
+
+def test_detail_par_age_d_un_seul_sexe():
+    """Total 100 = 60 F + 40 M ; âges remplis pour les femmes seulement : 60 F par âge + 40 M, jamais 60."""
+    _, D = _dashboard()
+    df = _case([dict(niveau="total", sexe="Total", tranche_age="Total", valeur=100.0),
+                dict(niveau="sexe", sexe="Féminin", tranche_age="Total", valeur=60.0),
+                dict(niveau="sexe", sexe="Masculin", tranche_age="Total", valeur=40.0),
+                dict(niveau="age", sexe="Féminin", tranche_age="<15 ans", valeur=25.0),
+                dict(niveau="age", sexe="Féminin", tranche_age="15+ ans", valeur=35.0)])
+    v = D.vue_rapport(df)
+    assert float(v.valeur.sum()) == 100.0
+    assert v.groupby("sexe").valeur.sum().to_dict() == {"Féminin": 60.0, "Masculin": 40.0}
+    assert v[v.sexe == "Masculin"].tranche_age.isna().all()
+
+
+def test_age_non_croise_avec_le_sexe():
+    """Ventilation par sexe ET par âge séparément (âge sans sexe) : un seul découpage, total juste, jamais « Total »."""
+    server, D = _dashboard()
+    df = _case([dict(niveau="total", sexe="Total", tranche_age="Total", valeur=100.0),
+                dict(niveau="sexe", sexe="Féminin", tranche_age="Total", valeur=55.0),
+                dict(niveau="sexe", sexe="Masculin", tranche_age="Total", valeur=45.0),
+                dict(niveau="age", sexe="Total", tranche_age="<15 ans", valeur=30.0),
+                dict(niveau="age", sexe="Total", tranche_age="15+ ans", valeur=70.0)])
+    df = pd.concat([df, _rapport()], ignore_index=True)  # 2 lignes à âge non croisé parmi beaucoup d'autres
+    v = D.vue_rapport(df)
+    delta = v[v.site == "Centre Delta"]
+    assert float(delta.valeur.sum()) == 100.0 and delta.sexe.isna().all()
+    # et l'indicateur reste dans les tuiles (il n'est pas pris pour une ligne de « Total » à écarter)
+    r = D.generate_dashboard(df, "t", llm=False)
+    tuiles = {k["colonne"]: k["valeur"] for k in r["kpis"]}
+    assert tuiles["Nombre de clients dépistés"] == _oracle(_rapport())["Nombre de clients dépistés"] + 100.0
+
+
+def test_libelle_avec_espace_en_trop_une_seule_case():
+    _, D = _dashboard()
+    df = _case([dict(niveau="total", sexe="Total", tranche_age="Total", valeur=99.0, site="Centre Alpha"),
+                dict(niveau="age", sexe="Féminin", tranche_age="<15 ans", valeur=30.0, site="Centre Alpha ")])
+    r = D.generate_dashboard(df, "t", llm=lambda m, n: json.dumps(
+        {"kpis": [{"nom": "Dépistés", "agregation": "somme", "colonne": "Nombre de clients dépistés"}], "graphiques": []}))
+    assert [k["valeur"] for k in r["kpis"]] == [30.0]
+
+
+def test_niveaux_ecrits_autrement_et_repli_sans_ia():
+    """« Âge » / « TOTAL » reconnus ; sans IA ni « Nombre de… », une somme par indicateur, jamais un taux additionné."""
+    _, D = _dashboard()
+    df = _case([dict(niveau="TOTAL", sexe="Total", tranche_age="Total", valeur=100.0, indicateur="Clients dépistés"),
+                dict(niveau="Âge", sexe="Féminin", tranche_age="<15 ans", valeur=40.0, indicateur="Clients dépistés"),
+                dict(niveau="Âge", sexe="Masculin", tranche_age="<15 ans", valeur=60.0, indicateur="Clients dépistés"),
+                dict(niveau="total", sexe="Total", tranche_age="Total", valeur=0.12, indicateur="Taux de positivité")])
+    v = D.vue_rapport(df)
+    assert float(v[v.indicateur == "Clients dépistés"].valeur.sum()) == 100.0
+    r = D.generate_dashboard(df, "t", llm=False)
+    tuiles = {k["colonne"]: (k["agregation"], k["valeur"]) for k in r["kpis"]}
+    assert tuiles.get("Clients dépistés") == ("somme", 100.0)
+    assert ("somme", 0.12) not in tuiles.values() and all(a in ("somme", "taux", "dernier") for a, _ in tuiles.values())

@@ -1492,40 +1492,80 @@ def sans_lignes_de_total(df):
 
 _RANG_NIVEAU = {"total": 0, "sexe": 1, "age": 2}  # du plus agrégé au plus fin
 AGREGATIONS_RAPPORT = ("somme", "sum", "dernier", "taux", "rate", "pct", "proportion")
+# Indicateur déjà exprimé en taux (« Taux de positivité », « % de CV supprimée ») : sa somme n'a pas de sens
+_TAUX_INDICATEUR = re.compile(r"(?i)^\s*(taux|proportion|pourcentage|%|ratio|moyenne|m[ée]diane)\b")
+
+
+def _niveau_rapport(v):
+    """« Âge », « tranche_age », « Sexe », « TOTAL » → age / sexe / total ; None si ce n'est pas un niveau de rapport."""
+    n = _norm(v)
+    if n in ("total", "ensemble"):
+        return "total"
+    if n in ("sexe", "sex", "genre"):
+        return "sexe"
+    if n in ("age", "ages", "tranche age", "tranche d age", "tranches d age", "age group"):
+        return "age"
+    return None
+
+
+def _branche_sexe(v):
+    """Branche de sexe d'une ligne : le sexe nommé (« Féminin »…), ou "" pour « Total » / vide (pas de sexe)."""
+    if v is None or (isinstance(v, float) and v != v):
+        return ""
+    n = _norm(v)
+    return "" if n in ("", "total", "ensemble", "tous", "nan", "none") else str(v).strip()
 
 
 def vue_rapport(df):
     """Rapport remis à plat (colonne « niveau » : total / sexe / âge) → une seule ligne par chiffre, au niveau le plus fin.
 
-    Le même chiffre y figure trois fois : au total, par sexe, et par sexe × tranche d'âge. Additionnés, ils triplaient
-    tout (300 dépistés affichés pour 100 déclarés) et « Total » passait pour une tranche d'âge. Pour chaque case
-    (période, lieu, établissement, indicateur…), on garde le niveau le plus fin déclaré : la somme du détail. Une case
-    déclarée seulement au total le reste, sans sexe ni âge (vides, jamais « Total »). Les écarts entre un total déclaré
-    et la somme de son détail sont signalés par le bilan qualité, pas cachés ici.
-    Un tableau sans cette structure est rendu tel quel."""
+    Le même chiffre y figure plusieurs fois : au total, par sexe, et par sexe × tranche d'âge. Additionnés, ils
+    triplaient tout (300 dépistés affichés pour 100 déclarés) et « Total » passait pour une tranche d'âge.
+
+    Pour chaque case (période, lieu, établissement, indicateur…) et chaque sexe nommé, on garde le niveau le plus fin
+    déclaré. Ainsi un détail par âge rempli pour un seul sexe garde l'autre sexe à son chiffre déclaré (60 F par âge
+    + 40 M = 100, jamais 60). Les lignes sans sexe (total, ou âge non croisé avec le sexe) ne sont gardées que si
+    elles sont plus fines que tout ce qui est déclaré par sexe : un âge non croisé l'emporte sur la ventilation par
+    sexe (même total, un seul découpage), un total cède la place au détail par sexe. Une case déclarée seulement au
+    total le reste. Sexe et âge absents sont vides, jamais « Total ».
+
+    Les écarts entre un total déclaré et la somme de son détail sont signalés par le bilan qualité (fichier d'origine),
+    pas cachés ici. Un tableau sans cette structure (« niveau » scolaire, hiérarchique…) est rendu tel quel."""
     import pandas as pd
     cols = {str(c) for c in df.columns}
     if not {"niveau", "indicateur", "valeur"} <= cols or len(df) == 0:
         return df
-    niv = df["niveau"].astype(str).str.strip().str.lower()
-    if not niv.isin(_RANG_NIVEAU).all():
+    niv = df["niveau"].map(_niveau_rapport)
+    if niv.isna().any():
         return df
     rang = niv.map(_RANG_NIVEAU)
-    ventil = {"niveau", "sexe", "tranche_age", "valeur"}
-    cle = [c for c in df.columns if str(c) not in ventil]
-    fin = rang.groupby([df[c] for c in cle], dropna=False).transform("max") if cle else pd.Series(rang.max(), index=df.index)
-    garde = rang == fin
+    branche = (df["sexe"].map(_branche_sexe) if "sexe" in cols else pd.Series("", index=df.index)).astype(str)
+    cle = [c for c in df.columns if str(c) not in {"niveau", "sexe", "tranche_age", "valeur"}]
+    groupes = [df[c] for c in cle]
+    # le plus fin, branche de sexe par branche de sexe
+    fin_branche = rang.groupby(groupes + [branche], dropna=False).transform("max") if cle else \
+        rang.groupby(branche).transform("max")
+    nomme = rang.where(branche != "")
+    sans = rang.where(branche == "")
+    max_nomme = nomme.groupby(groupes, dropna=False).transform("max") if cle else pd.Series(nomme.max(), index=df.index)
+    max_sans = sans.groupby(groupes, dropna=False).transform("max") if cle else pd.Series(sans.max(), index=df.index)
+    # lignes sans sexe : gardées si plus fines que tout le déclaré par sexe ; lignes par sexe : sinon
+    sans_gagne = max_nomme.isna() | (max_sans > max_nomme)
+    garde = (rang == fin_branche) & ((branche == "") == sans_gagne)
     sortie = df[garde].drop(columns=["niveau"])
-    r = rang[garde]
+    r, b = rang[garde], branche[garde]
     if "tranche_age" in sortie.columns:
         sortie["tranche_age"] = sortie["tranche_age"].astype(object).where(r == _RANG_NIVEAU["age"], None)
     if "sexe" in sortie.columns:
-        sortie["sexe"] = sortie["sexe"].astype(object).where(r >= _RANG_NIVEAU["sexe"], None)
+        sortie["sexe"] = sortie["sexe"].astype(object).where(b != "", None)
     # Classeur empilé : « feuille » ne dit rien de plus que la période (une feuille par trimestre) → pas un filtre de plus
-    if "feuille" in sortie.columns and "periode" in sortie.columns             and sortie.groupby("feuille", dropna=False)["periode"].nunique(dropna=False).le(1).all()             and sortie.groupby("periode", dropna=False)["feuille"].nunique(dropna=False).le(1).all():
-        sortie = sortie.drop(columns=["feuille"])
+    if "feuille" in sortie.columns and "periode" in sortie.columns:
+        par_feuille = sortie.groupby("feuille", dropna=False)["periode"].nunique(dropna=False)
+        par_periode = sortie.groupby("periode", dropna=False)["feuille"].nunique(dropna=False)
+        if par_feuille.le(1).all() and par_periode.le(1).all():
+            sortie = sortie.drop(columns=["feuille"])
     sortie = sortie.reset_index(drop=True)
-    sortie.attrs = dict(df.attrs, rapport_niveaux=True, lignes_niveaux_ecartees=int((~garde).sum()))
+    sortie.attrs = dict(df.attrs, rapport_niveaux=True)
     return sortie
 
 
@@ -1575,7 +1615,7 @@ def _long_to_wide(df):
     else:
         wide = d.pivot_table(index=dims, columns=ic, values=vc, aggfunc=lambda x: x.sum(min_count=1)).reset_index()
     wide.columns.name = None
-    wide.attrs = dict(df.attrs)  # rapport remis à plat, valeurs agrégées : le repli par règles doit encore le savoir
+    wide.attrs = dict(df.attrs)  # le repli « aucune tuile de l'IA » rappelle generate_dashboard sur ce tableau large
     return wide, True
 
 
@@ -1597,8 +1637,14 @@ def generate_dashboard(df, objective: str = "", job_id: str | None = None, llm=N
     """
     # Valeurs déjà agrégées : drapeau posé par la source (connecteur DHIS2), ou colonnes exactes du connecteur
     # (si le drapeau s'est perdu en route, ex. copie CSV)
-    df = sans_lignes_de_total(harmoniser_libelles(vue_rapport(df)))
+    # Libellés harmonisés AVANT la vue rapport : « Centre A » et « Centre A␣ » sont une même case, sinon son total
+    # et son détail seraient gardés tous deux. Une vue rapport n'a plus de ligne de cumul : rien à écarter ensuite (un
+    # âge non croisé avec le sexe n'est pas un « Total »).
+    df = vue_rapport(harmoniser_libelles(df))
     rapport = bool(df.attrs.get("rapport_niveaux"))
+    if not rapport:
+        df = sans_lignes_de_total(df)
+    indicateurs_rapport = [str(v) for v in df["indicateur"].dropna().unique()] if rapport else []
     agrege = bool(df.attrs.get("agrege")) or {"indicateur", "periode", "unite_organisation", "valeur"} <= {
         str(c) for c in df.columns}
     if agrege:
@@ -1633,11 +1679,19 @@ def generate_dashboard(df, objective: str = "", job_id: str | None = None, llm=N
                 hors = {"colonne": str(c), "valeurs": sorted({str(v).strip().lower() for v in df[c].dropna().unique()
                                                               if str(v).strip().lower() in _YES})}
                 break
-    for k in spec.get("kpis", [])[:8]:
+    kpis_proposes = list(spec.get("kpis", [])[:8])
+    if rapport:
         # Rapport : une ligne = une case (site × période × sexe × âge). Compter, moyenner ou prendre la médiane de ces
         # cases ne mesure rien (« sites rapportant : 28 094 » = des cases, « médiane par ligne : 20 ») : pas de tuile.
-        if rapport and (k.get("agregation") or "compte").lower() not in AGREGATIONS_RAPPORT:
-            continue
+        # Additionner un indicateur déjà en taux non plus.
+        def _sur(k):
+            a = (k.get("agregation") or "compte").lower()
+            return a in AGREGATIONS_RAPPORT and not (a in ("somme", "sum", "dernier") and _TAUX_INDICATEUR.match(str(k.get("colonne") or "")))
+        kpis_proposes = [k for k in kpis_proposes if _sur(k)]
+        if not kpis_proposes:  # rien de sûr parmi les propositions (repli par règles sans « Nombre de… ») : la somme de chaque indicateur
+            kpis_proposes = [{"nom": i, "agregation": "somme", "colonne": i, "justification": "Somme de l'indicateur déclaré."}
+                             for i in indicateurs_rapport if i in df.columns and not _TAUX_INDICATEUR.match(i)][:6]
+    for k in kpis_proposes:
         if last_p and (k.get("agregation") or "").lower() in ("somme", "sum") and k.get("colonne") in cols \
                 and _is_stock(_norm(k["colonne"])):
             yearly = p_col in cols and pd.api.types.is_numeric_dtype(df[p_col])
