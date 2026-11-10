@@ -172,3 +172,46 @@ def test_niveaux_ecrits_autrement_et_repli_sans_ia():
     tuiles = {k["colonne"]: (k["agregation"], k["valeur"]) for k in r["kpis"]}
     assert tuiles.get("Clients dépistés") == ("somme", 100.0)
     assert ("somme", 0.12) not in tuiles.values() and all(a in ("somme", "taux", "dernier") for a, _ in tuiles.values())
+
+
+def _taux():
+    lignes = []
+    for s in range(3):
+        for ind in ("Taux de positivité", "% de CV supprimée"):
+            for sx, v in (("Féminin", 0.10 + s / 100), ("Masculin", 0.20 + s / 100)):
+                lignes.append(dict(periode="FY26Q1", region="R", district=f"District {s}", site=f"Centre {s}", indicateur=ind,
+                                   niveau="sexe", sexe=sx, tranche_age="Total", valeur=v))
+            lignes.append(dict(periode="FY26Q1", region="R", district=f"District {s}", site=f"Centre {s}", indicateur=ind,
+                               niveau="total", sexe="Total", tranche_age="Total", valeur=0.15 + s / 100))
+    return pd.DataFrame(lignes)
+
+
+def test_rapport_de_taux_jamais_additionne_et_sans_plantage(monkeypatch):
+    server, D = _dashboard()
+    assert D._est_taux("% de CV supprimée") and D._est_taux("Taux_brut") and not D._est_taux("Nombre de clients dépistés")
+    spec = {"kpis": [{"nom": "Positivité", "agregation": "somme", "colonne": "Taux de positivité"}], "graphiques": []}
+    for llm in (False, lambda m, n: json.dumps(spec)):
+        r = D.generate_dashboard(_taux(), "t", llm=llm)
+        assert r["kpis"] == [] and "Aucun chiffre total affiché" in r["html"]
+    un = _taux()
+    un = un[un.indicateur == "Taux de positivité"]  # un seul indicateur : la colonne reste « valeur »
+    assert D.generate_dashboard(un, "t", llm=False)["kpis"] == []
+    # même chemin que « Régénérer » d'un tableau enregistré par l'IA
+    monkeypatch.setattr(server, "_llm_config", lambda: None)
+    out = server.build_dashboard(_taux(), spec=dict(spec, _ia=True))
+    assert out["kpis"] == []
+
+
+def test_niveaux_libelles_varies_et_colonne_par_ligne():
+    _, D = _dashboard()
+    for total, sexe, age in (("Global", "Sexes", "Tranches d'âges"), ("Ensemble", "Par sexe", "Groupe d'âge"),
+                             ("TOTAL", "sexe", "Âge (ans)")):
+        df = _case([dict(niveau=total, sexe="Total", tranche_age="Total", valeur=100.0),
+                    dict(niveau=sexe, sexe="Féminin", tranche_age="Total", valeur=100.0),
+                    dict(niveau=age, sexe="Féminin", tranche_age="<15 ans", valeur=100.0)])
+        assert float(D.vue_rapport(df).valeur.sum()) == 100.0, (total, sexe, age)
+    # un identifiant de ligne ne doit pas isoler chaque ligne dans sa propre case
+    df = _case([dict(niveau="total", sexe="Total", tranche_age="Total", valeur=100.0, id="L1", commentaire="ok"),
+                dict(niveau="sexe", sexe="Féminin", tranche_age="Total", valeur=100.0, id="L2", commentaire="vu"),
+                dict(niveau="age", sexe="Féminin", tranche_age="<15 ans", valeur=100.0, id="L3", commentaire="à revoir")])
+    assert float(D.vue_rapport(df).valeur.sum()) == 100.0
