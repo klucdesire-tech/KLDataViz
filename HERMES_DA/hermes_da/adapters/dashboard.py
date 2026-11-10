@@ -444,17 +444,20 @@ def _trimestre(v):
     return None
 
 
+def _genre_trimestre_echantillon(sample):
+    """Règle unique (détection de la période ET libellés) : 90 % des lignes de l'échantillon lues comme trimestres,
+    d'un seul genre. Deux règles différentes faisaient détecter des trimestres puis les afficher en mois
+    (« oct. 2025 » pour FY26Q1) dès qu'une valeur parasite (« - », « N/A ») traînait dans la colonne."""
+    tri = sample.map(_trimestre)
+    genres = {x[0] for x in tri.dropna()}
+    return genres.pop() if len(sample) and tri.notna().mean() >= 0.9 and len(genres) == 1 else None
+
+
 def _genre_trimestre(df, col):
-    """« fy » ou « cal » si la colonne de période est faite de trimestres (90 % des valeurs, un seul genre)."""
+    """« fy » ou « cal » si la colonne de période est faite de trimestres, selon la même règle que _period_brute."""
     if col is None or col not in df.columns:
         return None
-    vals = df[col].dropna()
-    vals = vals[vals.astype(str).str.strip() != ""].astype(str).unique()[:200]
-    if len(vals) == 0:
-        return None
-    lus = [_trimestre(v) for v in vals]
-    genres = {x[0] for x in lus if x}
-    return genres.pop() if len(genres) == 1 and sum(1 for x in lus if x) >= 0.9 * len(lus) else None
+    return _genre_trimestre_echantillon(df[col].dropna().astype(str).head(60))
 
 
 def _nom_trimestre(k: str, genre: str) -> str:
@@ -513,10 +516,8 @@ def _period_brute(df):
             continue
         if pd.api.types.is_datetime64_any_dtype(s):
             return str(c), s.dt.strftime("%Y-%m-%d")
-        if pd.api.types.is_object_dtype(s) or pd.api.types.is_string_dtype(s):
-            tri = sample.map(_trimestre)
-            if tri.notna().mean() >= 0.9 and len({x[0] for x in tri.dropna()}) == 1:  # trimestres : 1er mois de chacun
-                return str(c), s.map(lambda v: (_trimestre(v) or (None, None))[1])
+        if (pd.api.types.is_object_dtype(s) or pd.api.types.is_string_dtype(s)) and _genre_trimestre_echantillon(sample):
+            return str(c), s.map(lambda v: (_trimestre(v) or (None, None))[1])  # trimestres : 1er mois de chacun
         fr = sample.map(_fr_month)
         if fr.notna().mean() >= 0.9:
             return str(c), s.map(lambda v: _fr_month(v) if v == v else None)
@@ -1318,7 +1319,7 @@ function renderCards(rows){var el=document.getElementById('row3'),html='',todo=[
   el.innerHTML=html||'';return todo}
 
 // « 2025-04 » → « avr. 2025 », « 2025-T1 » → « T1 2025 »
-function gkey(k){k=String(k||'');if(META.keyind&&META.keyind.yearly)return k.slice(0,4);var m=k.match(/^(\d{4})-(\d{2})$/);if(m)return META.trimestre?moisNom(k):MOIS[+m[2]-1]+' '+m[1];m=k.match(/^(\d{4})-T(\d)$/);return m?'T'+m[2]+' '+m[1]:k}
+function gkey(k){k=String(k||'');if(META.keyind&&META.keyind.yearly)return k.slice(0,4);var m=k.match(/^(\d{4})-(\d{2})$/);if(m)return META.trimestre?moisNom(k):MOIS[+m[2]-1]+' '+m[1];m=k.match(/^(\d{4})-T(\d)$/);return m?(META.trimestre?trimNom(k):'T'+m[2]+' '+m[1]):k}
 // Écarts : période analysée et comparaison choisies par l'utilisateur ; tuiles + graphique des écarts
 var GAP={p:null,mode:'prev'},gapChart=null;
 function gYearBefore(k){var m=String(k).match(/^(\d{4})(.*)$/);return m?(+m[1]-1)+m[2]:null}

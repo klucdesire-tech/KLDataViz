@@ -94,3 +94,13 @@ def test_les_mois_restent_des_mois():
     df = _donnees(["2025-01", "2025-02", "2025-03", "2025-04"])
     meta = _meta(D.generate_dashboard(df, "t", llm=False)["html"])
     assert not meta.get("trimestre") and meta["gran"] == "M"
+
+
+def test_une_valeur_parasite_ne_fait_pas_revenir_les_mois():
+    """« - » parmi des trimestres FY : la période reste en FY partout (jamais « oct. 2025 » pour FY26Q1)."""
+    D = _module()
+    df = _donnees(["FY26Q1", "FY26Q2", "FY26Q3", "FY26Q4"])
+    df.loc[0, "periode"] = "-"
+    meta = _meta(D.generate_dashboard(df, "t", llm=False)["html"])
+    assert meta["trimestre"] == "fy" and meta["grans"] == ["Q"] and meta["range"] == "FY26Q1 – FY26Q4"
+    assert D._genre_trimestre(df, "periode") == "fy"
