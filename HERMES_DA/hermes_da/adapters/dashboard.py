@@ -1490,6 +1490,45 @@ def sans_lignes_de_total(df):
     return sortie
 
 
+_RANG_NIVEAU = {"total": 0, "sexe": 1, "age": 2}  # du plus agrégé au plus fin
+AGREGATIONS_RAPPORT = ("somme", "sum", "dernier", "taux", "rate", "pct", "proportion")
+
+
+def vue_rapport(df):
+    """Rapport remis à plat (colonne « niveau » : total / sexe / âge) → une seule ligne par chiffre, au niveau le plus fin.
+
+    Le même chiffre y figure trois fois : au total, par sexe, et par sexe × tranche d'âge. Additionnés, ils triplaient
+    tout (300 dépistés affichés pour 100 déclarés) et « Total » passait pour une tranche d'âge. Pour chaque case
+    (période, lieu, établissement, indicateur…), on garde le niveau le plus fin déclaré : la somme du détail. Une case
+    déclarée seulement au total le reste, sans sexe ni âge (vides, jamais « Total »). Les écarts entre un total déclaré
+    et la somme de son détail sont signalés par le bilan qualité, pas cachés ici.
+    Un tableau sans cette structure est rendu tel quel."""
+    import pandas as pd
+    cols = {str(c) for c in df.columns}
+    if not {"niveau", "indicateur", "valeur"} <= cols or len(df) == 0:
+        return df
+    niv = df["niveau"].astype(str).str.strip().str.lower()
+    if not niv.isin(_RANG_NIVEAU).all():
+        return df
+    rang = niv.map(_RANG_NIVEAU)
+    ventil = {"niveau", "sexe", "tranche_age", "valeur"}
+    cle = [c for c in df.columns if str(c) not in ventil]
+    fin = rang.groupby([df[c] for c in cle], dropna=False).transform("max") if cle else pd.Series(rang.max(), index=df.index)
+    garde = rang == fin
+    sortie = df[garde].drop(columns=["niveau"])
+    r = rang[garde]
+    if "tranche_age" in sortie.columns:
+        sortie["tranche_age"] = sortie["tranche_age"].astype(object).where(r == _RANG_NIVEAU["age"], None)
+    if "sexe" in sortie.columns:
+        sortie["sexe"] = sortie["sexe"].astype(object).where(r >= _RANG_NIVEAU["sexe"], None)
+    # Classeur empilé : « feuille » ne dit rien de plus que la période (une feuille par trimestre) → pas un filtre de plus
+    if "feuille" in sortie.columns and "periode" in sortie.columns             and sortie.groupby("feuille", dropna=False)["periode"].nunique(dropna=False).le(1).all()             and sortie.groupby("periode", dropna=False)["feuille"].nunique(dropna=False).le(1).all():
+        sortie = sortie.drop(columns=["feuille"])
+    sortie = sortie.reset_index(drop=True)
+    sortie.attrs = dict(df.attrs, rapport_niveaux=True, lignes_niveaux_ecartees=int((~garde).sum()))
+    return sortie
+
+
 def harmoniser_libelles(df):
     """Libellés saisis à la main : « Abidjan » et « Abidjan␣ », « Oui » et « oui » désignent le même groupe. Sans cela,
     un classement, un filtre ou une part du total les compterait à part. Espaces en trop retirés ; variantes qui ne
@@ -1536,6 +1575,7 @@ def _long_to_wide(df):
     else:
         wide = d.pivot_table(index=dims, columns=ic, values=vc, aggfunc=lambda x: x.sum(min_count=1)).reset_index()
     wide.columns.name = None
+    wide.attrs = dict(df.attrs)  # rapport remis à plat, valeurs agrégées : le repli par règles doit encore le savoir
     return wide, True
 
 
@@ -1557,7 +1597,8 @@ def generate_dashboard(df, objective: str = "", job_id: str | None = None, llm=N
     """
     # Valeurs déjà agrégées : drapeau posé par la source (connecteur DHIS2), ou colonnes exactes du connecteur
     # (si le drapeau s'est perdu en route, ex. copie CSV)
-    df = sans_lignes_de_total(harmoniser_libelles(df))
+    df = sans_lignes_de_total(harmoniser_libelles(vue_rapport(df)))
+    rapport = bool(df.attrs.get("rapport_niveaux"))
     agrege = bool(df.attrs.get("agrege")) or {"indicateur", "periode", "unite_organisation", "valeur"} <= {
         str(c) for c in df.columns}
     if agrege:
@@ -1593,6 +1634,10 @@ def generate_dashboard(df, objective: str = "", job_id: str | None = None, llm=N
                                                               if str(v).strip().lower() in _YES})}
                 break
     for k in spec.get("kpis", [])[:8]:
+        # Rapport : une ligne = une case (site × période × sexe × âge). Compter, moyenner ou prendre la médiane de ces
+        # cases ne mesure rien (« sites rapportant : 28 094 » = des cases, « médiane par ligne : 20 ») : pas de tuile.
+        if rapport and (k.get("agregation") or "compte").lower() not in AGREGATIONS_RAPPORT:
+            continue
         if last_p and (k.get("agregation") or "").lower() in ("somme", "sum") and k.get("colonne") in cols \
                 and _is_stock(_norm(k["colonne"])):
             yearly = p_col in cols and pd.api.types.is_numeric_dtype(df[p_col])

@@ -1708,11 +1708,16 @@ def _rate_predictif(cle, maxi=8, fenetre=60):
 def build_dashboard(df, spec=None, correspondance=None, ajouts=None):
     """AGT-11, puis les graphiques ajoutés depuis la discussion (rangés dans la spec), recalculés sur ces données."""
     ajouts = list(ajouts if ajouts is not None else (spec or {}).get(sources.CLE_AJOUTS) or [])
+    hermes_da_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "HERMES_DA")
+    if hermes_da_dir not in sys.path:
+        sys.path.insert(0, hermes_da_dir)
+    from hermes_da.adapters.dashboard import vue_rapport
     if spec is not None:
         spec = {k: v for k, v in spec.items() if k != sources.CLE_AJOUTS}
+    # Le bilan qualité lit le fichier tel qu'il est (totaux déclarés compris) ; les calculs, eux, passent par vue_rapport
     result = _build_dashboard(df, spec, correspondance)
-    if ajouts:
-        result = dict(result, html=_avec_ajouts(result["html"], ajouts, df, result.get("filtres")),
+    if ajouts:  # rapport total / sexe / âge : un chiffre une fois, aussi dans les graphiques ajoutés
+        result = dict(result, html=_avec_ajouts(result["html"], ajouts, vue_rapport(df), result.get("filtres")),
                       spec=dict(result.get("spec") or {}, **{sources.CLE_AJOUTS: ajouts}))
     return result
 
