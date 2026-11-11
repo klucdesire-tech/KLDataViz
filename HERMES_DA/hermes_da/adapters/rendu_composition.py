@@ -133,6 +133,33 @@ function cpColonnes(rows,c,sel){var M=[c.mesure].concat(c.ensemble||[]),g=groupB
   if(nr.length)note+=' Non renseigné (les parts ne portent que sur les groupes renseignés) : '+nr.join(' ; ')+'.';
   if(nv.length)note+=' Non ventilé par '+cpMot(c.dimension)+', hors des parts : '+nv.join(', ')+'.';if(sans.length)note+=' Pas de ventilation par '+cpMot(c.dimension)+' pour : '+sans.join(', ')+'.';
   return o+'</svg>'+leg+'<p class="cp-note">'+esc(note)+'</p>'}
+// Tranches d'âge (« <1 an », « 1-4 ans », « 50+ ans », « 15-19 » si la colonne est une tranche d'âge) : un ordre
+// naturel. Rangées par âge, toutes visibles, même à 0, au lieu d'une mosaïque où les petites tranches n'ont pas de nom.
+// Le libellé doit COMMENCER par l'âge (« Nord 1 an » n'est pas une tranche). Quelques valeurs hors tranche (« Inconnu »)
+// sont gardées, après les tranches. null si ce ne sont pas des tranches d'âge, ou s'il y en a trop pour des bandes.
+var CP_MAX_TRANCHES=14;
+function cpOrdreAges(V,dim){var parAge=/(^|[\s_])(age|âge|ages|âges|tranche)/i.test(String(dim||''));
+  var cle=function(t){var s=String(t).toLowerCase().trim(),m=s.match(/^(<|>|≤|≥|moins de|plus de|de)?\s*(\d+(?:[.,]\d+)?)\s*(\+|-|–|à|a\b|\s|ans?\b|mois\b|$)/);
+    if(!m||!(parAge||/(\ban?s?\b|mois|years?|yrs?|semaines?)/.test(s)))return null;
+    var n=parseFloat(m[2].replace(',','.'));if(/mois/.test(s)&&!/\ban/.test(s))n=n/12;return /^(<|moins)/.test(s)?n-.5:n};
+  var k=V.map(function(v,i){return {v:v,k:cle(v),i:i}}),vus=k.filter(function(x){return x.k!=null});
+  if(vus.length<3||vus.length>CP_MAX_TRANCHES||vus.length<.6*k.length)return null;
+  return vus.sort(function(a,b){return a.k-b.k||a.i-b.i}).map(function(x){return x.v}).concat(k.filter(function(x){return x.k==null}).map(function(x){return x.v}))}
+// `sel` : la tranche retenue par un filtre sur cette colonne ; toutes les tranches restent, celle-ci mise en avant.
+function cpBandesAges(rows,c,ordre,sel){var g=groupBy(rows,c.dimension),e=ordre.map(function(k){var v=g[k]?agg(g[k],c.mesure,c.agregation):null;return [k,v==null?null:v]}),t=e.reduce(function(s,x){return s+(x[1]>0?x[1]:0)},0),tout=agg(rows,c.mesure,c.agregation);
+  if(!(t>0))return cpVide();
+  var W=cpW(c),n=e.length,H=Math.max(220,Math.min(280,Math.round(W*.42))),T=22,Bb=34,Gm=8,gw=(W-2*Gm)/n,bw=Math.max(10,Math.min(56,gw-14)),mx=Math.max.apply(null,e.map(function(x){return x[1]||0})),Y=function(v){return H-Bb-v/mx*(H-Bb-T)};
+  var o='<svg class="cp-svg" viewBox="0 0 '+W+' '+H+'" role="img" aria-label="'+esc(cpTete(c.mesure)+' par '+cpMot(c.dimension))+'"><path d="M'+Gm+' '+(H-Bb)+'H'+(W-Gm)+'" stroke="#C9D3DD"/>',negs=[];
+  e.forEach(function(x,i){var cx=Gm+i*gw+gw/2,v=x[1],nom=label(x[0]),pale=sel!=null&&x[0]!==sel;
+    if(v!=null&&v>0){var y=Y(v),p=100*v/t;o+='<rect x="'+(cx-bw/2).toFixed(1)+'" y="'+y.toFixed(1)+'" width="'+bw.toFixed(1)+'" height="'+Math.max(1,H-Bb-y).toFixed(1)+'" rx="4" fill="'+CP_PRINC+'"'+(pale?' fill-opacity=".28"':'')+'><title>'+esc(nom+' : '+cpVal(v)+' ('+cpPct(p)+')')+'</title></rect>'
+      +'<text x="'+cx.toFixed(1)+'" y="'+Math.max(11,y-5).toFixed(1)+'" text-anchor="middle" font-size="'+(gw<44?10.5:12)+'" font-weight="700" fill="'+(pale?'#74889B':'#102A43')+'">'+esc(cpPct(p))+'</text>'}
+    else{if(v!=null&&v<0)negs.push(nom);var txt=v==null?'—':v<0?'−':'0',tip=v==null?' : non renseigné':v<0?' : '+cpVal(v)+' (négatif, hors des parts)':' : 0';
+      o+='<text x="'+cx.toFixed(1)+'" y="'+(H-Bb-5)+'" text-anchor="middle" font-size="11" fill="#74889B">'+txt+'<title>'+esc(nom+tip)+'</title></text>'}
+    o+='<text x="'+cx.toFixed(1)+'" y="'+(H-Bb+16)+'" text-anchor="middle" font-size="'+(gw<44?10.5:12)+'" fill="'+(pale?'#8A9AAB':'#52667A')+'">'+esc(cpCoupe(nom,Math.max(4,Math.floor(gw/6.5))))+'<title>'+esc(nom)+'</title></text>'});
+  var vides=e.filter(function(x){return x[1]==null}).map(function(x){return label(x[0])}),note='Part de chaque tranche dans le total ('+cpVal(t)+'), dans l’ordre des âges. Au survol, les vraies valeurs.';
+  if(vides.length)note+=' Non renseigné : '+vides.join(', ')+'.';if(negs.length)note+=' Valeur négative, hors des parts : '+negs.join(', ')+'.';
+  if(tout!=null&&tout>t*1.0005&&!negs.length)note+=' Sans tranche d’âge, hors des parts : '+cpVal(tout-t)+' ('+cpPct(100*(tout-t)/tout)+').';
+  return o+'</svg><p class="cp-note">'+esc(note)+'</p>'}
 function cpDecoupe(a,x,y,w,h,o){if(a.length===1){o.push({k:a[0][0],v:a[0][1],x:x,y:y,w:w,h:h});return}var t=a.reduce(function(s,e){return s+e[1]},0),c=0,n=0;
   while(n<a.length-1&&c+a[n][1]/2<t/2){c+=a[n][1];n++}n=Math.max(1,n);var A=a.slice(0,n),B=a.slice(n),f=A.reduce(function(s,e){return s+e[1]},0)/t;
   if(w*1.7>=h){cpDecoupe(A,x,y,w*f,h,o);cpDecoupe(B,x+w*f,y,w*(1-f),h,o)}else{cpDecoupe(A,x,y,w,h*f,o);cpDecoupe(B,x,y+h*f,w,h*(1-f),o)}}
@@ -293,7 +320,10 @@ var CP_DESSINS={
       return cpCarte(c,'Part de chaque '+cpMot(c.dimension),'Par indicateur · '+label(sel)+' mis en avant (filtre « '+nice(c.dimension)+' ») · chaque groupe de bandes = 100 %',cpColonnes(R2,c,sel))}
     return c.ensemble&&c.ensemble.length?cpCarte(c,'Part de chaque '+cpMot(c.dimension),'Par indicateur · chaque groupe de bandes = 100 %',cpColonnes(r,c))
     :cpCarte(c,'Part de chaque '+cpMot(c.dimension),cpTete(c.mesure),cpAnneau(r,c))},
-  treemap:function(c,r){return cpCarte(c,cpTete(c.mesure)+' par '+cpMot(c.dimension),'La surface suit la valeur',cpTreemap(r,c))},
+  treemap:function(c,r){var ordre=cpOrdreAges(Object.keys(groupBy(DATA,c.dimension)),c.dimension);if(ordre&&/^(somme|sum)$/i.test(c.agregation||'somme')){
+      var sel=typeof state!=='undefined'&&state[c.dimension]!=null&&state[c.dimension]!=='all'?state[c.dimension]:null;  // filtre sur les âges : toutes les tranches, la retenue mise en avant
+      return cpCarte(c,cpTete(c.mesure)+' par '+cpMot(c.dimension),'Part de chaque tranche, dans l’ordre des âges'+(sel!=null?' · '+label(sel)+' mis en avant (filtre « '+nice(c.dimension)+' »)':''),cpBandesAges(sel!=null?cpSansFiltre(c.dimension):r,c,ordre,sel))}
+    return cpCarte(c,cpTete(c.mesure)+' par '+cpMot(c.dimension),'La surface suit la valeur',cpTreemap(r,c))},
   chaleur:function(c,r){return cpCarte(c,cpTete(c.mesure)+' par '+cpMot(c.dimension)+' et par '+GRAN[gran].toLowerCase(),cpSousTitre(c)+'. Plus c\'est foncé, plus la valeur est élevée.',cpChaleur(r,c))},
   pente:function(c,r){return cpCarte(c,'Qui progresse, qui recule : '+cpMot(c.mesure),cpSousTitre(c),cpPente(r,c))},
   passage:function(c,r){return cpCarte(c,'Ce qui explique la variation : '+cpMot(c.mesure),'Par '+cpMot(c.dimension),cpPassage(r,c))},
