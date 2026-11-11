@@ -111,7 +111,13 @@ def proposer(fiche, df):
             if per and per["comparable_n1"] and 2 <= n <= MAX_PENTES and nature != "stock":
                 sortie.append(_prop("pente", c, nature, periode=per["colonne"], dimension=g, mois_communs=per["mois_communs"]))
             if nature == "volume" and _sans_negatif(df, c):  # seul un volume positif se partage en parts d'un total
-                if 3 <= n <= MAX_PARTS:  # deux parts se disent en un chiffre, pas en anneau
+                # Deux groupes (sexe…) et plusieurs volumes : la part de chaque groupe dans chacun, en bandes verticales
+                # (chaque indicateur = 100 %). Deux parts ne font pas un anneau ; au-delà, l'anneau reste.
+                autres = [v for v in volumes if v != c and _sans_negatif(df, v)][:MAX_ENSEMBLE - 1]
+                n_vrais = int(df[g].astype(str).str.strip().replace({"": None, "nan": None, "None": None}).nunique(dropna=True))
+                if autres and n_vrais == 2:
+                    sortie.append(_prop("anneau", c, nature, dimension=g, ensemble=autres))
+                elif 3 <= n <= MAX_PARTS:  # deux parts se disent en un chiffre, pas en anneau
                     sortie.append(_prop("anneau", c, nature, dimension=g))
                 elif MAX_PARTS < n <= MAX_TREEMAP:
                     sortie.append(_prop("treemap", c, nature, dimension=g))

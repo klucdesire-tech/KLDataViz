@@ -118,3 +118,47 @@ def test_une_seule_courbe_d_ensemble_dans_la_page():
     for i, a in enumerate(series):
         for b in series[i + 1:]:
             assert not (a & b), courbes
+
+
+def _par_sexe():
+    lignes = []
+    for i, p in enumerate(PERIODES):
+        for s, centre in enumerate(["Centre A", "Centre B", "Centre C"]):
+            for k, sexe in enumerate(["Féminin", "Masculin"]):
+                lignes.append({"periode": p, "district": f"District {s}", "site": centre, "sexe": sexe,
+                               "Nombre de consultants": 300 + 400 * k + 10 * i + s, "Nombre de clients dépistés": 70 - 40 * k + i,
+                               "Nombre de clients positifs": 4 - 2 * k + (i % 2)})
+    return pd.DataFrame(lignes)
+
+
+def test_repartition_par_sexe_en_bandes_verticales_par_indicateur(tmp_path):
+    """Deux sexes, trois volumes : une carte « Part de chaque sexe », un groupe de bandes par indicateur (= 100 %)."""
+    catalogue, _, dashboard, fiche = _module()
+    df = _par_sexe()
+    props = catalogue.proposer(fiche.lire_fiche(df), df)
+    parts = [p for p in props if p["type"] == "anneau" and p["dimension"] == "sexe"]
+    assert parts and all(len(p.get("ensemble") or []) == 2 for p in parts)
+    if NODE is None:
+        return
+    html = dashboard.generate_dashboard(df, "", llm=False, dictionnaire=[], composition=True)["html"]
+    meta = json.loads(re.search(r"window\.META\s*=\s*(\{.*?\});\s*\n", html, re.S).group(1))
+    cartes = [c for ligne in meta["composition"]["lignes"] for c in ligne if c["type"] == "anneau" and c.get("ensemble")]
+    assert len(cartes) <= 1  # jamais deux cartes de parts qui montrent les mêmes séries
+    if not cartes:
+        return
+    (tmp_path / "banc.js").write_text(BANC, encoding="utf-8")
+    (tmp_path / "page.html").write_text(html, encoding="utf-8")
+    r = subprocess.run([NODE, str(tmp_path / "banc.js"), str(tmp_path / "page.html"), "[]"], capture_output=True, text=True, encoding="utf-8")
+    assert r.returncode == 0, r.stderr[:900]
+    page = json.loads(r.stdout)["page"]
+    assert "chaque groupe de bandes = 100 %" in page
+    vus = {}
+    for nom, sexe, val, pct in re.findall(r"<rect [^>]*><title>([^<·]+) · (Féminin|Masculin) : ([^(<]+) \(([\d,]+) %\)</title>", page):
+        vus.setdefault(nom.strip(), {})[sexe] = (int(re.sub(r"\D", "", val)), float(pct.replace(",", ".")))
+    assert len(vus) == 3
+    colonnes = {"Consultants": "Nombre de consultants", "Clients dépistés": "Nombre de clients dépistés",
+                "Clients positifs": "Nombre de clients positifs"}
+    for nom, parts_sexe in vus.items():
+        attendu = df.groupby("sexe")[colonnes[nom]].sum()
+        assert {s: v for s, (v, _) in parts_sexe.items()} == attendu.to_dict(), nom
+        assert abs(sum(p for _, p in parts_sexe.values()) - 100) <= 0.15, nom  # chaque groupe fait 100 %
