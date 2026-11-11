@@ -128,7 +128,8 @@ def test_filtre_met_tout_a_jour_sans_carte_vide_muette(gen, tmp_path):
     s = executer(tmp_path, res["html"], {"district": "Sakassou"})
     assert s["filtre"] != s["page"] and "undefined" not in s["filtre"] and "NaN" not in s["filtre"]
     assert s["filtre"].count('class="cp-c"') == s["page"].count('class="cp-c"')
-    assert "Choisissez plusieurs" in s["filtre"]
+    # un seul district retenu : ses cartes par district passent aux centres (niveau en dessous), plus de carte vide
+    assert "Détail par" in s["filtre"] and "Sakassou" in s["filtre"]
 
 
 @sans_node
