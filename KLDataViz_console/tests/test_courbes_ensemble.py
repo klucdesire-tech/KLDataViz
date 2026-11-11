@@ -263,3 +263,21 @@ def test_chaque_serie_controlee_sur_ses_propres_declarations(tmp_path):
     assert "Non renseigné" in bandes and "Masculin" in bandes.split("Non renseigné")[1]
     # titre : la comparaison, pas la seule mesure de tête
     assert titre.startswith("En ") and "base 100 en" in titre
+
+
+@sans_node
+def test_noms_des_series_en_libelles_de_la_page(tmp_path):
+    """Jeu « ventes » : « Chiffre d'affaires » dans le titre, la légende et le survol, jamais « Chiffre_affaires »."""
+    _, _, dashboard, _ = _module()
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import jeux_reference as J  # noqa: PLC0415
+    html = dashboard.generate_dashboard(J.JEUX["ventes"](), "", llm=False, dictionnaire=[], composition=True)["html"]
+    (tmp_path / "banc.js").write_text(BANC, encoding="utf-8")
+    (tmp_path / "page.html").write_text(html, encoding="utf-8")
+    r = subprocess.run([NODE, str(tmp_path / "banc.js"), str(tmp_path / "page.html"), "[]"], capture_output=True, text=True, encoding="utf-8")
+    assert r.returncode == 0, r.stderr[:900]
+    page = json.loads(r.stdout)["page"]
+    cartes = [c for c in page.split('<article class="cp-c"') if "Base 100" in c or "base 100" in c]
+    assert cartes, "pas de carte base 100 sur le jeu ventes"
+    texte = re.sub(r'="[^"]*"', "", cartes[0])  # le texte affiché, pas les attributs
+    assert "Chiffre_affaires" not in texte and "Chiffre d'affaires" in texte

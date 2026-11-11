@@ -196,7 +196,7 @@ function cpComparees(rows,c){var g=groupBy(rows,c.dimension),T=cpSerie(rows,c),K
   var tous=Object.keys(g).sort().map(function(d){var m={};cpSerie(g[d],c).forEach(function(e){m[e[0]]=e[1]});return {d:d,vals:P.map(function(p){return m[p]==null?null:m[p]})}}),S=tous.filter(function(x){return x.vals.filter(function(v){return v!=null}).length>=2});return S.length<2?null:{T:T,K:K,P:P,k:P[P.length-1],S:S,ecartes:tous.filter(function(x){return S.indexOf(x)<0})}}
 // Noms courts des courbes : sans « Nombre de » ni les mots que toutes partagent en tête (« clients… »)
 function cpCourts(M){var n=M.map(function(m){return String(cpTete(m)).replace(/…$/,'')}),pre=/^(nombre|nb|total|effectif)\s+(de\s+|d['’]\s*|des\s+)/i;
-  var t=M.map(function(m){return String(label(m)).replace(pre,'')}),mots=t.map(function(x){return x.split(/\s+/)}),k=0;
+  var t=M.map(function(m){var L=(META.composition&&META.composition.libelles)||{};return String(L[m]||nice(m)).replace(pre,'')}),mots=t.map(function(x){return x.split(/\s+/)}),k=0;
   while(mots.every(function(w){return w.length>k+1&&w[k].toLowerCase()===mots[0][k].toLowerCase()}))k++;
   var o={};M.forEach(function(m,i){var c=mots[i].slice(k).join(' ');o[m]=c?c.charAt(0).toUpperCase()+c.slice(1):n[i]});return o}
 // Base 100 : la 1re période couverte à 90 % au moins (déclarations) de la mieux couverte. Les périodes d'avant, moins
@@ -215,7 +215,7 @@ function cpIndices(rows,c){var T=cpSerie(rows,c),K=cpComplet(rows,T);if(K.length
     if(!(base>0)||reel.filter(function(v){return v!=null}).length<2){ecartes.push(m);return}
     if(trous.length)troues.push(cpTete(m)+' en '+trous.join(', '));
     S.push({d:m,reel:reel,vals:reel.map(function(v){return v==null?null:100*v/base})})});
-  return S.length<2?null:{T:T,K:K,P:P,k:P[P.length-1],S:S,ecartes:ecartes,base:b,indice:true,avant:avant,faibles:[],incomplets:incomplets,troues:troues,court:cpCourts(S.map(function(x){return x.d}))}}
+  return S.length<2?null:{T:T,K:K,P:P,k:P[P.length-1],S:S,ecartes:ecartes,base:b,indice:true,avant:avant,incomplets:incomplets,troues:troues,court:cpCourts(S.map(function(x){return x.d}))}}
 function cpComparee(rows,c,Zi){var Z=Zi||cpComparees(rows,c);if(!Z)return cpVide();var T=Z.T,K=Z.K,P=Z.P,k=Z.k,S=Z.S,ecartes=Z.ecartes,n=P.length,nom=Z.indice?function(m){return Z.court[m]||cpTete(m)}:label,coul={};
   if(Z.indice)S.forEach(function(x,i){coul[x.d]=CP_SERIES[i]});else coul=cpCouleurs(c.dimension);
   var tout=S.reduce(function(a,x){return a.concat(x.vals.filter(function(v){return v!=null}))},[]),lo=Math.min.apply(null,tout),hi=Math.max.apply(null,tout),pas=cpPlafond((hi-lo||Math.abs(hi)||1)/3),bas=Math.floor(lo/pas+1e-9)*pas,haut=Math.ceil(hi/pas-1e-9)*pas;if(haut<=bas)haut=bas+pas;
@@ -233,7 +233,6 @@ function cpComparee(rows,c,Zi){var Z=Zi||cpComparees(rows,c);if(!Z)return cpVide
   CP_CC.push({W:W,G:G,pas:dx,P:P.map(plabel),S:S.map(function(x,i){return {nom:nom(x.d),coul:L[i].c,vals:x.vals,reel:x.reel}})});
   var note='De '+plabel(P[0])+' à '+plabel(k).replace(/\.$/,'')+'.';if(bas>0||haut<0){var bornes=cpEtiquettes([bas,haut],pas);note+=' Axe de '+bornes[0]+' à '+bornes[1]+', resserré pour lire les écarts.'}if(K.length<T.length)note+=' '+plabel(T[T.length-1][0]).replace(/\.$/,'')+' est incomplet : non affiché.';if(Z.indice){var g=GRAN[gran].toLowerCase();note='Base 100 = '+plabel(P[Z.base])+' : 150 = une fois et demie la valeur de '+plabel(P[Z.base])+'. À droite et au survol, les vraies valeurs. '+note;
     if(Z.avant.length)note+=' Non tracé'+(Z.avant.length>1?'s':'')+', car moins bien couvert'+(Z.avant.length>1?'s':'')+' (moins de 90 % des déclarations du '+g+' le mieux couvert) : '+Z.avant.map(plabel).join(', ')+'.';
-    if(Z.faibles.length)note+=' Attention, moins bien couvert'+(Z.faibles.length>1?'s':'')+' : '+Z.faibles.map(plabel).join(', ')+' ; une baisse peut venir des déclarations manquantes.';
     if(Z.incomplets.length)note+=' Non tracé, car moins déclaré en '+plabel(P[Z.base])+' que d’habitude : '+Z.incomplets.join(', ')+'.';
     if(Z.troues.length)note+=' Points non tracés, moins déclarés que d’habitude : '+Z.troues.join(' ; ')+'.';
     if(ecartes.length)note+=' Sans valeur de référence : '+ecartes.map(cpTete).join(', ')+'.'}
