@@ -55,7 +55,10 @@ def _cartes(plan):
 
 
 def _colonnes(plan):
-    return list(dict.fromkeys(c[k] for c in _cartes(plan) for k in ("mesure", "mesure_y", "dimension") if c.get(k)))
+    """Colonnes à nommer : celles des cartes et des graphiques qu'on peut leur substituer (un nuage de points choisi
+    dans le menu a sa mesure en ordonnée)."""
+    toutes = [v for c in _cartes(plan) for v in [c] + list(c.get("variantes") or [])]
+    return list(dict.fromkeys(c[k] for c in toutes for k in ("mesure", "mesure_y", "dimension") if c.get(k)))
 
 
 def _plat(texte):

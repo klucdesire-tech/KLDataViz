@@ -81,13 +81,21 @@ function cpMenu(c){var V=c.variantes;if(!V||V.length<2||c.__i==null)return '';
   return '<select class="cp-type" data-i="'+c.__i+'" aria-label="'+esc('Type de graphique : '+cpTete(c.mesure))+'" title="Changer de graphique (seuls ceux adaptés à ces données)">'+V.map(function(v,j){return '<option value="'+j+'"'+(v.type===c.type?' selected':'')+'>'+esc(cpNomGraphique(v))+'</option>'}).join('')+'</select>'}
 function cpCarte(c,titre,sous,corps){var m=cpMessage(c,CP_R),s=m&&m.indexOf(titre)?[titre,sous].filter(Boolean).join(' · '):sous,k=CP_RUBRIQUES[c.type];return '<article class="cp-c" style="grid-column:span '+c.span+'"><div class="cp-h"><div>'+(k?'<span class="cp-k">'+esc(k)+'</span>':'')+'<h2>'+esc(m||titre)+'</h2>'+(s?'<small>'+esc(s)+'</small>':'')+'</div>'+cpMenu(c)+'</div><div class="cp-corps">'+corps+'</div></article>'}
 // Choix de l'utilisateur : la carte prend le graphique choisi (sa largeur ne change pas), retenu dans ce navigateur
-var CP_CHOIX_LUS=false;
-function cpCleChoix(c,i){return 'kldv-graph:'+location.pathname+':'+i+':'+(c.variantes&&c.variantes[0]?c.variantes[0].type+'|'+c.variantes[0].mesure+'|'+(c.variantes[0].dimension||''):'')}
+// Mémoire : dans la console, le tableau est un cadre isolé (sandbox) sans stockage ; la console garde les choix pour
+// lui (message kldvChoixGraphique) et les renvoie à l'ouverture (kldvChoix). Ouvert seul, le navigateur les garde.
+var CP_CHOIX_LUS=false,CP_CHOIX_EXT=null;
+function cpCleChoix(c,i){var o=c.variantes&&c.variantes[0];return 'graph:'+i+':'+(o?o.type+'|'+o.mesure+'|'+(o.dimension||''):'')}
 function cpCartes(){var L=[];META.composition.lignes.forEach(function(l,a){l.forEach(function(c,b){L.push({l:a,k:b})})});return L}
 function cpChoisir(i,j,garder){var P=cpCartes()[i];if(!P)return;var l=META.composition.lignes[P.l],c=l[P.k],v=c.variantes&&c.variantes[j];if(!v)return;
-  l[P.k]=Object.assign({},v,{span:c.span,variantes:c.variantes,__i:i});if(garder)try{localStorage.setItem(cpCleChoix(c,i),String(j))}catch(e){}}
-function cpLireChoix(){if(CP_CHOIX_LUS)return;CP_CHOIX_LUS=true;cpCartes().forEach(function(P,i){var c=META.composition.lignes[P.l][P.k];if(!c.variantes)return;var j=null;
-  try{j=localStorage.getItem(cpCleChoix(c,i))}catch(e){}if(j!=null&&c.variantes[+j]&&c.variantes[+j].type!==c.type)cpChoisir(i,+j,false)})}
+  l[P.k]=Object.assign({},v,{span:c.span,variantes:c.variantes,__i:i});if(!garder)return;var cle=cpCleChoix(c,i);
+  try{localStorage.setItem('kldv-'+cle,v.type)}catch(e){}
+  try{if(window.parent&&window.parent!==window)window.parent.postMessage({kldvChoixGraphique:{cle:cle,type:v.type}},'*')}catch(e){}}
+function cpLireChoix(){if(CP_CHOIX_LUS)return;CP_CHOIX_LUS=true;cpCartes().forEach(function(P,i){var c=META.composition.lignes[P.l][P.k];if(!c.variantes)return;
+  var cle=cpCleChoix(c,i),t=CP_CHOIX_EXT&&typeof CP_CHOIX_EXT[cle]==='string'?CP_CHOIX_EXT[cle]:null;if(t==null)try{t=localStorage.getItem('kldv-'+cle)}catch(e){}
+  var j=-1;c.variantes.forEach(function(v,k){if(v.type===t)j=k});if(j>=0&&c.variantes[j].type!==c.type)cpChoisir(i,j,false)})}
+// Choix gardés par la console : seul le cadre parent est écouté ; un type inconnu de la carte est ignoré
+window.addEventListener('message',function(e){if(e.source!==window.parent||!e.data||!e.data.kldvChoix||typeof e.data.kldvChoix!=='object')return;
+  CP_CHOIX_EXT=e.data.kldvChoix;CP_CHOIX_LUS=false;if(typeof render==='function')render()});
 function cpSousTitre(c){return CP_AGR[c.agregation]||''}
 function cpSerie(rows,c){var g=groupBy(rows,function(r){return pkey(r.__p)});return Object.keys(g).sort().map(function(k){return [k,agg(g[k],c.mesure,c.agregation)]}).filter(function(e){return e[1]!=null})}
 function cpPoints(s,W,H,G,B,T,max,bas){return s.map(function(e,i){return [s.length>1?G+i*((W-G-8)/(s.length-1)):G,H-B-(e[1]-bas)/(max-bas)*(H-B-T)]})}
@@ -353,7 +361,7 @@ function cpTemporel(){return META.composition.lignes.some(function(l){return l.s
 function renderCompo(rows){cpLireChoix();cpCartes().forEach(function(P,i){META.composition.lignes[P.l][P.k].__i=i});var el=document.getElementById('compo'),html='';CP_R=rows;CP_CC=[];if(cpTemporel()&&GOK&&GOK.length>1)html='<div class="cp-outils"><span>Regrouper par</span>'+seg()+'</div>';document.getElementById('row2').style.display='none';document.getElementById('row3').style.display='none';CP_L=+el.clientWidth||1200;
   META.composition.lignes.forEach(function(l){l.forEach(function(c){try{CP_CARTE=c;html+=CP_DESSINS[c.type](c,rows)}catch(e){html+=cpCarte(c,cpTete(c.mesure),'',cpVide('Ce graphique n\'a pas pu être dessiné.'))}})});el.innerHTML=html;
   [].forEach.call(el.querySelectorAll('.seg button'),function(b){b.onclick=function(){gran=b.dataset.g;render()}});
-  [].forEach.call(el.querySelectorAll('.cp-type'),function(s){s.onchange=function(){cpChoisir(+s.dataset.i,+s.value,true);render()}});
+  [].forEach.call(el.querySelectorAll('.cp-type'),function(s){s.onchange=function(){var i=s.dataset.i;cpChoisir(+i,+s.value,true);render();var n=document.querySelector('.cp-type[data-i="'+i+'"]');if(n)n.focus()}});
   [].forEach.call(el.querySelectorAll('.cp-cc'),function(b){b.onpointermove=b.onpointerdown=function(e){cpSurvol(b,e)};b.onpointerleave=function(){b.querySelector('.cp-bulle').hidden=true;b.querySelector('.cp-ligne').style.display='none'}});return []}
 // ---- Indicateurs clés : tableau compact, replié tant qu'on ne le demande pas
 var CP_I_OUVERT=false;
