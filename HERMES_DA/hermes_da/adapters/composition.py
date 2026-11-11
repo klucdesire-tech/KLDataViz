@@ -253,4 +253,7 @@ def composer(fiche, df, vedettes=(), exclus=()):
             v = _variantes(c, props)
             if v:
                 c["variantes"] = v
-    return {"version": 2, "modele": modele, "mesure": mesure, "dimension": dimension, "lignes": lignes, "cartes": len(cartes)}
+    plan = {"version": 2, "modele": modele, "mesure": mesure, "dimension": dimension, "lignes": lignes, "cartes": len(cartes)}
+    if fiche.get("hierarchie") and len(fiche.get("lieux") or []) > 1:
+        plan["lieux"] = list(fiche["lieux"])  # du plus large au plus fin : chaque lieu appartient à un seul lieu plus large
+    return plan

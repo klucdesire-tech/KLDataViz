@@ -79,7 +79,8 @@ function cpNomGraphique(v){return {courbe:v.ensemble&&v.ensemble.length?'Courbes
   cible:'Réalisé et objectif',bulles:'Nuage de points',histogramme:'Histogramme'}[v.type]||v.type}
 function cpMenu(c){var V=c.variantes;if(!V||V.length<2||c.__i==null)return '';
   return '<select class="cp-type" data-i="'+c.__i+'" aria-label="'+esc('Type de graphique : '+cpTete(c.mesure))+'" title="Changer de graphique (seuls ceux adaptés à ces données)">'+V.map(function(v,j){return '<option value="'+j+'"'+(v.type===c.type?' selected':'')+'>'+esc(cpNomGraphique(v))+'</option>'}).join('')+'</select>'}
-function cpCarte(c,titre,sous,corps){var m=cpMessage(c,CP_R),s=m&&m.indexOf(titre)?[titre,sous].filter(Boolean).join(' · '):sous,k=CP_RUBRIQUES[c.type];return '<article class="cp-c" style="grid-column:span '+c.span+'"><div class="cp-h"><div>'+(k?'<span class="cp-k">'+esc(k)+'</span>':'')+'<h2>'+esc(m||titre)+'</h2>'+(s?'<small>'+esc(s)+'</small>':'')+'</div>'+cpMenu(c)+'</div><div class="cp-corps">'+corps+'</div></article>'}
+function cpCarte(c,titre,sous,corps){var m=cpMessage(c,CP_R),s=m&&m.indexOf(titre)?[titre,sous].filter(Boolean).join(' · '):sous,k=CP_RUBRIQUES[c.type];
+  if(c.__haut)s=(s?s+' · ':'')+'Détail par '+cpMot(c.dimension)+' de '+label(c.__sel)+' (filtre « '+nice(c.__haut)+' »)';return '<article class="cp-c" style="grid-column:span '+c.span+'"><div class="cp-h"><div>'+(k?'<span class="cp-k">'+esc(k)+'</span>':'')+'<h2>'+esc(m||titre)+'</h2>'+(s?'<small>'+esc(s)+'</small>':'')+'</div>'+cpMenu(c)+'</div><div class="cp-corps">'+corps+'</div></article>'}
 // Choix de l'utilisateur : la carte prend le graphique choisi (sa largeur ne change pas), retenu dans ce navigateur
 var CP_CHOIX_LUS=false;
 function cpCleChoix(c,i){return 'kldv-graph:'+location.pathname+':'+i+':'+(c.variantes&&c.variantes[0]?c.variantes[0].type+'|'+c.variantes[0].mesure+'|'+(c.variantes[0].dimension||''):'')}
@@ -350,8 +351,15 @@ var CP_DESSINS={
     return cpCarte(c,'Évolution '+cpDe(c.mesure)+' par '+cpMot(c.dimension),cpSousTitre(c),cpComparee(r,c))},
   histogramme:function(c,r){return cpCarte(c,'Répartition '+cpDe(c.mesure),'Nombre de lignes par tranche',cpHisto(r,c))}};
 function cpTemporel(){return META.composition.lignes.some(function(l){return l.some(function(c){return /^(courbe|chaleur|comparee)$/.test(c.type)})})}
+// Filtre sur un lieu (une région) : les cartes découpées par ce lieu passent au niveau en dessous (ses districts),
+// au lieu d'une carte à une seule part. Le graphique reste celui de la carte s'il convient au nombre de groupes ;
+// sinon le plus proche permis : barres classées au-delà de 5 parts, carte de chaleur au-delà de 6 courbes.
+function cpDescendre(c,rows){var L=(META.composition&&META.composition.lieux)||[],k=L.indexOf(c.dimension);if(k<0||k>=L.length-1||typeof state==='undefined')return c;
+  var sel=state[c.dimension];if(sel==null||sel==='all')return c;var fin=L[k+1],n=Object.keys(groupBy(rows,fin)).length;if(n<2)return c;
+  var t=c.type;if(t==='anneau'&&n>5)t='classement';if(t==='comparee'&&n>6)t=META.period?'chaleur':'classement';if(t==='pente'&&n>8)t='classement';
+  var d=Object.assign({},c,{type:t,dimension:fin,__haut:c.dimension,__sel:sel});if(t!==c.type){delete d.ensemble;delete d.ages}return d}
 function renderCompo(rows){cpLireChoix();cpCartes().forEach(function(P,i){META.composition.lignes[P.l][P.k].__i=i});var el=document.getElementById('compo'),html='';CP_R=rows;CP_CC=[];if(cpTemporel()&&GOK&&GOK.length>1)html='<div class="cp-outils"><span>Regrouper par</span>'+seg()+'</div>';document.getElementById('row2').style.display='none';document.getElementById('row3').style.display='none';CP_L=+el.clientWidth||1200;
-  META.composition.lignes.forEach(function(l){l.forEach(function(c){try{CP_CARTE=c;html+=CP_DESSINS[c.type](c,rows)}catch(e){html+=cpCarte(c,cpTete(c.mesure),'',cpVide('Ce graphique n\'a pas pu être dessiné.'))}})});el.innerHTML=html;
+  META.composition.lignes.forEach(function(l){l.forEach(function(c0){var c=cpDescendre(c0,rows);try{CP_CARTE=c;html+=CP_DESSINS[c.type](c,rows)}catch(e){html+=cpCarte(c,cpTete(c.mesure),'',cpVide('Ce graphique n\'a pas pu être dessiné.'))}})});el.innerHTML=html;
   [].forEach.call(el.querySelectorAll('.seg button'),function(b){b.onclick=function(){gran=b.dataset.g;render()}});
   [].forEach.call(el.querySelectorAll('.cp-type'),function(s){s.onchange=function(){cpChoisir(+s.dataset.i,+s.value,true);render()}});
   [].forEach.call(el.querySelectorAll('.cp-cc'),function(b){b.onpointermove=b.onpointerdown=function(e){cpSurvol(b,e)};b.onpointerleave=function(){b.querySelector('.cp-bulle').hidden=true;b.querySelector('.cp-ligne').style.display='none'}});return []}
