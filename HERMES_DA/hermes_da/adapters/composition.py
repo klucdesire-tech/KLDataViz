@@ -76,6 +76,12 @@ def _rang(p, cles, dimension, deja):
 
 def _doublon(p, choisis):
     for c in choisis:
+        # Courbes en base 100, parts par indicateur : chaque volume emmène les autres. Deux de ces cartes (même type,
+        # même dimension) traceraient les mêmes séries.
+        if p["type"] == c["type"] and p["type"] in ("courbe", "anneau") and p.get("dimension") == c.get("dimension") \
+                and (p.get("ensemble") or c.get("ensemble")) \
+                and ({p.get("mesure")} | set(p.get("ensemble") or [])) & ({c.get("mesure")} | set(c.get("ensemble") or [])):
+            return True
         memes = p.get("mesure") == c.get("mesure") and p.get("dimension") == c.get("dimension")
         if memes and (p["type"] == c["type"] or {p["type"], c["type"]} <= MEME_REPONSE):
             return True

@@ -17,6 +17,7 @@ MIN_DISTINCT_HISTO = 8
 MIN_POINTS_BULLES = 5
 MAX_POINTS_BULLES = 60
 MAX_COMPAREES = 6  # au-delà, les courbes superposées ne se suivent plus
+MAX_ENSEMBLE = 4   # courbes de mesures différentes sur un même graphique (base 100)
 RATIO_OBJECTIF = (0.5, 2.0)
 
 GRAPHIQUES = {
@@ -91,9 +92,13 @@ def proposer(fiche, df):
         return sortie
     per = f["periode"]
     mesures, groupes = _mesures(f), _groupes(f, df)
+    volumes = [c for c, n in mesures if n == "volume"]
     for c, nature in mesures:
         if per and per["valeurs"] >= MIN_POINTS_COURBE:
-            sortie.append(_prop("courbe", c, nature, periode=per["colonne"]))
+            # Volumes d'ordres de grandeur différents (consultants, dépistés, positifs) : sur un même graphique en
+            # base 100, chacun rapporté à sa propre valeur de référence ; les vraies valeurs restent affichées.
+            ensemble = [v for v in volumes if v != c][:MAX_ENSEMBLE - 1] if nature == "volume" else []
+            sortie.append(_prop("courbe", c, nature, periode=per["colonne"], **({"ensemble": ensemble} if ensemble else {})))
         for g, n in groupes:
             if _groupes_renseignes(df, c, g) < 2:  # une carte que la page ne pourrait pas remplir
                 continue
@@ -106,7 +111,13 @@ def proposer(fiche, df):
             if per and per["comparable_n1"] and 2 <= n <= MAX_PENTES and nature != "stock":
                 sortie.append(_prop("pente", c, nature, periode=per["colonne"], dimension=g, mois_communs=per["mois_communs"]))
             if nature == "volume" and _sans_negatif(df, c):  # seul un volume positif se partage en parts d'un total
-                if 3 <= n <= MAX_PARTS:  # deux parts se disent en un chiffre, pas en anneau
+                # Deux groupes (sexe…) et plusieurs volumes : la part de chaque groupe dans chacun, en bandes verticales
+                # (chaque indicateur = 100 %). Deux parts ne font pas un anneau ; au-delà, l'anneau reste.
+                autres = [v for v in volumes if v != c and _sans_negatif(df, v)][:MAX_ENSEMBLE - 1]
+                n_vrais = int(df[g].astype(str).str.strip().replace({"": None, "nan": None, "None": None}).nunique(dropna=True))
+                if autres and n_vrais == 2:
+                    sortie.append(_prop("anneau", c, nature, dimension=g, ensemble=autres))
+                elif 3 <= n <= MAX_PARTS:  # deux parts se disent en un chiffre, pas en anneau
                     sortie.append(_prop("anneau", c, nature, dimension=g))
                 elif MAX_PARTS < n <= MAX_TREEMAP:
                     sortie.append(_prop("treemap", c, nature, dimension=g))

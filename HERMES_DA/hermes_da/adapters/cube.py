@@ -56,6 +56,7 @@ def resumer(data, plan, kpi_defs, filtres):
     cartes = _cartes(plan)
     objectifs = [c for c in cartes if c.get("objectif")]
     mesures = _uniques([c.get(k) for c in cartes for k in ("mesure", "mesure_y", "objectif")]
+                       + [m for c in cartes for m in c.get("ensemble") or []]
                        + [k.get("colonne") for k in kpi_defs if str(k.get("agregation") or "").lower() not in ("compte", "count")], data.columns)
     fixes = _uniques([c.get("dimension") for c in cartes] + [k.get("dimension") for k in kpi_defs]
                      + [(k.get("hors") or {}).get("colonne") for k in kpi_defs], data.columns)
