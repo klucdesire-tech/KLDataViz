@@ -52,7 +52,15 @@ function cpVal(v){return v==null||isNaN(v)?'—':v&&Math.abs(v)<.01?Number(v).to
 function cpEtiquettes(ts,pas){var a=ts.map(cpVal),u={},f={};a.forEach(function(x,i){u[x]=1;if(ts[i])f[x.replace(/[^a-zA-Z]/g,'')]=1});if(Object.keys(u).length===ts.length&&Object.keys(f).length<2)return a;var d=Math.min(20,Math.max(0,Math.ceil(-Math.log(pas)/Math.LN10)+1));return ts.map(function(t){return Number(t.toPrecision(12)).toLocaleString('fr-FR',{maximumFractionDigits:d})})}
 function cpMarge(lab,min){return Math.max(min,8+7*Math.max.apply(null,lab.map(function(x){return x.length})))}
 function cpPct(v){return v.toLocaleString('fr-FR',{maximumFractionDigits:1})+' %'}
-function cpVide(t){return '<p class="cp-vide">'+esc(t||'Pas assez de données pour ce filtre.')+'</p>'}
+function cpVide(t){return '<p class="cp-vide">'+esc(t||cpPourquoi(CP_CARTE)||'Pas assez de données pour ce filtre.')+'</p>'}
+// Carte vide à cause d'un filtre : dire lequel, et pourquoi, plutôt qu'un « pas assez de données » muet.
+var CP_CARTE=null;
+function cpPourquoi(c){if(!c||typeof FCOLS==='undefined')return null;var actifs=FCOLS.filter(function(f){return state[f]!=null&&state[f]!=='all'});if(!actifs.length)return null;
+  if(c.dimension&&actifs.indexOf(c.dimension)>=0)return 'Le filtre « '+nice(c.dimension)+' » ne garde qu’une seule valeur : retirez-le pour voir la répartition.';
+  var M=[c.mesure].concat(c.ensemble||[]).filter(Boolean);
+  for(var i=0;i<actifs.length;i++){var f=actifs[i],ventile=M.some(function(m){return DATA.some(function(r){return !isNull(r[f])&&num(r[m])!=null})});
+    if(!ventile)return '« '+cpTete(c.mesure)+' » n’est pas ventilé par '+cpMot(f)+' dans ce fichier : retirez le filtre « '+nice(f)+' » pour le voir.'}
+  return null}
 function cpCoupe(s,n){s=String(s);return s.length>n?s.slice(0,Math.max(1,n-1))+'…':s}
 function cpMot(s){var L=META.composition.libelles||{},t=short(s);if(L[s])return L[s];if(/^[A-Z0-9_]+$/.test(String(s)))return String(s);return /^[A-ZÀ-Ý][a-zà-ÿ]/.test(t)?t.charAt(0).toLowerCase()+t.slice(1):t}
 function cpTete(s){var t=cpMot(s);return t.charAt(0).toUpperCase()+t.slice(1)}
@@ -275,11 +283,13 @@ var CP_DESSINS={
   passage:function(c,r){return cpCarte(c,'Ce qui explique la variation : '+cpMot(c.mesure),'Par '+cpMot(c.dimension),cpPassage(r,c))},
   cible:function(c,r){return cpCarte(c,cpTete(c.mesure)+' par rapport à l\'objectif',c.dimension?'Par '+cpMot(c.dimension):'',cpCible(r,c))},
   bulles:function(c,r){return cpCarte(c,cpTete(c.mesure)+' et '+cpMot(c.mesure_y),(Object.keys(groupBy(r,c.dimension)).length<=CP_JUMELLES?'Par ':'Chaque point : ')+cpMot(c.dimension),cpBulles(r,c))},
-  comparee:function(c,r){return cpCarte(c,'Évolution '+cpDe(c.mesure)+' par '+cpMot(c.dimension),cpSousTitre(c),cpComparee(r,c))},
+  comparee:function(c,r){var seul=typeof state!=='undefined'&&state[c.dimension]!=null&&state[c.dimension]!=='all'?state[c.dimension]:null;
+    if(seul&&!cpComparees(r,c))return cpCarte(c,'Évolution '+cpDe(c.mesure)+' · '+label(seul),cpSousTitre(c)+' par '+GRAN[gran].toLowerCase()+' · filtre « '+nice(c.dimension)+' »',cpCourbe(r,c));
+    return cpCarte(c,'Évolution '+cpDe(c.mesure)+' par '+cpMot(c.dimension),cpSousTitre(c),cpComparee(r,c))},
   histogramme:function(c,r){return cpCarte(c,'Répartition '+cpDe(c.mesure),'Nombre de lignes par tranche',cpHisto(r,c))}};
 function cpTemporel(){return META.composition.lignes.some(function(l){return l.some(function(c){return /^(courbe|chaleur|comparee)$/.test(c.type)})})}
 function renderCompo(rows){var el=document.getElementById('compo'),html='';CP_R=rows;CP_CC=[];if(cpTemporel()&&GOK&&GOK.length>1)html='<div class="cp-outils"><span>Regrouper par</span>'+seg()+'</div>';document.getElementById('row2').style.display='none';document.getElementById('row3').style.display='none';CP_L=+el.clientWidth||1200;
-  META.composition.lignes.forEach(function(l){l.forEach(function(c){try{html+=CP_DESSINS[c.type](c,rows)}catch(e){html+=cpCarte(c,cpTete(c.mesure),'',cpVide('Ce graphique n\'a pas pu être dessiné.'))}})});el.innerHTML=html;
+  META.composition.lignes.forEach(function(l){l.forEach(function(c){try{CP_CARTE=c;html+=CP_DESSINS[c.type](c,rows)}catch(e){html+=cpCarte(c,cpTete(c.mesure),'',cpVide('Ce graphique n\'a pas pu être dessiné.'))}})});el.innerHTML=html;
   [].forEach.call(el.querySelectorAll('.seg button'),function(b){b.onclick=function(){gran=b.dataset.g;render()}});
   [].forEach.call(el.querySelectorAll('.cp-cc'),function(b){b.onpointermove=b.onpointerdown=function(e){cpSurvol(b,e)};b.onpointerleave=function(){b.querySelector('.cp-bulle').hidden=true;b.querySelector('.cp-ligne').style.display='none'}});return []}
 // ---- Indicateurs clés : tableau compact, replié tant qu'on ne le demande pas

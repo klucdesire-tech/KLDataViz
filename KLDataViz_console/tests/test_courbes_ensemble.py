@@ -36,8 +36,16 @@ const html = fs.readFileSync(process.argv[2], 'utf8');
 const scripts = [...html.matchAll(/<script(?![^>]*src=)[^>]*>([\s\S]*?)<\/script>/g)].map(m => m[1]);
 vm.runInContext(scripts[scripts.length - 1], ctx);
 const pts = JSON.parse(process.argv[3]);
-console.log(JSON.stringify({ page: el.compo ? el.compo.innerHTML : null, cc: vm.runInContext('JSON.stringify(CP_CC)', ctx),
-  lisse: pts.map(p => vm.runInContext('cpLisse(' + JSON.stringify(p) + ')', ctx)) }));
+const sortie = { page: el.compo ? el.compo.innerHTML : null, cc: vm.runInContext('JSON.stringify(CP_CC)', ctx),
+  lisse: pts.map(p => vm.runInContext('cpLisse(' + JSON.stringify(p) + ')', ctx)) };
+const filtres = JSON.parse(process.argv[4] || '{}');
+if (Object.keys(filtres).length) {
+  for (const k in filtres) vm.runInContext('state[' + JSON.stringify(k) + ']=' + JSON.stringify(filtres[k]), ctx);
+  vm.runInContext('render()', ctx);
+  sortie.filtre = el.compo ? el.compo.innerHTML : null;
+}
+sortie.evals = JSON.parse(process.argv[5] || '[]').map(e => vm.runInContext(e, ctx));
+console.log(JSON.stringify(sortie));
 """
 
 
@@ -162,3 +170,53 @@ def test_repartition_par_sexe_en_bandes_verticales_par_indicateur(tmp_path):
         attendu = df.groupby("sexe")[colonnes[nom]].sum()
         assert {s: v for s, (v, _) in parts_sexe.items()} == attendu.to_dict(), nom
         assert abs(sum(p for _, p in parts_sexe.values()) - 100) <= 0.15, nom  # chaque groupe fait 100 %
+
+
+def _jeu_filtres():
+    """2 régions, 2 sexes ; « éligibles » déclaré au total seulement (sans sexe), comme dans un rapport réel."""
+    lignes = []
+    for i, p in enumerate(PERIODES):
+        for r, region in enumerate(["Région Est", "Région Ouest"]):
+            for s in range(2):
+                site = f"Centre {r}{s}"
+                for k, sexe in enumerate(["Féminin", "Masculin"]):
+                    lignes.append({"periode": p, "region": region, "district": f"District {r}{s}", "site": site, "sexe": sexe,
+                                   "Nombre de consultants": 200 + 50 * k + 10 * i + r, "Nombre de clients dépistés": 40 - 10 * k + i})
+                lignes.append({"periode": p, "region": region, "district": f"District {r}{s}", "site": site, "sexe": None,
+                               "Nombre de clients éligibles": 90 + i + r})
+    return pd.DataFrame(lignes)
+
+
+@sans_node
+def test_filtre_qui_vide_une_carte_dit_pourquoi_ou_trace_le_lieu_retenu(tmp_path):
+    _, _, dashboard, _ = _module()
+    df = _jeu_filtres()
+    html = dashboard.generate_dashboard(df, "", llm=False, dictionnaire=[], composition=True)["html"]
+    carte = lambda **k: json.dumps(dict({"span": 6, "agregation": "somme"}, **k), ensure_ascii=False)  # noqa: E731
+    evals = [
+        # comparaison par région, une seule région retenue : l'évolution de cette région
+        "CP_DESSINS.comparee(" + carte(type="comparee", mesure="Nombre de consultants", dimension="region") + ",filtered())",
+        # parts par sexe, un seul sexe retenu : la carte dit quel filtre retirer
+        "CP_DESSINS.anneau(" + carte(type="anneau", mesure="Nombre de consultants", dimension="sexe",
+                                     ensemble=["Nombre de clients dépistés"]) + ",filtered())",
+    ]
+    (tmp_path / "banc.js").write_text(BANC, encoding="utf-8")
+    (tmp_path / "page.html").write_text(html, encoding="utf-8")
+
+    def lancer(filtres, exprs):
+        r = subprocess.run([NODE, str(tmp_path / "banc.js"), str(tmp_path / "page.html"), "[]", json.dumps(filtres),
+                            json.dumps(exprs)], capture_output=True, text=True, encoding="utf-8")
+        assert r.returncode == 0, r.stderr[:900]
+        return json.loads(r.stdout)["evals"]
+
+    region, _ = lancer({"region": "Région Est"}, evals)
+    assert "· Région Est" in region and "cp-vide" not in region
+    attendu = df[df.region == "Région Est"].groupby("periode", sort=False)["Nombre de consultants"].sum()
+    points = {p: int(re.sub(r"\D", "", v)) for p, v in re.findall(r"<title>(FY\d\dQ\d) : ([^<]+)</title>", region)}
+    assert points == {p: int(v) for p, v in attendu.items()}  # la courbe de la r\u00e9gion retenue, valeur par valeur
+    _, parts = lancer({"sexe": "Féminin"}, evals)
+    assert "ne garde qu’une seule valeur" in parts
+    # un indicateur sans ventilation par sexe : la carte le dit au lieu d'un « pas assez de données » muet
+    vide = lancer({"sexe": "Féminin"}, ["CP_CARTE=" + carte(type="classement", mesure="Nombre de clients éligibles", dimension="district")
+                                        + ";CP_DESSINS.classement(CP_CARTE,filtered())"])[0]
+    assert "n’est pas ventilé par" in vide and "retirez le filtre" in vide
