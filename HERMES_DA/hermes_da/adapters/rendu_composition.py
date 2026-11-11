@@ -124,7 +124,7 @@ function cpColonnes(rows,c,sel){var M=[c.mesure].concat(c.ensemble||[]),g=groupB
   B.forEach(function(b,i){var x0=Gm+i*gw+(gw-(bw*k+4*(k-1)))/2,cx=Gm+i*gw+gw/2;
     G.forEach(function(d,j){var v=b.v[j];if(v==null)return;var p=100*v/b.t,x=x0+j*(bw+4),y=Y(p),pale=sel!=null&&d!==sel;
       o+='<rect x="'+x.toFixed(1)+'" y="'+y.toFixed(1)+'" width="'+bw.toFixed(1)+'" height="'+Math.max(1,H-Bb-y).toFixed(1)+'" rx="4" fill="'+coul[d]+'"'+(pale?' fill-opacity=".28"':'')+'><title>'+esc(court[b.m]+' · '+label(d)+' : '+cpVal(v)+' ('+cpPct(p)+')')+'</title></rect>'
-        +'<text x="'+(x+bw/2).toFixed(1)+'" y="'+Math.max(11,y-5).toFixed(1)+'" text-anchor="middle" font-size="'+(bw<26?10.5:12)+'" font-weight="700" fill="'+(pale?'#8A9AAB':'#102A43')+'">'+esc(cpPct(p))+'</text>'});
+        +'<text x="'+(x+bw/2).toFixed(1)+'" y="'+Math.max(11,y-5).toFixed(1)+'" text-anchor="middle" font-size="'+(bw<26?10.5:12)+'" font-weight="700" fill="'+(pale?'#74889B':'#102A43')+'">'+esc(cpPct(p))+'</text>'});
     var lignes=cpLignes(court[b.m],Math.max(8,Math.floor((gw-6)/6.6)),3);
     o+='<text x="'+cx.toFixed(1)+'" y="'+(H-Bb+16)+'" text-anchor="middle" font-size="11.5" font-weight="600" fill="#102A43"><title>'+esc(label(b.m))+'</title>'+lignes.map(function(l,i){return '<tspan x="'+cx.toFixed(1)+'" dy="'+(i?14:0)+'">'+esc(l)+'</tspan>'}).join('')+'</text>'
       +'<text x="'+cx.toFixed(1)+'" y="'+(H-Bb+16+14*lignes.length+2)+'" text-anchor="middle" font-size="11" fill="#52667A">'+esc('total '+cpVal(b.t))+'</text>'});
@@ -288,7 +288,9 @@ var CP_DESSINS={
       :cpCarte(c,'Évolution '+cpDe(c.mesure),cpSousTitre(c)+' par '+GRAN[gran].toLowerCase(),cpCourbe(r,c))},
   classement:function(c,r){return cpCarte(c,cpTete(c.mesure)+' par '+cpMot(c.dimension),cpSousTitre(c),cpClassement(r,c))},
   anneau:function(c,r){var sel=c.ensemble&&c.ensemble.length&&typeof state!=='undefined'&&state[c.dimension]!=null&&state[c.dimension]!=='all'?state[c.dimension]:null;
-    if(sel!=null)return cpCarte(c,'Part de chaque '+cpMot(c.dimension),'Par indicateur · '+label(sel)+' mis en avant (filtre « '+nice(c.dimension)+' ») · chaque groupe de bandes = 100 %',cpColonnes(cpSansFiltre(c.dimension),c,sel));
+    if(sel!=null){var R2=cpSansFiltre(c.dimension),Mx=[c.mesure].concat(c.ensemble),gs=groupBy(R2,c.dimension)[sel]||[];
+      if(!Mx.some(function(m){return agg(gs,m,'somme')!=null}))return cpCarte(c,'Part de chaque '+cpMot(c.dimension),'Par indicateur',cpVide('Aucune valeur pour « '+label(sel)+' » avec les autres filtres retenus.'));
+      return cpCarte(c,'Part de chaque '+cpMot(c.dimension),'Par indicateur · '+label(sel)+' mis en avant (filtre « '+nice(c.dimension)+' ») · chaque groupe de bandes = 100 %',cpColonnes(R2,c,sel))}
     return c.ensemble&&c.ensemble.length?cpCarte(c,'Part de chaque '+cpMot(c.dimension),'Par indicateur · chaque groupe de bandes = 100 %',cpColonnes(r,c))
     :cpCarte(c,'Part de chaque '+cpMot(c.dimension),cpTete(c.mesure),cpAnneau(r,c))},
   treemap:function(c,r){return cpCarte(c,cpTete(c.mesure)+' par '+cpMot(c.dimension),'La surface suit la valeur',cpTreemap(r,c))},

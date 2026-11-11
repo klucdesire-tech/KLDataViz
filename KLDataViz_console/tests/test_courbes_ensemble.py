@@ -288,3 +288,24 @@ def test_noms_des_series_en_libelles_de_la_page(tmp_path):
     assert cartes, "pas de carte base 100 sur le jeu ventes"
     texte = re.sub(r'="[^"]*"', "", cartes[0])  # le texte affiché, pas les attributs
     assert "Chiffre_affaires" not in texte and "Chiffre d'affaires" in texte
+
+
+@sans_node
+def test_groupe_filtre_sans_valeur_pas_annonce_mis_en_avant(tmp_path):
+    """Sexe = Féminin dans une région où aucune femme n'est déclarée : pas de « Féminin mis en avant », une raison claire."""
+    _, _, dashboard, _ = _module()
+    df = _jeu_filtres()
+    df = df[~((df.region == "Région Ouest") & (df.sexe == "Féminin"))]
+    html = dashboard.generate_dashboard(df, "", llm=False, dictionnaire=[], composition=True)["html"]
+    parts = json.dumps({"span": 6, "agregation": "somme", "type": "anneau", "mesure": "Nombre de consultants", "dimension": "sexe",
+                        "ensemble": ["Nombre de clients dépistés"]}, ensure_ascii=False)
+    (tmp_path / "banc.js").write_text(BANC, encoding="utf-8")
+    (tmp_path / "page.html").write_text(html, encoding="utf-8")
+    sorties = {}
+    for nom, filtres in (("vide", {"sexe": "Féminin", "region": "Région Ouest"}), ("plein", {"sexe": "Féminin", "region": "Région Est"})):
+        r = subprocess.run([NODE, str(tmp_path / "banc.js"), str(tmp_path / "page.html"), "[]", json.dumps(filtres),
+                            json.dumps(["CP_DESSINS.anneau(" + parts + ",filtered())"])], capture_output=True, text=True, encoding="utf-8")
+        assert r.returncode == 0, r.stderr[:900]
+        sorties[nom] = json.loads(r.stdout)["evals"][0]
+    assert "mis en avant" not in sorties["vide"] and "Aucune valeur pour « Féminin »" in sorties["vide"]
+    assert "Féminin mis en avant" in sorties["plein"] and 'fill="#74889B"' in sorties["plein"]  # pourcentages atténués lisibles
