@@ -86,3 +86,33 @@ def test_filtre_sur_une_tranche_negatif_et_libelles_varies(tmp_path):
     assert json.loads(autres[0]) == ["0-4", "15-19", "15+", "25-49"]
     assert json.loads(autres[1]) == ["1-4 ans", "5-9 ans", "10-14 ans", "Inconnu"]
     assert json.loads(autres[2]) is None
+
+
+def test_largeurs_tranches_age_etroites_et_temps_large():
+    """Tranches d'âge en bandes : 5 colonnes, pas 7 (mosaïque) ; le reste de la ligne va aux courbes comparées."""
+    catalogue, composition, _, _ = _module()
+    assert catalogue.tranches_age(pd.DataFrame({"tranche_age": ["<1 an", "1-4 ans", "5-9 ans", "50+ ans"]}), "tranche_age")
+    assert catalogue.tranches_age(pd.DataFrame({"tranche_age": ["0-4", "15-19", "25-49", "Inconnu"]}), "tranche_age")
+    assert not catalogue.tranches_age(pd.DataFrame({"zone": ["Nord 1 an", "Sud 2 ans", "Est 3 ans"]}), "zone")
+    assert not catalogue.tranches_age(pd.DataFrame({"produit": ["A", "B", "C", "D"]}), "produit")
+    lignes = composition.placer([{"type": "treemap", "ages": True}, {"type": "comparee"}])
+    assert [(c["type"], c["span"]) for c in lignes[0]] == [("treemap", 5), ("comparee", 7)]
+    # une mosaïque ordinaire garde sa largeur
+    lignes = composition.placer([{"type": "treemap"}, {"type": "comparee"}])
+    assert [(c["type"], c["span"]) for c in lignes[0]] == [("treemap", 7), ("comparee", 5)]
+
+
+@sans_node
+def test_serveur_et_page_reconnaissent_les_memes_tranches(tmp_path):
+    """catalogue.tranches_age (largeur de la carte) et cpOrdreAges (dessin) : même règle, sinon une mosaïque serait
+    mise à 5 colonnes, ou des bandes à 7."""
+    catalogue, _, dashboard, _ = _module()
+    html = dashboard.generate_dashboard(_donnees(), "", llm=False, dictionnaire=[], composition=True)["html"]
+    cas = [(["<1 an", "1-4 ans", "5-9 ans", "50+ ans"], "tranche_age"), (["0-4", "15-19", "25-49", "Inconnu"], "tranche_age"),
+           (["0-4", "15-19", "25-49"], "zone"), (["Nord 1 an", "Sud 2 ans", "Est 3 ans"], "zone"), (["A", "B", "C"], "produit"),
+           (["0-11 mois", "1-4 ans", "5-9 ans"], "age"), (["moins de 1 an", "1-4 ans", "5+ ans"], "classe"),
+           ([f"{i}-{i + 4} ans" for i in range(0, 80, 5)], "tranche_age"), (["Inconnu", "Autre", "1-4 ans", "5-9 ans", "10-14 ans"], "age")]
+    page = _executer(tmp_path, html, ["JSON.stringify(cpOrdreAges(%s,%s)!==null)" % (json.dumps(v, ensure_ascii=False), json.dumps(g))
+                                      for v, g in cas])
+    for (v, g), dessin in zip(cas, page):
+        assert catalogue.tranches_age(pd.DataFrame({g: v}), g) == json.loads(dessin), (v, g)

@@ -33,6 +33,10 @@ LARGEURS = {"courbe": 8, "chaleur": 8, "comparee": 6, "passage": 6, "treemap": 7
 # En dessous, la carte n'est plus lisible : elle passe à la ligne.
 MINIMA = {"courbe": 6, "chaleur": 7, "comparee": 5, "passage": 5, "treemap": 5}
 MINIMUM = 4
+# Tranches d'âge dessinées en bandes : la largeur d'un graphique en bandes, pas celle d'une mosaïque
+LARGEUR_AGES, MINIMUM_AGES = 5, 4
+# La place qui reste dans une ligne va d'abord aux graphiques qui se lisent dans le temps
+TEMPORELS = ("courbe", "comparee", "chaleur", "passage")
 # Ces graphiques répondent à la même question sur une même mesure et une même dimension : un seul à la fois.
 MEME_REPONSE = {"classement", "anneau", "treemap"}
 
@@ -166,16 +170,22 @@ def selectionner(fiche, props, modele, df, vedettes=()):
 
 
 def _etaler(ligne, reste):
-    """Partage la place restante à parts égales : deux cartes seules font 6 et 6, pas 4 et 8."""
+    """Partage la place restante à parts égales : deux cartes seules font 6 et 6, pas 4 et 8. Une colonne de reste va
+    d'abord à un graphique qui se lit dans le temps (courbes comparées à côté de tranches d'âge : 7 et 5, pas 5 et 7)."""
+    ordre = sorted(range(len(ligne)), key=lambda k: (ligne[k]["type"] not in TEMPORELS, k))
     i = 0
     while reste > 0:
-        ligne[i % len(ligne)]["span"] += 1
+        ligne[ordre[i % len(ordre)]]["span"] += 1
         reste -= 1
         i += 1
 
 
 def _mini(c):
-    return MINIMA.get(c["type"], MINIMUM)
+    return MINIMUM_AGES if c.get("ages") else MINIMA.get(c["type"], MINIMUM)
+
+
+def _largeur(c):
+    return LARGEUR_AGES if c.get("ages") else LARGEURS[c["type"]]
 
 
 def _loger(ligne, c):
@@ -184,7 +194,7 @@ def _loger(ligne, c):
     jeu = sum(x["span"] - _mini(x) for x in ligne)
     if reste + jeu < _mini(c):
         return None
-    return max(_mini(c), min(LARGEURS[c["type"]], reste))
+    return max(_mini(c), min(_largeur(c), reste))
 
 
 def _resserrer(ligne, besoin):
@@ -201,7 +211,7 @@ def placer(cartes, regard=2):
     file, lignes = list(cartes), []
     while file:
         c = file.pop(0)
-        ligne = [dict(c, span=min(LARGEURS[c["type"]], LARGEUR))]
+        ligne = [dict(c, span=min(_largeur(c), LARGEUR))]
         while file:
             for i, suivante in enumerate(file[:1 + regard]):
                 span = _loger(ligne, suivante)
