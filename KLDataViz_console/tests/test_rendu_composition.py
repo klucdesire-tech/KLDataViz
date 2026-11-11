@@ -111,7 +111,8 @@ def test_chaleur_respecte_la_moyenne(gen, tmp_path):
     lignes = [{"mois": f"2025-{m:02d}", "district": d, "centre": c, "taux_couverture": 80.0}
               for m in range(1, 8) for d in ("A", "B") for c in ("x", "y")]
     page = executer(tmp_path, gen(pd.DataFrame(lignes), composition=True)["html"])["page"]
-    assert 'class="cp-cl"' in page and "160" not in page and ">80<" in page
+    texte = re.sub(r' d="[^"]*"', "", page)  # les coordonnées des courbes lissées ne sont pas des valeurs affichées
+    assert 'class="cp-cl"' in page and "160" not in texte and ">80<" in page
 
 
 @sans_node
@@ -426,7 +427,7 @@ def test_objectif_incomplet_est_annonce(gen, tmp_path):
 
 @sans_node
 def test_carte_en_erreur_n_efface_pas_la_page(gen, tmp_path):
-    html = gen(J.JEUX["ventes"](), composition=True)["html"].replace("function cpCourbe(rows,c){", "function cpCourbe(rows,c){throw 1;")
+    html = gen(J.JEUX["ventes"](), composition=True)["html"].replace("courbe:function(c,r){var Z=", "courbe:function(c,r){throw 1;var Z=")
     page = executer(tmp_path, html)["page"]
     assert "pas pu être dessiné" in page and page.count('class="cp-c"') == 8
 

@@ -17,6 +17,7 @@ MIN_DISTINCT_HISTO = 8
 MIN_POINTS_BULLES = 5
 MAX_POINTS_BULLES = 60
 MAX_COMPAREES = 6  # au-delà, les courbes superposées ne se suivent plus
+MAX_ENSEMBLE = 4   # courbes de mesures différentes sur un même graphique (base 100)
 RATIO_OBJECTIF = (0.5, 2.0)
 
 GRAPHIQUES = {
@@ -91,9 +92,13 @@ def proposer(fiche, df):
         return sortie
     per = f["periode"]
     mesures, groupes = _mesures(f), _groupes(f, df)
+    volumes = [c for c, n in mesures if n == "volume"]
     for c, nature in mesures:
         if per and per["valeurs"] >= MIN_POINTS_COURBE:
-            sortie.append(_prop("courbe", c, nature, periode=per["colonne"]))
+            # Volumes d'ordres de grandeur différents (consultants, dépistés, positifs) : sur un même graphique en
+            # base 100, chacun rapporté à sa propre valeur de référence ; les vraies valeurs restent affichées.
+            ensemble = [v for v in volumes if v != c][:MAX_ENSEMBLE - 1] if nature == "volume" else []
+            sortie.append(_prop("courbe", c, nature, periode=per["colonne"], **({"ensemble": ensemble} if ensemble else {})))
         for g, n in groupes:
             if _groupes_renseignes(df, c, g) < 2:  # une carte que la page ne pourrait pas remplir
                 continue
