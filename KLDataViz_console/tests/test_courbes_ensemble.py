@@ -85,16 +85,19 @@ def test_page_base_100_au_premier_trimestre_bien_couvert(tmp_path):
                        capture_output=True, text=True, encoding="utf-8")
     assert r.returncode == 0, r.stderr[:900]
     s = json.loads(r.stdout)
-    assert "Base 100 en FY25Q4" in s["page"] and "premier trimestre bien couvert" in s["page"]
+    assert "Base 100 en FY25Q4" in s["page"]
+    # le trimestre mal couvert (1 centre sur 3) n'est pas tracé : son écart viendrait du manque de déclarations
+    assert "Non tracé, car moins bien couvert" in s["page"] and "FY25Q3." in s["page"]
     assert "undefined" not in s["page"] and "NaN" not in s["page"]
     cc = json.loads(s["cc"])
-    serie = next(x for x in cc if x["P"][0] == "FY25Q3")
-    attendu = df.groupby("periode", sort=False)
+    serie = next(x for x in cc if x["P"][0] == "FY25Q4")
+    assert serie["P"] == PERIODES[1:]
+    attendu = df[df.periode != "FY25Q3"].groupby("periode", sort=False)
     for x in serie["S"]:
         col = next(c for c in df.columns if c.startswith("Nombre") and c.lower().endswith(x["nom"].lower().split()[-1]))
         reel = attendu[col].sum().tolist()
         assert x["reel"] == reel, (x["nom"], x["reel"], reel)  # vraies valeurs au survol et à droite
-        assert [round(v, 6) for v in x["vals"]] == [round(100 * v / reel[1], 6) for v in reel]  # base = FY25Q4
+        assert [round(v, 6) for v in x["vals"]] == [round(100 * v / reel[0], 6) for v in reel]  # base = FY25Q4
     # lissage : chaque segment reste entre ses deux points (pas de pic ni de creux inventé)
     for pts, chemin in zip(points, s["lisse"]):
         segments = re.findall(r"C([-\d. ]+)", chemin)
@@ -103,3 +106,15 @@ def test_page_base_100_au_premier_trimestre_bien_couvert(tmp_path):
             v = [float(t) for t in seg.split()]
             for y in (v[1], v[3], v[5]):
                 assert min(a[1], b[1]) - 1e-6 <= y <= max(a[1], b[1]) + 1e-6, (a, b, seg)
+
+
+def test_une_seule_courbe_d_ensemble_dans_la_page():
+    """Chaque volume emmène les autres : la page ne doit pas montrer deux fois les mêmes séries."""
+    _, composition, dashboard, _ = _module()
+    html = dashboard.generate_dashboard(_donnees(), "", llm=False, dictionnaire=[], composition=True)["html"]
+    meta = json.loads(re.search(r"window\.META\s*=\s*(\{.*?\});\s*\n", html, re.S).group(1))
+    courbes = [c for ligne in meta["composition"]["lignes"] for c in ligne if c["type"] == "courbe"]
+    series = [{c["mesure"], *(c.get("ensemble") or [])} for c in courbes]
+    for i, a in enumerate(series):
+        for b in series[i + 1:]:
+            assert not (a & b), courbes
