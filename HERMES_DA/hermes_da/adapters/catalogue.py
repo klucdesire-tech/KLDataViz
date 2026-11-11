@@ -3,6 +3,8 @@
 
 `proposer(fiche, df)` liste tout ce que les données permettent honnêtement de montrer, sans rien calculer pour l'affichage
 et sans choisir la mise en page : ce choix revient à l'étape suivante. Une règle absente vaut interdiction."""
+import re
+
 import pandas as pd
 
 MAX_PARTS = 5        # au-delà, un anneau ne se lit plus : treemap ou classement
@@ -48,6 +50,21 @@ def _mesures(f):
 def _groupes(f, df):
     """Lieux puis catégories, avec leur nombre de valeurs."""
     return [(c, int(df[c].nunique(dropna=True))) for c in f["lieux"] + f["categories"]]
+
+
+_AGE_COL = re.compile(r"(^|[\s_])(age|âge|ages|âges|tranche)", re.I)
+_AGE_VAL = re.compile(r"^(<|>|≤|≥|moins de|plus de|de)?\s*(\d+(?:[.,]\d+)?)\s*(\+|-|–|à|a\b|\s|ans?\b|mois\b|$)")
+_AGE_MOT = re.compile(r"(\ban?s?\b|mois|years?|yrs?|semaines?)")
+MAX_TRANCHES = 14
+
+
+def tranches_age(df, g):
+    """Vrai si la dimension est faite de tranches d'âge (même règle que cpOrdreAges dans la page) : 3 à 14 tranches,
+    60 % au moins des valeurs reconnues, libellé commençant par l'âge."""
+    vals = [str(v).strip().lower() for v in df[g].dropna().unique() if str(v).strip()]
+    par_age = bool(_AGE_COL.search(str(g)))
+    vus = [v for v in vals if _AGE_VAL.match(v) and (par_age or _AGE_MOT.search(v))]
+    return 3 <= len(vus) <= MAX_TRANCHES and len(vus) >= .6 * len(vals)
 
 
 def _sans_negatif(df, c):
@@ -120,7 +137,7 @@ def proposer(fiche, df):
                 elif 3 <= n <= MAX_PARTS:  # deux parts se disent en un chiffre, pas en anneau
                     sortie.append(_prop("anneau", c, nature, dimension=g))
                 elif MAX_PARTS < n <= MAX_TREEMAP:
-                    sortie.append(_prop("treemap", c, nature, dimension=g))
+                    sortie.append(_prop("treemap", c, nature, dimension=g, **({"ages": True} if tranches_age(df, g) else {})))
                 if per and per["comparable_n1"] and 2 <= n <= MAX_PENTES:
                     sortie.append(_prop("passage", c, nature, periode=per["colonne"], dimension=g, mois_communs=per["mois_communs"]))
         v = pd.to_numeric(df[c], errors="coerce").dropna()

@@ -86,3 +86,17 @@ def test_filtre_sur_une_tranche_negatif_et_libelles_varies(tmp_path):
     assert json.loads(autres[0]) == ["0-4", "15-19", "15+", "25-49"]
     assert json.loads(autres[1]) == ["1-4 ans", "5-9 ans", "10-14 ans", "Inconnu"]
     assert json.loads(autres[2]) is None
+
+
+def test_largeurs_tranches_age_etroites_et_temps_large():
+    """Tranches d'âge en bandes : 5 colonnes, pas 7 (mosaïque) ; le reste de la ligne va aux courbes comparées."""
+    catalogue, composition, _, _ = _module()
+    assert catalogue.tranches_age(pd.DataFrame({"tranche_age": ["<1 an", "1-4 ans", "5-9 ans", "50+ ans"]}), "tranche_age")
+    assert catalogue.tranches_age(pd.DataFrame({"tranche_age": ["0-4", "15-19", "25-49", "Inconnu"]}), "tranche_age")
+    assert not catalogue.tranches_age(pd.DataFrame({"zone": ["Nord 1 an", "Sud 2 ans", "Est 3 ans"]}), "zone")
+    assert not catalogue.tranches_age(pd.DataFrame({"produit": ["A", "B", "C", "D"]}), "produit")
+    lignes = composition.placer([{"type": "treemap", "ages": True}, {"type": "comparee"}])
+    assert [(c["type"], c["span"]) for c in lignes[0]] == [("treemap", 5), ("comparee", 7)]
+    # une mosaïque ordinaire garde sa largeur
+    lignes = composition.placer([{"type": "treemap"}, {"type": "comparee"}])
+    assert [(c["type"], c["span"]) for c in lignes[0]] == [("treemap", 7), ("comparee", 5)]
