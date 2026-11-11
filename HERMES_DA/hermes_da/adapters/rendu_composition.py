@@ -148,14 +148,15 @@ function cpOrdreAges(V,dim){var parAge=/(^|[\s_])(age|âge|ages|âges|tranche)/i
 // `sel` : la tranche retenue par un filtre sur cette colonne ; toutes les tranches restent, celle-ci mise en avant.
 function cpBandesAges(rows,c,ordre,sel){var g=groupBy(rows,c.dimension),e=ordre.map(function(k){var v=g[k]?agg(g[k],c.mesure,c.agregation):null;return [k,v==null?null:v]}),t=e.reduce(function(s,x){return s+(x[1]>0?x[1]:0)},0),tout=agg(rows,c.mesure,c.agregation);
   if(!(t>0))return cpVide();
-  var W=cpW(c),n=e.length,H=Math.max(220,Math.min(280,Math.round(W*.42))),T=22,Bb=34,Gm=8,gw=(W-2*Gm)/n,bw=Math.max(10,Math.min(56,gw-14)),mx=Math.max.apply(null,e.map(function(x){return x[1]||0})),Y=function(v){return H-Bb-v/mx*(H-Bb-T)};
+  var W=cpW(c),n=e.length,H=Math.max(220,Math.min(280,Math.round(W*.42))),T=22,Bb=46,Gm=8,gw=(W-2*Gm)/n,bw=Math.max(10,Math.min(56,gw-14)),mx=Math.max.apply(null,e.map(function(x){return x[1]||0})),Y=function(v){return H-Bb-v/mx*(H-Bb-T)};
   var o='<svg class="cp-svg" viewBox="0 0 '+W+' '+H+'" role="img" aria-label="'+esc(cpTete(c.mesure)+' par '+cpMot(c.dimension))+'"><path d="M'+Gm+' '+(H-Bb)+'H'+(W-Gm)+'" stroke="#C9D3DD"/>',negs=[];
   e.forEach(function(x,i){var cx=Gm+i*gw+gw/2,v=x[1],nom=label(x[0]),pale=sel!=null&&x[0]!==sel;
     if(v!=null&&v>0){var y=Y(v),p=100*v/t;o+='<rect x="'+(cx-bw/2).toFixed(1)+'" y="'+y.toFixed(1)+'" width="'+bw.toFixed(1)+'" height="'+Math.max(1,H-Bb-y).toFixed(1)+'" rx="4" fill="'+CP_PRINC+'"'+(pale?' fill-opacity=".28"':'')+'><title>'+esc(nom+' : '+cpVal(v)+' ('+cpPct(p)+')')+'</title></rect>'
       +'<text x="'+cx.toFixed(1)+'" y="'+Math.max(11,y-5).toFixed(1)+'" text-anchor="middle" font-size="'+(gw<44?10.5:12)+'" font-weight="700" fill="'+(pale?'#74889B':'#102A43')+'">'+esc(cpPct(p))+'</text>'}
     else{if(v!=null&&v<0)negs.push(nom);var txt=v==null?'—':v<0?'−':'0',tip=v==null?' : non renseigné':v<0?' : '+cpVal(v)+' (négatif, hors des parts)':' : 0';
       o+='<text x="'+cx.toFixed(1)+'" y="'+(H-Bb-5)+'" text-anchor="middle" font-size="11" fill="#74889B">'+txt+'<title>'+esc(nom+tip)+'</title></text>'}
-    o+='<text x="'+cx.toFixed(1)+'" y="'+(H-Bb+16)+'" text-anchor="middle" font-size="'+(gw<44?10.5:12)+'" fill="'+(pale?'#8A9AAB':'#52667A')+'">'+esc(cpCoupe(nom,Math.max(4,Math.floor(gw/6.5))))+'<title>'+esc(nom)+'</title></text>'});
+    var L=cpLignes(nom,Math.max(4,Math.floor(gw/6.5)),2);
+    o+='<text x="'+cx.toFixed(1)+'" y="'+(H-Bb+16)+'" text-anchor="middle" font-size="'+(gw<44?10.5:12)+'" fill="'+(pale?'#8A9AAB':'#52667A')+'"><title>'+esc(nom)+'</title>'+L.map(function(t,i){return '<tspan x="'+cx.toFixed(1)+'" dy="'+(i?13:0)+'">'+esc(t)+'</tspan>'}).join('')+'</text>'});
   var vides=e.filter(function(x){return x[1]==null}).map(function(x){return label(x[0])}),note='Part de chaque tranche dans le total ('+cpVal(t)+'), dans l’ordre des âges. Au survol, les vraies valeurs.';
   if(vides.length)note+=' Non renseigné : '+vides.join(', ')+'.';if(negs.length)note+=' Valeur négative, hors des parts : '+negs.join(', ')+'.';
   if(tout!=null&&tout>t*1.0005&&!negs.length)note+=' Sans tranche d’âge, hors des parts : '+cpVal(tout-t)+' ('+cpPct(100*(tout-t)/tout)+').';

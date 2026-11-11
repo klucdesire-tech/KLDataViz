@@ -100,3 +100,19 @@ def test_largeurs_tranches_age_etroites_et_temps_large():
     # une mosaïque ordinaire garde sa largeur
     lignes = composition.placer([{"type": "treemap"}, {"type": "comparee"}])
     assert [(c["type"], c["span"]) for c in lignes[0]] == [("treemap", 7), ("comparee", 5)]
+
+
+@sans_node
+def test_serveur_et_page_reconnaissent_les_memes_tranches(tmp_path):
+    """catalogue.tranches_age (largeur de la carte) et cpOrdreAges (dessin) : même règle, sinon une mosaïque serait
+    mise à 5 colonnes, ou des bandes à 7."""
+    catalogue, _, dashboard, _ = _module()
+    html = dashboard.generate_dashboard(_donnees(), "", llm=False, dictionnaire=[], composition=True)["html"]
+    cas = [(["<1 an", "1-4 ans", "5-9 ans", "50+ ans"], "tranche_age"), (["0-4", "15-19", "25-49", "Inconnu"], "tranche_age"),
+           (["0-4", "15-19", "25-49"], "zone"), (["Nord 1 an", "Sud 2 ans", "Est 3 ans"], "zone"), (["A", "B", "C"], "produit"),
+           (["0-11 mois", "1-4 ans", "5-9 ans"], "age"), (["moins de 1 an", "1-4 ans", "5+ ans"], "classe"),
+           ([f"{i}-{i + 4} ans" for i in range(0, 80, 5)], "tranche_age"), (["Inconnu", "Autre", "1-4 ans", "5-9 ans", "10-14 ans"], "age")]
+    page = _executer(tmp_path, html, ["JSON.stringify(cpOrdreAges(%s,%s)!==null)" % (json.dumps(v, ensure_ascii=False), json.dumps(g))
+                                      for v, g in cas])
+    for (v, g), dessin in zip(cas, page):
+        assert catalogue.tranches_age(pd.DataFrame({g: v}), g) == json.loads(dessin), (v, g)
