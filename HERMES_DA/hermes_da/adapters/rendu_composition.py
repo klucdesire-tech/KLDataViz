@@ -133,6 +133,22 @@ function cpColonnes(rows,c,sel){var M=[c.mesure].concat(c.ensemble||[]),g=groupB
   if(nr.length)note+=' Non renseigné (les parts ne portent que sur les groupes renseignés) : '+nr.join(' ; ')+'.';
   if(nv.length)note+=' Non ventilé par '+cpMot(c.dimension)+', hors des parts : '+nv.join(', ')+'.';if(sans.length)note+=' Pas de ventilation par '+cpMot(c.dimension)+' pour : '+sans.join(', ')+'.';
   return o+'</svg>'+leg+'<p class="cp-note">'+esc(note)+'</p>'}
+// Tranches d'âge (« <1 an », « 1-4 ans », « 50+ ans ») : un ordre naturel. Rangées par âge, toutes visibles, même à 0,
+// au lieu d'une mosaïque où les petites tranches n'ont pas de nom. null si les valeurs ne sont pas des tranches d'âge.
+function cpOrdreAges(V){var cle=function(t){var s=String(t).toLowerCase().trim(),m=s.match(/(\d+(?:[.,]\d+)?)/);if(!m||!/(\ban?s?\b|mois|year|yr|semaine)/.test(s))return null;
+    var n=parseFloat(m[1].replace(',','.'));if(/mois/.test(s)&&!/an/.test(s))n=n/12;return /^\s*(<|moins)/.test(s)?n-.5:n};
+  var k=V.map(function(v){return {v:v,k:cle(v)}});return k.length>=3&&k.every(function(x){return x.k!=null})?k.sort(function(a,b){return a.k-b.k}).map(function(x){return x.v}):null}
+function cpBandesAges(rows,c,ordre){var g=groupBy(rows,c.dimension),e=ordre.map(function(k){var v=g[k]?agg(g[k],c.mesure,c.agregation):null;return [k,v==null?null:v]}),t=e.reduce(function(s,x){return s+(x[1]>0?x[1]:0)},0);
+  if(!(t>0))return cpVide();
+  var W=cpW(c),n=e.length,H=Math.max(220,Math.min(280,Math.round(W*.42))),T=22,Bb=34,Gm=8,gw=(W-2*Gm)/n,bw=Math.max(10,Math.min(56,gw-14)),mx=Math.max.apply(null,e.map(function(x){return x[1]||0})),Y=function(v){return H-Bb-v/mx*(H-Bb-T)};
+  var o='<svg class="cp-svg" viewBox="0 0 '+W+' '+H+'" role="img" aria-label="'+esc(cpTete(c.mesure)+' par '+cpMot(c.dimension))+'"><path d="M'+Gm+' '+(H-Bb)+'H'+(W-Gm)+'" stroke="#C9D3DD"/>';
+  e.forEach(function(x,i){var cx=Gm+i*gw+gw/2,v=x[1],nom=label(x[0]);
+    if(v!=null&&v>0){var y=Y(v),p=100*v/t;o+='<rect x="'+(cx-bw/2).toFixed(1)+'" y="'+y.toFixed(1)+'" width="'+bw.toFixed(1)+'" height="'+Math.max(1,H-Bb-y).toFixed(1)+'" rx="4" fill="'+CP_PRINC+'"><title>'+esc(nom+' : '+cpVal(v)+' ('+cpPct(p)+')')+'</title></rect>'
+      +'<text x="'+cx.toFixed(1)+'" y="'+Math.max(11,y-5).toFixed(1)+'" text-anchor="middle" font-size="'+(gw<44?10.5:12)+'" font-weight="700" fill="#102A43">'+esc(cpPct(p))+'</text>'}
+    else o+='<text x="'+cx.toFixed(1)+'" y="'+(H-Bb-5)+'" text-anchor="middle" font-size="11" fill="#74889B">'+(v===0?'0':'—')+'<title>'+esc(nom+(v===0?' : 0':' : non renseigné'))+'</title></text>';
+    o+='<text x="'+cx.toFixed(1)+'" y="'+(H-Bb+16)+'" text-anchor="middle" font-size="'+(gw<44?10.5:12)+'" fill="#52667A">'+esc(cpCoupe(nom,Math.max(4,Math.floor(gw/6.5))))+'<title>'+esc(nom)+'</title></text>'});
+  var vides=e.filter(function(x){return x[1]==null}).map(function(x){return label(x[0])});
+  return o+'</svg><p class="cp-note">'+esc('Part de chaque tranche dans le total ('+cpVal(t)+'), dans l’ordre des âges. Au survol, les vraies valeurs.'+(vides.length?' Non renseigné : '+vides.join(', ')+'.':''))+'</p>'}
 function cpDecoupe(a,x,y,w,h,o){if(a.length===1){o.push({k:a[0][0],v:a[0][1],x:x,y:y,w:w,h:h});return}var t=a.reduce(function(s,e){return s+e[1]},0),c=0,n=0;
   while(n<a.length-1&&c+a[n][1]/2<t/2){c+=a[n][1];n++}n=Math.max(1,n);var A=a.slice(0,n),B=a.slice(n),f=A.reduce(function(s,e){return s+e[1]},0)/t;
   if(w*1.7>=h){cpDecoupe(A,x,y,w*f,h,o);cpDecoupe(B,x+w*f,y,w*(1-f),h,o)}else{cpDecoupe(A,x,y,w,h*f,o);cpDecoupe(B,x,y+h*f,w,h*(1-f),o)}}
@@ -291,7 +307,8 @@ var CP_DESSINS={
     if(sel!=null)return cpCarte(c,'Part de chaque '+cpMot(c.dimension),'Par indicateur · '+label(sel)+' mis en avant (filtre « '+nice(c.dimension)+' ») · chaque groupe de bandes = 100 %',cpColonnes(cpSansFiltre(c.dimension),c,sel));
     return c.ensemble&&c.ensemble.length?cpCarte(c,'Part de chaque '+cpMot(c.dimension),'Par indicateur · chaque groupe de bandes = 100 %',cpColonnes(r,c))
     :cpCarte(c,'Part de chaque '+cpMot(c.dimension),cpTete(c.mesure),cpAnneau(r,c))},
-  treemap:function(c,r){return cpCarte(c,cpTete(c.mesure)+' par '+cpMot(c.dimension),'La surface suit la valeur',cpTreemap(r,c))},
+  treemap:function(c,r){var ordre=cpOrdreAges(Object.keys(groupBy(DATA,c.dimension)));if(ordre&&/^(somme|sum)$/i.test(c.agregation||'somme'))return cpCarte(c,cpTete(c.mesure)+' par '+cpMot(c.dimension),'Part de chaque tranche, dans l’ordre des âges',cpBandesAges(r,c,ordre));
+    return cpCarte(c,cpTete(c.mesure)+' par '+cpMot(c.dimension),'La surface suit la valeur',cpTreemap(r,c))},
   chaleur:function(c,r){return cpCarte(c,cpTete(c.mesure)+' par '+cpMot(c.dimension)+' et par '+GRAN[gran].toLowerCase(),cpSousTitre(c)+'. Plus c\'est foncé, plus la valeur est élevée.',cpChaleur(r,c))},
   pente:function(c,r){return cpCarte(c,'Qui progresse, qui recule : '+cpMot(c.mesure),cpSousTitre(c),cpPente(r,c))},
   passage:function(c,r){return cpCarte(c,'Ce qui explique la variation : '+cpMot(c.mesure),'Par '+cpMot(c.dimension),cpPassage(r,c))},
