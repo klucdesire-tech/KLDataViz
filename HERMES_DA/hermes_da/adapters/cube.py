@@ -13,7 +13,8 @@ VIDES = {"", "nan", "none", "null", "na", "n/a"}
 
 
 def _cartes(plan):
-    return [c for ligne in plan["lignes"] for c in ligne]
+    """Les cartes et les graphiques qu'on peut leur substituer : le résumé doit contenir de quoi dessiner chacun."""
+    return [v for ligne in plan["lignes"] for c in ligne for v in [c] + list(c.get("variantes") or [])]
 
 
 def echelle_taux(serie):

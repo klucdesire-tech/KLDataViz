@@ -11,6 +11,7 @@ CSS = """
 .cp-c{display:flex;flex-direction:column;background:var(--card);border:1px solid rgba(16,42,67,.06);border-radius:18px;padding:18px 20px;min-width:0;break-inside:avoid;
   box-shadow:0 1px 2px rgba(16,42,67,.04),0 10px 28px rgba(16,42,67,.06);transition:box-shadow .2s ease}
 .cp-c:hover{box-shadow:0 1px 2px rgba(16,42,67,.05),0 14px 34px rgba(16,42,67,.10)}
+.cp-type{font:inherit;font-size:12.5px;color:#102A43;background:#fff;border:1px solid #D6DEE8;border-radius:8px;padding:4px 8px;max-width:100%;cursor:pointer}.cp-type:focus-visible{outline:2px solid #256ABF;outline-offset:1px}
 .cp-h{display:flex;flex-wrap:wrap;justify-content:space-between;gap:8px 10px;align-items:flex-start;margin-bottom:14px}
 .cp-k{display:inline-flex;align-items:center;gap:6px;font-size:10.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#256ABF;margin-bottom:6px}
 .cp-k::before{content:"";width:8px;height:8px;border-radius:50%;background:linear-gradient(135deg,#1D7A4C,#2A78D6)}
@@ -72,7 +73,21 @@ function cpPlein(){return window.innerWidth<=900}
 function cpW(c){return Math.max(240,Math.round(cpPlein()?CP_L-34:(CP_L-176)/12*c.span+(c.span-1)*16-34))}
 function cpNb(rows){return META.cube?rows.reduce(function(s,r){return s+r.__n},0):rows.length}
 var CP_RUBRIQUES={courbe:'Évolution',classement:'Classement',anneau:'Répartition',treemap:'Répartition',chaleur:'Carte de chaleur',pente:'Progression',passage:'Variation',cible:'Objectif',bulles:'Relation',comparee:'Comparaison',histogramme:'Distribution'};
-function cpCarte(c,titre,sous,corps){var m=cpMessage(c,CP_R),s=m&&m.indexOf(titre)?[titre,sous].filter(Boolean).join(' · '):sous,k=CP_RUBRIQUES[c.type];return '<article class="cp-c" style="grid-column:span '+c.span+'"><div class="cp-h"><div>'+(k?'<span class="cp-k">'+esc(k)+'</span>':'')+'<h2>'+esc(m||titre)+'</h2>'+(s?'<small>'+esc(s)+'</small>':'')+'</div></div><div class="cp-corps">'+corps+'</div></article>'}
+// Nom de chaque graphique dans le menu « Type de graphique »
+function cpNomGraphique(v){return {courbe:v.ensemble&&v.ensemble.length?'Courbes en base 100':'Courbe d’évolution',comparee:'Courbes comparées',chaleur:'Carte de chaleur',classement:'Barres classées',
+  anneau:v.ensemble&&v.ensemble.length?'Bandes par indicateur':'Anneau des parts',treemap:cpOrdreAges(Object.keys(groupBy(DATA,v.dimension)),v.dimension)&&/^(somme|sum)$/i.test(v.agregation||'somme')?'Bandes par âge':'Mosaïque des parts',pente:'Pente entre deux périodes',passage:'Passage d’une période à l’autre',
+  cible:'Réalisé et objectif',bulles:'Nuage de points',histogramme:'Histogramme'}[v.type]||v.type}
+function cpMenu(c){var V=c.variantes;if(!V||V.length<2||c.__i==null)return '';
+  return '<select class="cp-type" data-i="'+c.__i+'" aria-label="'+esc('Type de graphique : '+cpTete(c.mesure))+'" title="Changer de graphique (seuls ceux adaptés à ces données)">'+V.map(function(v,j){return '<option value="'+j+'"'+(v.type===c.type?' selected':'')+'>'+esc(cpNomGraphique(v))+'</option>'}).join('')+'</select>'}
+function cpCarte(c,titre,sous,corps){var m=cpMessage(c,CP_R),s=m&&m.indexOf(titre)?[titre,sous].filter(Boolean).join(' · '):sous,k=CP_RUBRIQUES[c.type];return '<article class="cp-c" style="grid-column:span '+c.span+'"><div class="cp-h"><div>'+(k?'<span class="cp-k">'+esc(k)+'</span>':'')+'<h2>'+esc(m||titre)+'</h2>'+(s?'<small>'+esc(s)+'</small>':'')+'</div>'+cpMenu(c)+'</div><div class="cp-corps">'+corps+'</div></article>'}
+// Choix de l'utilisateur : la carte prend le graphique choisi (sa largeur ne change pas), retenu dans ce navigateur
+var CP_CHOIX_LUS=false;
+function cpCleChoix(c,i){return 'kldv-graph:'+location.pathname+':'+i+':'+(c.variantes&&c.variantes[0]?c.variantes[0].type+'|'+c.variantes[0].mesure+'|'+(c.variantes[0].dimension||''):'')}
+function cpCartes(){var L=[];META.composition.lignes.forEach(function(l,a){l.forEach(function(c,b){L.push({l:a,k:b})})});return L}
+function cpChoisir(i,j,garder){var P=cpCartes()[i];if(!P)return;var l=META.composition.lignes[P.l],c=l[P.k],v=c.variantes&&c.variantes[j];if(!v)return;
+  l[P.k]=Object.assign({},v,{span:c.span,variantes:c.variantes,__i:i});if(garder)try{localStorage.setItem(cpCleChoix(c,i),String(j))}catch(e){}}
+function cpLireChoix(){if(CP_CHOIX_LUS)return;CP_CHOIX_LUS=true;cpCartes().forEach(function(P,i){var c=META.composition.lignes[P.l][P.k];if(!c.variantes)return;var j=null;
+  try{j=localStorage.getItem(cpCleChoix(c,i))}catch(e){}if(j!=null&&c.variantes[+j]&&c.variantes[+j].type!==c.type)cpChoisir(i,+j,false)})}
 function cpSousTitre(c){return CP_AGR[c.agregation]||''}
 function cpSerie(rows,c){var g=groupBy(rows,function(r){return pkey(r.__p)});return Object.keys(g).sort().map(function(k){return [k,agg(g[k],c.mesure,c.agregation)]}).filter(function(e){return e[1]!=null})}
 function cpPoints(s,W,H,G,B,T,max,bas){return s.map(function(e,i){return [s.length>1?G+i*((W-G-8)/(s.length-1)):G,H-B-(e[1]-bas)/(max-bas)*(H-B-T)]})}
@@ -334,9 +349,10 @@ var CP_DESSINS={
     return cpCarte(c,'Évolution '+cpDe(c.mesure)+' par '+cpMot(c.dimension),cpSousTitre(c),cpComparee(r,c))},
   histogramme:function(c,r){return cpCarte(c,'Répartition '+cpDe(c.mesure),'Nombre de lignes par tranche',cpHisto(r,c))}};
 function cpTemporel(){return META.composition.lignes.some(function(l){return l.some(function(c){return /^(courbe|chaleur|comparee)$/.test(c.type)})})}
-function renderCompo(rows){var el=document.getElementById('compo'),html='';CP_R=rows;CP_CC=[];if(cpTemporel()&&GOK&&GOK.length>1)html='<div class="cp-outils"><span>Regrouper par</span>'+seg()+'</div>';document.getElementById('row2').style.display='none';document.getElementById('row3').style.display='none';CP_L=+el.clientWidth||1200;
+function renderCompo(rows){cpLireChoix();cpCartes().forEach(function(P,i){META.composition.lignes[P.l][P.k].__i=i});var el=document.getElementById('compo'),html='';CP_R=rows;CP_CC=[];if(cpTemporel()&&GOK&&GOK.length>1)html='<div class="cp-outils"><span>Regrouper par</span>'+seg()+'</div>';document.getElementById('row2').style.display='none';document.getElementById('row3').style.display='none';CP_L=+el.clientWidth||1200;
   META.composition.lignes.forEach(function(l){l.forEach(function(c){try{CP_CARTE=c;html+=CP_DESSINS[c.type](c,rows)}catch(e){html+=cpCarte(c,cpTete(c.mesure),'',cpVide('Ce graphique n\'a pas pu être dessiné.'))}})});el.innerHTML=html;
   [].forEach.call(el.querySelectorAll('.seg button'),function(b){b.onclick=function(){gran=b.dataset.g;render()}});
+  [].forEach.call(el.querySelectorAll('.cp-type'),function(s){s.onchange=function(){cpChoisir(+s.dataset.i,+s.value,true);render()}});
   [].forEach.call(el.querySelectorAll('.cp-cc'),function(b){b.onpointermove=b.onpointerdown=function(e){cpSurvol(b,e)};b.onpointerleave=function(){b.querySelector('.cp-bulle').hidden=true;b.querySelector('.cp-ligne').style.display='none'}});return []}
 // ---- Indicateurs clés : tableau compact, replié tant qu'on ne le demande pas
 var CP_I_OUVERT=false;
