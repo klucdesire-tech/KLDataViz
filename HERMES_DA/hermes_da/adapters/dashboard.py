@@ -1130,7 +1130,7 @@ function qualiteNote(){var Q=META.qualite,k=document.getElementById('kpis');if(!
   d.innerHTML='<b>Qualité des données : '+esc(Q.note)+' / 100</b> · '+esc(Q.resume)+dl+((Q.principaux||[]).length?'<ul style="margin:6px 0 0;padding-left:18px">'+Q.principaux.map(function(c){return '<li>'+esc(c.titre)+' <span style="color:var(--muted)">('+esc(c.dimension)+')</span></li>'}).join('')+'</ul>':'')
     +'<div style="color:var(--muted);font-size:12px;margin-top:4px">Sur tout le fichier, selon '+esc(Q.normes)+'. Détail dans l’écran « Vérifier ».</div>';
   k.parentNode.insertBefore(d,k)}
-function renderKpis(all){qualiteNote();grosNote();document.getElementById('kpis').innerHTML=KPIDEFS.slice(0,5).map(function(k,i){
+function renderKpis(all){qualiteNote();grosNote();if(!KPIDEFS.length&&META.sans_tuile){document.getElementById('kpis').innerHTML='<p class="vide" style="grid-column:1/-1;color:var(--muted);font-size:13px;margin:0">'+esc(META.sans_tuile)+'</p>';return}document.getElementById('kpis').innerHTML=KPIDEFS.slice(0,5).map(function(k,i){
   var rows=k.hors?all.filter(function(r){return k.hors.valeurs.indexOf(String(r[k.hors.colonne]).trim().toLowerCase())<0}):all,
     G=kpiGros(k),v=G.v!=null?G.v:(k.formule?evalF(rows,k.formule):agg(rows,k.colonne,k.agregation)),sub='';if(G.v==null&&v!=null)v*=G.f;
   var u=(k.formule?k.pct:isRate(k.agregation))&&v!=null?' %':'';
@@ -1490,6 +1490,97 @@ def sans_lignes_de_total(df):
     return sortie
 
 
+_RANG_NIVEAU = {"total": 0, "sexe": 1, "age": 2}  # du plus agrégé au plus fin
+AGREGATIONS_RAPPORT = ("somme", "sum", "dernier", "taux", "rate", "pct", "proportion")
+_TAUX_MOTS = re.compile(r"^(taux|proportion|pourcentage|ratio|moyenne|mediane|part)\b")
+# Colonne propre à chaque ligne (identifiant, commentaire, horodatage de saisie) : jamais une partie de la « case »
+_PAR_LIGNE = re.compile(r"(^|\s)(id|identifiant|uid|commentaires?|remarques?|observations?|notes?|horodatage|"
+                        r"timestamp|saisi le|saisie le|date de saisie|n ligne|ligne)(\s|$)")
+
+
+def _est_taux(nom) -> bool:
+    """Indicateur déjà exprimé en taux (« Taux de positivité », « % de CV supprimée », « Taux_brut ») : sa somme
+    n'a pas de sens."""
+    return "%" in str(nom) or bool(_TAUX_MOTS.match(_norm(nom)))
+
+
+def _niveau_rapport(v):
+    """« Âge », « Tranches d'âges », « Groupe d'âge », « Sexes », « TOTAL », « Global » → age / sexe / total ;
+    None si ce n'est pas un niveau de rapport."""
+    n = _norm(v)
+    if n in ("total", "ensemble", "global", "tous", "toutes", "total general"):
+        return "total"
+    if n in ("sexe", "sexes", "sex", "genre", "par sexe"):
+        return "sexe"
+    if re.search(r"(^|\s)ages?(\s|$)", n) or n in ("age group", "age groups", "tranche", "tranches"):
+        return "age"
+    return None
+
+
+def _branche_sexe(v):
+    """Branche de sexe d'une ligne : le sexe nommé (« Féminin »…), ou "" pour « Total » / vide (pas de sexe)."""
+    if v is None or (isinstance(v, float) and v != v):
+        return ""
+    n = _norm(v)
+    return "" if n in ("", "total", "ensemble", "tous", "nan", "none") else str(v).strip()
+
+
+def vue_rapport(df):
+    """Rapport remis à plat (colonne « niveau » : total / sexe / âge) → une seule ligne par chiffre, au niveau le plus fin.
+
+    Le même chiffre y figure plusieurs fois : au total, par sexe, et par sexe × tranche d'âge. Additionnés, ils
+    triplaient tout (300 dépistés affichés pour 100 déclarés) et « Total » passait pour une tranche d'âge.
+
+    Pour chaque case (période, lieu, établissement, indicateur…) et chaque sexe nommé, on garde le niveau le plus fin
+    déclaré. Ainsi un détail par âge rempli pour un seul sexe garde l'autre sexe à son chiffre déclaré (60 F par âge
+    + 40 M = 100, jamais 60). Les lignes sans sexe (total, ou âge non croisé avec le sexe) ne sont gardées que si
+    elles sont plus fines que tout ce qui est déclaré par sexe : un âge non croisé l'emporte sur la ventilation par
+    sexe (même total, un seul découpage), un total cède la place au détail par sexe. Une case déclarée seulement au
+    total le reste. Sexe et âge absents sont vides, jamais « Total ».
+
+    Les écarts entre un total déclaré et la somme de son détail sont signalés par le bilan qualité (fichier d'origine),
+    pas cachés ici. Un tableau sans cette structure (« niveau » scolaire, hiérarchique…) est rendu tel quel."""
+    import pandas as pd
+    cols = {str(c) for c in df.columns}
+    if not {"niveau", "indicateur", "valeur"} <= cols or len(df) == 0:
+        return df
+    niv = df["niveau"].map(_niveau_rapport)
+    if niv.isna().any():
+        return df
+    rang = niv.map(_RANG_NIVEAU)
+    branche = (df["sexe"].map(_branche_sexe) if "sexe" in cols else pd.Series("", index=df.index)).astype(str)
+    # La « case » : toutes les autres colonnes, sauf une colonne propre à chaque ligne (identifiant, commentaire…) qui
+    # mettrait chaque ligne dans sa propre case et laisserait le triplement intact.
+    cle = [c for c in df.columns if str(c) not in {"niveau", "sexe", "tranche_age", "valeur"}
+           and not (_PAR_LIGNE.search(_norm(c)) and df[c].nunique(dropna=True) > len(df) // 2)]
+    groupes = [df[c] for c in cle]
+    # le plus fin, branche de sexe par branche de sexe
+    fin_branche = rang.groupby(groupes + [branche], dropna=False).transform("max") if cle else \
+        rang.groupby(branche).transform("max")
+    nomme = rang.where(branche != "")
+    sans = rang.where(branche == "")
+    max_nomme = nomme.groupby(groupes, dropna=False).transform("max") if cle else pd.Series(nomme.max(), index=df.index)
+    max_sans = sans.groupby(groupes, dropna=False).transform("max") if cle else pd.Series(sans.max(), index=df.index)
+    # lignes sans sexe : gardées si plus fines que tout le déclaré par sexe ; lignes par sexe : sinon
+    sans_gagne = max_nomme.isna() | (max_sans > max_nomme)
+    garde = (rang == fin_branche) & ((branche == "") == sans_gagne)
+    sortie = df[garde].drop(columns=["niveau"])
+    r, b = rang[garde], branche[garde]
+    if "tranche_age" in sortie.columns:
+        sortie["tranche_age"] = sortie["tranche_age"].astype(object).where(r == _RANG_NIVEAU["age"], None)
+    if "sexe" in sortie.columns:
+        sortie["sexe"] = sortie["sexe"].astype(object).where(b != "", None)
+    # Classeur empilé : « feuille » ne dit rien de plus que la période (une feuille par trimestre) → pas un filtre de plus
+    if "feuille" in sortie.columns and "periode" in sortie.columns:
+        par_feuille = sortie.groupby("feuille", dropna=False)["periode"].nunique(dropna=False)
+        par_periode = sortie.groupby("periode", dropna=False)["feuille"].nunique(dropna=False)
+        if par_feuille.le(1).all() and par_periode.le(1).all():
+            sortie = sortie.drop(columns=["feuille"])
+    sortie = sortie.reset_index(drop=True)
+    sortie.attrs = dict(df.attrs, rapport_niveaux=True)
+    return sortie
+
+
 def harmoniser_libelles(df):
     """Libellés saisis à la main : « Abidjan » et « Abidjan␣ », « Oui » et « oui » désignent le même groupe. Sans cela,
     un classement, un filtre ou une part du total les compterait à part. Espaces en trop retirés ; variantes qui ne
@@ -1536,6 +1627,7 @@ def _long_to_wide(df):
     else:
         wide = d.pivot_table(index=dims, columns=ic, values=vc, aggfunc=lambda x: x.sum(min_count=1)).reset_index()
     wide.columns.name = None
+    wide.attrs = dict(df.attrs)  # le repli « aucune tuile de l'IA » rappelle generate_dashboard sur ce tableau large
     return wide, True
 
 
@@ -1557,7 +1649,19 @@ def generate_dashboard(df, objective: str = "", job_id: str | None = None, llm=N
     """
     # Valeurs déjà agrégées : drapeau posé par la source (connecteur DHIS2), ou colonnes exactes du connecteur
     # (si le drapeau s'est perdu en route, ex. copie CSV)
-    df = sans_lignes_de_total(harmoniser_libelles(df))
+    # Libellés harmonisés AVANT la vue rapport : « Centre A » et « Centre A␣ » sont une même case, sinon son total
+    # et son détail seraient gardés tous deux. Une vue rapport n'a plus de ligne de cumul : rien à écarter ensuite (un
+    # âge non croisé avec le sexe n'est pas un « Total »).
+    df = vue_rapport(harmoniser_libelles(df))
+    rapport = bool(df.attrs.get("rapport_niveaux"))
+    if not rapport:
+        df = sans_lignes_de_total(df)
+    # Rappel sur le tableau large (repli « aucune tuile ») : plus de colonne « indicateur », la liste vient des attrs
+    indicateurs_rapport = ([str(v) for v in df["indicateur"].dropna().unique()] if rapport and "indicateur" in df.columns
+                           else list(df.attrs.get("indicateurs_rapport") or []))
+    if rapport:
+        df.attrs["indicateurs_rapport"] = indicateurs_rapport
+    taux_seuls = bool(indicateurs_rapport) and all(_est_taux(i) for i in indicateurs_rapport)
     agrege = bool(df.attrs.get("agrege")) or {"indicateur", "periode", "unite_organisation", "valeur"} <= {
         str(c) for c in df.columns}
     if agrege:
@@ -1592,7 +1696,25 @@ def generate_dashboard(df, objective: str = "", job_id: str | None = None, llm=N
                 hors = {"colonne": str(c), "valeurs": sorted({str(v).strip().lower() for v in df[c].dropna().unique()
                                                               if str(v).strip().lower() in _YES})}
                 break
-    for k in spec.get("kpis", [])[:8]:
+    kpis_proposes = list(spec.get("kpis", [])[:8])
+    if rapport:
+        # Rapport : une ligne = une case (site × période × sexe × âge). Compter, moyenner ou prendre la médiane de ces
+        # cases ne mesure rien (« sites rapportant : 28 094 » = des cases, « médiane par ligne : 20 ») : pas de tuile.
+        # Additionner un indicateur déjà en taux non plus.
+        # Un seul indicateur (pas de tableau large) : la colonne est « valeur », le taux se lit sur l'indicateur.
+        def _sur(k):
+            a = (k.get("agregation") or "compte").lower()
+            somme = a in ("somme", "sum", "dernier")
+            return a in AGREGATIONS_RAPPORT and not (somme and (taux_seuls or _est_taux(k.get("colonne") or "")))
+        kpis_proposes = [k for k in kpis_proposes if _sur(k) and (k.get("colonne") is None or k.get("colonne") in cols)]
+        if not kpis_proposes:  # rien de sûr parmi les propositions (repli par règles sans « Nombre de… ») : la somme de chaque indicateur
+            seul = len(indicateurs_rapport) == 1 and indicateurs_rapport[0] not in cols  # un indicateur : colonne « valeur »
+            vc_seul = _col(df, _VAL_COLS, numeric=True) if seul else None
+            kpis_proposes = [{"nom": i, "agregation": "somme", "colonne": vc_seul if seul else i,
+                              "justification": "Somme de l'indicateur déclaré."}
+                             for i in indicateurs_rapport if (seul and vc_seul) or i in cols][:6]
+            kpis_proposes = [k for k in kpis_proposes if not _est_taux(k["nom"])]
+    for k in kpis_proposes:
         if last_p and (k.get("agregation") or "").lower() in ("somme", "sum") and k.get("colonne") in cols \
                 and _is_stock(_norm(k["colonne"])):
             yearly = p_col in cols and pd.api.types.is_numeric_dtype(df[p_col])
@@ -1624,7 +1746,7 @@ def generate_dashboard(df, objective: str = "", job_id: str | None = None, llm=N
                 kpi["top"] = (bd["labels"][0], bd["values"][0])
         kpis.append(kpi)
 
-    if not kpis and ia:  # aucune proposition de l'IA n'est calculable : repli par règles
+    if not kpis and ia and not rapport:  # aucune proposition de l'IA n'est calculable : repli par règles
         return generate_dashboard(df, objective, job_id, llm=False, composition=composition or bool(spec.get("composition")),
                                   qualite=qualite)
 
@@ -1843,6 +1965,10 @@ def generate_dashboard(df, objective: str = "", job_id: str | None = None, llm=N
         meta["gros"] = {"mode": "echantillon", "lignes": len(data),
                         "trop_detaille": bool((composition or spec.get("composition")) and not meta.get("indicateurs"))}
 
+    if rapport and not kpis:
+        meta["sans_tuile"] = ("Aucun chiffre total affiché : les indicateurs de ce rapport sont des taux, qui ne "
+                              "s'additionnent pas d'un établissement ou d'une période à l'autre. Consultez-les par "
+                              "établissement dans les graphiques ou dans l'écran « Vérifier ».")
     if qualite:  # bilan qualité du fichier (console) : bandeau en tête de page
         meta["qualite"] = _json_safe(qualite)
     html = _render_html(objective, data_json, kpi_defs, filter_cols, meta)
