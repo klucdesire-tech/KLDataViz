@@ -112,9 +112,10 @@ function cpAnneau(rows,c){var e=cpGroupes(rows,c,5).filter(function(x){return x[
 // Texte coupé en lignes de `n` caractères au plus (mots entiers), `max` lignes, « … » si le reste ne tient pas
 function cpLignes(t,n,max){var mots=String(t).split(/\s+/),L=[],cur='';mots.forEach(function(w){if(!cur)cur=w;else if((cur+' '+w).length<=n)cur+=' '+w;else{L.push(cur);cur=w}});if(cur)L.push(cur);
   if(L.length>max){L=L.slice(0,max);L[max-1]=L[max-1].replace(/\s*\S*$/,'')+'…'}return L}
-function cpColonnes(rows,c){var M=[c.mesure].concat(c.ensemble||[]),g=groupBy(rows,c.dimension),G=Object.keys(g).sort(),coul=cpCouleurs(c.dimension),court=cpCourts(M),B=[],sans=[],nv=[];
-  M.forEach(function(m){var v=G.map(function(k){var x=agg(g[k],m,'somme');return x!=null&&x>0?x:null}),t=v.reduce(function(s,x){return s+(x||0)},0),tout=agg(rows,m,'somme');
-    if(!(t>0)){sans.push(court[m]);return}if(tout!=null&&tout>t*1.0005)nv.push(court[m]+' ('+cpPct(100*(tout-t)/tout)+')');B.push({m:m,v:v,t:t})});
+function cpColonnes(rows,c){var M=[c.mesure].concat(c.ensemble||[]),g=groupBy(rows,c.dimension),G=Object.keys(g).sort(),coul=cpCouleurs(c.dimension),court=cpCourts(M),B=[],sans=[],nv=[],nr=[];
+  M.forEach(function(m){var v=G.map(function(k){var x=agg(g[k],m,'somme');return x==null?null:Math.max(0,x)}),t=v.reduce(function(s,x){return s+(x||0)},0),tout=agg(rows,m,'somme');
+    if(!(t>0)){sans.push(court[m]);return}if(tout!=null&&tout>t*1.0005)nv.push(court[m]+' ('+cpPct(100*(tout-t)/tout)+')');
+    var vides=G.filter(function(k,j){return v[j]==null});if(vides.length)nr.push(court[m]+' pour '+vides.map(label).join(', '));B.push({m:m,v:v,t:t})});
   if(!B.length||G.length<2)return cpVide();
   var W=cpW(c),H=Math.max(230,Math.min(290,Math.round(W*.66))),T=24,Bb=78,Gm=40,n=B.length,k=G.length,gw=(W-Gm-6)/n,bw=Math.max(8,Math.min(40,(gw-18-4*(k-1))/k)),Y=function(p){return H-Bb-p/100*(H-Bb-T)};
   var o='<svg class="cp-svg" viewBox="0 0 '+W+' '+H+'" role="img" aria-label="'+esc('Part de chaque '+cpMot(c.dimension)+', indicateur par indicateur')+'">';
@@ -128,6 +129,7 @@ function cpColonnes(rows,c){var M=[c.mesure].concat(c.ensemble||[]),g=groupBy(ro
       +'<text x="'+cx.toFixed(1)+'" y="'+(H-Bb+16+14*lignes.length+2)+'" text-anchor="middle" font-size="11" fill="#52667A">'+esc('total '+cpVal(b.t))+'</text>'});
   var leg='<ul class="cp-series" style="list-style:none;display:flex;flex:none;flex-wrap:wrap;gap:6px 18px;margin:8px 0 0;padding:0;font-size:12.5px;line-height:1.35;color:#102A43">'+G.map(function(d){return '<li style="display:flex;flex:0 1 auto;align-items:baseline;gap:6px"><i style="flex:none;width:10px;height:10px;border-radius:2px;background:'+coul[d]+'"></i><span>'+esc(label(d))+'</span></li>'}).join('')+'</ul>';
   var note='Chaque groupe de bandes fait 100 % : la part de chaque '+cpMot(c.dimension)+' dans le total de l’indicateur. Au survol, les vraies valeurs.';
+  if(nr.length)note+=' Non renseigné (les parts ne portent que sur les groupes renseignés) : '+nr.join(' ; ')+'.';
   if(nv.length)note+=' Non ventilé par '+cpMot(c.dimension)+', hors des parts : '+nv.join(', ')+'.';if(sans.length)note+=' Pas de ventilation par '+cpMot(c.dimension)+' pour : '+sans.join(', ')+'.';
   return o+'</svg>'+leg+'<p class="cp-note">'+esc(note)+'</p>'}
 function cpDecoupe(a,x,y,w,h,o){if(a.length===1){o.push({k:a[0][0],v:a[0][1],x:x,y:y,w:w,h:h});return}var t=a.reduce(function(s,e){return s+e[1]},0),c=0,n=0;
@@ -202,12 +204,18 @@ function cpCourts(M){var n=M.map(function(m){return String(cpTete(m)).replace(/�
 var CP_COUVERT=.9;
 function cpBaseIndice(rows,c,P){var n=P.map(function(k){return cpDeclarees(rows,c,k)}),mx=Math.max.apply(null,n);for(var i=0;i<P.length;i++)if(n[i]>=CP_COUVERT*mx)return {i:i,n:n,mx:mx};return {i:0,n:n,mx:mx}}
 function cpIndices(rows,c){var T=cpSerie(rows,c),K=cpComplet(rows,T);if(K.length<2)return null;var P0=K.map(function(e){return e[0]}),B=cpBaseIndice(rows,c,P0),avant=P0.slice(0,B.i),P=P0.slice(B.i),b=0,S=[],ecartes=[];if(P.length<2)return null;
-  var faibles=P.filter(function(p,i){return B.n[B.i+i]<CP_COUVERT*B.mx});
+  var incomplets=[],troues=[];
+  // Chaque série a ses propres déclarants (les positifs ne viennent pas forcément des mêmes sites que les consultants) :
+  // une période où la série est déclarée par moins de 90 % de ses déclarations habituelles n'est pas tracée, et si
+  // c'est la base, la série entière est écartée. Sinon sa « hausse » viendrait des sites qui se mettent à déclarer.
   [c.mesure].concat(c.ensemble||[]).forEach(function(m){var mm={};cpSerie(rows,{mesure:m,agregation:'somme'}).forEach(function(e){mm[e[0]]=e[1]});
-    var reel=P.map(function(p){return mm[p]==null?null:mm[p]}),base=reel[b];
+    var dm=P.map(function(p){return cpDeclarees(rows,{mesure:m},p)}),mx=Math.max.apply(null,dm.concat(0));if(!(mx>0)){ecartes.push(m);return}
+    if(dm[b]<CP_COUVERT*mx){incomplets.push(cpTete(m)+' ('+fmt(dm[b])+' déclaration'+(dm[b]>1?'s':'')+' en '+plabel(P[b])+', contre '+fmt(mx)+' au mieux)');return}
+    var trous=[],reel=P.map(function(p,i){if(dm[i]<CP_COUVERT*mx){if(mm[p]!=null)trous.push(plabel(p));return null}return mm[p]==null?null:mm[p]}),base=reel[b];
     if(!(base>0)||reel.filter(function(v){return v!=null}).length<2){ecartes.push(m);return}
+    if(trous.length)troues.push(cpTete(m)+' en '+trous.join(', '));
     S.push({d:m,reel:reel,vals:reel.map(function(v){return v==null?null:100*v/base})})});
-  return S.length<2?null:{T:T,K:K,P:P,k:P[P.length-1],S:S,ecartes:ecartes,base:b,indice:true,avant:avant,faibles:faibles,court:cpCourts(S.map(function(x){return x.d}))}}
+  return S.length<2?null:{T:T,K:K,P:P,k:P[P.length-1],S:S,ecartes:ecartes,base:b,indice:true,avant:avant,faibles:[],incomplets:incomplets,troues:troues,court:cpCourts(S.map(function(x){return x.d}))}}
 function cpComparee(rows,c,Zi){var Z=Zi||cpComparees(rows,c);if(!Z)return cpVide();var T=Z.T,K=Z.K,P=Z.P,k=Z.k,S=Z.S,ecartes=Z.ecartes,n=P.length,nom=Z.indice?function(m){return Z.court[m]||cpTete(m)}:label,coul={};
   if(Z.indice)S.forEach(function(x,i){coul[x.d]=CP_SERIES[i]});else coul=cpCouleurs(c.dimension);
   var tout=S.reduce(function(a,x){return a.concat(x.vals.filter(function(v){return v!=null}))},[]),lo=Math.min.apply(null,tout),hi=Math.max.apply(null,tout),pas=cpPlafond((hi-lo||Math.abs(hi)||1)/3),bas=Math.floor(lo/pas+1e-9)*pas,haut=Math.ceil(hi/pas-1e-9)*pas;if(haut<=bas)haut=bas+pas;
@@ -226,6 +234,8 @@ function cpComparee(rows,c,Zi){var Z=Zi||cpComparees(rows,c);if(!Z)return cpVide
   var note='De '+plabel(P[0])+' à '+plabel(k).replace(/\.$/,'')+'.';if(bas>0||haut<0){var bornes=cpEtiquettes([bas,haut],pas);note+=' Axe de '+bornes[0]+' à '+bornes[1]+', resserré pour lire les écarts.'}if(K.length<T.length)note+=' '+plabel(T[T.length-1][0]).replace(/\.$/,'')+' est incomplet : non affiché.';if(Z.indice){var g=GRAN[gran].toLowerCase();note='Base 100 = '+plabel(P[Z.base])+' : 150 = une fois et demie la valeur de '+plabel(P[Z.base])+'. À droite et au survol, les vraies valeurs. '+note;
     if(Z.avant.length)note+=' Non tracé'+(Z.avant.length>1?'s':'')+', car moins bien couvert'+(Z.avant.length>1?'s':'')+' (moins de 90 % des déclarations du '+g+' le mieux couvert) : '+Z.avant.map(plabel).join(', ')+'.';
     if(Z.faibles.length)note+=' Attention, moins bien couvert'+(Z.faibles.length>1?'s':'')+' : '+Z.faibles.map(plabel).join(', ')+' ; une baisse peut venir des déclarations manquantes.';
+    if(Z.incomplets.length)note+=' Non tracé, car moins déclaré en '+plabel(P[Z.base])+' que d’habitude : '+Z.incomplets.join(', ')+'.';
+    if(Z.troues.length)note+=' Points non tracés, moins déclarés que d’habitude : '+Z.troues.join(' ; ')+'.';
     if(ecartes.length)note+=' Sans valeur de référence : '+ecartes.map(cpTete).join(', ')+'.'}
   else if(ecartes.length)note+=' Trop peu de périodes pour : '+ecartes.map(function(x){return label(x.d)}).join(', ')+'.';
   var leg=Z.indice?'<ul class="cp-series" style="list-style:none;display:flex;flex:none;flex-wrap:wrap;gap:6px 18px;margin:8px 0 0;padding:0;font-size:12.5px;line-height:1.35;color:#102A43">'+S.map(function(x){return '<li style="display:flex;flex:0 1 auto;max-width:100%;align-items:baseline;gap:6px"><i style="flex:none;width:10px;height:10px;border-radius:2px;background:'+coul[x.d]+'"></i><span>'+esc(nom(x.d))+'</span></li>'}).join('')+'</ul>':'';
@@ -239,7 +249,7 @@ function cpHisto(rows,c){var t=cpTranches(rows,c);if(!t)return cpVide();var v=t.
   return '<div class="cp-hi">'+b.map(function(q,i){return '<i title="'+esc(fmt(mi+i*l)+' à '+fmt(mi+(i+1)*l)+' : '+q+' lignes')+'" style="height:'+(100*q/m).toFixed(1)+'%"></i>'}).join('')+'</div><div class="cp-hx"><span>'+esc(fmt(mi))+'</span><span>'+esc(fmt(ma))+'</span></div><p class="cp-note">Tranche la plus fournie : '+esc(fmt(mi+top*l))+' à '+esc(fmt(mi+(top+1)*l))+' ('+m+' lignes sur '+v.length+').</p>'}
 // ---- Titres-messages : les formules de `titres.py`, remplies à chaque rendu avec les variables calculées ici
 function cpRemplir(t,v){if(!t)return null;var ok=true,s=t.replace(/\{(\w+)\}/g,function(a,k){if(v[k]==null)ok=false;return String(v[k]).replace(/[{}]/g,'')});return ok?s.charAt(0).toUpperCase()+s.slice(1):null}
-function cpMessage(c,rows){try{var m=CP_MSG[c.type](c,rows);if(!m)return null;m.v.mesure=cpTete(c.mesure);var t=cpRemplir(c.formule,m.v);return t&&m.note?t+'. '+m.note:t}catch(e){return null}}
+function cpMessage(c,rows){try{var m=CP_MSG[c.type](c,rows);if(!m)return null;if(m.texte)return m.texte;m.v.mesure=cpTete(c.mesure);var t=cpRemplir(c.formule,m.v);return t&&m.note?t+'. '+m.note:t}catch(e){return null}}
 // Valeurs déclarées pour une mesure sur une période (cases résumées d'un gros fichier : leur effectif)
 function cpDeclarees(rows,c,k){return rows.reduce(function(s,r){if(!r.__p||pkey(r.__p)!==k)return s;if(META.cube){var v=num(r[c.mesure+'__v']);return s+(v||0)}return s+(num(r[c.mesure])!=null?1:0)},0)}
 // Une somme baisse aussi quand des lignes manquent : on le dit plutôt que d'annoncer une baisse qui n'en est peut-être pas une
@@ -258,7 +268,9 @@ function cpComplet(rows,s){var n=s.length;if(n<2)return s;var d=s[n-1][0],L=gran
   return (META.partiel&&pkey(META.partiel)===d)||(gran!=='M'&&gran!=='D'&&compte(d)<compte(s[n-2][0]))?s.slice(0,n-1):s}
 function cpEcartMax(e){return e.reduce(function(m,x){return !m||Math.abs(x[1])>Math.abs(m[1])?x:m},null)}
 var CP_MSG={
-  courbe:function(c,r){var s=cpComplet(r,cpSerie(r,c)),n=s.length;if(n<2)return null;var a=s[n-2],b=s[n-1];return {v:{dernier:cpVal(b[1]),periode:plabel(b[0]),precedente:plabel(a[0]),evolution:cpEvolution(a[1],b[1],c)},note:cpNoteManques(c,r,a[0],b[0],a[1],b[1])}},
+  courbe:function(c,r){if(c.ensemble&&c.ensemble.length){var Z=cpIndices(r,c);if(Z){var j=Z.P.length-1,e=Z.S.filter(function(x){return x.vals[j]!=null});
+      if(e.length>=2)return {texte:'En '+plabel(Z.k)+', base 100 en '+plabel(Z.P[Z.base])+' : '+e.map(function(x){return Z.court[x.d]+' '+fmt(Math.round(x.vals[j]))}).join(', ')}}}
+    var s=cpComplet(r,cpSerie(r,c)),n=s.length;if(n<2)return null;var a=s[n-2],b=s[n-1];return {v:{dernier:cpVal(b[1]),periode:plabel(b[0]),precedente:plabel(a[0]),evolution:cpEvolution(a[1],b[1],c)},note:cpNoteManques(c,r,a[0],b[0],a[1],b[1])}},
   classement:function(c,r){var e=cpGroupes(r,c);if(e.length<2||e[0][1]===e[1][1])return null;return {v:{premier:label(e[0][0]),valeur:cpVal(e[0][1]),second:label(e[1][0]),valeur2:cpVal(e[1][1])}}},
   anneau:function(c,r){var e=cpGroupes(r,c,5).filter(function(x){return x[1]>0}),t=e.reduce(function(s,x){return s+x[1]},0);return e.length<2||!t?null:{v:{premier:label(e[0][0]),part:cpPct(100*e[0][1]/t)}}},
   treemap:function(c,r){var e=cpGroupes(r,c,40).filter(function(x){return x[1]>0}),t=e.reduce(function(s,x){return s+x[1]},0);return e.length<2||!t?null:{v:{premier:label(e[0][0]),part:cpPct(100*e[0][1]/t)}}},

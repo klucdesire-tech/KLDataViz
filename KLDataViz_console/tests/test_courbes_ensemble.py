@@ -220,3 +220,46 @@ def test_filtre_qui_vide_une_carte_dit_pourquoi_ou_trace_le_lieu_retenu(tmp_path
     vide = lancer({"sexe": "Féminin"}, ["CP_CARTE=" + carte(type="classement", mesure="Nombre de clients éligibles", dimension="district")
                                         + ";CP_DESSINS.classement(CP_CARTE,filtered())"])[0]
     assert "n’est pas ventilé par" in vide and "retirez le filtre" in vide
+
+
+def _declarants():
+    """Consultants : 3 sites chaque trimestre. Positifs : 1 seul site au 1er trimestre, puis 3 (sondes de la relecture).
+    Dépistés : 3 sites, sauf au 3e trimestre (1 seul). Sexe : les positifs ne sont jamais renseignés pour les hommes."""
+    lignes = []
+    for i, p in enumerate(PERIODES):
+        for s in range(3):
+            for k, sexe in enumerate(["Féminin", "Masculin"]):
+                lignes.append({"periode": p, "district": f"District {s}", "site": f"Centre {s}", "sexe": sexe,
+                               "Nombre de consultants": 100 + 10 * i + s,
+                               "Nombre de clients dépistés": (20 + i) if (i != 2 or s == 0) else None,
+                               "Nombre de clients positifs": (2 + i) if (k == 0 and (i > 0 or s == 0)) else None})
+    return pd.DataFrame(lignes)
+
+
+@sans_node
+def test_chaque_serie_controlee_sur_ses_propres_declarations(tmp_path):
+    _, _, dashboard, _ = _module()
+    df = _declarants()
+    html = dashboard.generate_dashboard(df, "", llm=False, dictionnaire=[], composition=True)["html"]
+    carte = lambda **k: json.dumps(dict({"span": 8, "agregation": "somme"}, **k), ensure_ascii=False)  # noqa: E731
+    courbe = carte(type="courbe", mesure="Nombre de consultants", ensemble=["Nombre de clients dépistés", "Nombre de clients positifs"])
+    parts = carte(type="anneau", mesure="Nombre de consultants", dimension="sexe", ensemble=["Nombre de clients dépistés", "Nombre de clients positifs"])
+    (tmp_path / "banc.js").write_text(BANC, encoding="utf-8")
+    (tmp_path / "page.html").write_text(html, encoding="utf-8")
+    exprs = ["CP_DESSINS.courbe(" + courbe + ",filtered())", "CP_DESSINS.anneau(" + parts + ",filtered())",
+             "JSON.stringify(cpIndices(filtered()," + courbe + "))", "cpMessage(" + courbe + ",filtered())"]
+    r = subprocess.run([NODE, str(tmp_path / "banc.js"), str(tmp_path / "page.html"), "[]", "{}", json.dumps(exprs)],
+                       capture_output=True, text=True, encoding="utf-8")
+    assert r.returncode == 0, r.stderr[:900]
+    dessin, bandes, indices, titre = json.loads(r.stdout)["evals"]
+    Z = json.loads(indices)
+    noms = [x["d"] for x in Z["S"]]
+    # positifs : 1 déclaration sur 3 au trimestre de base → jamais tracés en « hausse de 275 % »
+    assert "Nombre de clients positifs" not in noms and "Non tracé, car moins déclaré" in dessin
+    # dépistés : le 3e trimestre (1 site sur 3) n'est pas tracé, et la note le dit
+    dep = next(x for x in Z["S"] if x["d"] == "Nombre de clients dépistés")
+    assert dep["vals"][2] is None and "Points non tracés" in dessin and "FY26Q1" in dessin
+    # parts par sexe : les positifs non renseignés pour les hommes ne deviennent pas « Féminin 100 % » en silence
+    assert "Non renseigné" in bandes and "Masculin" in bandes.split("Non renseigné")[1]
+    # titre : la comparaison, pas la seule mesure de tête
+    assert titre.startswith("En ") and "base 100 en" in titre
