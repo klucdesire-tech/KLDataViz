@@ -407,9 +407,65 @@ def _is_stock(n: str) -> bool:
     return bool(_STOCK_RE.search(n)) and not _FLUX_RE.search(n)
 
 
-def _plabel(k: str, yearly: bool = False) -> str:
-    """« 2024-01 » d'une colonne année → « 2024 » ; « 2025-09 » → « sept. 2025 »."""
+def _plabel(k: str, yearly: bool = False, trimestre: str | None = None) -> str:
+    """« 2024-01 » d'une colonne année → « 2024 » ; « 2025-09 » → « sept. 2025 » ; trimestre → « FY26Q3 » / « T2 2026 »."""
+    if trimestre and len(k) >= 7:
+        return _nom_trimestre(k, trimestre)
     return k[:4] if yearly else (f"{_MOIS_COURTS[int(k[5:7]) - 1]} {k[:4]}" if len(k) >= 7 else k)
+
+
+# Trimestres : « FY26Q3 » (exercice), « 2026Q1 », « 2026-T1 », « T1 2026 », « Q1 2026 », « 1er trimestre 2026 ».
+# Chacun devient le 1er mois de son trimestre (« AAAA-MM ») : la page sait déjà regrouper et tracer par trimestre.
+# Exercice (FY) : celui des rapports PEPFAR, du 1er octobre au 30 septembre — FY26Q1 = oct.-déc. 2025, FY26Q3 =
+# avr.-juin 2026. Ses trimestres tombent sur les trimestres civils : seul le libellé change (« FY26Q3 », jamais
+# « avr. 2026 » ni « T2 26 »).
+_FY_RE = re.compile(r"^fy\s*'?(\d{2}|\d{4})\s*[-_/ ]?\s*q\s*([1-4])$")
+_TRIM_RE = (re.compile(r"^((?:19|20)\d{2})\s*[-_/ ]?\s*[qt]\s*([1-4])$"),          # 2026Q1, 2026-T1
+            re.compile(r"^[qt]\s*([1-4])\s*[-_/ ]?\s*((?:19|20)\d{2})$"),          # T1 2026, Q1-2026
+            re.compile(r"^([1-4])\s*(?:er|e|eme|ème|nd)?\s*trim(?:estre)?\.?\s*((?:19|20)\d{2})$"),
+            re.compile(r"^trim(?:estre)?\.?\s*([1-4])\s*[-_/ ]?\s*((?:19|20)\d{2})$"))
+
+
+def _trimestre(v):
+    """Valeur de période → ("fy" | "cal", « AAAA-MM » du 1er mois du trimestre) ; None si ce n'est pas un trimestre."""
+    if v is None or (isinstance(v, float) and v != v):
+        return None
+    t = " ".join(str(v).strip().lower().split())
+    m = _FY_RE.match(t)
+    if m:
+        an, q = int(m.group(1)), int(m.group(2))
+        an = an if an > 99 else 2000 + an
+        return ("fy", f"{an - 1}-10") if q == 1 else ("fy", f"{an}-{3 * q - 5:02d}")
+    for i, motif in enumerate(_TRIM_RE):
+        m = motif.match(t)
+        if m:
+            an, q = (m.group(1), m.group(2)) if i == 0 else (m.group(2), m.group(1))
+            return "cal", f"{int(an)}-{3 * int(q) - 2:02d}"
+    return None
+
+
+def _genre_trimestre_echantillon(sample):
+    """Règle unique (détection de la période ET libellés) : 90 % des lignes de l'échantillon lues comme trimestres,
+    d'un seul genre. Deux règles différentes faisaient détecter des trimestres puis les afficher en mois
+    (« oct. 2025 » pour FY26Q1) dès qu'une valeur parasite (« - », « N/A ») traînait dans la colonne."""
+    tri = sample.map(_trimestre)
+    genres = {x[0] for x in tri.dropna()}
+    return genres.pop() if len(sample) and tri.notna().mean() >= 0.9 and len(genres) == 1 else None
+
+
+def _genre_trimestre(df, col):
+    """« fy » ou « cal » si la colonne de période est faite de trimestres, selon la même règle que _period_brute."""
+    if col is None or col not in df.columns:
+        return None
+    return _genre_trimestre_echantillon(df[col].dropna().astype(str).head(60))
+
+
+def _nom_trimestre(k: str, genre: str) -> str:
+    """« 2026-04 » → « FY26Q3 » (exercice) ou « T2 2026 » (civil)."""
+    an, q = int(k[:4]), (int(k[5:7]) - 1) // 3 + 1
+    if genre == "fy":
+        return f"FY{(an + 1) % 100:02d}Q1" if q == 4 else f"FY{an % 100:02d}Q{q + 1}"
+    return f"T{q} {an}"
 
 
 def _ordre_dates(textes):
@@ -460,6 +516,8 @@ def _period_brute(df):
             continue
         if pd.api.types.is_datetime64_any_dtype(s):
             return str(c), s.dt.strftime("%Y-%m-%d")
+        if (pd.api.types.is_object_dtype(s) or pd.api.types.is_string_dtype(s)) and _genre_trimestre_echantillon(sample):
+            return str(c), s.map(lambda v: (_trimestre(v) or (None, None))[1])  # trimestres : 1er mois de chacun
         fr = sample.map(_fr_month)
         if fr.notna().mean() >= 0.9:
             return str(c), s.map(lambda v: _fr_month(v) if v == v else None)
@@ -527,7 +585,14 @@ def _meta(df, kpis, spec, filter_cols, period_col, period_series):
                "justification": str(g.get("justification") or "")[:160]}
               for g in spec.get("graphiques", [])[:8] if g.get("colonne") in cols]
     rng, gran, grans = None, "M", ["M", "Q", "Y"]
-    if period_series is not None:
+    trimestre = _genre_trimestre(df, period_col) if period_series is not None else None
+    if trimestre:  # une valeur par trimestre : ni mois (inventés) ni année civile (à cheval sur deux exercices)
+        ks = sorted(k for k in period_series.dropna().unique() if isinstance(k, str) and len(k) == 7)
+        if ks:
+            a, b = _nom_trimestre(ks[0], trimestre), _nom_trimestre(ks[-1], trimestre)
+            rng = a if a == b else f"{a} – {b}"
+        gran, grans = "Q", (["Q"] if trimestre == "fy" else ["Q", "Y"])
+    elif period_series is not None:
         ks = sorted(k for k in period_series.dropna().unique() if isinstance(k, str) and len(k) in (7, 10))
         if ks:
             mo = lambda k: f"{_MOIS_COURTS[int(k[5:7]) - 1]} {k[:4]}"
@@ -549,7 +614,7 @@ def _meta(df, kpis, spec, filter_cols, period_col, period_series):
                 if len(ks) > 36:
                     gran = "Q"
     return {"measure": m, "period": period_col, "stack": stack, "charts": charts, "range": rng,
-            "filters": filters, "gran": gran, "grans": grans}
+            "filters": filters, "gran": gran, "grans": grans, "trimestre": trimestre}
 
 
 # ---- Domaine / programme : détection + indicateurs clés + écarts (gaps)
@@ -1051,7 +1116,8 @@ function ranked(rows,col,a,dim,top){var g=groupBy(rows,dim);return Object.keys(g
 function monday(p){var d=new Date(p.slice(0,10)+'T00:00:00Z'),w=(d.getUTCDay()+6)%7;d.setUTCDate(d.getUTCDate()-w);return d.toISOString().slice(0,10)}
 function pkey(p){if(!p)return null;if(gran==='Y')return p.slice(0,4);if(gran==='Q')return p.slice(0,4)+'-T'+(Math.floor((+p.slice(5,7)-1)/3)+1);
   if(gran==='D')return p.length>=10?p.slice(0,10):p;if(gran==='W')return p.length>=10?monday(p):p;return p.slice(0,7)}
-function plabel(k){if(gran==='Y')return k;if(gran==='Q')return k.slice(5)+' '+k.slice(2,4);
+function trimNom(k){var y=+k.slice(0,4),q=+k.slice(-1);if(META.trimestre==='fy')return q===4?'FY'+String(y+1).slice(2)+'Q1':'FY'+String(y).slice(2)+'Q'+(q+1);return 'T'+q+' '+y}
+function plabel(k){if(gran==='Y')return k;if(gran==='Q')return META.trimestre?trimNom(k):k.slice(5)+' '+k.slice(2,4);
   if(k.length===10)return (gran==='W'?'sem. ':'')+(+k.slice(8,10))+' '+MOIS[+k.slice(5,7)-1];return MOIS[+k.slice(5,7)-1]+' '+k.slice(2,4)}
 var GRAN={D:'Jour',W:'Semaine',M:'Mois',Q:'Trimestre',Y:'Année'};
 var navyTip={backgroundColor:NAVY,titleColor:'#fff',bodyColor:'#D7F0FA',padding:10,cornerRadius:10,displayColors:false,titleFont:{weight:'600'}};
@@ -1059,7 +1125,7 @@ var axes={x:{grid:{display:false},border:{display:false},ticks:{maxRotation:0,au
           y:{grid:{color:'#EEF0F6'},border:{display:false},ticks:{maxTicksLimit:6,callback:function(v){return fmt(v)}}}};
 
 // Filtres : 3 visibles, les autres derrière « Plus de filtres » ; pastilles jusqu'à 5 valeurs, liste au-delà
-function moisNom(k){return MOIS[+k.slice(5,7)-1]+' '+k.slice(0,4)}
+function moisNom(k){if(META.trimestre)return trimNom(k.slice(0,4)+'-T'+(Math.floor((+k.slice(5,7)-1)/3)+1));return MOIS[+k.slice(5,7)-1]+' '+k.slice(0,4)}
 function boitePeriode(){var box=document.createElement('div');box.className='f';box.innerHTML='<span>Période</span>';
   var w=document.createElement('div');w.className='per';
   var opt=function(cur,vide){return '<option value="">'+vide+'</option>'+MOISDISPO.map(function(k){return '<option value="'+k+'"'+(cur===k?' selected':'')+'>'+esc(moisNom(k))+'</option>'}).join('')};
@@ -1253,7 +1319,7 @@ function renderCards(rows){var el=document.getElementById('row3'),html='',todo=[
   el.innerHTML=html||'';return todo}
 
 // « 2025-04 » → « avr. 2025 », « 2025-T1 » → « T1 2025 »
-function gkey(k){k=String(k||'');if(META.keyind&&META.keyind.yearly)return k.slice(0,4);var m=k.match(/^(\d{4})-(\d{2})$/);if(m)return MOIS[+m[2]-1]+' '+m[1];m=k.match(/^(\d{4})-T(\d)$/);return m?'T'+m[2]+' '+m[1]:k}
+function gkey(k){k=String(k||'');if(META.keyind&&META.keyind.yearly)return k.slice(0,4);var m=k.match(/^(\d{4})-(\d{2})$/);if(m)return META.trimestre?moisNom(k):MOIS[+m[2]-1]+' '+m[1];m=k.match(/^(\d{4})-T(\d)$/);return m?(META.trimestre?trimNom(k):'T'+m[2]+' '+m[1]):k}
 // Écarts : période analysée et comparaison choisies par l'utilisateur ; tuiles + graphique des écarts
 var GAP={p:null,mode:'prev'},gapChart=null;
 function gYearBefore(k){var m=String(k).match(/^(\d{4})(.*)$/);return m?(+m[1]-1)+m[2]:null}
@@ -1718,7 +1784,8 @@ def generate_dashboard(df, objective: str = "", job_id: str | None = None, llm=N
         if last_p and (k.get("agregation") or "").lower() in ("somme", "sum") and k.get("colonne") in cols \
                 and _is_stock(_norm(k["colonne"])):
             yearly = p_col in cols and pd.api.types.is_numeric_dtype(df[p_col])
-            k = dict(k, agregation="dernier", nom=f"{k.get('nom') or k['colonne']} ({_plabel(last_p, yearly)})")
+            k = dict(k, agregation="dernier",
+                     nom=f"{k.get('nom') or k['colonne']} ({_plabel(last_p, yearly, _genre_trimestre(df, p_col))})")
         col = k.get("colonne")
         if col is not None and col not in cols:
             continue
