@@ -214,8 +214,15 @@ def test_filtre_qui_vide_une_carte_dit_pourquoi_ou_trace_le_lieu_retenu(tmp_path
     attendu = df[df.region == "Région Est"].groupby("periode", sort=False)["Nombre de consultants"].sum()
     points = {p: int(re.sub(r"\D", "", v)) for p, v in re.findall(r"<title>(FY\d\dQ\d) : ([^<]+)</title>", region)}
     assert points == {p: int(v) for p, v in attendu.items()}  # la courbe de la r\u00e9gion retenue, valeur par valeur
-    _, parts = lancer({"sexe": "Féminin"}, evals)
-    assert "ne garde qu’une seule valeur" in parts
+    # parts par sexe sous le filtre Féminin : les deux sexes restent, Féminin mis en avant, Masculin atténué ;
+    # les autres filtres (ici la région) s'appliquent toujours
+    for filtres, lignes in (({"sexe": "Féminin"}, df), ({"sexe": "Féminin", "region": "Région Ouest"}, df[df.region == "Région Ouest"])):
+        _, parts = lancer(filtres, evals)
+        assert "Féminin mis en avant" in parts and "cp-vide" not in parts
+        bandes = re.findall(r'<rect [^>]*?(fill-opacity="\.28")?><title>([^<·]+) · (Féminin|Masculin) : ([^(<]+) \(', parts)
+        assert {(sexe, bool(pale)) for pale, _, sexe, _ in bandes} == {("Féminin", False), ("Masculin", True)}
+        conso = {sexe: int(re.sub(r"\D", "", v)) for _, nom, sexe, v in bandes if nom.strip() == "Consultants"}
+        assert conso == lignes.groupby("sexe")["Nombre de consultants"].sum().astype(int).to_dict()
     # un indicateur sans ventilation par sexe : la carte le dit au lieu d'un « pas assez de données » muet
     vide = lancer({"sexe": "Féminin"}, ["CP_CARTE=" + carte(type="classement", mesure="Nombre de clients éligibles", dimension="district")
                                         + ";CP_DESSINS.classement(CP_CARTE,filtered())"])[0]
