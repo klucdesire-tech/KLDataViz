@@ -63,3 +63,26 @@ def test_toutes_les_tranches_visibles_meme_a_zero(tmp_path):
     assert [n for n, _ in vus] == ORDRE  # toutes les tranches, dans l'ordre, « <1 an » à 0 compris
     attendu = df.groupby("tranche_age")["Nombre de positifs"].sum()
     assert {n: int(re.sub(r"\D", "", v)) for n, v in vus} == {a: int(attendu[a]) for a in ORDRE}
+
+
+@sans_node
+def test_filtre_sur_une_tranche_negatif_et_libelles_varies(tmp_path):
+    _, _, dashboard, _ = _module()
+    df = _donnees()
+    df.loc[df.tranche_age == "1-4 ans", "Nombre de positifs"] = -3  # valeur négative : hors des parts, jamais « non renseigné »
+    html = dashboard.generate_dashboard(df, "", llm=False, dictionnaire=[], composition=True)["html"]
+    carte = json.dumps({"type": "treemap", "mesure": "Nombre de positifs", "dimension": "tranche_age", "agregation": "somme",
+                        "span": 7}, ensure_ascii=False)
+    filtre, = _executer(tmp_path, html, ["CP_DESSINS.treemap(" + carte + ",filtered())"], {"tranche_age": "25-49 ans"})
+    # filtre sur une tranche : toutes les tranches restent (données filtrées, pas absentes), la retenue mise en avant
+    assert "25-49 ans mis en avant" in filtre and "Non renseigné" not in filtre and "non renseigné" not in filtre
+    # 8 tranches : <1 an (0) et 1-4 ans (négatif) sans bande, 25-49 en plein, les 5 autres atténuées
+    assert filtre.count('fill-opacity=".28"') == 5 and filtre.count("<rect ") == 6
+    assert "négatif, hors des parts" in filtre and "Valeur négative, hors des parts : 1-4 ans" in filtre
+    autres = _executer(tmp_path, html, [
+        "JSON.stringify(cpOrdreAges(['15-19','0-4','25-49','15+'],'tranche_age'))",  # sans « ans », colonne d'âge
+        "JSON.stringify(cpOrdreAges(['1-4 ans','5-9 ans','10-14 ans','Inconnu'],'tranche_age'))",  # une valeur hors tranche
+        "JSON.stringify(cpOrdreAges(['Nord 1 an','Sud 2 ans','Est 3 ans'],'zone'))"])  # pas des tranches d'âge
+    assert json.loads(autres[0]) == ["0-4", "15-19", "15+", "25-49"]
+    assert json.loads(autres[1]) == ["1-4 ans", "5-9 ans", "10-14 ans", "Inconnu"]
+    assert json.loads(autres[2]) is None
