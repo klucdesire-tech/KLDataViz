@@ -106,5 +106,7 @@ def appliquer(plan, libelles):
     """Pose les formules sur les cartes et les noms sur le plan, revalidés : ils reviennent aussi d'un tableau enregistré."""
     for c in _cartes(plan):
         c["formule"] = formule(c)
+        for v in c.get("variantes") or []:
+            v["formule"] = formule(v)
     plan["libelles"] = _valides(libelles, _colonnes(plan))
     return plan

@@ -227,6 +227,19 @@ def placer(cartes, regard=2):
     return lignes
 
 
+def _variantes(carte, props):
+    """Graphiques permis par le catalogue pour les mêmes données que la carte (même mesure, même découpage) : un par
+    type, la carte d'abord. Aucun autre n'est proposé à l'utilisateur, donc jamais un anneau d'un taux ni une courbe
+    sans période. Liste vide s'il n'y a pas d'autre choix."""
+    garder = lambda p: {k: v for k, v in p.items() if k not in ("span", "question", "variantes")}  # noqa: E731
+    vus, sortie = set(), []
+    for p in [carte] + [p for p in props if p.get("mesure") == carte.get("mesure") and p.get("dimension") == carte.get("dimension")]:
+        if p["type"] not in vus:
+            vus.add(p["type"])
+            sortie.append(garder(p))
+    return sortie if len(sortie) > 1 else []
+
+
 def composer(fiche, df, vedettes=(), exclus=()):
     """Le plan de la page : modèle, vedettes et lignes de cartes. Sans proposition, une page vide et explicite.
     `vedettes` : mesures proposées par Adifa’, la plus importante d'abord ; seules celles qui ont un graphique comptent.
@@ -234,4 +247,10 @@ def composer(fiche, df, vedettes=(), exclus=()):
     props = [p for p in proposer(fiche, df) if p["type"] not in exclus]
     modele = choisir_modele(fiche)
     cartes, mesure, dimension = selectionner(fiche, props, modele, df, vedettes)
-    return {"version": 2, "modele": modele, "mesure": mesure, "dimension": dimension, "lignes": placer(cartes), "cartes": len(cartes)}
+    lignes = placer(cartes)
+    for ligne in lignes:
+        for c in ligne:
+            v = _variantes(c, props)
+            if v:
+                c["variantes"] = v
+    return {"version": 2, "modele": modele, "mesure": mesure, "dimension": dimension, "lignes": lignes, "cartes": len(cartes)}

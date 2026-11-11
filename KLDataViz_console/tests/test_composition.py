@@ -138,8 +138,15 @@ def test_toutes_les_cartes_viennent_du_catalogue(plan):
         df = f()
         props = catalogue.proposer(fiche.lire_fiche(df), fiche._long_to_wide(df)[0])
         for c in _cartes(plan(df)):
-            sans = {k: v for k, v in c.items() if k != "span"}
+            sans = {k: v for k, v in c.items() if k not in ("span", "variantes")}
             assert sans in props, (jeu, sans)
+            # Graphiques proposés dans le menu de la carte : tous du catalogue, mêmes données, un par type
+            V = c.get("variantes") or []
+            assert not V or V[0]["type"] == c["type"]
+            assert len({v["type"] for v in V}) == len(V)
+            for v in V:
+                assert v.get("mesure") == c.get("mesure") and v.get("dimension") == c.get("dimension"), (jeu, v)
+                assert any(all(p.get(k) == x for k, x in v.items() if k != "formule") for p in props), (jeu, v)
 
 
 # ---- choix selon ce que les données montrent (données fictives de même forme, messages différents)
