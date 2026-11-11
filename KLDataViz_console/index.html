@@ -1878,9 +1878,17 @@ function showDashboard(){
   // Cadre isolé : le tableau de bord exécute ses propres scripts (Chart.js embarqué) sans accès à l'application
   $('#dbBody').innerHTML='<iframe id="dbFrame" title="Tableau de bord" sandbox="allow-scripts" scrolling="no" style="display:block;width:100%;height:82vh;overflow:hidden;border:0;border-radius:16px;background:#F3F6F9"></iframe>';
   // Tableau enregistré et rôle qui peut le modifier : le cadre affiche « Retirer » au survol de ses graphiques ajoutés
-  if(d.source)$('#dbFrame').onload=e=>e.target.contentWindow.postMessage(!CLOUD||state.me?.role!=='viewer'?{kldvModifiable:true}:{kldvApp:true},'*');
+  $('#dbFrame').onload=e=>{const w=e.target.contentWindow;
+    if(d.source)w.postMessage(!CLOUD||state.me?.role!=='viewer'?{kldvModifiable:true}:{kldvApp:true},'*');
+    const m=choixGraphiques();if(Object.keys(m).length)w.postMessage({kldvChoix:m},'*')};  // types de graphique choisis sur ses cartes
   $('#dbFrame').srcdoc=d.html;
 }
+// Types de graphique choisis dans le menu des cartes : le cadre isolé n'a pas de stockage, la console les garde par tableau
+function cleChoixGraphiques(){const d=state.dash;return 'kldv-graph-choix:'+((d&&d.source&&d.source.id)||(d&&d.file)||'tableau')}
+function choixGraphiques(){try{const m=JSON.parse(localStorage.getItem(cleChoixGraphiques())||'{}');return m&&typeof m==='object'?m:{}}catch(e){return {}}}
+window.addEventListener('message',e=>{const f=$('#dbFrame'),c=e.data&&e.data.kldvChoixGraphique;if(!f||e.source!==f.contentWindow||!c)return;
+  if(typeof c.cle!=='string'||typeof c.type!=='string'||c.cle.length>300||c.type.length>40)return;
+  const m=choixGraphiques();m[c.cle]=c.type;try{localStorage.setItem(cleChoixGraphiques(),JSON.stringify(m))}catch(x){}});
 // Hauteur du cadre = hauteur du tableau de bord (la page défile, pas le cadre)
 window.addEventListener('message',e=>{const f=$('#dbFrame');if(f&&e.source===f.contentWindow&&e.data&&+e.data.kldvHeight>0)f.style.height=Math.min(+e.data.kldvHeight,20000)+'px'});
 $('#dbRegen').onclick=()=>loadDashboard(true);
