@@ -18,9 +18,12 @@ _spec.loader.exec_module(charge)
 
 @pytest.fixture(scope="module")
 def base():
+    limite = server._LIMITE_CALCULS
+    server._LIMITE_CALCULS = 100000  # ne dépend pas des demandes déjà faites par d'autres fichiers de test
     httpd, url = start(server)
     yield url
     httpd.shutdown()
+    server._LIMITE_CALCULS = limite
 
 
 def test_pages_toutes_reussies(base):
@@ -38,6 +41,7 @@ def test_calculs_lourds_sur_l_exemple_fictif(base):
     assert r["actions"]["préparer l'exemple"]["réussies"] == 1
     assert r["actions"]["analyse"]["réussies"] >= 1
     assert r["actions"]["analyse"]["erreurs métier"] == 0
+    assert r["actions"]["analyse"]["429 trop de demandes"] == 0
 
 
 def test_resume_compte_chaque_issue():

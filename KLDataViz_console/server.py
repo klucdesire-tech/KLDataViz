@@ -3896,7 +3896,10 @@ _rate, _rate_lock = {}, threading.Lock()
 # Calculs lourds (analyse, tableau de bord, discussion) : au plus 30 demandes par minute et par espace, pour chaque
 # route. Réglable pour un test de charge local (scripts/test_charge.py), où tous les utilisateurs simulés partagent
 # le même espace « local ».
-_LIMITE_CALCULS = int(os.environ.get("KLDV_LIMITE_CALCULS", "30"))
+try:  # une valeur mal saisie ne doit pas empêcher le serveur de démarrer
+    _LIMITE_CALCULS = max(1, int(os.environ.get("KLDV_LIMITE_CALCULS") or 30))
+except ValueError:
+    _LIMITE_CALCULS = 30
 
 
 def _rate_ok(key, limit=30, window=60):

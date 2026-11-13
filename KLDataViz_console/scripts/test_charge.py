@@ -325,6 +325,11 @@ def main(argv=None):
                "mémoire au départ Mo": round(proc.mem0 or 0), "mémoire maximale pendant le test Mo": round(proc.pic_mo),
                "pic depuis le lancement du serveur Mo": round(pic_total) if pic_total else None}
         lourdes = sum(a["réussies"] for nom, a in rapport["actions"].items() if nom in ("analyse", "tableau de bord"))
+        pages = sum(a["réussies"] for nom, a in rapport["actions"].items() if nom.startswith("page "))
+        if srv["processeur consommé s"] and pages and args.scenario == "pages":
+            par_page = srv["processeur consommé s"] / pages
+            srv["processeur par page ms"] = round(par_page * 1000, 1)
+            srv["Starter : pages par seconde au mieux"] = round(STARTER["cpu"] / par_page, 1)
         if srv["processeur consommé s"] and lourdes and args.scenario == "lourd":
             par_calcul = srv["processeur consommé s"] / lourdes
             srv["processeur par calcul lourd s"] = round(par_calcul, 2)
