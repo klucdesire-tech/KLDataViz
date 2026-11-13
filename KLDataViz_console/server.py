@@ -3893,6 +3893,10 @@ CSP = ("default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdeli
        "; frame-src https://challenges.cloudflare.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'")
 
 _rate, _rate_lock = {}, threading.Lock()
+# Calculs lourds (analyse, tableau de bord, discussion) : au plus 30 demandes par minute et par espace, pour chaque
+# route. Réglable pour un test de charge local (scripts/test_charge.py), où tous les utilisateurs simulés partagent
+# le même espace « local ».
+_LIMITE_CALCULS = int(os.environ.get("KLDV_LIMITE_CALCULS", "30"))
 
 
 def _rate_ok(key, limit=30, window=60):
@@ -4316,7 +4320,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         # ---- POST
         if path in ("/api/analyze", "/api/chat", "/api/chat/start", "/api/insights", "/api/clean", "/api/architect",
                     "/api/architect/apply", "/api/sheets/understand", "/api/hermes/charts", "/api/hermes/clean",
-                    "/api/dashboard", "/api/tableau/ajouter", "/api/tableau/retirer", "/api/tableau/variante") and not _rate_ok(f"{ctx.key}:{path}"):
+                    "/api/dashboard", "/api/tableau/ajouter", "/api/tableau/retirer", "/api/tableau/variante") and not _rate_ok(f"{ctx.key}:{path}", _LIMITE_CALCULS):
             return self._send(429, {"error": "Trop de demandes en peu de temps. Patientez une minute."})
         if path == "/api/analyze":
             file_path = str(p.get("file_path") or "")
