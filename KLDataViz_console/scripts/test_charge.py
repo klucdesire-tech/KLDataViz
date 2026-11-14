@@ -328,8 +328,8 @@ def main(argv=None):
         pages = sum(a["réussies"] for nom, a in rapport["actions"].items() if nom.startswith("page "))
         if srv["processeur consommé s"] and pages and args.scenario == "pages":
             par_page = srv["processeur consommé s"] / pages
-            srv["processeur par page ms"] = round(par_page * 1000, 1)
-            srv["Starter : pages par seconde au mieux"] = round(STARTER["cpu"] / par_page, 1)
+            srv["processeur par requête ms"] = round(par_page * 1000, 1)  # page, script, logo ou contrôle
+            srv["Starter : requêtes par seconde au mieux"] = round(STARTER["cpu"] / par_page, 1)
         if srv["processeur consommé s"] and lourdes and args.scenario == "lourd":
             par_calcul = srv["processeur consommé s"] / lourdes
             srv["processeur par calcul lourd s"] = round(par_calcul, 2)
