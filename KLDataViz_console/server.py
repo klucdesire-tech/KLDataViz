@@ -44,7 +44,7 @@ except Exception as _arch_exc:
     architect = None
     ARCHITECT_ERROR = str(_arch_exc)
 
-import hashlib, hmac, re, secrets
+import contextlib, functools, hashlib, hmac, re, secrets
 import datetime as dt
 import tenancy as T
 import sandbox, netguard
@@ -1066,24 +1066,54 @@ _heavy_depth = threading.local()
 _HEAVY_WAIT = float(os.environ.get("KLDV_HEAVY_WAIT", "90"))  # secondes d'attente avant « serveur occupé »
 
 
-def _lourd(fn):
-    """Analyse, tableau de bord, calcul du chat : au plus KLDV_MAX_HEAVY à la fois (2 par défaut). Au-delà, on attend
-    jusqu'à KLDV_HEAVY_WAIT s (90 par défaut) puis on répond « occupé » (HTTP 503) plutôt que de saturer la mémoire et de faire tomber le service."""
-    import functools
+_OCCUPE = "Le serveur traite déjà d'autres analyses. Réessayez dans une minute."
 
+
+@contextlib.contextmanager
+def _jeton_lourd(attente=None):
+    """Un des KLDV_MAX_HEAVY jetons (2 par défaut) le temps du bloc. On attend au plus `attente` secondes
+    (KLDV_HEAVY_WAIT, 90 par défaut ; 0 = pas d'attente) puis « occupé » (HTTP 503), plutôt que de saturer la mémoire et
+    de faire tomber le service. Dans un traitement lourd du même fil, pas de second jeton."""
+    if getattr(_heavy_depth, "n", 0):
+        yield
+        return
+    pris = _HEAVY.acquire(blocking=False) if attente == 0 else \
+        _HEAVY.acquire(timeout=_HEAVY_WAIT if attente is None else attente)
+    if not pris:
+        raise T.Unavailable(_OCCUPE)
+    _heavy_depth.n = 1
+    try:
+        yield
+    finally:
+        if getattr(_heavy_depth, "n", 0):  # rendu par _hors_jeton sans pouvoir le reprendre : rien à rendre
+            _heavy_depth.n = 0
+            _HEAVY.release()
+
+
+def _lourd(fn):
+    """Analyse, tableau de bord, code de la discussion : au plus KLDV_MAX_HEAVY à la fois (voir _jeton_lourd)."""
     @functools.wraps(fn)
     def wrap(*a, **k):
-        depth = getattr(_heavy_depth, "n", 0)
-        if depth:  # déjà dans un traitement lourd (même fil) : pas de second jeton
+        with _jeton_lourd():
             return fn(*a, **k)
-        if not _HEAVY.acquire(timeout=_HEAVY_WAIT):
-            raise T.Unavailable("Le serveur traite déjà d'autres analyses. Réessayez dans une minute.")
-        _heavy_depth.n = 1
+    return wrap
+
+
+def _hors_jeton(fn):
+    """Attente de l'IA pendant un traitement lourd : le jeton est rendu le temps de l'appel (rien ne se calcule ici
+    pendant ces secondes, parfois deux minutes), puis repris. Sans jeton tenu, l'appel passe tel quel."""
+    @functools.wraps(fn)
+    def wrap(*a, **k):
+        if not getattr(_heavy_depth, "n", 0):
+            return fn(*a, **k)
+        _heavy_depth.n = 0
+        _HEAVY.release()
         try:
             return fn(*a, **k)
         finally:
-            _heavy_depth.n = 0
-            _HEAVY.release()
+            if not _HEAVY.acquire(timeout=_HEAVY_WAIT):
+                raise T.Unavailable(_OCCUPE)
+            _heavy_depth.n = 1
     return wrap
 
 
@@ -1705,6 +1735,7 @@ def _rate_predictif(cle, maxi=8, fenetre=60):
     return True
 
 
+@_lourd
 def build_dashboard(df, spec=None, correspondance=None, ajouts=None):
     """AGT-11, puis les graphiques ajoutés depuis la discussion (rangés dans la spec), recalculés sur ces données."""
     ajouts = list(ajouts if ajouts is not None else (spec or {}).get(sources.CLE_AJOUTS) or [])
@@ -1733,7 +1764,7 @@ def _agt11():
     return dashboard
 
 
-def _build_dashboard(df, spec=None, correspondance=None):  # pas de garde _lourd : l'appel à l'IA y bloquerait un jeton
+def _build_dashboard(df, spec=None, correspondance=None):  # sous le jeton de build_dashboard ; l'IA, hors jeton
     """AGT-11 sur un DataFrame. `spec` fournie (source connectée qu'on actualise) : mêmes indicateurs, sans IA.
     Avec un dictionnaire, la correspondance mémorisée pour cette structure de fichier pilote le tableau de bord."""
     generate_dashboard = _agt11().generate_dashboard
@@ -1750,8 +1781,8 @@ def _build_dashboard(df, spec=None, correspondance=None):  # pas de garde _lourd
                                   correspondance=correspondance, qualite=qualite)
     cfg = _llm_config()  # en ligne : clé DEEPSEEK_API_KEY de l'environnement (pas de llm_config.json)
     model = os.environ.get("KLDV_DASHBOARD_MODEL") or (cfg or {}).get("dashboard_model") or "deepseek-flash"
-    llm = (lambda m, n: _llm_call(m, n, model=model, effort="low", timeout=120, attempts=1)
-           or _llm_call(m, n, model=model, effort="low", timeout=90, attempts=1)) if cfg else None
+    llm = _hors_jeton(lambda m, n: _llm_call(m, n, model=model, effort="low", timeout=120, attempts=1)
+                      or _llm_call(m, n, model=model, effort="low", timeout=90, attempts=1)) if cfg else None
     return generate_dashboard(df, "Tableau de bord KLDataViz", llm=llm, dictionnaire=dico, correspondance=correspondance,
                               composition=_composition_active(), qualite=qualite)
 
@@ -1776,6 +1807,8 @@ def do_dashboard(file_path, name=None):
         except Exception as exc:  # la connexion est un plus : le tableau de bord reste affiché
             print(f"[sources] connexion impossible : {exc}", flush=True)
         return out
+    except T.Unavailable:
+        raise  # serveur occupé : réponse 503, l'interface propose de réessayer
     except Exception as e:
         return {"error": f"Génération du tableau de bord échouée : {e}"}
 
@@ -3896,10 +3929,15 @@ _rate, _rate_lock = {}, threading.Lock()
 # Calculs lourds (analyse, tableau de bord, discussion) : au plus 30 demandes par minute et par espace, pour chaque
 # route. Réglable pour un test de charge local (scripts/test_charge.py), où tous les utilisateurs simulés partagent
 # le même espace « local ».
-try:  # une valeur mal saisie ne doit pas empêcher le serveur de démarrer
-    _LIMITE_CALCULS = max(1, int(os.environ.get("KLDV_LIMITE_CALCULS") or 30))
-except ValueError:
-    _LIMITE_CALCULS = 30
+def _lire_limite(valeur, defaut=30):
+    """Une valeur mal saisie ne doit pas empêcher le serveur de démarrer : défaut si illisible, au moins 1."""
+    try:
+        return max(1, int(str(valeur or "").strip() or defaut))
+    except ValueError:
+        return defaut
+
+
+_LIMITE_CALCULS = _lire_limite(os.environ.get("KLDV_LIMITE_CALCULS"))
 
 
 def _rate_ok(key, limit=30, window=60):
@@ -3962,10 +4000,16 @@ def _share_refresh(org, sid):
         if time.time() - last < SHARE_REFRESH_S:
             return "wait"
         _share_refreshed[key] = time.time()
-    if not _HEAVY.acquire(blocking=False):  # 2 traitements lourds au plus : le lien public ne fait pas la queue
+    try:
+        with _jeton_lourd(attente=0):  # 2 traitements lourds au plus : le lien public ne fait pas la queue
+            return _share_refresh_calcul(org, sid)
+    except T.Unavailable:
         with _share_refresh_lock:
             _share_refreshed[key] = last
         return "busy"
+
+
+def _share_refresh_calcul(org, sid):
     try:
         ctx = T.LOCAL if org == "local" else cloud.org_ctx(org)
         with T.use(ctx):
@@ -3978,8 +4022,6 @@ def _share_refresh(org, sid):
     except Exception as exc:
         sys.stderr.write(f"[partage] actualisation impossible : {type(exc).__name__} : {exc}\n")
         return "err"
-    finally:
-        _HEAVY.release()
 
 
 def _with_refresh_bar(html, src, maj):
@@ -4816,6 +4858,7 @@ if __name__ == "__main__":
     port = int(os.environ.get("PORT") or PORT)
     socketserver.ThreadingTCPServer.allow_reuse_address = True
     socketserver.ThreadingTCPServer.daemon_threads = True
+    socketserver.ThreadingTCPServer.request_queue_size = 64  # 5 par défaut : connexions refusées sous charge
     with socketserver.ThreadingTCPServer((host, port), Handler) as httpd:
         print(f"KLDataViz {'en ligne' if T.CLOUD else 'Console'} démarrée : http://localhost:{port}")
         httpd.serve_forever()
