@@ -72,31 +72,82 @@ def test_ia_appelee_sans_tenir_de_jeton(env, monkeypatch):
     assert _libres(server) == 1
 
 
-def test_jeton_non_repris_apres_l_ia_rien_rendu_deux_fois(env):
-    server, T, _, _ = env
-    pris, fin = threading.Event(), threading.Event()
+def _autre_calcul_pendant(server, duree):
+    """Pendant l'attente de l'IA, un autre calcul prend le seul jeton et le garde `duree` secondes."""
+    pris, rendu = threading.Event(), {}
 
-    def autre_calcul():
+    def autre():
         server._HEAVY.acquire()
         pris.set()
-        fin.wait(5)
+        threading.Event().wait(duree)
+        rendu["t"] = __import__("time").monotonic()
         server._HEAVY.release()
 
+    threading.Thread(target=autre, daemon=True).start()
+    assert pris.wait(5)
+    return rendu
+
+
+def test_apres_l_ia_le_calcul_attend_son_jeton_jamais_sans(env):
+    """Relecture de Hermes (28/11) : la reprise échouait en « occupé », avalé par les replis de l'IA, et le calcul
+    continuait sans jeton. Désormais il attend le jeton, même au-delà de KLDV_HEAVY_WAIT."""
+    import time
+    server, _, _, _ = env
+    etat = {}
+
     def ia():
-        threading.Thread(target=autre_calcul, daemon=True).start()
-        assert pris.wait(5)  # pendant l'attente de l'IA, un autre calcul prend le jeton et le garde
+        etat["rendu"] = _autre_calcul_pendant(server, 0.5)  # plus long que _HEAVY_WAIT (0,2 s)
         return "réponse"
 
-    with pytest.raises(T.Unavailable):
-        with server._jeton_lourd():
-            server._hors_jeton(ia)()
-    # sortie du bloc sans ValueError (BoundedSemaphore) : le jeton de l'autre calcul n'a pas été rendu à sa place
-    assert _libres(server) == 0
-    fin.set()
-    for _ in range(50):
-        if _libres(server) == 1:
-            break
-        threading.Event().wait(0.05)
+    with server._jeton_lourd():
+        assert server._hors_jeton(ia)() == "réponse"
+        etat["repris"] = time.monotonic()
+        assert _libres(server) == 0 and server._heavy_depth.n == 1  # le calcul tient bien son jeton
+    assert etat["repris"] >= etat["rendu"]["t"]  # il a attendu que l'autre calcul rende le sien
+    assert _libres(server) == 1  # rien rendu deux fois (BoundedSemaphore aurait levé)
+
+
+def test_tableau_de_bord_reel_sans_jeton_vole(env, monkeypatch):
+    """Le vrai chemin (build_dashboard + replis de l'IA qui avalent les exceptions) : la suite du calcul a attendu."""
+    server, _, df, _ = env
+    etats, rendus = [], []
+    libere = []
+
+    def fausse_ia(messages, max_tokens=8000, **k):
+        if not rendus:
+            rendus.append(_autre_calcul_pendant(server, 0.5))
+        return None
+
+    monkeypatch.setattr(server, "_llm_config", lambda: {"provider": "deepseek", "api_key": "fictive"})
+    monkeypatch.setattr(server, "_llm_call", fausse_ia)
+    monkeypatch.setattr(server, "_LIBERER_APRES_S", 0)
+    monkeypatch.setattr(server, "_rendre_memoire",
+                        lambda: libere.append((_libres(server), getattr(server._heavy_depth, "n", 0))))
+    res = server.build_dashboard(df)
+    assert rendus, "le tableau de bord n'a pas appelé l'IA : le test ne vérifie rien"
+    assert "<html" in res["html"].lower()
+    assert libere == [(0, 1)]  # fin du calcul : jeton tenu (le vol est fini), pas « 0 libre et profondeur 0 »
+    assert _libres(server) == 1
+
+
+def test_ia_en_panne_le_jeton_revient(env, monkeypatch):
+    server, _, df, _ = env
+
+    def ia_en_panne(messages, max_tokens=8000, **k):
+        raise RuntimeError("fournisseur en panne")
+
+    monkeypatch.setattr(server, "_llm_config", lambda: {"provider": "deepseek", "api_key": "fictive"})
+    monkeypatch.setattr(server, "_llm_call", ia_en_panne)
+    assert "<html" in server.build_dashboard(df)["html"].lower()  # repli par règles
+    assert _libres(server) == 1
+
+
+def test_le_tableau_attend_vraiment_son_tour(env, monkeypatch):
+    """Un autre calcul finit pendant l'attente : le tableau obtient le jeton et se calcule (pas de 503)."""
+    server, _, df, _ = env
+    monkeypatch.setattr(server, "_HEAVY_WAIT", 5)
+    _autre_calcul_pendant(server, 0.4)
+    assert "<html" in server.build_dashboard(df)["html"].lower()
     assert _libres(server) == 1
 
 
@@ -129,13 +180,65 @@ def test_memoire_rendue_apres_chaque_calcul_lourd(env, monkeypatch):
     """Arrêts du 18 et du 28/11 : la mémoire ne redescendait pas après un gros calcul."""
     server, _, df, _ = env
     appels = []
+    monkeypatch.setattr(server, "_LIBERER_APRES_S", 0)
     monkeypatch.setattr(server, "_rendre_memoire", lambda: appels.append(_libres(server)))
     server.build_dashboard(df)
-    assert appels == [1]  # une fois, jeton déjà rendu
+    assert appels == [0]  # une fois, jeton encore tenu : le calcul suivant démarre sur une mémoire rendue
     with server._jeton_lourd():
         server.build_dashboard(df)  # imbriqué : pas de libération au milieu du calcul englobant
-        assert appels == [1]
-    assert appels == [1, 1]
+        assert appels == [0]
+    assert appels == [0, 0]
+    assert _libres(server) == 1
+
+
+def test_calcul_court_sans_liberation(env, monkeypatch):
+    """Une étape brève (code de la discussion) ne paie pas un gc.collect()."""
+    server, _, _, _ = env
+    appels = []
+    monkeypatch.setattr(server, "_rendre_memoire", lambda: appels.append(1))
+    with server._jeton_lourd():
+        pass
+    assert appels == []
+
+
+def test_actualisation_occupee_reportee_pas_en_erreur(env, monkeypatch):
+    server, T, _, _ = env
+    import sources  # noqa: PLC0415
+    statuts = {}
+    monkeypatch.setattr(sources, "_update", lambda sid, upd: statuts.__setitem__(sid, upd["status"]))
+
+    def occupe(sid, read_df, build):
+        raise T.Unavailable("occupé")
+
+    def casse(sid, read_df, build):
+        raise ValueError("colonne disparue")
+
+    monkeypatch.setattr(sources, "refresh", occupe)
+    sources._actualiser("a", None, None)
+    monkeypatch.setattr(sources, "refresh", casse)
+    sources._actualiser("b", None, None)
+    assert statuts["a"].startswith("Reporté")
+    assert statuts["b"] == "Erreur : colonne disparue"
+
+
+def test_retrait_annule_si_le_tableau_ne_peut_pas_etre_recalcule(env, monkeypatch):
+    server, T, df, _ = env
+    import sources  # noqa: PLC0415
+    ajout = {"id": "g1", "code": "x", "titre": "Graphique"}
+    remis = []
+    monkeypatch.setattr(sources, "spec_de", lambda sid: {sources.CLE_AJOUTS: [ajout]})
+    monkeypatch.setattr(sources, "retirer_graphique", lambda sid, aid: [])
+    monkeypatch.setattr(sources, "ajouter_graphique", lambda sid, a: remis.append(a))
+    monkeypatch.setattr(sources, "get", lambda sid, with_html=True: {"path": "fictif.csv"})
+    monkeypatch.setattr(server, "_read_df", lambda p: (df, None))
+
+    def occupe(*a, **k):
+        raise T.Unavailable("occupé")
+
+    monkeypatch.setattr(server, "build_dashboard", occupe)
+    with pytest.raises(T.Unavailable):
+        server.retirer_du_tableau("s1", "g1")
+    assert remis == [ajout]  # le graphique reste, comme le tableau affiché
 
 
 def test_rendre_memoire_ne_casse_jamais_la_reponse(env, monkeypatch):
