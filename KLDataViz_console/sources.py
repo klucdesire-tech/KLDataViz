@@ -432,13 +432,24 @@ def due_mails(now=None):
     return [s["id"] for s in _load() if s.get("mail_freq", "off") != "off" and s.get("next_mail") and s["next_mail"] <= now]
 
 
+def _actualiser(sid, read_df, build):
+    """Une source due : une source en échec ne bloque pas les autres ; serveur occupé = reportée (next_refresh n'a
+    pas bougé : elle repassera à la minute suivante), ce n'est pas une erreur de la source."""
+    try:
+        refresh(sid, read_df, build)
+    except T.Unavailable:
+        _update(sid, {"status": "Reporté : serveur occupé, nouvel essai dans une minute"})
+    except Exception as exc:
+        _update(sid, {"status": f"Erreur : {exc}"[:300]})
+
+
 def start_auto_refresh(read_df, build, org_ctx=None):
     """Actualisation automatique (toutes les heures / chaque jour) : une boucle de fond, vérification chaque minute.
     En ligne : chaque espace est parcouru dans son propre contexte (ses fichiers, son registre)."""
     def tick():
         if not T.CLOUD:
             for sid in due():
-                refresh(sid, read_df, build)
+                _actualiser(sid, read_df, build)
             for sid in due_mails():
                 try:
                     send_mail_now(sid, read_df, build)
@@ -454,10 +465,7 @@ def start_auto_refresh(read_df, build, org_ctx=None):
                 continue
             with T.use(ctx):
                 for sid in due():
-                    try:
-                        refresh(sid, read_df, build)
-                    except Exception as exc:  # une source en échec ne bloque pas les autres
-                        _update(sid, {"status": f"Erreur : {exc}"[:300]})
+                    _actualiser(sid, read_df, build)
                 for sid in due_mails():
                     try:
                         send_mail_now(sid, read_df, build)

@@ -1081,6 +1081,7 @@ def _malloc_trim():
 
 
 _MALLOC_TRIM = _malloc_trim()
+_LIBERER_APRES_S = 2.0  # un calcul plus court (une étape du code de la discussion) ne vaut pas un gc.collect()
 
 
 def _rendre_memoire():
@@ -1108,13 +1109,14 @@ def _jeton_lourd(attente=None):
     if not pris:
         raise T.Unavailable(_OCCUPE)
     _heavy_depth.n = 1
+    debut = time.monotonic()
     try:
         yield
     finally:
-        if getattr(_heavy_depth, "n", 0):  # rendu par _hors_jeton sans pouvoir le reprendre : rien à rendre
-            _heavy_depth.n = 0
-            _HEAVY.release()
-        _rendre_memoire()  # le calcul est fini : ses tableaux intermédiaires ne servent plus
+        if time.monotonic() - debut >= _LIBERER_APRES_S:
+            _rendre_memoire()  # avant de rendre le jeton : le calcul suivant démarre sur une mémoire déjà rendue
+        _heavy_depth.n = 0
+        _HEAVY.release()
 
 
 def _lourd(fn):
@@ -1138,9 +1140,14 @@ def _hors_jeton(fn):
         try:
             return fn(*a, **k)
         finally:
-            if not _HEAVY.acquire(timeout=_HEAVY_WAIT):
-                raise T.Unavailable(_OCCUPE)
+            # Reprise sans délai : un « occupé » levé ici serait avalé par les replis de l'IA (titres, correspondance,
+            # tableau par règles), et le calcul continuerait SANS jeton (relecture de Hermes, 28/11). Le fil n'attend
+            # que des calculs bornés ; il ne tient rien pendant l'attente : pas d'interblocage.
+            debut = time.monotonic()
+            _HEAVY.acquire()
             _heavy_depth.n = 1
+            if time.monotonic() - debut > 5:
+                print(f"[jeton] repris après {time.monotonic() - debut:.0f} s d'attente (après l'IA)", flush=True)
     return wrap
 
 
@@ -3091,7 +3098,11 @@ def ajouter_au_tableau(graphique_id):
         ajout = {"id": uuid.uuid4().hex[:10], "titre": g["titre"], "code": g["code"], "jeu": g["jeu"],
                  "ajoute_le": time.strftime("%Y-%m-%dT%H:%M:%S")}
         sources.ajouter_graphique(sid, ajout)
-        res = build_dashboard(df, spec=sources.spec_de(sid))
+        try:
+            res = build_dashboard(df, spec=sources.spec_de(sid))
+        except Exception:  # serveur occupé ou calcul en échec : le graphique n'est pas gardé, l'écran dit vrai
+            sources.retirer_graphique(sid, ajout["id"])
+            raise
         sources.remplacer_html(sid, res["html"])
     else:  # le même calcul est déjà dans le tableau : rien à refaire
         deja_la, ajout = True, deja
@@ -3139,11 +3150,18 @@ def variante_ajout(source_id, ajout_id, filtres, du=None, au=None):
 
 
 def retirer_du_tableau(source_id, ajout_id):
+    ajout = next((a for a in (sources.spec_de(source_id) or {}).get(sources.CLE_AJOUTS) or []
+                  if a.get("id") == ajout_id), None)
     sources.retirer_graphique(source_id, ajout_id)
     s = sources.get(source_id, with_html=False)
     df, err = _read_df(s["path"])
     if df is not None:
-        res = build_dashboard(df, spec=sources.spec_de(source_id))
+        try:
+            res = build_dashboard(df, spec=sources.spec_de(source_id))
+        except Exception:  # serveur occupé : le graphique reste, comme le tableau affiché
+            if ajout is not None:
+                sources.ajouter_graphique(source_id, ajout)
+            raise
         sources.remplacer_html(source_id, res["html"])
     return sources.get(source_id)
 
