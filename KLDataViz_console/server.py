@@ -44,7 +44,7 @@ except Exception as _arch_exc:
     architect = None
     ARCHITECT_ERROR = str(_arch_exc)
 
-import contextlib, functools, hashlib, hmac, re, secrets
+import contextlib, functools, gc, hashlib, hmac, re, secrets
 import datetime as dt
 import tenancy as T
 import sandbox, netguard
@@ -1069,6 +1069,32 @@ _HEAVY_WAIT = float(os.environ.get("KLDV_HEAVY_WAIT", "90"))  # secondes d'atten
 _OCCUPE = "Le serveur traite déjà d'autres analyses. Réessayez dans une minute."
 
 
+def _malloc_trim():
+    """malloc_trim de la glibc (Linux, donc le service en ligne) ; None ailleurs."""
+    if not sys.platform.startswith("linux"):
+        return None
+    try:
+        import ctypes
+        return ctypes.CDLL("libc.so.6").malloc_trim
+    except (OSError, AttributeError):
+        return None
+
+
+_MALLOC_TRIM = _malloc_trim()
+
+
+def _rendre_memoire():
+    """Après un calcul lourd, rend au système la mémoire libérée. Sans cela, la glibc garde pour le processus les pages
+    libérées par pandas : sur Render, la mémoire au repos est restée à ~438 Mo pendant 9 jours après un gros calcul
+    (130 Mo avant), et le calcul suivant dépassait les 512 Mo (arrêts du 18 et du 28/11)."""
+    try:
+        gc.collect()
+        if _MALLOC_TRIM is not None:
+            _MALLOC_TRIM(0)
+    except Exception as exc:  # jamais au détriment de la réponse
+        print(f"[memoire] libération impossible : {exc}", flush=True)
+
+
 @contextlib.contextmanager
 def _jeton_lourd(attente=None):
     """Un des KLDV_MAX_HEAVY jetons (2 par défaut) le temps du bloc. On attend au plus `attente` secondes
@@ -1088,6 +1114,7 @@ def _jeton_lourd(attente=None):
         if getattr(_heavy_depth, "n", 0):  # rendu par _hors_jeton sans pouvoir le reprendre : rien à rendre
             _heavy_depth.n = 0
             _HEAVY.release()
+        _rendre_memoire()  # le calcul est fini : ses tableaux intermédiaires ne servent plus
 
 
 def _lourd(fn):
