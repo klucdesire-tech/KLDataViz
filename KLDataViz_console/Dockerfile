@@ -4,6 +4,9 @@
 FROM python:3.15-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 KLDV_MODE=cloud KLDV_DATA_DIR=/data PORT=10000
+# Mémoire : un serveur à fils multiples crée sinon jusqu'à 8 réserves (arènes) de la glibc par cœur, qui gardent la
+# mémoire libérée par pandas ; 2 suffisent et la mémoire redescend après un calcul (voir _rendre_memoire).
+ENV MALLOC_ARENA_MAX=2
 WORKDIR /app
 
 # Polices du rapport PDF : Arial Narrow n'est pas libre de diffusion ; on installe ses équivalents condensés libres

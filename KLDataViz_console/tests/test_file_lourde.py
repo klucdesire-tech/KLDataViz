@@ -123,3 +123,33 @@ def test_route_tableau_de_bord_occupe_en_503(env):
 def test_limite_par_minute_mal_saisie(env, valeur, attendu):
     server, _, _, _ = env
     assert server._lire_limite(valeur) == attendu
+
+
+def test_memoire_rendue_apres_chaque_calcul_lourd(env, monkeypatch):
+    """Arrêts du 18 et du 28/11 : la mémoire ne redescendait pas après un gros calcul."""
+    server, _, df, _ = env
+    appels = []
+    monkeypatch.setattr(server, "_rendre_memoire", lambda: appels.append(_libres(server)))
+    server.build_dashboard(df)
+    assert appels == [1]  # une fois, jeton déjà rendu
+    with server._jeton_lourd():
+        server.build_dashboard(df)  # imbriqué : pas de libération au milieu du calcul englobant
+        assert appels == [1]
+    assert appels == [1, 1]
+
+
+def test_rendre_memoire_ne_casse_jamais_la_reponse(env, monkeypatch):
+    server, _, _, _ = env
+
+    def en_panne(_):
+        raise OSError("malloc_trim indisponible")
+
+    monkeypatch.setattr(server, "_MALLOC_TRIM", en_panne)
+    server._rendre_memoire()  # aucune exception
+
+
+@pytest.mark.skipif(not sys.platform.startswith("linux"), reason="glibc : service en ligne (Linux) seulement")
+def test_malloc_trim_trouve_sur_linux(env):
+    server, _, _, _ = env
+    assert server._MALLOC_TRIM is not None
+    assert server._MALLOC_TRIM(0) in (0, 1)
